@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/rs/zerolog"
 )
 
@@ -22,9 +23,6 @@ func Init() {
 	var cfg struct {
 		Mod struct {
 			Listen     string `yaml:"listen"`
-			Username   string `yaml:"username"`
-			Password   string `yaml:"password"`
-			LocalAuth  bool   `yaml:"local_auth"`
 			BasePath   string `yaml:"base_path"`
 			StaticDir  string `yaml:"static_dir"`
 			Origin     string `yaml:"origin"`
@@ -65,9 +63,10 @@ func Init() {
 		Handler = middlewareCORS(Handler) // 3rd
 	}
 
-	if cfg.Mod.Username != "" {
-		Handler = middlewareAuth(cfg.Mod.Username, cfg.Mod.Password, cfg.Mod.LocalAuth, Handler) // 2nd
-	}
+	Handler = auth.Middleware(Handler) // 2nd - JWT auth + permission
+
+	// Tell proxy handlers where to forward loopback requests
+	auth.SetListenAddr(cfg.Mod.Listen)
 
 	if log.Trace().Enabled() {
 		Handler = middlewareLog(Handler) // 1st
@@ -205,24 +204,6 @@ func middlewareLog(next http.Handler) http.Handler {
 	})
 }
 
-func isLoopback(remoteAddr string) bool {
-	return strings.HasPrefix(remoteAddr, "127.") || strings.HasPrefix(remoteAddr, "[::1]") || remoteAddr == "@"
-}
-
-func middlewareAuth(username, password string, localAuth bool, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if localAuth || !isLoopback(r.RemoteAddr) {
-			user, pass, ok := r.BasicAuth()
-			if !ok || user != username || pass != password {
-				w.Header().Set("Www-Authenticate", `Basic realm="go2rtc"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
 
 func middlewareCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

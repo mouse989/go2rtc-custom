@@ -118,6 +118,13 @@ producers:
 	s.mu.Unlock()
 }
 
+// consumerCount returns the number of attached consumers (viewing sessions).
+func (s *Stream) consumerCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.consumers)
+}
+
 func (s *Stream) MarshalJSON() ([]byte, error) {
 	var info = struct {
 		Producers []*Producer     `json:"producers"`

@@ -7,6 +7,11 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/dashboard"
+	"github.com/AlexxIT/go2rtc/internal/monitor"
+	"github.com/AlexxIT/go2rtc/internal/traffic"
+	"github.com/AlexxIT/go2rtc/internal/traveltime"
 	"github.com/AlexxIT/go2rtc/internal/bubble"
 	"github.com/AlexxIT/go2rtc/internal/debug"
 	"github.com/AlexxIT/go2rtc/internal/doorbird"
@@ -61,8 +66,10 @@ func main() {
 	}
 
 	modules := []module{
-		{"", app.Init},    // init config and logs
-		{"api", api.Init}, // init API before all others
+		{"", app.Init},      // init config and logs
+		{"", auth.Init},     // init auth before API (sets up JWT middleware)
+		{"api", api.Init},   // init API before all others
+		{"", monitor.Init},  // register /api/system/stats immediately after server starts
 		{"ws", ws.Init},   // init WS API endpoint
 		{"", streams.Init},
 		// Main sources and servers
@@ -108,6 +115,10 @@ func main() {
 		{"wyze", wyze.Init},
 		{"xiaomi", xiaomi.Init},
 		{"yandex", yandex.Init},
+		// Traffic monitoring, travel time & dashboard
+		{"", traffic.Init},
+		{"", traveltime.Init},
+		{"", dashboard.Init},
 		// Helper modules
 		{"debug", debug.Init},
 		{"ngrok", ngrok.Init},

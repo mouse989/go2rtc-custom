@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UTMC Camera — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #2f81f7;
+      --accent-h: #388bfd;
+      --danger:   #f85149;
+      --radius:   10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      margin-bottom: 2rem;
+      justify-content: center;
+    }
+    .logo svg { width: 36px; height: 36px; }
+    .logo h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -.5px; }
+    .logo span { color: var(--accent); }
+
+    label {
+      display: block;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: .35rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    input {
+      width: 100%;
+      padding: .65rem .9rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: .95rem;
+      outline: none;
+      transition: border-color .15s;
+      margin-bottom: 1rem;
+    }
+    input:focus { border-color: var(--accent); }
+
+    button {
+      width: 100%;
+      padding: .75rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+      margin-top: .5rem;
+    }
+    button:hover { background: var(--accent-h); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+
+    .error {
+      background: rgba(248,81,73,.12);
+      border: 1px solid rgba(248,81,73,.4);
+      color: var(--danger);
+      border-radius: 6px;
+      padding: .65rem .9rem;
+      font-size: .9rem;
+      margin-top: 1rem;
+      display: none;
+    }
+    .error.show { display: block; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <img src="logo.png" alt="UTMC" style="height:48px;width:auto">
+    <h1><span>Camera</span></h1>
+  </div>
+
+  <form id="form">
+    <label for="username">Username</label>
+    <input id="username" type="text" autocomplete="username" placeholder="admin" required>
+
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+
+    <button type="submit" id="btn">Sign in</button>
+    <div class="error" id="err"></div>
+  </form>
+</div>
+
+<script>
+document.getElementById('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('err');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  err.classList.remove('show');
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      localStorage.setItem('go2rtc_token', data.token);
+      // Fetch full profile (includes tabs) to determine redirect target.
+      try {
+        const meRes = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + data.token } });
+        if (meRes.ok) {
+          const me = await meRes.json();
+          localStorage.setItem('go2rtc_user', JSON.stringify(me));
+          const order = [
+            { tab: 'cameras', page: '/' },
+            { tab: 'map',     page: '/map.html' },
+            { tab: 'dashboard', page: '/dashboard.html' },
+            { tab: 'monitor',   page: '/monitor.html' },
+            { tab: 'log',       page: '/log.html' },
+            { tab: 'config',    page: '/config.html' },
+            { tab: 'api_docs',  page: '/api-docs.html' },
+          ];
+          let dest = me.role === 'admin' ? '/' : null;
+          if (!dest) for (const { tab, page } of order) {
+            if ((me.tabs || []).includes(tab)) { dest = page; break; }
+          }
+          window.location.href = dest || '/login.html?err=no_access';
+          return;
+        }
+      } catch {}
+      // Fallback if /api/auth/me fails
+      localStorage.setItem('go2rtc_user', JSON.stringify({ username: data.username, role: data.role }));
+      window.location.href = data.role === 'admin' ? '/' : '/login.html?err=no_access';
+    } else {
+      err.textContent = 'Invalid username or password.';
+      err.classList.add('show');
+    }
+  } catch {
+    err.textContent = 'Connection error — server may be offline.';
+    err.classList.add('show');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+});
+</script>
+</body>
+</html>

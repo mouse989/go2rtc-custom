@@ -1,0 +1,1144 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Traffic Monitor – UTMC Camera</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+/* embed mode: hide chrome when loaded inside admin.html iframe */
+body.embedded .sidebar,
+body.embedded .topbar { display:none !important; }
+body.embedded .main { margin-left:0 !important; }
+body.embedded .content { padding:.25rem 0 1rem !important; }
+/* ── Status bar ── */
+.tf-status-bar {
+  display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:.85rem 1.1rem; margin-bottom:1rem;
+}
+.tf-pill {
+  display:inline-flex; align-items:center; gap:.4rem;
+  padding:.25rem .7rem; border-radius:20px; font-size:.75rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.04em;
+}
+.tf-pill.running { background:#16a34a22; color:#4ade80; }
+.tf-pill.idle    { background:#4b556322; color:#9ca3af; }
+.tf-pill-dot {
+  width:7px; height:7px; border-radius:50%; background:currentColor;
+}
+.tf-pill.running .tf-pill-dot { animation:pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.tf-status-label { font-size:.82rem; color:var(--text-muted); }
+.tf-status-label b { color:var(--text); }
+.tf-spacer { flex:1; }
+.tf-actions { display:flex; gap:.5rem; }
+
+/* ── Stats row ── */
+.tf-stats-row {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; margin-bottom:1rem;
+}
+.tf-stat-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:.9rem 1.1rem;
+  text-align:center;
+}
+.tf-stat-label {
+  font-size:.7rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin-bottom:.3rem;
+}
+.tf-stat-value {
+  font-size:2.2rem; font-weight:800; line-height:1; color:var(--text);
+  letter-spacing:-.03em;
+}
+.tf-stat-card.raw  .tf-stat-value { color:#94a3b8; }
+.tf-stat-card.filt .tf-stat-value { color:#60a5fa; }
+.tf-stat-card.pers .tf-stat-value { color:#f97316; }
+
+/* ── Config section ── */
+.tf-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:1.25rem 1.4rem; margin-bottom:1rem;
+}
+.tf-section h3 {
+  font-size:.85rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin:0 0 1rem;
+}
+.tf-section h4 {
+  font-size:.78rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.05em; color:var(--text-muted); margin:1.2rem 0 .65rem;
+  padding-top:.9rem; border-top:1px solid var(--border);
+}
+.tf-grid { display:grid; grid-template-columns:1fr 1fr; gap:.65rem; }
+.tf-grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:.65rem; }
+.tf-field { display:flex; flex-direction:column; gap:.3rem; }
+.tf-field label { font-size:.75rem; color:var(--text-muted); }
+.tf-field input, .tf-field textarea, .tf-field select {
+  background:var(--surface2); border:1px solid var(--border);
+  color:var(--text); border-radius:6px; padding:.45rem .6rem;
+  font-size:.85rem; font-family:inherit; outline:none;
+  transition:border-color .15s;
+}
+.tf-field input:focus, .tf-field textarea:focus { border-color:var(--accent); }
+.tf-field textarea { resize:vertical; min-height:60px; }
+.tf-field.full { grid-column:1/-1; }
+.tf-toggle-row {
+  display:flex; align-items:center; gap:.6rem;
+  font-size:.85rem; cursor:pointer; user-select:none;
+}
+.tf-toggle-row input[type=checkbox] { width:16px; height:16px; cursor:pointer; }
+.tf-check-row {
+  display:flex; gap:1.2rem; flex-wrap:wrap; margin-top:.2rem;
+}
+
+/* ── Regions list ── */
+.tf-regions-list { display:flex; flex-direction:column; gap:.5rem; margin-bottom:.75rem; }
+.tf-region-row {
+  display:flex; align-items:center; gap:.65rem;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:8px; padding:.55rem .75rem;
+}
+.tf-region-color { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+.tf-region-name { flex:1; font-size:.85rem; }
+.tf-region-coords { font-size:.72rem; color:var(--text-muted); }
+.tf-region-del {
+  background:none; border:none; color:var(--red,#f87171);
+  cursor:pointer; padding:.2rem; border-radius:4px; font-size:.85rem;
+  opacity:.7; transition:opacity .15s;
+}
+.tf-region-del:hover { opacity:1; }
+.tf-region-enable { margin-left:auto; }
+
+/* ── Logs ── */
+.tf-log-wrap {
+  max-height:340px; overflow-y:auto;
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:8px; padding:.6rem .75rem; font-size:.78rem;
+  font-family:monospace;
+}
+.tf-log-entry { display:flex; gap:.65rem; padding:.2rem 0; border-bottom:1px solid var(--border); }
+.tf-log-entry:last-child { border-bottom:none; }
+.tf-log-time { color:var(--text-muted); white-space:nowrap; }
+.tf-log-level { width:40px; text-align:center; border-radius:3px; font-size:.7rem; padding:.05rem .3rem; text-transform:uppercase; font-weight:700; }
+.tf-log-level.info  { background:#1d4ed822; color:#60a5fa; }
+.tf-log-level.warn  { background:#92400e22; color:#fbbf24; }
+.tf-log-level.error { background:#7f1d1d22; color:#f87171; }
+.tf-log-msg { flex:1; color:var(--text); word-break:break-word; }
+.tf-empty { text-align:center; color:var(--text-muted); padding:1.5rem; font-size:.85rem; }
+
+/* ── Modal ── */
+.dlg-backdrop { display:none; position:fixed; inset:0; background:#000b; z-index:700;
+  align-items:flex-start; justify-content:center; padding:8vh 1rem; }
+.dlg-backdrop.open { display:flex; }
+.dlg {
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:1.5rem 1.75rem 1.75rem; width:480px; max-width:96vw;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+.dlg h2 { margin:0 0 1.1rem; font-size:1rem; }
+.dlg-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:1.1rem; }
+
+/* ── Apps Script guide ── */
+.tf-script-details {
+  margin-top:.65rem; border:1px solid var(--border);
+  border-radius:8px; background:var(--surface2); overflow:hidden;
+}
+.tf-script-summary {
+  display:flex; align-items:center; gap:.5rem;
+  padding:.55rem .85rem; cursor:pointer; font-size:.8rem;
+  font-weight:600; color:var(--text-muted); user-select:none;
+  list-style:none; outline:none;
+}
+.tf-script-summary::-webkit-details-marker { display:none; }
+.tf-script-summary:hover { color:var(--accent); }
+.tf-script-body {
+  padding:.75rem 1rem 1rem; border-top:1px solid var(--border);
+}
+.tf-setup-steps {
+  margin:0 0 .85rem; padding-left:1.3rem;
+  font-size:.8rem; color:var(--text-muted); line-height:1.8;
+}
+.tf-setup-steps b { color:var(--text); }
+.tf-script-code {
+  width:100%; box-sizing:border-box;
+  background:var(--bg); border:1px solid var(--border); border-radius:6px;
+  color:var(--text); font-family:monospace; font-size:.75rem;
+  padding:.65rem .8rem; resize:vertical; min-height:220px;
+  outline:none; line-height:1.55;
+}
+.tf-copy-btn {
+  position:absolute; top:.5rem; right:.5rem; z-index:1;
+  padding:.2rem .6rem; font-size:.72rem; font-weight:600;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:5px; color:var(--text-muted); cursor:pointer;
+  transition:color .12s, border-color .12s;
+}
+.tf-copy-btn:hover { color:var(--accent); border-color:var(--accent); }
+
+/* ── Region draw map ── */
+.dlg.dlg-wide { width:720px; box-sizing:border-box; }
+.dlg .tf-grid > .tf-field { min-width:0; }
+.dlg .tf-field input { width:100%; box-sizing:border-box; min-width:0; }
+#dlgMap {
+  height:340px; border-radius:8px; border:1px solid var(--border);
+  margin-bottom:.65rem; cursor:crosshair;
+}
+.tf-map-hint {
+  font-size:.75rem; color:var(--text-muted); margin-bottom:.65rem;
+  display:flex; align-items:center; gap:.5rem;
+}
+.tf-map-hint .btn { margin-left:auto; }
+
+/* ── Scan history ── */
+.tf-history-table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.tf-history-table th {
+  text-align:left; padding:.4rem .6rem; color:var(--text-muted);
+  font-size:.7rem; text-transform:uppercase; letter-spacing:.05em;
+  border-bottom:1px solid var(--border);
+}
+.tf-history-table td { padding:.45rem .6rem; border-bottom:1px solid var(--border); }
+.tf-history-table tr:last-child td { border-bottom:none; }
+.tf-history-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+.tf-history-dl {
+  background:none; border:1px solid var(--border); color:var(--text-muted);
+  border-radius:5px; padding:.15rem .55rem; font-size:.72rem; cursor:pointer;
+  transition:color .12s, border-color .12s;
+}
+.tf-history-dl:hover { color:var(--accent); border-color:var(--accent); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Traffic Monitor</h2>
+  </header>
+
+  <div class="content">
+
+    <!-- Status bar -->
+    <div class="tf-status-bar">
+      <span class="tf-pill idle" id="statusPill">
+        <span class="tf-pill-dot"></span>
+        <span id="statusText">Idle</span>
+      </span>
+      <span class="tf-status-label">Last scan: <b id="lastScanTime">—</b></span>
+      <span class="tf-status-label">Next scan in: <b id="nextScanCountdown">—</b></span>
+      <span id="lastErrLabel" class="tf-status-label" style="color:var(--red,#f87171);display:none"></span>
+      <span class="tf-spacer"></span>
+      <div class="tf-actions">
+        <button class="btn btn-sm" id="btnScanNow">Scan Now</button>
+        <button class="btn btn-sm btn-primary" id="btnStartStop">Start</button>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="tf-stats-row">
+      <div class="tf-stat-card raw">
+        <div class="tf-stat-label">Raw Jams</div>
+        <div class="tf-stat-value" id="statRaw">0</div>
+      </div>
+      <div class="tf-stat-card filt">
+        <div class="tf-stat-label">Filtered</div>
+        <div class="tf-stat-value" id="statFiltered">0</div>
+      </div>
+      <div class="tf-stat-card pers">
+        <div class="tf-stat-label">Persistent</div>
+        <div class="tf-stat-value" id="statPersistent">0</div>
+      </div>
+    </div>
+
+    <!-- Config form -->
+    <div class="tf-section" id="configSection">
+      <h3>Configuration</h3>
+
+      <div class="tf-grid">
+        <div class="tf-field full">
+          <label>Traffic API Key</label>
+          <input type="password" id="cfgApiKey" placeholder="Leave empty to use global VietMap key">
+        </div>
+        <div class="tf-field">
+          <label>Scan Interval (minutes)</label>
+          <input type="number" id="cfgInterval" min="1" max="1440" value="15">
+        </div>
+        <div class="tf-field">
+          <label>Min Jam Factor (0–10)</label>
+          <input type="number" id="cfgMinJam" min="0" max="10" step="0.1" value="7.0">
+        </div>
+        <div class="tf-field">
+          <label>Cluster Radius (metres)</label>
+          <input type="number" id="cfgClusterRadius" min="10" value="300">
+        </div>
+        <div class="tf-field">
+          <label>Persist Radius (metres)</label>
+          <input type="number" id="cfgPersistRadius" min="10" value="500">
+        </div>
+      </div>
+
+      <!-- Regions -->
+      <h4>Monitoring Regions</h4>
+      <div class="tf-regions-list" id="regionsList"></div>
+      <button class="btn btn-sm" id="btnAddRegion">+ Add Region</button>
+
+      <!-- Telegram -->
+      <h4>Telegram Notifications</h4>
+      <label class="tf-toggle-row" style="margin-bottom:.75rem">
+        <input type="checkbox" id="tgEnabled"> Enable Telegram notifications
+      </label>
+      <div class="tf-grid">
+        <div class="tf-field">
+          <label>Bot Token</label>
+          <input type="password" id="tgToken" placeholder="123456:ABCdef...">
+        </div>
+        <div class="tf-field">
+          <label>Chat ID</label>
+          <input type="text" id="tgChatId" placeholder="-100123456789">
+        </div>
+      </div>
+      <div style="margin:.65rem 0;display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.65rem .85rem">
+          <div style="font-size:.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Raw</div>
+          <label class="tf-toggle-row" style="margin-bottom:.4rem"><input type="checkbox" id="tgSendRawImg"> 🗺 Send map image</label>
+          <label class="tf-toggle-row"><input type="checkbox" id="tgSendRaw"> 📋 Send text list</label>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.65rem .85rem">
+          <div style="font-size:.72rem;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Filtered</div>
+          <label class="tf-toggle-row" style="margin-bottom:.4rem"><input type="checkbox" id="tgSendFilteredImg"> 🗺 Send map image</label>
+          <label class="tf-toggle-row"><input type="checkbox" id="tgSendFiltered"> 📋 Send text list</label>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.65rem .85rem">
+          <div style="font-size:.72rem;font-weight:700;color:#f97316;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Persistent</div>
+          <label class="tf-toggle-row" style="margin-bottom:.4rem"><input type="checkbox" id="tgSendPersistentImg"> 🗺 Send map image</label>
+          <label class="tf-toggle-row"><input type="checkbox" id="tgSendPersistent"> 📋 Send text list</label>
+        </div>
+      </div>
+      <div class="tf-grid">
+        <div class="tf-field">
+          <label>Header template <span style="color:var(--text-muted);font-size:.7rem">({time}, {minJam})</span></label>
+          <input type="text" id="tgTplHeader">
+        </div>
+        <div class="tf-field">
+          <label>Point template <span style="color:var(--text-muted);font-size:.7rem">({n}, {jf}, {label}, {area})</span></label>
+          <input type="text" id="tgTplPoint">
+        </div>
+        <div class="tf-field">
+          <label>Raw section header <span style="color:var(--text-muted);font-size:.7rem">({count})</span></label>
+          <input type="text" id="tgTplRaw">
+        </div>
+        <div class="tf-field">
+          <label>Filtered section header</label>
+          <input type="text" id="tgTplFiltered">
+        </div>
+        <div class="tf-field full">
+          <label>Persistent section header</label>
+          <input type="text" id="tgTplPersistent">
+        </div>
+      </div>
+
+      <!-- Sheets -->
+      <h4>Google Sheets Webhook</h4>
+      <label class="tf-toggle-row" style="margin-bottom:.75rem">
+        <input type="checkbox" id="shEnabled"> Enable Google Sheets logging
+      </label>
+      <div class="tf-field" style="margin-bottom:.75rem">
+        <label>Script URL</label>
+        <input type="text" id="shUrl" placeholder="https://script.google.com/macros/s/...">
+      </div>
+
+      <!-- Apps Script setup guide -->
+      <details class="tf-script-details">
+        <summary class="tf-script-summary">
+          <svg viewBox="0 0 20 20" fill="currentColor" style="width:14px;height:14px;flex-shrink:0"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+          How to set up Google Sheets
+        </summary>
+        <div class="tf-script-body">
+          <ol class="tf-setup-steps">
+            <li>Open your Google Sheet → <b>Extensions</b> → <b>Apps Script</b></li>
+            <li>Delete any existing code, then paste the script below</li>
+            <li>Click <b>Save</b> (💾), then <b>Deploy</b> → <b>New deployment</b> → <b>Web app</b></li>
+            <li>Set <b>Execute as: Me</b> &nbsp;|&nbsp; <b>Who has access: Anyone</b></li>
+            <li>Click <b>Deploy</b>, copy the Web App URL above</li>
+          </ol>
+          <div style="position:relative">
+            <button class="tf-copy-btn" id="btnCopyScript" title="Copy to clipboard">Copy</button>
+            <textarea class="tf-script-code" id="appsScriptCode" readonly spellcheck="false">// Google Apps Script – Traffic Monitor webhook
+// Paste into Extensions → Apps Script in your Google Sheet, then deploy as Web App.
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ts = new Date(data.scannedAt);
+
+    // Sheet: Summary
+    var summary = ss.getSheetByName('Summary') || ss.insertSheet('Summary');
+    if (summary.getLastRow() === 0) {
+      summary.appendRow(['Timestamp','Raw count','Filtered count','Persistent count']);
+    }
+    summary.appendRow([ts, data.raw.length, data.filtered.length, data.persistent.length]);
+
+    // Sheet: Filtered
+    var fSheet = ss.getSheetByName('Filtered') || ss.insertSheet('Filtered');
+    if (fSheet.getLastRow() === 0) {
+      fSheet.appendRow(['Timestamp','Lat','Lng','JamFactor','Label','Area','Region','Members']);
+    }
+    data.filtered.forEach(function(p) {
+      fSheet.appendRow([ts, p.lat, p.lng, p.jamFactor, p.label, p.area, p.region, p.members]);
+    });
+
+    // Sheet: Persistent
+    var pSheet = ss.getSheetByName('Persistent') || ss.insertSheet('Persistent');
+    if (pSheet.getLastRow() === 0) {
+      pSheet.appendRow(['Timestamp','Lat','Lng','JamFactor','Label','Area','Region']);
+    }
+    data.persistent.forEach(function(p) {
+      pSheet.appendRow([ts, p.lat, p.lng, p.jamFactor, p.label, p.area, p.region]);
+    });
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ok: true, logged: data.filtered.length + data.persistent.length}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ok: false, error: String(err)}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet() {
+  return ContentService.createTextOutput('Traffic Monitor endpoint – use POST');
+}</textarea>
+          </div>
+        </div>
+      </details>
+
+      <!-- Local Storage -->
+      <h4>Local Data Storage</h4>
+      <label class="tf-toggle-row" style="margin-bottom:.75rem">
+        <input type="checkbox" id="stEnabled"> Save scan data on this server (traffic_data folder)
+      </label>
+      <div class="tf-grid">
+        <div class="tf-field">
+          <label>Retention (days, 0 = keep forever)</label>
+          <input type="number" id="stRetention" min="0" max="3650" value="30">
+        </div>
+      </div>
+
+      <div style="margin-top:1.1rem;display:flex;gap:.5rem;justify-content:flex-end">
+        <button class="btn btn-primary" id="btnSaveConfig">Save Config</button>
+      </div>
+    </div>
+
+    <!-- Scan History -->
+    <div class="tf-section">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        Scan History (saved on server)
+        <button class="btn btn-sm" id="btnRefreshHistory" style="font-size:.72rem">Refresh</button>
+      </h3>
+      <div id="historyContainer">
+        <div class="tf-empty">No saved scans.</div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="tf-section">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        Recent Logs
+        <button class="btn btn-sm" id="btnClearLogs" style="font-size:.72rem">Clear</button>
+      </h3>
+      <div class="tf-log-wrap" id="logContainer">
+        <div class="tf-empty">No logs yet.</div>
+      </div>
+    </div>
+
+  </div><!-- content -->
+</main>
+
+<!-- Add Region Modal -->
+<div class="dlg-backdrop" id="regionDlg">
+  <div class="dlg dlg-wide">
+    <h2>Add Monitoring Region</h2>
+    <div class="tf-grid" style="margin-bottom:.65rem">
+      <div class="tf-field">
+        <label>Region Name</label>
+        <input type="text" id="dlgRegionName" placeholder="e.g. Hanoi Old Quarter">
+      </div>
+      <div class="tf-field">
+        <label>Color</label>
+        <input type="color" id="dlgRegionColor" value="#ef4444" style="height:34px;padding:.15rem">
+      </div>
+    </div>
+    <div class="tf-map-hint">
+      <span>🖱 Click 2 góc đối diện trên bản đồ để vẽ bbox (hoặc nhập tọa độ bên dưới)</span>
+      <button class="btn btn-sm" id="btnDlgClearDraw">Clear</button>
+    </div>
+    <div id="dlgMap"></div>
+    <div class="tf-grid" style="margin-bottom:.65rem;grid-template-columns:repeat(4,1fr)">
+      <div class="tf-field">
+        <label>Min Lat</label>
+        <input type="number" id="dlgMinLat" step="0.0001" placeholder="21.0200">
+      </div>
+      <div class="tf-field">
+        <label>Min Lon</label>
+        <input type="number" id="dlgMinLon" step="0.0001" placeholder="105.8200">
+      </div>
+      <div class="tf-field">
+        <label>Max Lat</label>
+        <input type="number" id="dlgMaxLat" step="0.0001" placeholder="21.0500">
+      </div>
+      <div class="tf-field">
+        <label>Max Lon</label>
+        <input type="number" id="dlgMaxLon" step="0.0001" placeholder="105.8600">
+      </div>
+    </div>
+    <div class="dlg-actions">
+      <button class="btn" id="btnDlgCancel">Cancel</button>
+      <button class="btn btn-primary" id="btnDlgAdd">Add Region</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+
+<script src="app.js"></script>
+<script>
+// ── In-memory regions array ───────────────────────────────────────────────
+let regions = [];
+let pollTimer = null;
+let countdownInterval = null;
+let nextScanTs = 0; // unix timestamp seconds
+
+// ── API helper ────────────────────────────────────────────────────────────
+// apiFetch is provided by app.js
+
+// ── Load config from server ───────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const cfg = await apiFetch('/api/traffic/config');
+    document.getElementById('cfgApiKey').value       = cfg.apiKey        || '';
+    document.getElementById('cfgInterval').value     = cfg.intervalMin   || 15;
+    document.getElementById('cfgMinJam').value       = cfg.minJam        || 7.0;
+    document.getElementById('cfgClusterRadius').value= cfg.clusterRadius || 300;
+    document.getElementById('cfgPersistRadius').value= cfg.persistRadius || 500;
+
+    regions = cfg.regions || [];
+    renderRegions();
+
+    const tg = cfg.telegram || {};
+    document.getElementById('tgEnabled').checked      = !!tg.enabled;
+    document.getElementById('tgToken').value          = tg.token         || '';
+    document.getElementById('tgChatId').value         = tg.chatId        || '';
+    document.getElementById('tgSendRaw').checked           = !!tg.sendRaw;
+    document.getElementById('tgSendRawImg').checked        = !!tg.sendRawImg;
+    document.getElementById('tgSendFiltered').checked      = !!tg.sendFiltered;
+    document.getElementById('tgSendFilteredImg').checked   = !!tg.sendFilteredImg;
+    document.getElementById('tgSendPersistent').checked    = !!tg.sendPersistent;
+    document.getElementById('tgSendPersistentImg').checked = !!tg.sendPersistentImg;
+    document.getElementById('tgTplHeader').value      = tg.tplHeader     || '';
+    document.getElementById('tgTplPoint').value       = tg.tplPoint      || '';
+    document.getElementById('tgTplRaw').value         = tg.tplRaw        || '';
+    document.getElementById('tgTplFiltered').value    = tg.tplFiltered   || '';
+    document.getElementById('tgTplPersistent').value  = tg.tplPersistent || '';
+
+    const sh = cfg.sheets || {};
+    document.getElementById('shEnabled').checked = !!sh.enabled;
+    document.getElementById('shUrl').value        = sh.url || '';
+
+    const st = cfg.storage || {};
+    document.getElementById('stEnabled').checked   = !!st.enabled;
+    document.getElementById('stRetention').value   = st.retentionDays ?? 30;
+  } catch(e) {
+    console.error('loadConfig error', e);
+  }
+}
+
+// ── Save config ───────────────────────────────────────────────────────────
+async function saveConfig() {
+  const cfg = {
+    apiKey:        document.getElementById('cfgApiKey').value.trim(),
+    intervalMin:   parseInt(document.getElementById('cfgInterval').value) || 15,
+    minJam:        parseFloat(document.getElementById('cfgMinJam').value) || 7.0,
+    clusterRadius: parseFloat(document.getElementById('cfgClusterRadius').value) || 300,
+    persistRadius: parseFloat(document.getElementById('cfgPersistRadius').value) || 500,
+    regions:       regions,
+    telegram: {
+      enabled:        document.getElementById('tgEnabled').checked,
+      token:          document.getElementById('tgToken').value.trim(),
+      chatId:         document.getElementById('tgChatId').value.trim(),
+      sendRaw:           document.getElementById('tgSendRaw').checked,
+      sendRawImg:        document.getElementById('tgSendRawImg').checked,
+      sendFiltered:      document.getElementById('tgSendFiltered').checked,
+      sendFilteredImg:   document.getElementById('tgSendFilteredImg').checked,
+      sendPersistent:    document.getElementById('tgSendPersistent').checked,
+      sendPersistentImg: document.getElementById('tgSendPersistentImg').checked,
+      tplHeader:      document.getElementById('tgTplHeader').value,
+      tplPoint:       document.getElementById('tgTplPoint').value,
+      tplRaw:         document.getElementById('tgTplRaw').value,
+      tplFiltered:    document.getElementById('tgTplFiltered').value,
+      tplPersistent:  document.getElementById('tgTplPersistent').value,
+    },
+    sheets: {
+      enabled: document.getElementById('shEnabled').checked,
+      url:     document.getElementById('shUrl').value.trim(),
+    },
+    storage: {
+      enabled:       document.getElementById('stEnabled').checked,
+      retentionDays: parseInt(document.getElementById('stRetention').value) || 0,
+    },
+    running: document.getElementById('btnStartStop').dataset.running === 'true',
+  };
+
+  try {
+    await apiFetch('/api/traffic/config', { method: 'PUT', body: JSON.stringify(cfg),
+      headers: { 'Content-Type': 'application/json' } });
+    showToast('Config saved');
+  } catch(e) {
+    showToast('Save failed: ' + e.message, true);
+  }
+}
+
+function showToast(msg, isError) {
+  // simple temporary banner
+  const el = document.createElement('div');
+  el.textContent = msg;
+  el.style.cssText = `position:fixed;bottom:1.5rem;right:1.5rem;z-index:999;
+    background:${isError?'var(--red,#f87171)':'var(--green,#4ade80)'};
+    color:#fff;padding:.6rem 1.1rem;border-radius:8px;font-size:.85rem;
+    box-shadow:0 4px 16px #0005;`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+// ── Regions rendering ─────────────────────────────────────────────────────
+function renderRegions() {
+  const list = document.getElementById('regionsList');
+  if (regions.length === 0) {
+    list.innerHTML = '<div class="tf-empty">No regions configured.</div>';
+    return;
+  }
+  list.innerHTML = regions.map((r, i) => `
+    <div class="tf-region-row" data-idx="${i}">
+      <div class="tf-region-color" style="background:${r.color||'#94a3b8'}"></div>
+      <div class="tf-region-name">${escHtml(r.name)}</div>
+      <div class="tf-region-coords">${r.coords ? r.coords.length + ' coords' : '—'}</div>
+      <label class="tf-toggle-row tf-region-enable">
+        <input type="checkbox" onchange="toggleRegion(${i},this.checked)" ${r.enabled?'checked':''}>
+        Enabled
+      </label>
+      <button class="tf-region-del" onclick="deleteRegion(${i})" title="Remove region">✕</button>
+    </div>
+  `).join('');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleRegion(idx, enabled) {
+  if (regions[idx]) regions[idx].enabled = enabled;
+}
+
+function deleteRegion(idx) {
+  regions.splice(idx, 1);
+  renderRegions();
+}
+
+// ── Region dialog + draw map (VietMap GL) ─────────────────────────────────
+let dlgMap = null;          // vietmapgl.Map instance (created once)
+let dlgMapReady = false;    // style + layers loaded
+let drawCorner1 = null;     // first clicked corner {lat, lng}
+let vietmapKey = '';
+
+// Fallback OSM raster style when no VietMap key is configured
+const osmFallbackStyle = {
+  version: 8,
+  sources: { osm: {
+    type: 'raster',
+    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    tileSize: 256, attribution: '© OpenStreetMap contributors',
+  }},
+  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+};
+
+async function initDlgMap() {
+  if (dlgMap) return;
+
+  // VietMap API key comes from global settings (same as map.html)
+  try {
+    const settings = await apiFetch('/api/settings');
+    vietmapKey = (settings && settings.vietmap_api_key) || '';
+  } catch(_) {}
+
+  const style = vietmapKey
+    ? `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${vietmapKey}`
+    : osmFallbackStyle;
+
+  dlgMap = new vietmapgl.Map({
+    container: 'dlgMap',
+    style,
+    center: [106.68, 10.78], // default: HCMC [lng, lat]
+    zoom: 10,
+  });
+  dlgMap.addControl(new vietmapgl.NavigationControl({ showCompass: false }), 'top-left');
+  dlgMap.getCanvas().style.cursor = 'crosshair';
+
+  dlgMap.on('load', () => {
+    // Existing regions (context, per-feature color)
+    dlgMap.addSource('existing-regions', { type: 'geojson', data: emptyFC() });
+    dlgMap.addLayer({ id: 'existing-fill', type: 'fill', source: 'existing-regions',
+      paint: { 'fill-color': ['get','color'], 'fill-opacity': 0.07 } });
+    dlgMap.addLayer({ id: 'existing-line', type: 'line', source: 'existing-regions',
+      paint: { 'line-color': ['get','color'], 'line-width': 1.5, 'line-dasharray': [3,3] } });
+
+    // Rectangle being drawn / finished
+    dlgMap.addSource('draw-rect', { type: 'geojson', data: emptyFC() });
+    dlgMap.addLayer({ id: 'draw-rect-fill', type: 'fill', source: 'draw-rect',
+      paint: { 'fill-color': getDlgColor(), 'fill-opacity': 0.15 } });
+    dlgMap.addLayer({ id: 'draw-rect-line', type: 'line', source: 'draw-rect',
+      paint: { 'line-color': getDlgColor(), 'line-width': 2 } });
+
+    // First-corner dot
+    dlgMap.addSource('draw-corner', { type: 'geojson', data: emptyFC() });
+    dlgMap.addLayer({ id: 'draw-corner-pt', type: 'circle', source: 'draw-corner',
+      paint: { 'circle-radius': 5, 'circle-color': getDlgColor(),
+               'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+
+    dlgMapReady = true;
+    showExistingRegions();
+    redrawRectFromInputs();
+  });
+
+  dlgMap.on('click', e => {
+    if (!dlgMapReady) return;
+    const ll = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+    if (!drawCorner1) {
+      // First corner
+      drawCorner1 = ll;
+      setSrc('draw-rect', emptyFC());
+      setSrc('draw-corner', pointFC(ll));
+    } else {
+      // Second corner → finish rectangle
+      setRectFromCorners(drawCorner1, ll);
+      drawCorner1 = null;
+      setSrc('draw-corner', emptyFC());
+    }
+  });
+
+  // Live preview while choosing second corner
+  dlgMap.on('mousemove', e => {
+    if (!dlgMapReady || !drawCorner1) return;
+    setSrc('draw-rect', rectFC(drawCorner1, { lat: e.lngLat.lat, lng: e.lngLat.lng }));
+  });
+}
+
+// ── GeoJSON helpers ──
+function emptyFC() { return { type:'FeatureCollection', features: [] }; }
+function pointFC(ll) {
+  return { type:'FeatureCollection', features: [{
+    type:'Feature', geometry:{ type:'Point', coordinates:[ll.lng, ll.lat] }, properties:{} }] };
+}
+function rectFC(a, b) {
+  const minLat = Math.min(a.lat,b.lat), maxLat = Math.max(a.lat,b.lat);
+  const minLon = Math.min(a.lng,b.lng), maxLon = Math.max(a.lng,b.lng);
+  return { type:'FeatureCollection', features: [{
+    type:'Feature', properties:{},
+    geometry:{ type:'Polygon', coordinates:[[
+      [minLon,minLat],[maxLon,minLat],[maxLon,maxLat],[minLon,maxLat],[minLon,minLat]
+    ]]} }] };
+}
+function setSrc(id, data) {
+  const s = dlgMap.getSource(id);
+  if (s) s.setData(data);
+}
+
+function getDlgColor() {
+  return document.getElementById('dlgRegionColor').value || '#ef4444';
+}
+
+function clearDrawing() {
+  drawCorner1 = null;
+  if (dlgMapReady) {
+    setSrc('draw-rect', emptyFC());
+    setSrc('draw-corner', emptyFC());
+  }
+  ['dlgMinLat','dlgMinLon','dlgMaxLat','dlgMaxLon'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+}
+
+// Draw final rectangle + fill the 4 inputs
+function setRectFromCorners(a, b) {
+  document.getElementById('dlgMinLat').value = Math.min(a.lat,b.lat).toFixed(5);
+  document.getElementById('dlgMinLon').value = Math.min(a.lng,b.lng).toFixed(5);
+  document.getElementById('dlgMaxLat').value = Math.max(a.lat,b.lat).toFixed(5);
+  document.getElementById('dlgMaxLon').value = Math.max(a.lng,b.lng).toFixed(5);
+  redrawRectFromInputs();
+}
+
+// Inputs → rectangle (also used when user edits coords manually)
+function redrawRectFromInputs() {
+  if (!dlgMapReady) return;
+  const minLat = parseFloat(document.getElementById('dlgMinLat').value);
+  const minLon = parseFloat(document.getElementById('dlgMinLon').value);
+  const maxLat = parseFloat(document.getElementById('dlgMaxLat').value);
+  const maxLon = parseFloat(document.getElementById('dlgMaxLon').value);
+  if ([minLat,minLon,maxLat,maxLon].some(isNaN)) return;
+  setSrc('draw-rect', rectFC({lat:minLat,lng:minLon},{lat:maxLat,lng:maxLon}));
+}
+
+['dlgMinLat','dlgMinLon','dlgMaxLat','dlgMaxLon'].forEach(id => {
+  document.getElementById(id).addEventListener('change', redrawRectFromInputs);
+});
+document.getElementById('dlgRegionColor').addEventListener('change', () => {
+  if (!dlgMapReady) return;
+  const c = getDlgColor();
+  dlgMap.setPaintProperty('draw-rect-fill', 'fill-color', c);
+  dlgMap.setPaintProperty('draw-rect-line', 'line-color', c);
+  dlgMap.setPaintProperty('draw-corner-pt', 'circle-color', c);
+});
+document.getElementById('btnDlgClearDraw').addEventListener('click', clearDrawing);
+
+// Show already-configured regions for context + fit view to them
+function showExistingRegions() {
+  if (!dlgMapReady) return;
+  const features = [];
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  regions.forEach(r => {
+    if (!r.coords || r.coords.length === 0) return;
+    const ring = r.coords.map(c => [c[1], c[0]]); // [lat,lon] → [lon,lat]
+    if (ring[0][0] !== ring[ring.length-1][0] || ring[0][1] !== ring[ring.length-1][1]) {
+      ring.push(ring[0]);
+    }
+    features.push({ type:'Feature',
+      properties:{ color: r.color || '#94a3b8', name: r.name },
+      geometry:{ type:'Polygon', coordinates:[ring] } });
+    r.coords.forEach(c => {
+      minLat = Math.min(minLat, c[0]); maxLat = Math.max(maxLat, c[0]);
+      minLon = Math.min(minLon, c[1]); maxLon = Math.max(maxLon, c[1]);
+    });
+  });
+  setSrc('existing-regions', { type:'FeatureCollection', features });
+  if (features.length) {
+    dlgMap.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 50, duration: 0 });
+  }
+}
+
+document.getElementById('btnAddRegion').addEventListener('click', async () => {
+  document.getElementById('regionDlg').classList.add('open');
+  await initDlgMap();
+  // GL canvas needs resize after the container becomes visible
+  setTimeout(() => { dlgMap.resize(); if (dlgMapReady) showExistingRegions(); }, 60);
+});
+document.getElementById('btnDlgCancel').addEventListener('click', closeDlg);
+document.getElementById('regionDlg').addEventListener('click', e => {
+  if (e.target === document.getElementById('regionDlg')) closeDlg();
+});
+
+function closeDlg() {
+  document.getElementById('regionDlg').classList.remove('open');
+  document.getElementById('dlgRegionName').value = '';
+  if (dlgMap) clearDrawing();
+  else ['dlgMinLat','dlgMinLon','dlgMaxLat','dlgMaxLon'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('dlgRegionColor').value = '#ef4444';
+}
+
+document.getElementById('btnDlgAdd').addEventListener('click', () => {
+  const name   = document.getElementById('dlgRegionName').value.trim();
+  const color  = document.getElementById('dlgRegionColor').value;
+  const minLat = parseFloat(document.getElementById('dlgMinLat').value);
+  const minLon = parseFloat(document.getElementById('dlgMinLon').value);
+  const maxLat = parseFloat(document.getElementById('dlgMaxLat').value);
+  const maxLon = parseFloat(document.getElementById('dlgMaxLon').value);
+
+  if (!name || isNaN(minLat) || isNaN(minLon) || isNaN(maxLat) || isNaN(maxLon)) {
+    alert('Please fill all fields with valid values.');
+    return;
+  }
+
+  // Build rectangle polygon [lat,lon] pairs
+  const coords = [
+    [minLat, minLon],
+    [maxLat, minLon],
+    [maxLat, maxLon],
+    [minLat, maxLon],
+    [minLat, minLon],
+  ];
+
+  regions.push({
+    id:      Math.random().toString(36).slice(2,10),
+    name,
+    color,
+    coords,
+    enabled: true,
+  });
+  renderRegions();
+  closeDlg();
+});
+
+// ── Status & stats ────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const s = await apiFetch('/api/traffic/status');
+
+    const pill = document.getElementById('statusPill');
+    const btnSS = document.getElementById('btnStartStop');
+    if (s.running) {
+      pill.className = 'tf-pill running';
+      document.getElementById('statusText').textContent = 'Running';
+      btnSS.textContent = 'Stop';
+      btnSS.dataset.running = 'true';
+    } else {
+      pill.className = 'tf-pill idle';
+      document.getElementById('statusText').textContent = 'Idle';
+      btnSS.textContent = 'Start';
+      btnSS.dataset.running = 'false';
+    }
+
+    // Reload saved-scan list when a new scan finishes
+    const prevScanAt = document.getElementById('lastScanTime').textContent;
+    if (s.lastScanAt && s.lastScanAt !== prevScanAt) loadHistory();
+
+    document.getElementById('lastScanTime').textContent = s.lastScanAt || '—';
+    document.getElementById('statRaw').textContent       = s.raw        || 0;
+    document.getElementById('statFiltered').textContent  = s.filtered   || 0;
+    document.getElementById('statPersistent').textContent= s.persistent || 0;
+
+    const errLabel = document.getElementById('lastErrLabel');
+    if (s.lastError) {
+      errLabel.textContent = 'Error: ' + s.lastError;
+      errLabel.style.display = '';
+    } else {
+      errLabel.style.display = 'none';
+    }
+
+    // Countdown
+    nextScanTs = s.running && s.nextScanInSec > 0
+      ? Math.floor(Date.now()/1000) + s.nextScanInSec
+      : 0;
+
+  } catch(e) { /* silent */ }
+}
+
+function updateCountdown() {
+  const el = document.getElementById('nextScanCountdown');
+  if (!nextScanTs) { el.textContent = '—'; return; }
+  const rem = Math.max(0, nextScanTs - Math.floor(Date.now()/1000));
+  const m = Math.floor(rem / 60);
+  const s = rem % 60;
+  el.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────
+let localLogs = [];
+
+async function loadLogs() {
+  try {
+    const logs = await apiFetch('/api/traffic/logs');
+    if (!Array.isArray(logs)) return;
+    localLogs = logs;
+    renderLogs();
+  } catch(e) { /* silent */ }
+}
+
+function renderLogs() {
+  const container = document.getElementById('logContainer');
+  if (localLogs.length === 0) {
+    container.innerHTML = '<div class="tf-empty">No logs yet.</div>';
+    return;
+  }
+  const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+  container.innerHTML = [...localLogs].reverse().map(e => `
+    <div class="tf-log-entry">
+      <span class="tf-log-time">${escHtml(e.time)}</span>
+      <span class="tf-log-level ${e.level}">${escHtml(e.level)}</span>
+      <span class="tf-log-msg">${escHtml(e.msg)}</span>
+    </div>
+  `).join('');
+  if (wasAtBottom) container.scrollTop = 0;
+}
+
+document.getElementById('btnClearLogs').addEventListener('click', () => {
+  localLogs = [];
+  renderLogs();
+});
+
+// ── Scan history (saved on server) ───────────────────────────────────────
+async function loadHistory() {
+  try {
+    const files = await apiFetch('/api/traffic/data');
+    const container = document.getElementById('historyContainer');
+    if (!Array.isArray(files) || files.length === 0) {
+      container.innerHTML = '<div class="tf-empty">No saved scans.</div>';
+      return;
+    }
+    container.innerHTML = `
+      <table class="tf-history-table">
+        <thead><tr>
+          <th>Date</th><th class="num">Scans</th><th class="num">Raw</th>
+          <th class="num">Filtered</th><th class="num">Persistent</th>
+          <th class="num">Size</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${files.map(f => `
+            <tr>
+              <td>${escHtml(f.date || f.name)}</td>
+              <td class="num">${f.scans || 0}</td>
+              <td class="num">${f.raw}</td>
+              <td class="num">${f.filtered}</td>
+              <td class="num">${f.persistent}</td>
+              <td class="num">${fmtSize(f.size)}</td>
+              <td style="text-align:right">
+                <button class="tf-history-dl" onclick="downloadScan('${escHtml(f.name)}')">⬇ JSON</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) { /* silent */ }
+}
+
+function fmtSize(b) {
+  if (b > 1048576) return (b/1048576).toFixed(1) + ' MB';
+  if (b > 1024)    return (b/1024).toFixed(1) + ' KB';
+  return b + ' B';
+}
+
+async function downloadScan(name) {
+  try {
+    const token = getToken();
+    const res = await fetch('/api/traffic/data?file=' + encodeURIComponent(name), {
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) { showToast('Download failed: ' + e.message, true); }
+}
+
+document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
+
+// ── Buttons ───────────────────────────────────────────────────────────────
+document.getElementById('btnStartStop').addEventListener('click', async () => {
+  const running = document.getElementById('btnStartStop').dataset.running === 'true';
+  try {
+    await apiFetch(running ? '/api/traffic/stop' : '/api/traffic/start', { method:'POST' });
+    await loadStatus();
+  } catch(e) { showToast('Error: ' + e.message, true); }
+});
+
+document.getElementById('btnScanNow').addEventListener('click', async () => {
+  try {
+    await apiFetch('/api/traffic/scan', { method:'POST' });
+    showToast('Scan triggered');
+  } catch(e) { showToast('Error: ' + e.message, true); }
+});
+
+document.getElementById('btnSaveConfig').addEventListener('click', saveConfig);
+
+// ── Polling ───────────────────────────────────────────────────────────────
+async function poll() {
+  await loadStatus();
+  await loadLogs();
+}
+
+// ── Apps Script copy button ───────────────────────────────────────────────
+document.getElementById('btnCopyScript').addEventListener('click', async () => {
+  const ta = document.getElementById('appsScriptCode');
+  try {
+    await navigator.clipboard.writeText(ta.value);
+    const btn = document.getElementById('btnCopyScript');
+    btn.textContent = 'Copied!';
+    btn.style.color = 'var(--green, #4ade80)';
+    btn.style.borderColor = 'var(--green, #4ade80)';
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }, 2000);
+  } catch { ta.select(); document.execCommand('copy'); }
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+if (new URLSearchParams(location.search).get('embed') === '1') {
+  document.body.classList.add('embedded');
+}
+
+(async () => {
+  await initApp();
+  const user = getUser();
+  if (!user || !hasTab('traffic')) {
+    document.querySelector('.content').innerHTML =
+      '<div class="tf-empty" style="margin-top:3rem">Access denied — Traffic permission required.</div>';
+    return;
+  }
+  await loadConfig();
+  await loadHistory();
+  await poll();
+  pollTimer = setInterval(poll, 5000);
+  countdownInterval = setInterval(updateCountdown, 1000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,3069 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel – UTMC Camera</title>
+<link rel="stylesheet" href="app.css">
+<style>
+/* ── Table ── */
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:.85rem; }
+th,td { padding:.55rem .75rem; text-align:left; border-bottom:1px solid var(--border); }
+th { background:var(--surface2); color:var(--text-muted); font-weight:600; text-transform:uppercase; font-size:.7rem; letter-spacing:.05em; }
+tr:hover td { background:var(--surface2); }
+.badge-admin  { background:#2563eb22; color:#60a5fa; }
+.badge-viewer { background:#16a34a22; color:#4ade80; }
+.badge-on  { background:#16a34a22; color:#4ade80; }
+.badge-off { background:#dc262622; color:#f87171; }
+.streams-cell { max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); font-size:.78rem; }
+.cnt-badge { display:inline-block; padding:.1rem .45rem; border-radius:10px; font-size:.7rem; font-weight:700; background:var(--surface2); color:var(--text-muted); border:1px solid var(--border); margin-right:.35rem; }
+
+/* ── Dialog ── */
+.dlg-backdrop { display:none; position:fixed; inset:0; background:#000b; z-index:700;
+  align-items:flex-start; justify-content:center; padding:2vh 1rem; overflow-y:auto; }
+.dlg-backdrop.open { display:flex; }
+.dlg {
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:1.5rem 1.75rem 1.75rem;
+  /* Resizable: user can drag the bottom-right corner */
+  width:560px; max-width:96vw;
+  min-width:380px; min-height:420px;
+  max-height:92vh;
+  resize:both; overflow:auto;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+  display:flex; flex-direction:column;
+}
+.dlg h2 { flex-shrink:0; margin-bottom:1.1rem; font-size:1.1rem; }
+.dlg form { flex:1; display:flex; flex-direction:column; min-height:0; }
+.dlg h2 { margin:0 0 1.25rem; font-size:1.1rem; }
+.f2 { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+
+/* ── Camera checklist ── */
+.cam-wrap { border:1px solid var(--border); border-radius:8px; background:var(--surface2); margin-top:.3rem; }
+.cam-search {
+  width:100%; box-sizing:border-box; padding:.5rem .7rem;
+  background:transparent; border:none; border-bottom:1px solid var(--border);
+  color:var(--text); font-size:.85rem; outline:none;
+}
+.cam-search::placeholder { color:var(--text-muted); }
+.cam-toolbar {
+  display:flex; align-items:center; gap:.3rem; padding:.3rem .55rem;
+  border-bottom:1px solid var(--border); flex-wrap:wrap;
+}
+.cam-tb-btn {
+  font-size:.71rem; font-weight:600; padding:.18rem .55rem; border-radius:4px;
+  border:1px solid var(--border); background:var(--surface);
+  color:var(--text-muted); cursor:pointer; white-space:nowrap;
+  transition:color .12s, border-color .12s, background .12s;
+}
+.cam-tb-btn:hover { color:var(--accent); border-color:var(--accent); background:rgba(47,129,247,.07); }
+.cam-tb-btn.danger:hover { color:var(--red); border-color:var(--red); background:rgba(248,81,73,.07); }
+.cam-tb-spacer { flex:1; }
+.cam-tb-count { font-size:.72rem; color:var(--text-muted); }
+/* cam-list: grows when dialog is resized */
+.cam-list { min-height:110px; max-height:340px; overflow-y:auto; resize:vertical; }
+.cam-row {
+  display:flex; align-items:center; gap:.5rem; padding:.35rem .7rem; cursor:pointer;
+  transition:background .1s;
+}
+.cam-row:hover { background:var(--hover); }
+.cam-row input { accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; cursor:pointer; }
+.cam-row label { cursor:pointer; font-size:.84rem; flex:1; word-break:break-all; }
+.cam-empty { padding:.6rem .7rem; font-size:.82rem; color:var(--text-muted); }
+.tab-perm-chip { display:flex; align-items:center; gap:.35rem; font-size:.8rem; cursor:pointer; background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:.3rem .65rem; user-select:none; transition:border-color .15s, background .15s; }
+.tab-perm-chip:hover { border-color:var(--accent); }
+.tab-perm-chip input { accent-color:var(--accent); width:13px; height:13px; flex-shrink:0; cursor:pointer; }
+.tab-perm-chip input:checked + span, .tab-perm-chip:has(input:checked) { color:var(--accent); }
+.tab-perm-chip:has(input:checked) { border-color:var(--accent); background:rgba(47,129,247,.07); }
+
+/* ── Inner tabs (Traffic sub-tabs) ── */
+.inner-tabs { display:flex; gap:.35rem; margin-bottom:1.1rem; border-bottom:1px solid var(--border); padding-bottom:.5rem; }
+.inner-tab { background:none; border:1px solid transparent; padding:.4rem .95rem; border-radius:6px 6px 0 0; font-size:.82rem; font-weight:600; color:var(--text-muted); cursor:pointer; transition:color .15s, background .15s, border-color .15s; }
+.inner-tab:hover { color:var(--text); background:var(--surface2); }
+.inner-tab.active { color:var(--accent); background:rgba(47,129,247,.07); border-color:var(--border) var(--border) var(--surface); border-bottom-color:var(--surface,var(--bg)); }
+
+/* ── Traffic Monitor status pill ── */
+.tf-status-pill { display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .75rem; border-radius:20px; font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.tf-running { background:#16a34a22; color:#4ade80; }
+.tf-idle    { background:#4b556322; color:#9ca3af; }
+.tf-status-pill .tf-pill-dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+.tf-running .tf-pill-dot { animation:_pulse 2s ease-in-out infinite; }
+@keyframes _pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* cam-section & cam-wrap: flex-grow so they fill the dialog height */
+#cam-section { flex:1; display:flex; flex-direction:column; min-height:0; }
+#cam-section label { flex-shrink:0; }
+.cam-wrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+/* hint text under cam-list */
+.cam-resize-hint { font-size:.68rem; color:var(--text-muted); text-align:right;
+  padding:.1rem .4rem; flex-shrink:0; }
+
+/* ── Btn-row ── */
+.btn-row { display:flex; gap:.5rem; justify-content:flex-end; margin-top:1.25rem; flex-shrink:0; }
+.btn-sm { padding:.28rem .65rem; font-size:.8rem; }
+
+/* ── Input alias ── */
+.input { width:100%; padding:.5rem .7rem; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:.88rem; outline:none; transition:border-color .12s; }
+.input:focus { border-color:var(--accent); }
+.form-group { margin-bottom:.9rem; }
+.form-group label { display:block; font-size:.78rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:.3rem; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item active admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<!-- ── Main ── -->
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Admin Panel</h2>
+    <div class="topbar-actions">
+      <button class="btn btn-primary" id="topbarAddBtn" onclick="topbarAdd()">+ Add User</button>
+    </div>
+  </header>
+
+  <!-- Sub-tabs -->
+  <div class="page-tabs">
+    <button class="page-tab active" data-tab="users" onclick="showTab('users')">Users</button>
+    <button class="page-tab" data-tab="groups" onclick="showTab('groups')">Groups</button>
+    <button class="page-tab" data-tab="settings" onclick="showTab('settings')">Settings</button>
+    <button class="page-tab" data-tab="camtypes" onclick="showTab('camtypes')">Camera Types</button>
+    <button class="page-tab" data-tab="devices" onclick="showTab('devices')">Devices</button>
+    <button class="page-tab" data-tab="camconfig" onclick="showTab('camconfig')">Camera Config</button>
+    <button class="page-tab" data-tab="traffic" onclick="showTab('traffic')">Traffic</button>
+  </div>
+
+  <div class="content">
+    <!-- ── Users section ── -->
+    <div id="usersSection">
+      <div class="card table-wrap">
+        <table>
+          <thead><tr><th>Username</th><th>Role</th><th>Camera Access</th><th>Page Tabs</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Groups section ── -->
+    <div id="groupsSection" style="display:none">
+      <div class="card table-wrap">
+        <table>
+          <thead><tr><th>Group Name</th><th>Cameras</th><th>Actions</th></tr></thead>
+          <tbody id="groupsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Settings section ── -->
+    <div id="settingsSection" style="display:none">
+      <div class="card" style="max-width:520px">
+        <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.95rem;font-weight:700">Map Settings</h3>
+        </div>
+        <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:1rem">
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">VietMap API Key</label>
+            <input type="text" id="vietmapKeyInput" placeholder="e.g. xxxxxxxxxxxxxxxxxxxxxxxx"
+                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;font-family:monospace;box-sizing:border-box">
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Register at <a href="https://maps.vietmap.vn/console/register" target="_blank" style="color:var(--accent)">maps.vietmap.vn/console</a>.
+              Used for map display and traffic overlay. Restrict by domain for security.
+            </p>
+          </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Snapshot Refresh Interval (giây)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="snapIntervalInput" min="1" max="300" value="5"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">giây (mặc định: 5)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Thời gian giữa các lần lấy snapshot từ camera. Tăng lên (ví dụ 15–30s) để giảm tải server và băng thông camera khi có nhiều camera.
+            </p>
+          </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Snapshot Concurrency (số luồng tối đa)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="snapConcurrencyInput" min="1" max="2000" value="0"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">0 = tự tính (interval × 10)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Số lượng kết nối snapshot tối đa chạy song song. Tăng để lấy ảnh nhanh hơn khi mạng tốt, giảm khi băng thông hạn chế.
+            </p>
+          </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Bán kính tìm kiếm camera mặc định (km)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="mapRadiusInput" min="0.1" max="50" step="0.1" value="1"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">km (mặc định: 1)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Bán kính vòng tròn tìm kiếm camera khi click lên bản đồ (tab Map). Áp dụng cho tất cả user, session.
+            </p>
+          </div>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn btn-primary" onclick="saveSettings()" style="font-size:.83rem">💾 Save Settings</button>
+            <span id="settingsSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Saved</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Devices section ── -->
+    <div id="devicesSection" style="display:none">
+
+      <!-- Ping interval -->
+      <div class="card" style="margin-bottom:1rem;padding:.75rem 1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <span style="font-size:.82rem;font-weight:600;color:var(--text-muted)">Ping interval:</span>
+        <input type="number" id="pingIntervalInput" min="5" max="3600" value="30"
+               style="width:80px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;color:var(--text);font-size:.85rem;outline:none">
+        <span style="font-size:.78rem;color:var(--text-muted)">giây</span>
+        <button class="btn btn-primary btn-sm" onclick="savePingInterval()">Lưu</button>
+        <span id="pingIntervalMsg" style="font-size:.78rem;color:var(--green);display:none">✓ Đã lưu</span>
+        <span style="flex:1"></span>
+        <span style="font-size:.75rem;color:var(--text-muted)">Ping kiểm tra kết nối thiết bị mỗi X giây. Khuyến nghị: 30–120s.</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:340px 1fr;gap:1rem;align-items:start">
+
+        <!-- Device Types -->
+        <div class="card">
+          <div style="padding:.65rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.5rem">
+            <h3 style="font-size:.88rem;font-weight:700;flex:1;margin:0">Loại thiết bị</h3>
+            <button class="btn btn-primary btn-sm" onclick="openAddDevType()">+ Thêm</button>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+            <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên loại</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+            </tr></thead>
+            <tbody id="devTypesTbody"></tbody>
+          </table>
+        </div>
+
+        <!-- Devices list -->
+        <div class="card">
+          <div style="padding:.65rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+            <h3 style="font-size:.88rem;font-weight:700;flex:1;margin:0">Danh sách thiết bị</h3>
+            <button id="devDeleteSelBtn" class="btn btn-danger btn-sm" onclick="deleteSelectedDevices()" style="display:none">🗑 Xóa (<span id="devSelCount">0</span>)</button>
+            <input type="text" id="devSearch" placeholder="🔍 Lọc…" oninput="renderDevicesTable()"
+              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .55rem;color:var(--text);font-size:.8rem;width:160px;outline:none">
+            <select id="devTypeFilter" onchange="renderDevicesTable()"
+              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .45rem;color:var(--text);font-size:.8rem;outline:none">
+              <option value="">Tất cả loại</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="openDevImport()" title="Import danh sách thiết bị từ file CSV">⬆ Import CSV</button>
+            <button class="btn btn-primary btn-sm" onclick="openAddDevice()">+ Thêm</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+              <thead><tr>
+                <th style="padding:.45rem .5rem .45rem .75rem;border-bottom:1px solid var(--border);width:32px"><input type="checkbox" id="devChkAll" onchange="toggleAllDevices(this.checked)" title="Chọn tất cả"></th>
+                <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên</th>
+                <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">IP</th>
+                <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Loại</th>
+                <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+              </tr></thead>
+              <tbody id="devicesTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Camera Types section ── -->
+    <div id="camtypesSection" style="display:none">
+      <div class="card table-wrap" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">Camera Types</h3>
+          <span style="font-size:.77rem;color:var(--text-muted)">Define snapshot URL patterns per vendor/model family</span>
+        </div>
+        <table>
+          <thead><tr><th>Name</th><th>Snapshot Path</th><th>HTTP Port</th><th>ONVIF</th><th>Cameras</th><th>Actions</th></tr></thead>
+          <tbody id="ctTbody"></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">Stream Assignments</h3>
+          <input type="text" id="ctAssignSearch" placeholder="🔍 Filter streams…" oninput="renderCtAssignTable()"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .6rem;color:var(--text);font-size:.82rem;width:180px;outline:none">
+          <button class="btn btn-primary btn-sm" onclick="saveCtAssignments()">💾 Save Assignments</button>
+          <span id="ctAssignMsg" style="font-size:.8rem;color:var(--green);display:none">✓ Saved</span>
+        </div>
+        <!-- Bulk assign panel -->
+        <div style="padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+          <span style="font-size:.78rem;font-weight:600;color:var(--text-muted)">Gán hàng loạt:</span>
+          <select id="bulkGroupSel" class="input" style="padding:.28rem .5rem;font-size:.8rem;width:auto;min-width:160px">
+            <option value="">— chọn nhóm camera —</option>
+          </select>
+          <svg viewBox="0 0 20 20" fill="currentColor" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+          <select id="bulkTypeSel" class="input" style="padding:.28rem .5rem;font-size:.8rem;width:auto;min-width:160px">
+            <option value="">— chọn loại camera —</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="applyBulkAssign()">Áp dụng</button>
+          <span id="bulkMsg" style="font-size:.78rem;color:var(--green);display:none"></span>
+        </div>
+        <div style="padding:.45rem 1rem .3rem;font-size:.75rem;color:var(--text-muted)">
+          Gán từng stream vào loại camera tương ứng để server lấy snapshot trực tiếp từ camera qua HTTP.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Stream</th><th>Camera Type</th></tr></thead>
+            <tbody id="ctAssignTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Camera Config section ── -->
+    <div id="camconfigSection" style="display:none">
+      <div style="display:grid;grid-template-columns:380px 1fr;gap:1rem;align-items:start">
+
+        <!-- Left: Input form -->
+        <div class="card">
+          <div style="padding:.75rem 1.25rem;border-bottom:1px solid var(--border)">
+            <h3 style="font-size:.88rem;font-weight:700;margin:0">Cấu hình Camera (RCP XML)</h3>
+            <p style="font-size:.72rem;color:var(--text-muted);margin:.25rem 0 0">
+              Gửi lệnh HTTP đến từng camera, ghi log thành công / thất bại
+            </p>
+          </div>
+          <div style="padding:.9rem 1.25rem;display:flex;flex-direction:column;gap:.85rem">
+
+            <!-- Preset -->
+            <div>
+              <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.3rem">Loại lệnh (Preset)</label>
+              <select id="ccPreset" onchange="applyPreset()"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem;color:var(--text);font-size:.83rem;outline:none">
+                <option value="">⌛ Đang tải…</option>
+              </select>
+              <!-- Preset management actions -->
+              <div style="display:flex;gap:.45rem;margin-top:.4rem;align-items:center">
+                <button class="btn btn-secondary" onclick="ccSaveNew()"
+                  style="font-size:.74rem;padding:.27rem .55rem" title="Lưu params hiện tại thành preset mới">
+                  💾 Lưu mới
+                </button>
+                <button class="btn btn-secondary" id="ccUpdateBtn" onclick="ccUpdatePreset()" disabled
+                  style="font-size:.74rem;padding:.27rem .55rem" title="Lưu params hiện tại vào preset đang chọn">
+                  ✏ Cập nhật
+                </button>
+                <button class="btn" id="ccDeleteBtn" onclick="ccDeletePreset()" disabled
+                  style="font-size:.74rem;padding:.27rem .55rem;background:transparent;color:var(--red);border:1px solid var(--red)" title="Xóa preset đang chọn">
+                  🗑
+                </button>
+              </div>
+              <!-- Inline save-new form -->
+              <div id="ccSaveNewForm" style="display:none;margin-top:.4rem">
+                <div style="display:flex;gap:.4rem;align-items:center">
+                  <input type="text" id="ccNewPresetName" placeholder="Tên preset…"
+                    style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .55rem;color:var(--text);font-size:.82rem;outline:none"
+                    onkeydown="if(event.key==='Enter')ccConfirmSaveNew();if(event.key==='Escape')ccCancelSaveNew()">
+                  <button class="btn btn-primary" onclick="ccConfirmSaveNew()" style="font-size:.74rem;padding:.27rem .55rem">✓ Lưu</button>
+                  <button class="btn btn-secondary" onclick="ccCancelSaveNew()" style="font-size:.74rem;padding:.27rem .55rem">✕</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- IP list -->
+            <div>
+              <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.3rem">
+                Danh sách IP camera
+                <span style="font-weight:400;color:var(--text-muted)">— mỗi dòng 1 IP</span>
+              </label>
+              <textarea id="ccIpList" rows="10"
+                placeholder="180.1.2.12&#10;180.1.2.13 matkhau_rieng&#10;180.1.2.14"
+                style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.45rem .6rem;color:var(--text);font-size:.82rem;font-family:monospace;resize:vertical;outline:none;line-height:1.55"></textarea>
+              <p style="font-size:.71rem;color:var(--text-muted);margin:.25rem 0 0">
+                Định dạng: <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">IP</code>
+                hoặc <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">IP password</code>
+                (password riêng ghi đè password chung)
+              </p>
+            </div>
+
+            <!-- Auth -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem">
+              <div>
+                <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.3rem">Username</label>
+                <input type="text" id="ccUsername" value="service" placeholder="service"
+                  style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem;color:var(--text);font-size:.83rem;font-family:monospace;outline:none">
+              </div>
+              <div>
+                <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.3rem">Password chung</label>
+                <input type="text" id="ccSharedPass" placeholder="htt2013"
+                  style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem;color:var(--text);font-size:.83rem;font-family:monospace;outline:none">
+              </div>
+            </div>
+            <p style="font-size:.71rem;color:var(--text-muted);margin:-.4rem 0 0">
+              HTTP Digest/Basic Auth. Password dùng cho những dòng IP không có password riêng.
+            </p>
+
+            <!-- Advanced (auto-filled by preset, editable) -->
+            <details id="ccAdvanced">
+              <summary style="font-size:.8rem;font-weight:600;cursor:pointer;user-select:none;color:var(--text-muted);outline:none">
+                ▸ Tham số RCP XML (tự động từ preset)
+              </summary>
+              <div style="display:flex;flex-direction:column;gap:.7rem;margin-top:.65rem;padding-top:.65rem;border-top:1px solid var(--border)">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+                  <div>
+                    <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.25rem">command</label>
+                    <input type="text" id="ccCommand" value="0x0A94"
+                      style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.38rem .55rem;color:var(--text);font-size:.82rem;font-family:monospace;outline:none">
+                  </div>
+                  <div>
+                    <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.25rem">type</label>
+                    <input type="text" id="ccType" value="T_OCTET"
+                      style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.38rem .55rem;color:var(--text);font-size:.82rem;font-family:monospace;outline:none">
+                  </div>
+                  <div>
+                    <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.25rem">direction</label>
+                    <input type="text" id="ccDirection" value="WRITE"
+                      style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.38rem .55rem;color:var(--text);font-size:.82rem;font-family:monospace;outline:none">
+                  </div>
+                  <div>
+                    <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.25rem">num</label>
+                    <input type="text" id="ccNum" value="7"
+                      style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.38rem .55rem;color:var(--text);font-size:.82rem;font-family:monospace;outline:none">
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.25rem">payload</label>
+                  <input type="text" id="ccPayload" value="0"
+                    style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.38rem .55rem;color:var(--text);font-size:.82rem;font-family:monospace;outline:none">
+                  <p style="font-size:.7rem;color:var(--text-muted);margin:.2rem 0 0">
+                    URL: <code style="font-size:.68rem">/rcp.xml?command&amp;type&amp;direction&amp;num&amp;payload</code>
+                  </p>
+                </div>
+                <div style="display:flex;align-items:center;gap:.6rem">
+                  <label style="font-size:.78rem;font-weight:600">Timeout</label>
+                  <input type="number" id="ccTimeout" value="5" min="2" max="30"
+                    style="width:70px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.38rem .55rem;color:var(--text);font-size:.82rem;outline:none">
+                  <span style="font-size:.78rem;color:var(--text-muted)">giây / camera</span>
+                </div>
+              </div>
+            </details>
+
+            <button class="btn btn-primary" id="ccApplyBtn" onclick="applyCameraConfig()" style="font-size:.85rem;padding:.5rem 1rem">
+              ▶ Áp dụng cấu hình
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Results -->
+        <div>
+          <!-- Summary counters -->
+          <div id="ccResults" style="display:none">
+            <div style="display:flex;gap:.75rem;margin-bottom:.9rem;flex-wrap:wrap">
+              <div class="card" style="padding:.65rem 1.1rem;flex:1;min-width:90px;text-align:center">
+                <div style="font-size:1.7rem;font-weight:800;color:var(--text);line-height:1" id="ccTotal">0</div>
+                <div style="font-size:.72rem;color:var(--text-muted);margin-top:.2rem">Tổng</div>
+              </div>
+              <div class="card" style="padding:.65rem 1.1rem;flex:1;min-width:90px;text-align:center">
+                <div style="font-size:1.7rem;font-weight:800;color:var(--green);line-height:1" id="ccSuccess">0</div>
+                <div style="font-size:.72rem;color:var(--text-muted);margin-top:.2rem">Thành công</div>
+              </div>
+              <div class="card" style="padding:.65rem 1.1rem;flex:1;min-width:90px;text-align:center">
+                <div style="font-size:1.7rem;font-weight:800;color:var(--red);line-height:1" id="ccFailed">0</div>
+                <div style="font-size:.72rem;color:var(--text-muted);margin-top:.2rem">Thất bại</div>
+              </div>
+            </div>
+            <div class="card table-wrap">
+              <div style="padding:.55rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.5rem">
+                <span style="font-size:.82rem;font-weight:700;flex:1">Log kết quả</span>
+                <button class="btn btn-sm" onclick="exportCamConfigLog()">⬇ Xuất CSV</button>
+              </div>
+              <table>
+                <thead><tr><th style="width:42px">STT</th><th>IP Camera</th><th style="width:70px">HTTP</th><th style="width:80px">Config</th><th style="width:80px">Apply</th><th>Ghi chú</th></tr></thead>
+                <tbody id="ccLogTbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Placeholder before first run -->
+          <div id="ccPlaceholder" style="display:flex;align-items:center;justify-content:center;min-height:240px;color:var(--text-muted);font-size:.85rem;flex-direction:column;gap:.6rem">
+            <svg viewBox="0 0 48 48" fill="none" style="width:42px;height:42px;opacity:.25">
+              <rect x="6" y="6" width="36" height="36" rx="5" stroke="currentColor" stroke-width="2"/>
+              <path d="M16 24h16M24 16v16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            Nhập danh sách IP và nhấn Áp dụng để bắt đầu
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Traffic section (inner tabs: Traffic Monitor + Travel Time) ── -->
+    <div id="trafficSection" style="display:none">
+
+      <!-- Inner tab bar -->
+      <div class="inner-tabs" id="trafficInnerTabs">
+        <button class="inner-tab active" data-inner="trafficMonitor" onclick="showTrafficInner('trafficMonitor')">Traffic Monitor</button>
+        <button class="inner-tab" data-inner="travelTime" onclick="showTrafficInner('travelTime')">Travel Time</button>
+      </div>
+
+      <!-- ══════ INNER: Traffic Monitor ══════ -->
+      <div id="trafficMonitorPane">
+        <iframe id="trafficMonitorFrame"
+          src="/traffic.html?embed=1"
+          style="width:100%;height:calc(100vh - 200px);min-height:600px;border:none;border-radius:8px;display:block">
+        </iframe>
+      </div><!-- /trafficMonitorPane -->
+
+      <!-- ══════ INNER: Travel Time ══════ -->
+      <div id="travelTimePane" style="display:none">
+
+        <!-- Row 1: Config + Scheduler -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+
+          <!-- Config card -->
+          <div class="card" style="padding:1.1rem 1.25rem">
+            <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.85rem">Cấu hình</div>
+            <div class="form-group" style="margin-bottom:.6rem">
+              <label style="font-size:.8rem">Google Apps Script URL <span style="color:var(--text-muted);font-weight:400">(tuỳ chọn)</span></label>
+              <input type="url" id="tt-gscript" class="input" placeholder="https://script.google.com/macros/s/…" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin-bottom:.85rem">
+              <label style="font-size:.8rem">Chu kỳ thu thập (phút)</label>
+              <div style="display:flex;gap:.5rem;align-items:center">
+                <select id="tt-interval" class="input" style="flex:1" onchange="ttIntervalChange()">
+                  <option value="5">5 phút</option>
+                  <option value="10">10 phút</option>
+                  <option value="15" selected>15 phút</option>
+                  <option value="30">30 phút</option>
+                  <option value="60">60 phút</option>
+                  <option value="custom">Tuỳ chọn…</option>
+                </select>
+                <input type="number" id="tt-interval-custom" class="input" style="width:90px;display:none"
+                  min="1" max="1440" placeholder="…phút">
+              </div>
+            </div>
+            <div style="font-size:.77rem;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;margin-bottom:.75rem">
+              API key dùng chung từ <a href="/admin.html" onclick="showTab('settings')" style="color:var(--accent)">Settings → VietMap API Key</a>
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="saveTTConfig()">Lưu cấu hình</button>
+            <div id="ttConfigMsg" style="display:none;font-size:.78rem;color:var(--green);margin-top:.45rem">Đã lưu.</div>
+          </div>
+
+          <!-- Scheduler card -->
+          <div class="card" style="padding:1.1rem 1.25rem">
+            <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.85rem">Bộ thu thập</div>
+            <div id="ttStatusBox" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.65rem .85rem;font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem;min-height:3.5rem">
+              Đang tải…
+            </div>
+            <div style="display:flex;gap:.55rem;margin-bottom:.55rem">
+              <button class="btn btn-primary" style="flex:1" onclick="ttSchedulerStart()">▶ Khởi động</button>
+              <button class="btn btn-secondary" style="flex:1" onclick="ttSchedulerStop()">■ Dừng</button>
+            </div>
+            <button class="btn btn-secondary" style="width:100%" onclick="ttRunNow()">⚡ Chạy ngay một lần</button>
+            <div style="margin-top:.65rem;font-size:.75rem;color:var(--text-muted)">
+              <span id="ttLastRun"></span> <span id="ttNextRun"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 2: Routes -->
+        <div class="card" style="padding:1.1rem 1.25rem;margin-bottom:1.25rem">
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem">
+            <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;flex:1">Tuyến đường</div>
+            <span id="ttRouteCount" style="font-size:.75rem;color:var(--text-muted)"></span>
+            <button class="btn btn-primary btn-sm" onclick="openTTRoute(null)">+ Thêm tuyến</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Tên tuyến đường</th><th>Điểm đầu</th><th>Điểm cuối</th><th>Điểm giữa</th>
+                <th style="text-align:right">Thao tác</th>
+              </tr></thead>
+              <tbody id="ttRoutesBody">
+                <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Đang tải…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Row 3: Logs -->
+        <div class="card" style="padding:1.1rem 1.25rem">
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem;flex-wrap:wrap">
+            <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;flex:1">Dữ liệu thu thập</div>
+            <select id="ttLogDate" class="input" style="width:auto;padding:.3rem .6rem;font-size:.82rem" onchange="loadTTLogs()">
+              <option value="">— Hôm nay —</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="refreshTTLogDates()">↺</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportTTLogs()">⬇ CSV</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Thời gian</th><th>Tuyến đường</th><th>Khoảng cách</th>
+                <th>Thực tế (s)</th><th>Chuẩn (s)</th><th>Trễ (s)</th><th>TTI</th>
+              </tr></thead>
+              <tbody id="ttLogsBody">
+                <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chọn ngày</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /travelTimePane -->
+
+    </div><!-- /trafficSection -->
+
+  </div>
+</main>
+
+<!-- ═══════════════════ Travel Time Route Dialog (with map) ═══════════════════ -->
+<div class="dlg-backdrop" id="ttRouteDlg">
+  <div class="dlg" style="width:860px;max-width:97vw;max-height:94vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;padding:1rem 1.25rem .75rem;border-bottom:1px solid var(--border);flex-shrink:0">
+      <h2 id="ttRouteDlg-title" style="margin:0;font-size:1rem;flex:1">Thêm tuyến đường</h2>
+      <button class="btn btn-secondary btn-sm" onclick="closeTTRouteDlg()" style="padding:.25rem .6rem">✕</button>
+    </div>
+
+    <!-- Body: map left + form right -->
+    <div style="display:flex;flex:1;min-height:0;overflow:hidden">
+
+      <!-- Map -->
+      <div style="flex:1;display:flex;flex-direction:column;padding:.75rem;border-right:1px solid var(--border);min-width:0">
+        <!-- Search -->
+        <div style="position:relative;margin-bottom:.5rem">
+          <div style="display:flex;gap:.4rem">
+            <input type="text" id="ttMapSearch" placeholder="Tìm địa điểm…" autocomplete="off"
+              class="input" style="flex:1;font-size:.82rem;padding:.35rem .6rem"
+              oninput="ttSearchInput()" onkeypress="if(event.key==='Enter') ttSearchNow()">
+            <button class="btn btn-secondary btn-sm" onclick="ttSearchNow()" style="white-space:nowrap">Tìm</button>
+          </div>
+          <div id="ttSearchDrop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);max-height:180px;overflow-y:auto;margin-top:2px"></div>
+        </div>
+        <!-- Hint -->
+        <div style="font-size:.73rem;color:var(--text-muted);margin-bottom:.4rem;line-height:1.5">
+          🖱 <b>Chuột phải</b> trên bản đồ để đặt điểm &nbsp;|&nbsp; Sau khi đặt đủ đầu + cuối → <b>Xem lộ trình</b>
+        </div>
+        <!-- Map container -->
+        <div id="ttRouteMap" style="flex:1;min-height:380px;border-radius:8px;border:1px solid var(--border);background:var(--surface2)"></div>
+        <!-- Map context menu -->
+        <div id="ttCtxMenu" style="display:none;position:fixed;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);padding:.4rem 0;min-width:180px;font-size:.82rem">
+          <button onclick="ttCtxSet('origin')"   style="width:100%;text-align:left;padding:.45rem 1rem;background:none;border:none;color:#4ade80;cursor:pointer;font-weight:600">🟢 Đặt làm Điểm đầu</button>
+          <button onclick="ttCtxSet('waypoint')" style="width:100%;text-align:left;padding:.45rem 1rem;background:none;border:none;color:#60a5fa;cursor:pointer;font-weight:600">🔵 Thêm Điểm giữa</button>
+          <button onclick="ttCtxSet('dest')"     style="width:100%;text-align:left;padding:.45rem 1rem;background:none;border:none;color:#f87171;cursor:pointer;font-weight:600">🔴 Đặt làm Điểm cuối</button>
+        </div>
+        <!-- Route info -->
+        <div id="ttRouteInfo" style="display:none;margin-top:.45rem;font-size:.8rem;text-align:center;padding:.4rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text-muted)"></div>
+      </div>
+
+      <!-- Form (right panel) -->
+      <div style="width:260px;flex-shrink:0;display:flex;flex-direction:column;padding:.85rem 1rem;overflow-y:auto">
+        <form id="ttRouteForm" onsubmit="submitTTRoute(event)" style="display:flex;flex-direction:column;gap:.65rem;flex:1">
+          <input type="hidden" id="tt-route-id">
+
+          <div class="form-group" style="margin:0">
+            <label style="font-size:.8rem">Tên tuyến đường</label>
+            <input type="text" id="tt-route-name" class="input" required autocomplete="off"
+              placeholder="VD: Võ Văn Kiệt → Điện Biên Phủ" style="font-size:.83rem">
+          </div>
+
+          <!-- Point display (read-only, filled by map) -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.6rem .75rem;font-size:.75rem;line-height:1.9">
+            <div><span style="color:#4ade80;font-weight:700">🟢 Đầu:</span>
+              <span id="ttOriginLabel" style="color:var(--text-muted);margin-left:.3rem">Chưa chọn</span></div>
+            <div style="border-top:1px solid var(--border);padding-top:.35rem">
+              <span style="color:#60a5fa;font-weight:700">🔵 Giữa:</span>
+              <span id="ttWpLabel" style="color:var(--text-muted);margin-left:.3rem">—</span>
+              <button type="button" onclick="ttClearWp()" style="float:right;background:none;border:none;color:var(--red);cursor:pointer;font-size:.7rem;padding:0">Xóa</button>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:.35rem"><span style="color:#f87171;font-weight:700">🔴 Cuối:</span>
+              <span id="ttDestLabel" style="color:var(--text-muted);margin-left:.3rem">Chưa chọn</span></div>
+          </div>
+          <!-- Hidden inputs for actual values -->
+          <input type="hidden" id="tt-route-origin">
+          <input type="hidden" id="tt-route-dest">
+          <input type="hidden" id="tt-route-wp">
+
+          <button type="button" class="btn btn-secondary" onclick="ttPreviewRoute()" style="font-size:.82rem">🗺 Xem lộ trình</button>
+
+          <div style="flex:1"></div>
+
+          <button type="button" class="btn btn-secondary" onclick="ttResetMap()" style="font-size:.78rem">Xóa hết điểm</button>
+          <div class="btn-row" style="margin:0">
+            <button type="button" class="btn btn-secondary" onclick="closeTTRouteDlg()" style="flex:1">Hủy</button>
+            <button type="submit" class="btn btn-primary" id="ttRouteDlg-btn" style="flex:1">Lưu</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ Device Type Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="devTypeDlg">
+  <div class="dlg" style="min-height:unset;width:360px">
+    <h2 id="devTypeDlg-title">Thêm loại thiết bị</h2>
+    <form id="devTypeForm" onsubmit="submitDevType(event)">
+      <input type="hidden" id="devType-orig-id">
+      <div class="form-group">
+        <label>Tên loại</label>
+        <input type="text" id="devType-name" class="input" required autocomplete="off" placeholder="ví dụ: Switch, Router, NVR, Camera IP…">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeDevTypeDlg()">Hủy</button>
+        <button type="submit" class="btn btn-primary" id="devTypeDlg-btn">Tạo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ Device Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="deviceDlg">
+  <div class="dlg" style="min-height:unset;width:420px">
+    <h2 id="deviceDlg-title">Thêm thiết bị</h2>
+    <form id="deviceForm" onsubmit="submitDevice(event)">
+      <input type="hidden" id="dev-orig-id">
+      <div class="f2">
+        <div class="form-group">
+          <label>Tên thiết bị</label>
+          <input type="text" id="dev-name" class="input" required autocomplete="off" placeholder="ví dụ: SW-Core-01">
+        </div>
+        <div class="form-group">
+          <label>Địa chỉ IP</label>
+          <input type="text" id="dev-ip" class="input" required autocomplete="off" placeholder="192.168.1.1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Loại thiết bị</label>
+        <select id="dev-type" class="input">
+          <option value="">— Chưa phân loại —</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeDeviceDlg()">Hủy</button>
+        <button type="submit" class="btn btn-primary" id="deviceDlg-btn">Tạo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ Device Import Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="devImportDlg">
+  <div class="dlg" style="width:640px;max-height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <div style="padding:1.2rem 1.5rem .8rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
+      <h2 style="margin:0;font-size:1.05rem;font-weight:700;flex:1">Import danh sách thiết bị</h2>
+      <button class="btn btn-secondary btn-sm" onclick="closeDevImport()" style="padding:.25rem .6rem">✕</button>
+    </div>
+
+    <!-- Instructions + template -->
+    <div style="padding:.9rem 1.5rem;border-bottom:1px solid var(--border);background:var(--surface2)">
+      <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:.55rem;font-weight:600">📋 Định dạng file CSV:</div>
+      <pre style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.55rem .8rem;font-size:.75rem;color:var(--text);margin:0 0 .6rem;overflow-x:auto;line-height:1.5">name,ip,type
+SW-Core-01,192.168.1.1,Switch
+Router-WAN,10.0.0.1,Router
+NVR-Tang1,192.168.2.5,NVR
+Camera-P1-01,192.168.3.10,Camera IP</pre>
+      <div style="font-size:.77rem;color:var(--text-muted);margin-bottom:.6rem">
+        • Cột <code style="background:var(--surface);padding:.05rem .3rem;border-radius:3px">name</code> và
+          <code style="background:var(--surface);padding:.05rem .3rem;border-radius:3px">ip</code> bắt buộc &nbsp;•&nbsp;
+          Cột <code style="background:var(--surface);padding:.05rem .3rem;border-radius:3px">type</code> là <strong>tên loại</strong> đã có trong hệ thống &nbsp;•&nbsp;
+          Hàng tiêu đề tự động bỏ qua &nbsp;•&nbsp; Dòng bắt đầu bằng <code style="background:var(--surface);padding:.05rem .3rem;border-radius:3px">#</code> được bỏ qua
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="downloadDevTemplate()">⬇ Tải template mẫu (.csv)</button>
+    </div>
+
+    <!-- File picker -->
+    <div style="padding:.8rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+      <label style="font-size:.83rem;font-weight:600;color:var(--text-muted)">Chọn file CSV:</label>
+      <input type="file" id="devImportFile" accept=".csv,.txt"
+        style="font-size:.82rem;color:var(--text);flex:1;min-width:0"
+        onchange="parseDevImportFile()">
+      <span id="devImportFileStat" style="font-size:.78rem;color:var(--text-muted)"></span>
+    </div>
+
+    <!-- Preview table -->
+    <div id="devImportPreview" style="flex:1;overflow-y:auto;min-height:0;padding:.5rem 1.5rem 0"></div>
+
+    <!-- Footer actions -->
+    <div style="padding:.8rem 1.5rem;border-top:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
+      <span id="devImportSummary" style="font-size:.8rem;color:var(--text-muted);flex:1"></span>
+      <button class="btn btn-secondary" onclick="closeDevImport()">Hủy</button>
+      <button class="btn btn-primary" id="devImportBtn" onclick="executeDevImport()" disabled>Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ Camera Type Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="ctDlg">
+  <div class="dlg" style="min-height:unset;width:480px">
+    <h2 id="ctDlg-title">Add Camera Type</h2>
+    <form id="ctForm" onsubmit="submitCameraType(event)">
+      <input type="hidden" id="ct-orig-id">
+
+      <div class="f2">
+        <div class="form-group">
+          <label>ID (unique key)</label>
+          <input type="text" id="ct-id" class="input" required autocomplete="off" placeholder="e.g. hikvision">
+        </div>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="ct-name" class="input" required autocomplete="off" placeholder="e.g. Hikvision ISAPI">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Snapshot Path</label>
+        <input type="text" id="ct-path" class="input" autocomplete="off" placeholder="/ISAPI/Streaming/channels/101/picture">
+        <div style="font-size:.73rem;color:var(--text-muted);margin-top:.25rem">
+          Leave blank for ONVIF auto-discovery. Used only when ONVIF is off.
+        </div>
+      </div>
+
+      <div class="f2">
+        <div class="form-group">
+          <label>HTTP Port (0 = 80)</label>
+          <input type="number" id="ct-port" class="input" value="80" min="0" max="65535">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;padding-bottom:.05rem">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-bottom:.35rem;font-size:.85rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
+            <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtOnvifChange()">
+            <span>ONVIF auto-discover snapshot URL</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Quick-fill templates -->
+      <div class="form-group">
+        <label>Quick Fill</label>
+        <div style="display:flex;flex-wrap:wrap;gap:.35rem">
+          <button type="button" class="cam-tb-btn" onclick="ctFill('hikvision','Hikvision ISAPI','/ISAPI/Streaming/channels/101/picture',80,false)">Hikvision</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('dahua','Dahua HTTP','/cgi-bin/snapshot.cgi',80,false)">Dahua</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('axis','Axis VAPIX','/axis-cgi/jpg/image.cgi',80,false)">Axis</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('reolink','Reolink','/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snapshot',80,false)">Reolink</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('onvif-generic','ONVIF Generic','',80,true)">ONVIF Generic</button>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeCtDlg()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="ctDlg-btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ User Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="dlg">
+  <div class="dlg">
+    <h2 id="dlg-title">Add User</h2>
+    <form id="uform" onsubmit="submitForm(event)">
+      <input type="hidden" id="f-orig">
+
+      <div class="f2">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="f-user" class="input" required autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label id="f-pwd-lbl">Password *</label>
+          <input type="password" id="f-pwd" class="input" autocomplete="new-password">
+        </div>
+      </div>
+
+      <div class="f2" style="margin-top:.75rem;">
+        <div class="form-group">
+          <label>Role</label>
+          <select id="f-role" class="input" onchange="onRoleChange()">
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;gap:.8rem;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-bottom:.35rem;">
+            <input type="checkbox" id="f-enabled" checked style="accent-color:var(--accent);width:15px;height:15px;">
+            Enabled
+          </label>
+        </div>
+      </div>
+
+      <!-- Tab permissions — only shown for viewer role -->
+      <div id="f-tabs-row" style="margin-top:.75rem">
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.45rem">Page Permissions</label>
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="cameras"> Cameras</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="map"> Map</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="monitor"> Monitor</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="dashboard"> Dashboard</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="log"> Logs</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="config"> Config</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="api_docs"> API Docs</label>
+        </div>
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-top:.75rem;margin-bottom:.45rem">Map Permissions</label>
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-traffic"> 🚦 Live Traffic</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-heatmap"> 🌡 Heatmap</label>
+        </div>
+        <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic và heatmap trên tab Map.</p>
+      </div>
+
+      <div class="form-group" id="cam-section" style="margin-top:.75rem;">
+        <label>Camera Access</label>
+        <div class="cam-wrap">
+          <input type="text" class="cam-search" id="cam-q" placeholder="🔍 Search cameras…" oninput="filterCams()">
+          <!-- Quick-select toolbar -->
+          <div class="cam-toolbar">
+            <button type="button" class="cam-tb-btn" onclick="selectAll()" title="Select all cameras">✓ All</button>
+            <button type="button" class="cam-tb-btn" onclick="selectFiltered()" title="Select filtered cameras" id="btn-sel-filtered" style="display:none">✓ Filtered</button>
+            <button type="button" class="cam-tb-btn danger" onclick="clearFiltered()" title="Deselect filtered cameras" id="btn-clr-filtered" style="display:none">✗ Filtered</button>
+            <button type="button" class="cam-tb-btn danger" onclick="clearAll()" title="Deselect all cameras">✗ None</button>
+            <span class="cam-tb-spacer"></span>
+            <span class="cam-tb-count" id="cam-count"></span>
+          </div>
+          <!-- Group quick-select (shown when groups exist) -->
+          <div class="cam-groups-row" id="camGroupsRow" style="display:none">
+            <span class="cam-groups-label">Groups:</span>
+            <div id="camGroupChips" style="display:flex;flex-wrap:wrap;gap:.3rem;"></div>
+          </div>
+          <div class="cam-list" id="cam-list"><div class="cam-empty">Loading…</div></div>
+          <div class="cam-resize-hint">↕ Drag edge to resize list &nbsp;·&nbsp; Drag dialog corner to resize window</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeDlg()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="dlg-btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ Group Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="grpDlg">
+  <div class="dlg">
+    <h2 id="grpDlg-title">Add Group</h2>
+    <form id="grpForm" onsubmit="submitGroup(event)">
+      <div class="form-group">
+        <label>Group Name</label>
+        <input type="text" id="g-name" class="input" required autocomplete="off" placeholder="e.g. Downtown, Highway A…">
+      </div>
+
+      <div class="form-group" style="margin-top:.5rem;">
+        <label>Cameras in this group</label>
+        <div class="cam-wrap">
+          <input type="text" class="cam-search" id="g-cam-q" placeholder="🔍 Search cameras…" oninput="filterGroupCams()">
+          <div class="cam-toolbar">
+            <button type="button" class="cam-tb-btn" onclick="gSelectAll()">✓ All</button>
+            <button type="button" class="cam-tb-btn" onclick="gSelectFiltered()" id="g-btn-filtered" style="display:none">✓ Filtered</button>
+            <button type="button" class="cam-tb-btn danger" onclick="gClearAll()">✗ None</button>
+            <span class="cam-tb-spacer"></span>
+            <span class="cam-tb-count" id="g-cam-count"></span>
+          </div>
+          <div class="cam-list" id="g-cam-list"><div class="cam-empty">Loading…</div></div>
+          <div class="cam-resize-hint">↕ Drag edge to resize list &nbsp;·&nbsp; Drag dialog corner to resize window</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeGroupDlg()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="grpDlg-btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+let allCams     = [];          // sorted camera names from server
+let checkedCams = new Set();   // user-form camera selection (persists through filter)
+let editing     = null;        // null = new user, User obj = editing
+let usersCache  = [];
+let allGroups   = [];          // [{name, cameras}]
+let editingGroup = null;       // null = new group, Group obj = editing
+
+let gCheckedCams = new Set();  // group-form camera selection
+
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', async () => {
+  await initApp();
+  await Promise.all([loadCameras(), loadUsers(), loadGroups()]);
+  renderCamList();
+});
+
+// Close dialogs on backdrop click
+document.getElementById('dlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeDlg(); });
+document.getElementById('grpDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeGroupDlg(); });
+
+// ════════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ════════════════════════════════════════════════════════
+function showTab(tab) {
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.getElementById('usersSection').style.display    = tab === 'users'    ? '' : 'none';
+  document.getElementById('groupsSection').style.display   = tab === 'groups'   ? '' : 'none';
+  document.getElementById('settingsSection').style.display = tab === 'settings' ? '' : 'none';
+  document.getElementById('camtypesSection').style.display  = tab === 'camtypes'  ? '' : 'none';
+  document.getElementById('devicesSection').style.display   = tab === 'devices'   ? '' : 'none';
+  document.getElementById('camconfigSection').style.display = tab === 'camconfig' ? '' : 'none';
+  document.getElementById('trafficSection').style.display   = tab === 'traffic'    ? '' : 'none';
+  const btn = document.getElementById('topbarAddBtn');
+  if (tab === 'users') {
+    btn.textContent = '+ Add User'; btn.style.display = ''; btn.onclick = openAdd;
+  } else if (tab === 'groups') {
+    btn.textContent = '+ Add Group'; btn.style.display = ''; btn.onclick = openAddGroup;
+  } else if (tab === 'camtypes') {
+    btn.textContent = '+ Add Type'; btn.style.display = ''; btn.onclick = openAddCt;
+  } else if (tab === 'devices') {
+    btn.textContent = '+ Thêm thiết bị'; btn.style.display = ''; btn.onclick = openAddDevice;
+  } else {
+    btn.style.display = 'none';
+  }
+  if (tab === 'settings')  loadSettings();
+  if (tab === 'camtypes')  loadCameraTypes();
+  if (tab === 'devices')   loadDevicesTab();
+  if (tab === 'camconfig') loadCamPresets();
+  if (tab === 'traffic')   loadTrafficTab();
+}
+
+// ════════════════════════════════════════════════════════
+//  CAMERA CONFIG
+// ════════════════════════════════════════════════════════
+// ── Presets (loaded from /api/camera-config/presets) ─────────────
+let _ccPresets = []; // [{id, name, command, type, direction, num, payload}]
+
+async function loadCamPresets() {
+  try {
+    const list = await apiFetch('/api/camera-config/presets');
+    _ccPresets = Array.isArray(list) ? list : [];
+  } catch (_) { _ccPresets = []; }
+  _renderPresetDropdown();
+}
+
+function _renderPresetDropdown(keepId) {
+  const sel = document.getElementById('ccPreset');
+  const prevId = keepId !== undefined ? keepId : sel.value;
+  sel.innerHTML = '';
+  _ccPresets.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.locked ? `${p.name} 🔒` : p.name;
+    sel.appendChild(opt);
+  });
+  const customOpt = document.createElement('option');
+  customOpt.value = 'custom'; customOpt.textContent = 'Tuỳ chỉnh…';
+  sel.appendChild(customOpt);
+
+  const ids = _ccPresets.map(p => p.id);
+  if (prevId && (ids.includes(prevId) || prevId === 'custom')) {
+    sel.value = prevId;
+  } else if (_ccPresets.length) {
+    sel.value = _ccPresets[0].id;
+    _fillFromPreset(_ccPresets[0]);
+  }
+  _updatePresetBtns();
+}
+
+function applyPreset() {
+  const id = document.getElementById('ccPreset').value;
+  _updatePresetBtns();
+  if (id === 'custom') return;
+  const p = _ccPresets.find(x => x.id === id);
+  if (p) _fillFromPreset(p);
+}
+
+function _fillFromPreset(p) {
+  document.getElementById('ccCommand').value   = p.command;
+  document.getElementById('ccType').value      = p.type;
+  document.getElementById('ccDirection').value = p.direction;
+  document.getElementById('ccNum').value       = p.num;
+  document.getElementById('ccPayload').value   = p.payload;
+}
+
+function _updatePresetBtns() {
+  const id = document.getElementById('ccPreset').value;
+  const preset = _ccPresets.find(p => p.id === id);
+  const isCustom = id === 'custom';
+  const isLocked = preset && preset.locked;
+  document.getElementById('ccUpdateBtn').disabled = isCustom || isLocked;
+  document.getElementById('ccDeleteBtn').disabled = isCustom || isLocked;
+}
+
+function _currentParams() {
+  return {
+    command:   document.getElementById('ccCommand').value.trim()   || '0x0A94',
+    type:      document.getElementById('ccType').value.trim()      || 'T_OCTET',
+    direction: document.getElementById('ccDirection').value.trim() || 'WRITE',
+    num:       document.getElementById('ccNum').value.trim()       || '7',
+    payload:   document.getElementById('ccPayload').value.trim()   || '0',
+  };
+}
+
+// ── Save new preset ───────────────────────────────────────────────
+function ccSaveNew() {
+  document.getElementById('ccSaveNewForm').style.display = '';
+  const nameEl = document.getElementById('ccNewPresetName');
+  nameEl.value = ''; nameEl.focus();
+}
+function ccCancelSaveNew() {
+  document.getElementById('ccSaveNewForm').style.display = 'none';
+}
+async function ccConfirmSaveNew() {
+  const name = document.getElementById('ccNewPresetName').value.trim();
+  if (!name) { toast('Nhập tên preset', 'error'); return; }
+  try {
+    const created = await apiFetch('/api/camera-config/presets', {
+      method: 'POST', body: { name, ..._currentParams() },
+    });
+    ccCancelSaveNew();
+    await loadCamPresets();
+    document.getElementById('ccPreset').value = created.id;
+    _updatePresetBtns();
+    toast(`Đã lưu preset "${name}"`, 'success');
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+// ── Update selected preset ────────────────────────────────────────
+async function ccUpdatePreset() {
+  const id = document.getElementById('ccPreset').value;
+  if (id === 'custom') return;
+  const existing = _ccPresets.find(x => x.id === id);
+  if (!existing) return;
+  try {
+    await apiFetch('/api/camera-config/presets', {
+      method: 'PUT', body: { id, name: existing.name, ..._currentParams() },
+    });
+    _ccPresets = _ccPresets.map(x => x.id === id ? { ...x, ..._currentParams() } : x);
+    toast(`Đã cập nhật preset "${existing.name}"`, 'success');
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+// ── Delete selected preset ────────────────────────────────────────
+async function ccDeletePreset() {
+  const id = document.getElementById('ccPreset').value;
+  if (id === 'custom') return;
+  const preset = _ccPresets.find(x => x.id === id);
+  if (!preset || !confirm(`Xóa preset "${preset.name}"?`)) return;
+  try {
+    await apiFetch('/api/camera-config/presets?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await loadCamPresets();
+    toast(`Đã xóa preset "${preset.name}"`, 'success');
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+let _ccLastResults = [];
+
+function parseCamConfigEntries() {
+  const sharedPass = document.getElementById('ccSharedPass').value.trim();
+  const entries = [];
+  for (const raw of document.getElementById('ccIpList').value.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/\s+/);
+    const ip = parts[0];
+    if (!ip) continue;
+    entries.push({ ip, password: parts[1] || sharedPass });
+  }
+  return entries;
+}
+
+async function applyCameraConfig() {
+  const entries = parseCamConfigEntries();
+  if (!entries.length) { toast('Chưa nhập IP camera nào', 'error'); return; }
+
+  const missing = entries.filter(e => !e.password);
+  if (missing.length) {
+    toast(`${missing.length} camera chưa có password (nhập password chung hoặc ghi IP password)`, 'error');
+    return;
+  }
+
+  const presetKey = document.getElementById('ccPreset').value;
+  const presetObj = _ccPresets.find(p => p.id === presetKey);
+  const presetLabel = presetObj ? presetObj.name : 'Tuỳ chỉnh';
+
+  const btn = document.getElementById('ccApplyBtn');
+  btn.disabled = true;
+  btn.textContent = `⏳ Đang xử lý ${entries.length} camera…`;
+  document.getElementById('ccResults').style.display = 'none';
+  document.getElementById('ccPlaceholder').style.display = 'flex';
+
+  try {
+    const body = {
+      entries,
+      username:    document.getElementById('ccUsername').value.trim() || 'service',
+      command:     document.getElementById('ccCommand').value.trim()   || '0x0A94',
+      type:        document.getElementById('ccType').value.trim()      || 'T_OCTET',
+      direction:   document.getElementById('ccDirection').value.trim() || 'WRITE',
+      num:         document.getElementById('ccNum').value.trim()       || '7',
+      payload:     document.getElementById('ccPayload').value.trim()   || '0',
+      timeout_sec: parseInt(document.getElementById('ccTimeout').value) || 5,
+    };
+    const results = await apiFetch('/api/camera-config/apply', { method: 'POST', body });
+    _ccLastResults = results || [];
+    _ccLastResults._preset = presetLabel;
+    renderCamConfigResults(_ccLastResults, presetLabel);
+  } catch (e) {
+    toast('Lỗi: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ Áp dụng cấu hình';
+  }
+}
+
+function renderCamConfigResults(results, presetLabel) {
+  // Success = config OK AND apply OK (or apply not applicable)
+  const ok   = results.filter(r => r.ok && r.apply_ok !== false).length;
+  const fail = results.length - ok;
+  document.getElementById('ccTotal').textContent   = results.length;
+  document.getElementById('ccSuccess').textContent = ok;
+  document.getElementById('ccFailed').textContent  = fail;
+
+  // Show preset name in results header
+  const hdr = document.querySelector('#ccResults .card span[style*="font-weight:700"]');
+  if (hdr) hdr.textContent = `Log kết quả — ${presetLabel || ''}`;
+
+  const tbody = document.getElementById('ccLogTbody');
+  tbody.innerHTML = '';
+  results.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    const configBadge = r.ok
+      ? `<span style="color:var(--green);font-weight:700">✓ OK</span>`
+      : `<span style="color:var(--red);font-weight:700">✗ Fail</span>`;
+    let applyBadge;
+    if (r.apply_ok === true) {
+      applyBadge = `<span style="color:var(--green);font-weight:700">✓ OK</span>`;
+    } else if (r.apply_ok === false) {
+      applyBadge = `<span style="color:var(--red);font-weight:700">✗ ${r.apply_status || 'Fail'}</span>`;
+    } else {
+      applyBadge = `<span style="color:var(--text-muted)">—</span>`;
+    }
+    const note = escHtml(r.message || r.apply_message || '');
+    tr.innerHTML = `
+      <td style="color:var(--text-muted);font-size:.78rem;text-align:center">${i + 1}</td>
+      <td style="font-family:monospace;font-size:.82rem">${escHtml(r.ip)}</td>
+      <td style="font-size:.82rem;text-align:center;color:var(--text-muted)">${r.status || '—'}</td>
+      <td style="text-align:center">${configBadge}</td>
+      <td style="text-align:center">${applyBadge}</td>
+      <td style="font-size:.78rem;color:var(--text-muted)">${note}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('ccPlaceholder').style.display = 'none';
+  document.getElementById('ccResults').style.display = '';
+}
+
+function exportCamConfigLog() {
+  if (!_ccLastResults.length) return;
+  const preset = _ccLastResults._preset || '';
+  const rows = [['STT','IP Camera','HTTP Config','Config','HTTP Apply','Apply','Loai lenh','Ghi chu']];
+  _ccLastResults.forEach((r, i) => {
+    const applyResult = r.apply_ok === true ? 'success' : r.apply_ok === false ? 'fail' : 'N/A';
+    rows.push([i + 1, r.ip, r.status || '', r.ok ? 'success' : 'fail',
+               r.apply_status || '', applyResult, preset, r.message || r.apply_message || '']);
+  });
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `camera-config-${new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')}.csv`,
+  });
+  a.click();
+}
+
+function topbarAdd() {
+  const activeTab = document.querySelector('.page-tab.active').dataset.tab;
+  if (activeTab === 'groups') openAddGroup();
+  else if (activeTab === 'users') openAdd();
+}
+
+// ════════════════════════════════════════════════════════
+//  SETTINGS
+// ════════════════════════════════════════════════════════
+async function loadSettings() {
+  try {
+    const s = await apiFetch('/api/settings');
+    document.getElementById('vietmapKeyInput').value = s.vietmap_api_key || '';
+    document.getElementById('snapIntervalInput').value = s.snapshot_interval_sec || 15;
+    document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
+    document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
+  } catch (e) {}
+}
+
+async function saveSettings() {
+  const key         = document.getElementById('vietmapKeyInput').value.trim();
+  const interval    = parseInt(document.getElementById('snapIntervalInput').value, 10) || 15;
+  const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
+  const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
+  try {
+    await apiFetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vietmap_api_key: key,
+        snapshot_interval_sec: interval,
+        snapshot_concurrency: concurrency,
+        map_search_radius_km: mapRadius,
+      }),
+    });
+    const msg = document.getElementById('settingsSaveMsg');
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  DATA LOADING
+// ════════════════════════════════════════════════════════
+async function loadCameras() {
+  try { allCams = Object.keys(await apiFetch('/api/streams') || {}).sort(); }
+  catch { allCams = []; }
+}
+
+async function loadUsers() {
+  try { usersCache = await apiFetch('/api/users') || []; renderTable(usersCache); }
+  catch(err) { toast('Cannot load users: ' + err.message, 'error'); }
+}
+
+async function loadGroups() {
+  try { allGroups = await apiFetch('/api/groups') || []; renderGroupsTable(allGroups); renderGroupChips(); renderBulkSelects(); }
+  catch { allGroups = []; }
+}
+
+// ════════════════════════════════════════════════════════
+//  UTILITIES
+// ════════════════════════════════════════════════════════
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ════════════════════════════════════════════════════════
+//  USER TABLE
+// ════════════════════════════════════════════════════════
+function renderTable(users) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:1.5rem">No users</td></tr>';
+    return;
+  }
+  users.forEach(u => {
+    const streams = (u.streams || []).join(', ') || (u.role === 'admin' ? 'All cameras' : '—');
+    const tabLabels = { monitor:'Monitor', dashboard:'Dashboard', log:'Logs', config:'Config', api_docs:'API Docs' };
+    const tabBadges = u.role === 'admin'
+      ? '<span style="font-size:.7rem;color:var(--text-muted)">All</span>'
+      : (u.tabs || []).length
+        ? (u.tabs || []).map(t => `<span style="font-size:.68rem;background:rgba(47,129,247,.12);color:var(--accent);border-radius:3px;padding:.1rem .35rem">${tabLabels[t]||t}</span>`).join(' ')
+        : '<span style="font-size:.7rem;color:var(--text-muted)">—</span>';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(u.username)}</strong></td>
+      <td><span class="badge badge-${u.role}">${esc(u.role)}</span></td>
+      <td class="streams-cell" title="${esc(streams)}">${esc(streams)}</td>
+      <td>${tabBadges}</td>
+      <td><span class="badge ${u.enabled ? 'badge-on' : 'badge-off'}">${u.enabled ? 'Active' : 'Disabled'}</span></td>
+      <td>
+        <button class="btn btn-secondary btn-sm" data-act="edit" data-u="${esc(u.username)}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-act="del" data-u="${esc(u.username)}">Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('[data-act="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => { const u = usersCache.find(x => x.username === btn.dataset.u); if (u) openEdit(u); }));
+  tbody.querySelectorAll('[data-act="del"]').forEach(btn =>
+    btn.addEventListener('click', () => deleteUser(btn.dataset.u)));
+}
+
+// ════════════════════════════════════════════════════════
+//  USER DIALOG
+// ════════════════════════════════════════════════════════
+function openAdd() {
+  editing = null;
+  document.getElementById('dlg-title').textContent = 'Add User';
+  document.getElementById('dlg-btn').textContent = 'Create';
+  document.getElementById('f-pwd-lbl').textContent = 'Password *';
+  document.getElementById('f-user').value = '';
+  document.getElementById('f-user').disabled = false;
+  document.getElementById('f-pwd').value = '';
+  document.getElementById('f-role').value = 'viewer';
+  document.getElementById('f-enabled').checked = true;
+  document.getElementById('f-orig').value = '';
+  document.querySelectorAll('input[name="userTab"]').forEach(cb => { cb.checked = false; });
+  uncheckAll(); updateCamCount(); onRoleChange();
+  document.getElementById('dlg').classList.add('open');
+}
+
+function openEdit(u) {
+  editing = u;
+  document.getElementById('dlg-title').textContent = 'Edit User: ' + u.username;
+  document.getElementById('dlg-btn').textContent = 'Save';
+  document.getElementById('f-pwd-lbl').textContent = 'New Password (blank = keep)';
+  document.getElementById('f-user').value = u.username;
+  document.getElementById('f-user').disabled = true;
+  document.getElementById('f-pwd').value = '';
+  document.getElementById('f-role').value = u.role;
+  document.getElementById('f-enabled').checked = !!u.enabled;
+  document.getElementById('f-orig').value = u.username;
+  document.querySelectorAll('input[name="userTab"]').forEach(cb => {
+    cb.checked = (u.tabs || []).includes(cb.value);
+  });
+  document.getElementById('f-allow-traffic').checked = !!u.allow_traffic;
+  document.getElementById('f-allow-heatmap').checked = !!u.allow_heatmap;
+  setCamChecks(u.streams || []);
+  updateCamCount(); onRoleChange();
+  document.getElementById('dlg').classList.add('open');
+}
+
+function closeDlg() { document.getElementById('dlg').classList.remove('open'); }
+
+function onRoleChange() {
+  const isAdmin = document.getElementById('f-role').value === 'admin';
+  document.getElementById('cam-section').style.display = isAdmin ? 'none' : '';
+  document.getElementById('f-tabs-row').style.display = isAdmin ? 'none' : '';
+}
+
+// ════════════════════════════════════════════════════════
+//  CAMERA CHECKLIST (user form)
+// ════════════════════════════════════════════════════════
+function getFilteredCams() {
+  const lc = (document.getElementById('cam-q').value || '').toLowerCase();
+  return lc ? allCams.filter(c => c.toLowerCase().includes(lc)) : allCams;
+}
+
+function renderCamList() {
+  const list    = document.getElementById('cam-list');
+  const visible = getFilteredCams();
+  const hasFilter = document.getElementById('cam-q').value.trim().length > 0;
+  document.getElementById('btn-sel-filtered').style.display = hasFilter ? '' : 'none';
+  document.getElementById('btn-clr-filtered').style.display = hasFilter ? '' : 'none';
+
+  if (!visible.length) {
+    list.innerHTML = `<div class="cam-empty">${allCams.length ? 'No cameras match' : 'No cameras configured'}</div>`;
+    return;
+  }
+  list.innerHTML = '';
+  visible.forEach(name => {
+    const id  = 'cam_' + name.replace(/\W/g, '_');
+    const row = document.createElement('div');
+    row.className = 'cam-row';
+    row.innerHTML = `<input type="checkbox" id="${id}" value="${esc(name)}" ${checkedCams.has(name) ? 'checked' : ''}><label for="${id}">${esc(name)}</label>`;
+    row.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? checkedCams.add(name) : checkedCams.delete(name);
+      updateCamCount(); updateGroupChipStates();
+    });
+    list.appendChild(row);
+  });
+}
+
+function filterCams() { renderCamList(); updateCamCount(); }
+function selectAll()     { allCams.forEach(c => checkedCams.add(c));    renderCamList(); updateCamCount(); updateGroupChipStates(); }
+function selectFiltered(){ getFilteredCams().forEach(c => checkedCams.add(c)); renderCamList(); updateCamCount(); updateGroupChipStates(); }
+function clearAll()      { checkedCams.clear(); renderCamList(); updateCamCount(); updateGroupChipStates(); }
+function clearFiltered() { getFilteredCams().forEach(c => checkedCams.delete(c)); renderCamList(); updateCamCount(); updateGroupChipStates(); }
+
+function setCamChecks(streams) {
+  checkedCams = new Set(streams);
+  document.getElementById('cam-q').value = '';
+  renderCamList();
+}
+function uncheckAll() {
+  checkedCams.clear();
+  document.getElementById('cam-q').value = '';
+  renderCamList();
+}
+function getChecked()  { return Array.from(checkedCams); }
+function updateCamCount() {
+  document.getElementById('cam-count').textContent =
+    checkedCams.size ? `${checkedCams.size} / ${allCams.length} selected` : `0 / ${allCams.length}`;
+}
+
+// ════════════════════════════════════════════════════════
+//  GROUP QUICK-SELECT CHIPS (in user form)
+// ════════════════════════════════════════════════════════
+function renderGroupChips() {
+  const row   = document.getElementById('camGroupsRow');
+  const chips = document.getElementById('camGroupChips');
+  if (!allGroups.length) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  chips.innerHTML = '';
+  allGroups.forEach(g => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'group-chip';
+    btn.dataset.gname = g.name;
+    btn.textContent = g.name;
+    btn.title = `${g.cameras.length} cameras`;
+    btn.addEventListener('click', () => toggleGroupSelection(g));
+    chips.appendChild(btn);
+  });
+  updateGroupChipStates();
+}
+
+function toggleGroupSelection(g) {
+  const cams = g.cameras || [];
+  const allSelected = cams.every(c => checkedCams.has(c));
+  if (allSelected) { cams.forEach(c => checkedCams.delete(c)); }
+  else             { cams.forEach(c => checkedCams.add(c)); }
+  renderCamList(); updateCamCount(); updateGroupChipStates();
+}
+
+function updateGroupChipStates() {
+  document.querySelectorAll('#camGroupChips .group-chip').forEach(btn => {
+    const g = allGroups.find(x => x.name === btn.dataset.gname);
+    if (!g) return;
+    const cams = g.cameras || [];
+    if (!cams.length) { btn.className = 'group-chip'; return; }
+    const selectedCount = cams.filter(c => checkedCams.has(c)).length;
+    if (selectedCount === 0)          btn.className = 'group-chip';
+    else if (selectedCount < cams.length) btn.className = 'group-chip partial';
+    else                               btn.className = 'group-chip full';
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  USER FORM SUBMIT
+// ════════════════════════════════════════════════════════
+async function submitForm(e) {
+  e.preventDefault();
+  const username = document.getElementById('f-user').value.trim();
+  const password = document.getElementById('f-pwd').value;
+  const role         = document.getElementById('f-role').value;
+  const enabled      = document.getElementById('f-enabled').checked;
+  const streams = role === 'admin' ? [] : getChecked();
+  const tabs    = role === 'admin' ? [] : [...document.querySelectorAll('input[name="userTab"]:checked')].map(cb => cb.value);
+
+  if (!editing && !password) { toast('Password is required for new user', 'error'); return; }
+
+  const allow_traffic = role === 'admin' ? true : document.getElementById('f-allow-traffic').checked;
+  const allow_heatmap = role === 'admin' ? true : document.getElementById('f-allow-heatmap').checked;
+  const body = { role, enabled, streams, allow_traffic, allow_heatmap, tabs };
+  if (password) body.password = password;
+
+  const btn = document.getElementById('dlg-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    if (editing) {
+      await apiFetch(`/api/users/${encodeURIComponent(username)}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      toast('User updated', 'success');
+    } else {
+      body.username = username;
+      await apiFetch('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      toast('User created', 'success');
+    }
+    closeDlg(); await loadUsers();
+  } catch(err) { toast(err.message || 'Error saving user', 'error'); }
+  finally { btn.disabled = false; btn.textContent = editing ? 'Save' : 'Create'; }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Delete user "${username}"?\nThis cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/users/${encodeURIComponent(username)}`, { method:'DELETE' });
+    toast('User deleted', 'success'); await loadUsers();
+  } catch(err) { toast(err.message || 'Error deleting user', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════
+//  GROUPS TABLE
+// ════════════════════════════════════════════════════════
+function renderGroupsTable(groups) {
+  const tbody = document.getElementById('groupsTbody');
+  if (!groups.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:1.5rem">No groups yet — create one to organise cameras</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  groups.forEach(g => {
+    const cams = g.cameras || [];
+    const preview = cams.slice(0, 4).map(c => esc(c)).join(', ') + (cams.length > 4 ? ` +${cams.length - 4} more` : '');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(g.name)}</strong></td>
+      <td class="streams-cell" title="${esc(cams.join(', '))}">
+        ${cams.length ? `<span class="cnt-badge">${cams.length}</span>${preview}` : '<span style="color:var(--text-muted)">No cameras</span>'}
+      </td>
+      <td>
+        <button class="btn btn-secondary btn-sm" data-gact="edit" data-gname="${esc(g.name)}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-gact="del" data-gname="${esc(g.name)}">Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('[data-gact="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => { const g = allGroups.find(x => x.name === btn.dataset.gname); if (g) openEditGroup(g); }));
+  tbody.querySelectorAll('[data-gact="del"]').forEach(btn =>
+    btn.addEventListener('click', () => deleteGroup(btn.dataset.gname)));
+}
+
+// ════════════════════════════════════════════════════════
+//  GROUP DIALOG
+// ════════════════════════════════════════════════════════
+function openAddGroup() {
+  editingGroup = null;
+  document.getElementById('grpDlg-title').textContent = 'Add Group';
+  document.getElementById('grpDlg-btn').textContent = 'Create';
+  document.getElementById('g-name').value = '';
+  document.getElementById('g-name').disabled = false;
+  gCheckedCams.clear();
+  document.getElementById('g-cam-q').value = '';
+  renderGroupCamList(); gUpdateCount();
+  document.getElementById('grpDlg').classList.add('open');
+}
+
+function openEditGroup(g) {
+  editingGroup = g;
+  document.getElementById('grpDlg-title').textContent = 'Edit Group: ' + g.name;
+  document.getElementById('grpDlg-btn').textContent = 'Save';
+  document.getElementById('g-name').value = g.name;
+  document.getElementById('g-name').disabled = false;
+  gCheckedCams = new Set(g.cameras || []);
+  document.getElementById('g-cam-q').value = '';
+  renderGroupCamList(); gUpdateCount();
+  document.getElementById('grpDlg').classList.add('open');
+}
+
+function closeGroupDlg() { document.getElementById('grpDlg').classList.remove('open'); }
+
+// ── Group-form camera list ──
+function gGetFiltered() {
+  const lc = (document.getElementById('g-cam-q').value || '').toLowerCase();
+  return lc ? allCams.filter(c => c.toLowerCase().includes(lc)) : allCams;
+}
+
+function renderGroupCamList() {
+  const list = document.getElementById('g-cam-list');
+  const visible = gGetFiltered();
+  const hasFilter = document.getElementById('g-cam-q').value.trim().length > 0;
+  document.getElementById('g-btn-filtered').style.display = hasFilter ? '' : 'none';
+
+  if (!visible.length) {
+    list.innerHTML = `<div class="cam-empty">${allCams.length ? 'No cameras match' : 'No cameras configured'}</div>`;
+    return;
+  }
+  list.innerHTML = '';
+  visible.forEach(name => {
+    const id  = 'gcam_' + name.replace(/\W/g, '_');
+    const row = document.createElement('div');
+    row.className = 'cam-row';
+    row.innerHTML = `<input type="checkbox" id="${id}" value="${esc(name)}" ${gCheckedCams.has(name) ? 'checked' : ''}><label for="${id}">${esc(name)}</label>`;
+    row.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? gCheckedCams.add(name) : gCheckedCams.delete(name);
+      gUpdateCount();
+    });
+    list.appendChild(row);
+  });
+}
+
+function filterGroupCams()  { renderGroupCamList(); gUpdateCount(); }
+function gSelectAll()       { allCams.forEach(c => gCheckedCams.add(c)); renderGroupCamList(); gUpdateCount(); }
+function gSelectFiltered()  { gGetFiltered().forEach(c => gCheckedCams.add(c)); renderGroupCamList(); gUpdateCount(); }
+function gClearAll()        { gCheckedCams.clear(); renderGroupCamList(); gUpdateCount(); }
+function gUpdateCount() {
+  document.getElementById('g-cam-count').textContent =
+    gCheckedCams.size ? `${gCheckedCams.size} / ${allCams.length} selected` : `0 / ${allCams.length}`;
+}
+
+// ── Group form submit ──
+async function submitGroup(e) {
+  e.preventDefault();
+  const name = document.getElementById('g-name').value.trim();
+  if (!name) { toast('Group name is required', 'error'); return; }
+
+  const cameras = Array.from(gCheckedCams);
+  const btn = document.getElementById('grpDlg-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  try {
+    if (editingGroup) {
+      const body = { cameras };
+      if (name !== editingGroup.name) body.new_name = name;
+      await apiFetch(`/api/groups/${encodeURIComponent(editingGroup.name)}`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+      });
+      toast('Group updated', 'success');
+    } else {
+      await apiFetch('/api/groups', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name, cameras })
+      });
+      toast('Group created', 'success');
+    }
+    closeGroupDlg();
+    await loadGroups();
+  } catch(err) { toast(err.message || 'Error saving group', 'error'); }
+  finally { btn.disabled = false; btn.textContent = editingGroup ? 'Save' : 'Create'; }
+}
+
+async function deleteGroup(name) {
+  if (!confirm(`Delete group "${name}"?\nCameras are NOT deleted — only the group is removed.`)) return;
+  try {
+    await apiFetch(`/api/groups/${encodeURIComponent(name)}`, { method:'DELETE' });
+    toast('Group deleted', 'success'); await loadGroups();
+  } catch(err) { toast(err.message || 'Error deleting group', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════
+//  CAMERA TYPES
+// ════════════════════════════════════════════════════════
+let allCameraTypes   = [];   // [{id, name, snapshot_path, http_port, onvif}]
+let ctAssignments    = {};   // {streamName: typeID}  — pending (not yet saved)
+let ctAssignDirty    = false;
+
+document.getElementById('ctDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeCtDlg(); });
+
+async function loadCameraTypes() {
+  try {
+    const [types, assigns] = await Promise.all([
+      apiFetch('/api/camera-types'),
+      apiFetch('/api/camera-type-assignments'),
+    ]);
+    allCameraTypes = types || [];
+    ctAssignments  = assigns || {};
+    ctAssignDirty  = false;
+    renderCtTable();
+    renderCtAssignTable();
+    renderBulkSelects();
+  } catch(e) {
+    toast('Failed to load camera types: ' + e.message, 'error');
+  }
+}
+
+function renderBulkSelects() {
+  // Groups dropdown
+  const gSel = document.getElementById('bulkGroupSel');
+  const prevG = gSel.value;
+  gSel.innerHTML = '<option value="">— chọn nhóm camera —</option>';
+  allGroups.forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g.name;
+    opt.textContent = g.name + ' (' + (g.cameras || []).length + ' cam)';
+    gSel.appendChild(opt);
+  });
+  if (prevG) gSel.value = prevG;
+
+  // Types dropdown
+  const tSel = document.getElementById('bulkTypeSel');
+  const prevT = tSel.value;
+  tSel.innerHTML = '<option value="">— chọn loại camera —</option>';
+  allCameraTypes.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    tSel.appendChild(opt);
+  });
+  if (prevT) tSel.value = prevT;
+}
+
+function applyBulkAssign() {
+  const groupName = document.getElementById('bulkGroupSel').value;
+  const typeId    = document.getElementById('bulkTypeSel').value;
+  const msg       = document.getElementById('bulkMsg');
+
+  if (!groupName) { toast('Chọn nhóm camera trước', 'error'); return; }
+  if (!typeId)    { toast('Chọn loại camera trước', 'error'); return; }
+
+  const group = allGroups.find(g => g.name === groupName);
+  if (!group || !group.cameras || !group.cameras.length) {
+    toast('Nhóm không có camera nào', 'error'); return;
+  }
+
+  let count = 0;
+  group.cameras.forEach(cam => {
+    ctAssignments[cam] = typeId;
+    count++;
+  });
+  ctAssignDirty = true;
+
+  const typeName = (allCameraTypes.find(t => t.id === typeId) || {}).name || typeId;
+  msg.textContent = `✓ Đã gán ${count} camera → ${typeName}`;
+  msg.style.display = '';
+  setTimeout(() => { msg.style.display = 'none'; }, 3000);
+
+  renderCtAssignTable(); // refresh dropdowns to show new values
+  renderCtTable();       // refresh assigned counts
+}
+
+function renderCtTable() {
+  const tbody = document.getElementById('ctTbody');
+  if (!allCameraTypes.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">No camera types yet — add one to enable direct HTTP snapshots</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  allCameraTypes.forEach(t => {
+    const assignedCount = Object.values(ctAssignments).filter(v => v === t.id).length;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${esc(t.name)}</strong><br><span style="font-size:.73rem;color:var(--text-muted);font-family:monospace">${esc(t.id)}</span></td>
+      <td><span style="font-family:monospace;font-size:.78rem">${esc(t.snapshot_path || '—')}</span></td>
+      <td>${t.http_port || 80}</td>
+      <td>${t.onvif ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
+      <td><span class="cnt-badge">${assignedCount}</span></td>
+      <td>
+        <button class="btn btn-secondary btn-sm" data-ctact="edit" data-ctid="${esc(t.id)}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-ctact="del" data-ctid="${esc(t.id)}">Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('[data-ctact="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => { const t = allCameraTypes.find(x => x.id === btn.dataset.ctid); if (t) openEditCt(t); }));
+  tbody.querySelectorAll('[data-ctact="del"]').forEach(btn =>
+    btn.addEventListener('click', () => deleteCameraType(btn.dataset.ctid)));
+}
+
+function renderCtAssignTable() {
+  const tbody  = document.getElementById('ctAssignTbody');
+  const filter = (document.getElementById('ctAssignSearch').value || '').toLowerCase();
+  const cams   = filter ? allCams.filter(c => c.toLowerCase().includes(filter)) : allCams;
+
+  if (!cams.length) {
+    tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">${allCams.length ? 'No streams match' : 'No streams configured'}</td></tr>`;
+    return;
+  }
+
+  const opts = ['<option value="">— unassigned —</option>',
+    ...allCameraTypes.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`)
+  ].join('');
+
+  tbody.innerHTML = '';
+  cams.forEach(name => {
+    const tr = document.createElement('tr');
+    const sel = document.createElement('select');
+    sel.className = 'input';
+    sel.style.cssText = 'padding:.3rem .5rem;font-size:.82rem';
+    sel.innerHTML = opts;
+    sel.value = ctAssignments[name] || '';
+    sel.addEventListener('change', () => {
+      if (sel.value) ctAssignments[name] = sel.value;
+      else delete ctAssignments[name];
+      ctAssignDirty = true;
+    });
+    const tdName = document.createElement('td');
+    tdName.textContent = name;
+    tdName.style.fontFamily = 'monospace';
+    const tdSel = document.createElement('td');
+    tdSel.appendChild(sel);
+    tr.appendChild(tdName);
+    tr.appendChild(tdSel);
+    tbody.appendChild(tr);
+  });
+}
+
+async function saveCtAssignments() {
+  try {
+    await apiFetch('/api/camera-type-assignments', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ctAssignments),
+    });
+    ctAssignDirty = false;
+    renderCtTable();
+    const msg = document.getElementById('ctAssignMsg');
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+// ── Camera Type Dialog ──
+function openAddCt() {
+  document.getElementById('ctDlg-title').textContent = 'Add Camera Type';
+  document.getElementById('ctDlg-btn').textContent = 'Create';
+  document.getElementById('ct-orig-id').value = '';
+  document.getElementById('ct-id').value = '';
+  document.getElementById('ct-id').disabled = false;
+  document.getElementById('ct-name').value = '';
+  document.getElementById('ct-path').value = '';
+  document.getElementById('ct-port').value = '80';
+  document.getElementById('ct-onvif').checked = false;
+  onCtOnvifChange();
+  document.getElementById('ctDlg').classList.add('open');
+}
+
+function openEditCt(t) {
+  document.getElementById('ctDlg-title').textContent = 'Edit Type: ' + t.name;
+  document.getElementById('ctDlg-btn').textContent = 'Save';
+  document.getElementById('ct-orig-id').value = t.id;
+  document.getElementById('ct-id').value = t.id;
+  document.getElementById('ct-id').disabled = true;
+  document.getElementById('ct-name').value = t.name;
+  document.getElementById('ct-path').value = t.snapshot_path || '';
+  document.getElementById('ct-port').value = t.http_port || 80;
+  document.getElementById('ct-onvif').checked = !!t.onvif;
+  onCtOnvifChange();
+  document.getElementById('ctDlg').classList.add('open');
+}
+
+function closeCtDlg() { document.getElementById('ctDlg').classList.remove('open'); }
+
+function onCtOnvifChange() {
+  const isOnvif = document.getElementById('ct-onvif').checked;
+  document.getElementById('ct-path').disabled = isOnvif;
+  document.getElementById('ct-path').style.opacity = isOnvif ? '.45' : '';
+}
+
+function ctFill(id, name, path, port, onvif) {
+  const idEl = document.getElementById('ct-id');
+  if (!idEl.disabled) idEl.value = id;
+  document.getElementById('ct-name').value  = name;
+  document.getElementById('ct-path').value  = path;
+  document.getElementById('ct-port').value  = port;
+  document.getElementById('ct-onvif').checked = onvif;
+  onCtOnvifChange();
+}
+
+async function submitCameraType(e) {
+  e.preventDefault();
+  const id      = document.getElementById('ct-id').value.trim();
+  const origId  = document.getElementById('ct-orig-id').value;
+  const name    = document.getElementById('ct-name').value.trim();
+  const path    = document.getElementById('ct-path').value.trim();
+  const port    = parseInt(document.getElementById('ct-port').value, 10) || 80;
+  const onvif   = document.getElementById('ct-onvif').checked;
+
+  if (!id || !name) { toast('ID and Name are required', 'error'); return; }
+
+  const body = { id: origId || id, name, snapshot_path: path, http_port: port, onvif };
+  const btn = document.getElementById('ctDlg-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    await apiFetch('/api/camera-types', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    toast(origId ? 'Type updated' : 'Type created', 'success');
+    closeCtDlg();
+    await loadCameraTypes();
+  } catch(err) { toast(err.message || 'Error saving type', 'error'); }
+  finally { btn.disabled = false; btn.textContent = origId ? 'Save' : 'Create'; }
+}
+
+// ════════════════════════════════════════════════════════
+//  DEVICES TAB
+// ════════════════════════════════════════════════════════
+let allDeviceTypes  = [];        // [{id, name}]
+let allDevices      = [];        // [{id, name, ip, type_id}]
+let _selectedDevIds = new Set(); // IDs đang được chọn
+
+document.getElementById('devTypeDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeDevTypeDlg(); });
+document.getElementById('deviceDlg').addEventListener('click',  e => { if (e.target === e.currentTarget) closeDeviceDlg(); });
+
+async function loadDevicesTab() {
+  try {
+    const [types, devs, ivResp] = await Promise.all([
+      apiFetch('/api/device-types'),
+      apiFetch('/api/devices'),
+      apiFetch('/api/device-ping-interval'),
+    ]);
+    allDeviceTypes = types || [];
+    allDevices     = devs  || [];
+    document.getElementById('pingIntervalInput').value = ivResp?.interval_sec || 30;
+    renderDevTypesList();
+    renderDevTypeFilter();
+    renderDevicesTable();
+  } catch(e) { toast('Lỗi tải dữ liệu thiết bị: ' + e.message, 'error'); }
+}
+
+// ── Ping Interval ──
+async function savePingInterval() {
+  const sec = parseInt(document.getElementById('pingIntervalInput').value, 10);
+  if (!sec || sec < 5) { toast('Tối thiểu 5 giây', 'error'); return; }
+  try {
+    await apiFetch('/api/device-ping-interval', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ interval_sec: sec }),
+    });
+    const msg = document.getElementById('pingIntervalMsg');
+    msg.style.display = ''; setTimeout(() => { msg.style.display = 'none'; }, 2000);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ── Device Types ──
+function renderDevTypesList() {
+  const tbody = document.getElementById('devTypesTbody');
+  if (!allDeviceTypes.length) {
+    tbody.innerHTML = '<tr><td colspan="2" style="padding:.8rem;text-align:center;color:var(--text-muted)">Chưa có loại nào</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  allDeviceTypes.forEach(t => {
+    const count = allDevices.filter(d => d.type_id === t.id).length;
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    tr.innerHTML = `
+      <td style="padding:.4rem .75rem"><strong>${esc(t.name)}</strong>
+        <span style="font-size:.72rem;color:var(--text-muted);margin-left:.4rem">${count} tb</span></td>
+      <td style="padding:.4rem .75rem;white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" data-dtact="edit" data-dtid="${esc(t.id)}">Sửa</button>
+        <button class="btn btn-danger btn-sm" data-dtact="del" data-dtid="${esc(t.id)}">Xóa</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('[data-dtact="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => { const t = allDeviceTypes.find(x => x.id === btn.dataset.dtid); if (t) openEditDevType(t); }));
+  tbody.querySelectorAll('[data-dtact="del"]').forEach(btn =>
+    btn.addEventListener('click', () => deleteDeviceType(btn.dataset.dtid)));
+}
+
+function renderDevTypeFilter() {
+  const sel = document.getElementById('devTypeFilter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Tất cả loại</option>';
+  allDeviceTypes.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.name;
+    sel.appendChild(o);
+  });
+  if (prev) sel.value = prev;
+}
+
+function openAddDevType() {
+  document.getElementById('devTypeDlg-title').textContent = 'Thêm loại thiết bị';
+  document.getElementById('devTypeDlg-btn').textContent = 'Tạo';
+  document.getElementById('devType-orig-id').value = '';
+  document.getElementById('devType-name').value = '';
+  document.getElementById('devTypeDlg').classList.add('open');
+}
+function openEditDevType(t) {
+  document.getElementById('devTypeDlg-title').textContent = 'Sửa loại: ' + t.name;
+  document.getElementById('devTypeDlg-btn').textContent = 'Lưu';
+  document.getElementById('devType-orig-id').value = t.id;
+  document.getElementById('devType-name').value = t.name;
+  document.getElementById('devTypeDlg').classList.add('open');
+}
+function closeDevTypeDlg() { document.getElementById('devTypeDlg').classList.remove('open'); }
+
+async function submitDevType(e) {
+  e.preventDefault();
+  const id   = document.getElementById('devType-orig-id').value;
+  const name = document.getElementById('devType-name').value.trim();
+  if (!name) return;
+  const btn = document.getElementById('devTypeDlg-btn');
+  btn.disabled = true; btn.textContent = 'Đang lưu…';
+  try {
+    const result = await apiFetch('/api/device-types', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id || undefined, name }),
+    });
+    // Update local list
+    const idx = allDeviceTypes.findIndex(t => t.id === result.id);
+    if (idx >= 0) allDeviceTypes[idx] = result; else allDeviceTypes.push(result);
+    closeDevTypeDlg();
+    renderDevTypesList(); renderDevTypeFilter(); renderDevicesTable();
+    toast(id ? 'Đã cập nhật loại' : 'Đã tạo loại', 'success');
+  } catch(err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = id ? 'Lưu' : 'Tạo'; }
+}
+
+async function deleteDeviceType(id) {
+  const t = allDeviceTypes.find(x => x.id === id);
+  if (!confirm(`Xóa loại "${t?.name || id}"?\nCác thiết bị thuộc loại này sẽ không bị xóa.`)) return;
+  try {
+    await apiFetch(`/api/device-types?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    allDeviceTypes = allDeviceTypes.filter(x => x.id !== id);
+    renderDevTypesList(); renderDevTypeFilter(); renderDevicesTable();
+    toast('Đã xóa loại', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ── Devices ──
+function _updateDevSelUI() {
+  const count = _selectedDevIds.size;
+  const btn   = document.getElementById('devDeleteSelBtn');
+  const cntEl = document.getElementById('devSelCount');
+  if (btn)   btn.style.display = count > 0 ? '' : 'none';
+  if (cntEl) cntEl.textContent = count;
+  const chkAll = document.getElementById('devChkAll');
+  if (chkAll) {
+    const visibleIds = [...document.querySelectorAll('[data-dact="chk"]')].map(c => c.dataset.did);
+    chkAll.checked       = visibleIds.length > 0 && visibleIds.every(id => _selectedDevIds.has(id));
+    chkAll.indeterminate = !chkAll.checked && visibleIds.some(id => _selectedDevIds.has(id));
+  }
+}
+
+function toggleAllDevices(checked) {
+  document.querySelectorAll('[data-dact="chk"]').forEach(chk => {
+    chk.checked = checked;
+    if (checked) _selectedDevIds.add(chk.dataset.did);
+    else         _selectedDevIds.delete(chk.dataset.did);
+  });
+  _updateDevSelUI();
+}
+
+function renderDevicesTable() {
+  const tbody  = document.getElementById('devicesTbody');
+  const q      = (document.getElementById('devSearch').value || '').toLowerCase();
+  const typeF  = document.getElementById('devTypeFilter').value;
+  const typeMap = Object.fromEntries(allDeviceTypes.map(t => [t.id, t.name]));
+
+  let devs = allDevices;
+  if (q)     devs = devs.filter(d => d.name.toLowerCase().includes(q) || d.ip.includes(q));
+  if (typeF) devs = devs.filter(d => d.type_id === typeF);
+
+  if (!devs.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:.9rem;text-align:center;color:var(--text-muted)">${allDevices.length ? 'Không tìm thấy thiết bị' : 'Chưa có thiết bị — bấm "+ Thêm thiết bị"'}</td></tr>`;
+    _updateDevSelUI();
+    return;
+  }
+  tbody.innerHTML = '';
+  devs.forEach(d => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    const checked = _selectedDevIds.has(d.id) ? 'checked' : '';
+    tr.innerHTML = `
+      <td style="padding:.4rem .5rem .4rem .75rem"><input type="checkbox" data-dact="chk" data-did="${esc(d.id)}" ${checked}></td>
+      <td style="padding:.4rem .75rem"><strong>${esc(d.name)}</strong></td>
+      <td style="padding:.4rem .75rem;font-family:monospace;font-size:.8rem">${esc(d.ip)}</td>
+      <td style="padding:.4rem .75rem;font-size:.8rem;color:var(--text-muted)">${esc(typeMap[d.type_id] || '—')}</td>
+      <td style="padding:.4rem .75rem;white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" data-dact="edit" data-did="${esc(d.id)}">Sửa</button>
+        <button class="btn btn-danger btn-sm" data-dact="del" data-did="${esc(d.id)}">Xóa</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('[data-dact="chk"]').forEach(chk =>
+    chk.addEventListener('change', () => {
+      if (chk.checked) _selectedDevIds.add(chk.dataset.did);
+      else             _selectedDevIds.delete(chk.dataset.did);
+      _updateDevSelUI();
+    }));
+  tbody.querySelectorAll('[data-dact="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => { const d = allDevices.find(x => x.id === btn.dataset.did); if (d) openEditDevice(d); }));
+  tbody.querySelectorAll('[data-dact="del"]').forEach(btn =>
+    btn.addEventListener('click', () => deleteDevice(btn.dataset.did)));
+  _updateDevSelUI();
+}
+
+function populateDevTypeSelect(selectedId) {
+  const sel = document.getElementById('dev-type');
+  sel.innerHTML = '<option value="">— Chưa phân loại —</option>';
+  allDeviceTypes.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.name;
+    if (t.id === selectedId) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+function openAddDevice() {
+  document.getElementById('deviceDlg-title').textContent = 'Thêm thiết bị';
+  document.getElementById('deviceDlg-btn').textContent = 'Tạo';
+  document.getElementById('dev-orig-id').value = '';
+  document.getElementById('dev-name').value = '';
+  document.getElementById('dev-ip').value = '';
+  populateDevTypeSelect('');
+  document.getElementById('deviceDlg').classList.add('open');
+}
+function openEditDevice(d) {
+  document.getElementById('deviceDlg-title').textContent = 'Sửa thiết bị: ' + d.name;
+  document.getElementById('deviceDlg-btn').textContent = 'Lưu';
+  document.getElementById('dev-orig-id').value = d.id;
+  document.getElementById('dev-name').value = d.name;
+  document.getElementById('dev-ip').value = d.ip;
+  populateDevTypeSelect(d.type_id);
+  document.getElementById('deviceDlg').classList.add('open');
+}
+function closeDeviceDlg() { document.getElementById('deviceDlg').classList.remove('open'); }
+
+async function submitDevice(e) {
+  e.preventDefault();
+  const id     = document.getElementById('dev-orig-id').value;
+  const name   = document.getElementById('dev-name').value.trim();
+  const ip     = document.getElementById('dev-ip').value.trim();
+  const typeId = document.getElementById('dev-type').value;
+  if (!name || !ip) return;
+
+  // Duplicate checks (skip self when editing)
+  const dupIP   = allDevices.find(d => d.ip   === ip   && d.id !== id);
+  const dupName = allDevices.find(d => d.name.toLowerCase() === name.toLowerCase() && d.id !== id);
+  if (dupIP) {
+    toast(`⚠️ IP ${ip} đã được dùng bởi thiết bị "${dupIP.name}"`, 'error');
+    return;
+  }
+  if (dupName) {
+    toast(`⚠️ Tên "${name}" đã tồn tại (IP: ${dupName.ip})`, 'error');
+    return;
+  }
+
+  const btn = document.getElementById('deviceDlg-btn');
+  btn.disabled = true; btn.textContent = 'Đang lưu…';
+  try {
+    const result = await apiFetch('/api/devices', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id || undefined, name, ip, type_id: typeId }),
+    });
+    const idx = allDevices.findIndex(d => d.id === result.id);
+    if (idx >= 0) allDevices[idx] = result; else allDevices.push(result);
+    closeDeviceDlg();
+    renderDevicesTable(); renderDevTypesList();
+    toast(id ? 'Đã cập nhật thiết bị' : 'Đã thêm thiết bị', 'success');
+  } catch(err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = id ? 'Lưu' : 'Tạo'; }
+}
+
+async function deleteDevice(id) {
+  const d = allDevices.find(x => x.id === id);
+  if (!confirm(`Xóa thiết bị "${d?.name || id}" (${d?.ip || ''})?`)) return;
+  try {
+    await apiFetch(`/api/devices?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    allDevices = allDevices.filter(x => x.id !== id);
+    _selectedDevIds.delete(id);
+    renderDevicesTable(); renderDevTypesList();
+    toast('Đã xóa thiết bị', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function deleteSelectedDevices() {
+  const ids = [..._selectedDevIds];
+  if (!ids.length) return;
+  const names = ids.map(id => allDevices.find(x => x.id === id)?.name || id);
+  if (!confirm(`Xóa ${ids.length} thiết bị đã chọn?\n\n${names.join('\n')}`)) return;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      await apiFetch(`/api/devices?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      allDevices = allDevices.filter(x => x.id !== id);
+      _selectedDevIds.delete(id);
+      ok++;
+    } catch { fail++; }
+  }
+  renderDevicesTable(); renderDevTypesList();
+  if (fail === 0) toast(`✓ Đã xóa ${ok} thiết bị`, 'success');
+  else toast(`Xóa ${ok} thành công, ${fail} lỗi`, 'error');
+}
+
+// ═══════════════════ Device Import ═══════════════════
+
+let _importRows = []; // parsed + mapped rows ready to import
+
+function openDevImport() {
+  _importRows = [];
+  document.getElementById('devImportFile').value = '';
+  document.getElementById('devImportFileStat').textContent = '';
+  document.getElementById('devImportPreview').innerHTML = '';
+  document.getElementById('devImportSummary').textContent = '';
+  document.getElementById('devImportBtn').disabled = true;
+  document.getElementById('devImportDlg').classList.add('open');
+}
+
+function closeDevImport() {
+  document.getElementById('devImportDlg').classList.remove('open');
+}
+
+// Generate and download a CSV template using current device types
+function downloadDevTemplate() {
+  const typeNames = allDeviceTypes.map(t => t.name);
+  const typeList  = typeNames.length ? typeNames.join(', ') : 'Switch, Router, NVR, Camera IP';
+  const lines = [
+    '# Template import thiết bị - UTMC Camera System',
+    `# Cột type (loại) dùng tên loại đã tạo trong hệ thống: ${typeList}`,
+    '# Xóa các dòng ghi chú (#) trước khi import nếu cần',
+    'name,ip,type',
+  ];
+  // Sample rows: one per existing type, or generic samples
+  if (allDeviceTypes.length) {
+    allDeviceTypes.slice(0, 4).forEach((t, i) => {
+      lines.push(`Thiết bị ${t.name} ${i+1},192.168.1.${i+1},${t.name}`);
+    });
+  } else {
+    lines.push('SW-Core-01,192.168.1.1,Switch');
+    lines.push('Router-WAN,10.0.0.1,Router');
+    lines.push('NVR-Tang1,192.168.2.5,NVR');
+    lines.push('Camera-P1-01,192.168.3.10,Camera IP');
+  }
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'devices_template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Parse CSV text → array of {name, ip, typeName, typeId, errors, warn}
+// errors = blocking issues (will NOT be imported); warn = non-blocking warnings
+function parseCSVRows(text) {
+  const typeMap = {}; // lowercase name → id
+  allDeviceTypes.forEach(t => { typeMap[t.name.toLowerCase()] = t.id; });
+
+  // Build lookup sets from existing devices
+  const existingIPs   = new Map(allDevices.map(d => [d.ip,                     d.name]));
+  const existingNames = new Map(allDevices.map(d => [d.name.toLowerCase(),      d.ip  ]));
+
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  if (!lines.length) return [];
+
+  // Detect and skip header row
+  let start = 0;
+  const first = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g, '').toLowerCase());
+  if (first[0] === 'name' || first.includes('name')) start = 1;
+
+  // Track IPs and names seen within this CSV (for intra-file duplicate detection)
+  const seenIPs   = new Map(); // ip → first row index (1-based)
+  const seenNames = new Map(); // name.lower → first row index
+
+  const rows = [];
+  for (let i = start; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const [name, ip, typeName = ''] = cols;
+    if (!name && !ip) continue;
+
+    const errors = []; // blocking — row will NOT be imported
+    const warn   = []; // non-blocking
+
+    if (!name) errors.push('thiếu tên');
+    if (!ip)   errors.push('thiếu IP');
+    else if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) errors.push('IP không hợp lệ');
+
+    // Check duplicates against existing devices
+    if (ip && existingIPs.has(ip)) {
+      errors.push(`IP ${ip} đã tồn tại (thiết bị: "${existingIPs.get(ip)}")`);
+    }
+    if (name && existingNames.has(name.toLowerCase())) {
+      errors.push(`Tên "${name}" đã tồn tại (IP: ${existingNames.get(name.toLowerCase())})`);
+    }
+
+    // Check duplicates within the CSV file itself
+    if (ip) {
+      if (seenIPs.has(ip)) errors.push(`IP trùng với dòng ${seenIPs.get(ip)} trong file`);
+      else seenIPs.set(ip, rows.length + 1);
+    }
+    if (name) {
+      if (seenNames.has(name.toLowerCase())) errors.push(`Tên trùng với dòng ${seenNames.get(name.toLowerCase())} trong file`);
+      else seenNames.set(name.toLowerCase(), rows.length + 1);
+    }
+
+    const typeId = typeName ? (typeMap[typeName.toLowerCase()] || '') : '';
+    if (typeName && !typeId) warn.push(`loại "${typeName}" chưa tồn tại`);
+
+    rows.push({ name, ip, typeName, typeId, errors, warn });
+  }
+  return rows;
+}
+
+function parseDevImportFile() {
+  const file = document.getElementById('devImportFile').files[0];
+  if (!file) return;
+  const stat = document.getElementById('devImportFileStat');
+  stat.textContent = 'Đang đọc…';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const rows = parseCSVRows(e.target.result);
+    _importRows = rows;
+    renderDevImportPreview(rows);
+    stat.textContent = '';
+  };
+  reader.onerror = () => { stat.textContent = 'Không đọc được file'; };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function renderDevImportPreview(rows) {
+  const preview = document.getElementById('devImportPreview');
+  const btn     = document.getElementById('devImportBtn');
+  const summary = document.getElementById('devImportSummary');
+
+  if (!rows.length) {
+    preview.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:1rem;font-size:.83rem">File không có dữ liệu hợp lệ.</p>';
+    btn.disabled = true; summary.textContent = ''; return;
+  }
+
+  const okRows      = rows.filter(r => !r.errors.length);       // sẽ import
+  const errRows     = rows.filter(r =>  r.errors.length);        // bị chặn
+  const warnOnlyRows = okRows.filter(r => r.warn.length);        // import được, nhưng có cảnh báo
+  const typeMap     = Object.fromEntries(allDeviceTypes.map(t => [t.id, t.name]));
+
+  let html = `
+    <div style="padding:.55rem 0;font-size:.8rem;color:var(--text-muted);display:flex;gap:1.2rem;flex-wrap:wrap">
+      <span>Tổng: <strong style="color:var(--text)">${rows.length}</strong> dòng</span>
+      <span style="color:var(--green)">✓ Sẽ import: <strong>${okRows.length}</strong></span>
+      ${warnOnlyRows.length ? `<span style="color:var(--yellow)">⚠ Cảnh báo: <strong>${warnOnlyRows.length}</strong></span>` : ''}
+      ${errRows.length     ? `<span style="color:#f87171">✕ Lỗi (bỏ qua): <strong>${errRows.length}</strong></span>` : ''}
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:.75rem">
+    <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+      <thead><tr style="background:var(--surface2)">
+        <th style="padding:.38rem .65rem;text-align:left;color:var(--text-muted);font-weight:600;font-size:.72rem;text-transform:uppercase;border-bottom:1px solid var(--border)">#</th>
+        <th style="padding:.38rem .65rem;text-align:left;color:var(--text-muted);font-weight:600;font-size:.72rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Tên</th>
+        <th style="padding:.38rem .65rem;text-align:left;color:var(--text-muted);font-weight:600;font-size:.72rem;text-transform:uppercase;border-bottom:1px solid var(--border)">IP</th>
+        <th style="padding:.38rem .65rem;text-align:left;color:var(--text-muted);font-weight:600;font-size:.72rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Loại</th>
+        <th style="padding:.38rem .65rem;text-align:left;color:var(--text-muted);font-weight:600;font-size:.72rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Kết quả</th>
+      </tr></thead>
+      <tbody>`;
+
+  rows.forEach((r, i) => {
+    const hasErr  = r.errors.length > 0;
+    const hasWarn = r.warn.length > 0;
+    const rowBg   = hasErr  ? 'background:rgba(248,113,113,.07)'
+                  : hasWarn ? 'background:rgba(210,153,34,.06)' : '';
+    const typeLabel = r.typeId ? esc(typeMap[r.typeId] || r.typeName)
+                    : r.typeName ? `<span style="color:var(--yellow)">${esc(r.typeName)} ⚠</span>`
+                    : '<span style="color:var(--text-muted)">—</span>';
+    let noteHtml;
+    if (hasErr) {
+      noteHtml = r.errors.map(e => `<div style="color:#f87171;font-size:.72rem">✕ ${esc(e)}</div>`).join('')
+               + r.warn.map(w => `<div style="color:var(--yellow);font-size:.72rem">⚠ ${esc(w)}</div>`).join('');
+    } else if (hasWarn) {
+      noteHtml = r.warn.map(w => `<div style="color:var(--yellow);font-size:.72rem">⚠ ${esc(w)}</div>`).join('');
+    } else {
+      noteHtml = '<span style="color:var(--green);font-size:.73rem">✓</span>';
+    }
+    html += `<tr style="border-bottom:1px solid var(--border);${rowBg}">
+      <td style="padding:.32rem .65rem;color:var(--text-muted)">${i+1}</td>
+      <td style="padding:.32rem .65rem"><strong${hasErr ? ' style="color:#f87171"' : ''}>${esc(r.name || '—')}</strong></td>
+      <td style="padding:.32rem .65rem;font-family:monospace">${esc(r.ip || '—')}</td>
+      <td style="padding:.32rem .65rem">${typeLabel}</td>
+      <td style="padding:.32rem .65rem;line-height:1.55">${noteHtml}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  // Info box for unknown types
+  const unknownTypes = [...new Set(okRows.filter(r => r.typeName && !r.typeId).map(r => r.typeName))];
+  if (unknownTypes.length) {
+    html += `<div style="background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.35);border-radius:6px;padding:.55rem .8rem;font-size:.78rem;color:var(--yellow);margin-bottom:.5rem">
+      <strong>⚠ Loại chưa tồn tại:</strong> ${unknownTypes.map(n => `<code style="background:rgba(0,0,0,.2);padding:.05rem .25rem;border-radius:3px">${esc(n)}</code>`).join(', ')}
+      — Các thiết bị này sẽ được import mà không có loại.
+    </div>`;
+  }
+  if (errRows.length) {
+    html += `<div style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.35);border-radius:6px;padding:.55rem .8rem;font-size:.78rem;color:#f87171;margin-bottom:.5rem">
+      <strong>✕ ${errRows.length} dòng lỗi sẽ không được import</strong> — Sửa file CSV và import lại để thêm các dòng này.
+    </div>`;
+  }
+  preview.innerHTML = html;
+
+  btn.disabled = okRows.length === 0;
+  summary.textContent = okRows.length > 0
+    ? `Sẽ import ${okRows.length} thiết bị${errRows.length ? ` · bỏ qua ${errRows.length} lỗi` : ''}`
+    : 'Không có dòng hợp lệ để import';
+}
+
+async function executeDevImport() {
+  // Only import rows with no blocking errors
+  const validRows = _importRows.filter(r => r.name && r.ip && !r.errors.length);
+  if (!validRows.length) return;
+
+  const btn = document.getElementById('devImportBtn');
+  btn.disabled = true; btn.textContent = 'Đang import…';
+
+  let ok = 0, fail = 0;
+  for (const r of validRows) {
+    try {
+      const result = await apiFetch('/api/devices', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ name: r.name, ip: r.ip, type_id: r.typeId || '' }),
+      });
+      const idx = allDevices.findIndex(d => d.id === result.id);
+      if (idx >= 0) allDevices[idx] = result; else allDevices.push(result);
+      ok++;
+    } catch { fail++; }
+  }
+
+  btn.disabled = false; btn.textContent = 'Import';
+  renderDevicesTable(); renderDevTypesList();
+  closeDevImport();
+  if (fail === 0) toast(`✓ Đã import ${ok} thiết bị thành công`, 'success');
+  else toast(`Import ${ok} thành công, ${fail} lỗi`, fail > ok ? 'error' : 'success');
+}
+
+document.getElementById('devImportDlg').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeDevImport();
+});
+
+// ════════════════════════════════════════════════════════
+//  TRAFFIC TAB  (inner: Traffic Monitor + Travel Time)
+// ════════════════════════════════════════════════════════
+
+function showTrafficInner(pane) {
+  document.querySelectorAll('.inner-tab').forEach(t => t.classList.toggle('active', t.dataset.inner === pane));
+  document.getElementById('trafficMonitorPane').style.display = pane === 'trafficMonitor' ? '' : 'none';
+  document.getElementById('travelTimePane').style.display     = pane === 'travelTime'     ? '' : 'none';
+  if (pane === 'travelTime') loadTTPane();
+}
+
+async function loadTrafficTab() {
+  showTrafficInner('trafficMonitor');
+  clearInterval(window._trafficTabTimer);
+  window._trafficTabTimer = setInterval(() => {
+    if (document.getElementById('trafficSection').style.display === 'none') return;
+    const ttVisible = document.getElementById('travelTimePane').style.display !== 'none';
+    if (ttVisible) loadTTStatus();
+  }, 15000);
+}
+
+// ──────────────────────────────────────────────────────────────────
+//  INNER: Travel Time
+// ──────────────────────────────────────────────────────────────────
+let _ttRoutes = [];
+let _ttLogs   = [];
+
+async function loadTTPane() {
+  await Promise.all([loadTTConfig(), loadTTStatus(), loadTTRoutes(), refreshTTLogDates()]);
+}
+
+// ── Config ───────────────────────────────────────────────────────
+
+function ttIntervalChange() {
+  const sel = document.getElementById('tt-interval');
+  const custom = document.getElementById('tt-interval-custom');
+  custom.style.display = sel.value === 'custom' ? '' : 'none';
+  if (sel.value === 'custom') custom.focus();
+}
+
+function ttGetIntervalMin() {
+  const sel = document.getElementById('tt-interval');
+  if (sel.value === 'custom') {
+    return parseInt(document.getElementById('tt-interval-custom').value, 10) || 15;
+  }
+  return parseInt(sel.value, 10) || 15;
+}
+
+function ttSetInterval(min) {
+  const sel = document.getElementById('tt-interval');
+  const opts = ['5','10','15','30','60'];
+  if (opts.includes(String(min))) {
+    sel.value = String(min);
+    document.getElementById('tt-interval-custom').style.display = 'none';
+  } else {
+    sel.value = 'custom';
+    document.getElementById('tt-interval-custom').value = min;
+    document.getElementById('tt-interval-custom').style.display = '';
+  }
+}
+
+async function loadTTConfig() {
+  try {
+    const c = await apiFetch('/api/traveltime/config');
+    document.getElementById('tt-gscript').value = c.googleScriptUrl || '';
+    ttSetInterval(c.intervalMin || 15);
+  } catch (_) {}
+}
+
+async function saveTTConfig() {
+  let running = false;
+  try { running = !!(await apiFetch('/api/traveltime/config')).running; } catch (_) {}
+  const body = {
+    googleScriptUrl: document.getElementById('tt-gscript').value.trim(),
+    intervalMin:     ttGetIntervalMin(),
+    running,
+  };
+  try {
+    await apiFetch('/api/traveltime/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const msg = document.getElementById('ttConfigMsg');
+    msg.style.display = 'block';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+    await loadTTStatus();
+  } catch (e) { toast('Lưu thất bại: ' + e.message, 'error'); }
+}
+
+// ── Scheduler ────────────────────────────────────────────────────
+
+function fmtDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const time = d.toLocaleTimeString('vi-VN', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  const date = d.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit', year:'numeric'});
+  const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
+  const abs = Math.abs(diffMin);
+  const dir = diffMin >= 0 ? 'trước' : 'nữa';
+  let rel = abs < 1 ? 'vừa xong' : abs < 60 ? `${abs} phút ${dir}` : abs < 1440 ? `${Math.floor(abs/60)} giờ ${dir}` : `${Math.floor(abs/1440)} ngày ${dir}`;
+  return `${time} ${date} (${rel})`;
+}
+
+async function loadTTStatus() {
+  try {
+    const s = await apiFetch('/api/traveltime/status');
+    const box = document.getElementById('ttStatusBox');
+    if (!box) return;
+    const ok = s.running;
+    box.style.color       = ok ? 'var(--green)' : 'var(--text-muted)';
+    box.style.background  = ok ? 'rgba(74,222,128,.06)' : '';
+    box.style.borderColor = ok ? 'rgba(74,222,128,.25)' : '';
+    box.innerHTML = `
+      <div style="font-weight:600;margin-bottom:.2rem">${ok ? '▶ Đang chạy' : '■ Đã dừng'}
+        <span style="font-size:.74rem;font-weight:400;opacity:.7"> · ${s.intervalMin} phút/lần</span></div>
+      <div style="font-size:.77rem;opacity:.85">${s.lastStatus || '—'}</div>
+      <div style="font-size:.72rem;opacity:.6;margin-top:.2rem">Lần chạy: ${s.successRuns||0} · Lỗi: ${s.errorCount||0}</div>`;
+    document.getElementById('ttLastRun').textContent = s.lastRun ? 'Lần cuối: ' + fmtDateTime(s.lastRun) : '';
+    document.getElementById('ttNextRun').textContent = s.nextRun ? '· Kế tiếp: ' + fmtDateTime(s.nextRun) : '';
+  } catch (_) {}
+}
+
+async function ttSchedulerStart() {
+  const interval = ttGetIntervalMin();
+  try {
+    await apiFetch('/api/traveltime/scheduler/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intervalMin: interval }),
+    });
+    await loadTTStatus();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function ttSchedulerStop() {
+  try {
+    await apiFetch('/api/traveltime/scheduler/stop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    await loadTTStatus();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function ttRunNow() {
+  try {
+    await apiFetch('/api/traveltime/scheduler/run-now', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    toast('Đang thu thập…', 'success');
+    setTimeout(loadTTStatus, 3000);
+    setTimeout(() => { refreshTTLogDates(); loadTTLogs(); }, 8000);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Routes ───────────────────────────────────────────────────────
+
+async function loadTTRoutes() {
+  try { _ttRoutes = await apiFetch('/api/traveltime/routes') || []; }
+  catch (_) { _ttRoutes = []; }
+  renderTTRoutes();
+}
+
+function renderTTRoutes() {
+  document.getElementById('ttRouteCount').textContent = _ttRoutes.length + ' tuyến';
+  const tbody = document.getElementById('ttRoutesBody');
+  if (!_ttRoutes.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chưa có tuyến nào — nhấn "+ Thêm tuyến"</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _ttRoutes.map((r, i) => `<tr>
+    <td style="color:var(--text-muted)">${i+1}</td>
+    <td><strong>${esc(r.name)}</strong></td>
+    <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.origin)}</td>
+    <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.destination)}</td>
+    <td style="font-size:.77rem;color:var(--text-muted)">${r.waypoints ? esc(r.waypoints) : '<em style="opacity:.5">—</em>'}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="btn btn-secondary btn-sm" style="margin-right:.3rem" onclick="openTTRoute('${esc(r.id)}')">Sửa</button>
+      <button class="btn btn-secondary btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteTTRoute('${esc(r.id)}')">Xóa</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function deleteTTRoute(id) {
+  const r = _ttRoutes.find(x => x.id === id);
+  if (!confirm(`Xóa tuyến "${r ? r.name : id}"?`)) return;
+  try {
+    await apiFetch(`/api/traveltime/routes?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadTTRoutes();
+    toast('Đã xóa tuyến', 'success');
+  } catch (e) { toast(e.message || 'Lỗi', 'error'); }
+}
+
+// ── Logs ─────────────────────────────────────────────────────────
+
+async function refreshTTLogDates() {
+  try {
+    const dates = await apiFetch('/api/traveltime/logs/dates') || [];
+    const sel = document.getElementById('ttLogDate');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Hôm nay —</option>' +
+      dates.map(d => `<option value="${d}"${d===cur?' selected':''}>${d}</option>`).join('');
+  } catch (_) {}
+  await loadTTLogs();
+}
+
+async function loadTTLogs() {
+  const date = document.getElementById('ttLogDate').value;
+  const url = '/api/traveltime/logs?limit=500' + (date ? '&date=' + encodeURIComponent(date) : '');
+  try { _ttLogs = await apiFetch(url) || []; }
+  catch (_) { _ttLogs = []; }
+  renderTTLogs();
+}
+
+function renderTTLogs() {
+  const tbody = document.getElementById('ttLogsBody');
+  if (!_ttLogs.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Không có dữ liệu</td></tr>';
+    return;
+  }
+  tbody.innerHTML = [..._ttLogs].reverse().map(e => {
+    const ts  = e.timestamp ? new Date(e.timestamp).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour12:false}) : '';
+    const tti = parseFloat(e.tti);
+    const c   = tti >= 1.5 ? 'var(--red)' : tti >= 1.2 ? '#f59e0b' : 'var(--green)';
+    return `<tr>
+      <td style="font-size:.77rem;color:var(--text-muted)">${ts}</td>
+      <td><strong>${esc(e.routeName)}</strong></td>
+      <td style="font-size:.8rem">${((e.lengthM||0)/1000).toFixed(2)} km</td>
+      <td style="font-size:.8rem">${e.durationSec||0}</td>
+      <td style="font-size:.8rem">${e.baseSec||0}</td>
+      <td style="font-size:.8rem">${e.delaySec||0}</td>
+      <td style="font-weight:700;color:${c}">${tti.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function exportTTLogs() {
+  if (!_ttLogs.length) { toast('Không có dữ liệu để xuất', 'error'); return; }
+  const rows = [['Thời gian','Tuyến','Khoảng cách (m)','Thực tế (s)','Chuẩn (s)','Trễ (s)','TTI','Điểm đầu','Điểm cuối','Điểm giữa']];
+  _ttLogs.forEach(e => rows.push([e.timestamp,e.routeName,e.lengthM,e.durationSec,e.baseSec,e.delaySec,e.tti,e.origin,e.destination,e.waypoints||'']));
+  const csv = rows.map(r => r.map(c => `"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'})),
+    download: `traveltime-${document.getElementById('ttLogDate').value || new Date().toISOString().slice(0,10)}.csv`,
+  });
+  a.click();
+}
+
+// ────────────────────────────────────────────────────────────────
+//  ROUTE DIALOG  (map-based)
+// ────────────────────────────────────────────────────────────────
+let _ttMap = null, _ttMapLoaded = false;
+let _ttPendingLL = null;
+const _ttMkrs = { origin: null, dest: null, waypoints: [] };
+let _ttEditId = null;
+
+function openTTRoute(id) {
+  _ttEditId = id || null;
+  const r = id ? _ttRoutes.find(x => x.id === id) : null;
+  document.getElementById('ttRouteDlg-title').textContent = r ? 'Sửa tuyến đường' : 'Thêm tuyến đường';
+  document.getElementById('tt-route-id').value   = r ? r.id   : '';
+  document.getElementById('tt-route-name').value = r ? r.name : '';
+  document.getElementById('ttRouteDlg-btn').textContent = r ? 'Cập nhật' : 'Lưu';
+  document.getElementById('ttRouteDlg').classList.add('open');
+
+  _loadVietmapGL(() => {
+    _initTTMap();
+    if (r) {
+      // Pre-populate from existing route
+      _ttSetCoord('origin',   r.origin);
+      _ttSetCoord('dest',     r.destination);
+      if (r.waypoints) r.waypoints.split('|').filter(Boolean).forEach(wp => _ttSetCoord('waypoint', wp));
+      ttPreviewRoute();
+    }
+  });
+}
+
+function closeTTRouteDlg() {
+  document.getElementById('ttRouteDlg').classList.remove('open');
+  document.getElementById('ttCtxMenu').style.display = 'none';
+}
+document.getElementById('ttRouteDlg').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeTTRouteDlg();
+});
+
+async function submitTTRoute(e) {
+  e.preventDefault();
+  const id     = document.getElementById('tt-route-id').value;
+  const origin = document.getElementById('tt-route-origin').value.trim();
+  const dest   = document.getElementById('tt-route-dest').value.trim();
+  if (!origin || !dest) { toast('Vui lòng chọn điểm đầu và điểm cuối trên bản đồ', 'error'); return; }
+  const body = {
+    id:          id || undefined,
+    name:        document.getElementById('tt-route-name').value.trim(),
+    origin,
+    destination: dest,
+    waypoints:   document.getElementById('tt-route-wp').value.trim(),
+  };
+  if (!body.name) { toast('Vui lòng nhập tên tuyến đường', 'error'); return; }
+  try {
+    if (id) {
+      await apiFetch('/api/traveltime/routes', { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    } else {
+      await apiFetch('/api/traveltime/routes', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    }
+    closeTTRouteDlg();
+    await loadTTRoutes();
+    toast(id ? 'Đã cập nhật tuyến' : 'Đã thêm tuyến', 'success');
+  } catch (e) { toast(e.message || 'Lỗi', 'error'); }
+}
+
+// ── Map helpers ───────────────────────────────────────────────────
+
+function _loadVietmapGL(cb) {
+  if (window.vietmapgl) { cb(); return; }
+  if (window._vietmapGLLoading) { setTimeout(() => _loadVietmapGL(cb), 120); return; }
+  window._vietmapGLLoading = true;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css';
+  document.head.appendChild(link);
+  const script = document.createElement('script');
+  script.src = 'https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js';
+  script.onload = () => { window._vietmapGLLoading = false; cb(); };
+  document.head.appendChild(script);
+}
+
+async function _initTTMap() {
+  if (_ttMap) {
+    // Reset markers and route
+    ttResetMap();
+    return;
+  }
+  try {
+    const { apikey } = await apiFetch('/api/vietmap/key');
+    if (!apikey) { document.getElementById('ttRouteMap').textContent = 'Chưa cấu hình VietMap API Key trong Settings'; return; }
+
+    _ttMap = new vietmapgl.Map({
+      container: 'ttRouteMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apikey}`,
+      center: [106.700, 10.776],
+      zoom: 13,
+    });
+    _ttMap.addControl(new vietmapgl.NavigationControl(), 'top-right');
+
+    _ttMap.on('load', () => {
+      _ttMapLoaded = true;
+      _ttMap.addSource('ttRoute', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _ttMap.addLayer({ id: 'ttRouteLine', type: 'line', source: 'ttRoute',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-opacity': .85 } });
+    });
+
+    _ttMap.on('contextmenu', e => {
+      e.originalEvent.preventDefault();
+      _ttPendingLL = e.lngLat;
+      const menu = document.getElementById('ttCtxMenu');
+      menu.style.left = e.originalEvent.clientX + 'px';
+      menu.style.top  = e.originalEvent.clientY + 'px';
+      menu.style.display = '';
+    });
+    _ttMap.on('click', () => { document.getElementById('ttCtxMenu').style.display = 'none'; });
+  } catch (err) {
+    document.getElementById('ttRouteMap').textContent = 'Lỗi khởi tạo bản đồ: ' + err.message;
+  }
+}
+
+function _mkEl(color) {
+  const el = document.createElement('div');
+  el.style.cssText = `width:14px;height:14px;background:${color};border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.55);cursor:pointer`;
+  return el;
+}
+
+function _ttCoordStr(lngLat) {
+  return `${lngLat.lat.toFixed(5)},${lngLat.lng.toFixed(5)}`;
+}
+
+function _ttSetCoord(type, coordStr) {
+  // coordStr is "lat,lng"
+  const parts = coordStr.split(',');
+  const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
+  if (isNaN(lat) || isNaN(lng)) return;
+  const lngLat = { lat, lng };
+  if (type === 'origin') {
+    if (_ttMkrs.origin) _ttMkrs.origin.remove();
+    _ttMkrs.origin = new vietmapgl.Marker({ element: _mkEl('#10b981') }).setLngLat([lng, lat]).addTo(_ttMap);
+    document.getElementById('tt-route-origin').value = coordStr;
+    document.getElementById('ttOriginLabel').textContent = coordStr;
+  } else if (type === 'dest') {
+    if (_ttMkrs.dest) _ttMkrs.dest.remove();
+    _ttMkrs.dest = new vietmapgl.Marker({ element: _mkEl('#ef4444') }).setLngLat([lng, lat]).addTo(_ttMap);
+    document.getElementById('tt-route-dest').value = coordStr;
+    document.getElementById('ttDestLabel').textContent = coordStr;
+  } else {
+    _ttMkrs.waypoints.push(new vietmapgl.Marker({ element: _mkEl('#3b82f6') }).setLngLat([lng, lat]).addTo(_ttMap));
+    const cur = document.getElementById('tt-route-wp').value;
+    const newVal = cur ? cur + '|' + coordStr : coordStr;
+    document.getElementById('tt-route-wp').value = newVal;
+    document.getElementById('ttWpLabel').textContent = newVal.split('|').length + ' điểm';
+  }
+}
+
+function ttCtxSet(type) {
+  document.getElementById('ttCtxMenu').style.display = 'none';
+  if (!_ttPendingLL) return;
+  const coordStr = _ttCoordStr(_ttPendingLL);
+  _ttSetCoord(type, coordStr);
+  // Auto-preview when origin+dest both set
+  const o = document.getElementById('tt-route-origin').value;
+  const d = document.getElementById('tt-route-dest').value;
+  if (o && d) ttPreviewRoute();
+}
+
+function ttClearWp() {
+  _ttMkrs.waypoints.forEach(m => m.remove());
+  _ttMkrs.waypoints = [];
+  document.getElementById('tt-route-wp').value = '';
+  document.getElementById('ttWpLabel').textContent = '—';
+  const o = document.getElementById('tt-route-origin').value;
+  const d = document.getElementById('tt-route-dest').value;
+  if (o && d) ttPreviewRoute();
+}
+
+function ttResetMap() {
+  if (_ttMkrs.origin) { _ttMkrs.origin.remove(); _ttMkrs.origin = null; }
+  if (_ttMkrs.dest)   { _ttMkrs.dest.remove();   _ttMkrs.dest   = null; }
+  ttClearWp();
+  document.getElementById('tt-route-origin').value = '';
+  document.getElementById('tt-route-dest').value   = '';
+  document.getElementById('ttOriginLabel').textContent = 'Chưa chọn';
+  document.getElementById('ttDestLabel').textContent   = 'Chưa chọn';
+  document.getElementById('ttWpLabel').textContent     = '—';
+  if (_ttMapLoaded) {
+    _ttMap.getSource('ttRoute').setData({ type: 'FeatureCollection', features: [] });
+  }
+  document.getElementById('ttRouteInfo').style.display = 'none';
+}
+
+async function ttPreviewRoute() {
+  const origin = document.getElementById('tt-route-origin').value;
+  const dest   = document.getElementById('tt-route-dest').value;
+  const wps    = document.getElementById('tt-route-wp').value;
+  if (!origin || !dest) { toast('Cần có điểm đầu và điểm cuối', 'error'); return; }
+
+  const infoEl = document.getElementById('ttRouteInfo');
+  infoEl.style.display = '';
+  infoEl.style.color = 'var(--text-muted)';
+  infoEl.textContent = '⏳ Đang tính lộ trình…';
+
+  try {
+    const pts = [origin];
+    if (wps) wps.split('|').filter(Boolean).forEach(p => pts.push(p));
+    pts.push(dest);
+
+    const params = new URLSearchParams();
+    pts.forEach(p => params.append('point', p));
+    params.set('vehicle', 'car');
+
+    const data = await apiFetch('/api/vietmap/route?' + params.toString());
+    if (data.error) throw new Error(data.error);
+    if (!data.paths?.length) throw new Error('Không tìm được lộ trình');
+
+    const path  = data.paths[0];
+    const km    = (path.distance / 1000).toFixed(2);
+    const min   = (path.time / 60000).toFixed(1);
+    const coords = path.points?.coordinates ?? path.points;
+
+    if (_ttMapLoaded && coords) {
+      _ttMap.getSource('ttRoute').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
+      if (path.bbox) {
+        const [w, s, e, n] = path.bbox;
+        _ttMap.fitBounds([[w, s], [e, n]], { padding: 50 });
+      }
+    }
+
+    infoEl.style.color = 'var(--green)';
+    infoEl.textContent = `📏 ${km} km · ⏱ ${min} phút · ${pts.length - 1} đoạn`;
+  } catch (err) {
+    infoEl.style.color = 'var(--red)';
+    infoEl.textContent = '❌ ' + (err.message || 'Lỗi kết nối');
+  }
+}
+
+// ── Search autocomplete ───────────────────────────────────────────
+let _ttSearchTimer = null;
+function ttSearchInput() {
+  clearTimeout(_ttSearchTimer);
+  const val = document.getElementById('ttMapSearch').value.trim();
+  if (val.length < 2) { document.getElementById('ttSearchDrop').style.display = 'none'; return; }
+  _ttSearchTimer = setTimeout(() => ttSearchNow(), 300);
+}
+async function ttSearchNow() {
+  const val = document.getElementById('ttMapSearch').value.trim();
+  if (!val || !_ttMap) return;
+  try {
+    const center = _ttMap.getCenter();
+    const focus  = `${center.lat.toFixed(5)},${center.lng.toFixed(5)}`;
+    const list   = await apiFetch(`/api/vietmap/search?text=${encodeURIComponent(val)}&focus=${focus}`);
+    ttRenderSearchDrop(Array.isArray(list) ? list.slice(0, 6) : []);
+  } catch (_) { ttRenderSearchDrop([]); }
+}
+function ttRenderSearchDrop(items) {
+  const drop = document.getElementById('ttSearchDrop');
+  if (!items.length) { drop.style.display = 'none'; return; }
+  drop.innerHTML = items.map(item => `
+    <div style="padding:.5rem .75rem;cursor:pointer;font-size:.81rem;border-bottom:1px solid var(--border)"
+      onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"
+      onclick="ttSelectPlace(${JSON.stringify(JSON.stringify(item))})">
+      <span style="font-weight:600;color:var(--text)">${esc(item.name||'')}</span>
+      ${item.name ? ' · ' : ''}<span style="color:var(--text-muted)">${esc(item.address||'')}</span>
+    </div>`).join('');
+  drop.style.display = '';
+}
+async function ttSelectPlace(itemJson) {
+  document.getElementById('ttSearchDrop').style.display = 'none';
+  try {
+    const item = JSON.parse(itemJson);
+    document.getElementById('ttMapSearch').value = item.display || item.name || '';
+    const place = await apiFetch(`/api/vietmap/place?refid=${encodeURIComponent(item.ref_id)}`);
+    if (place.lat && place.lng) _ttMap.flyTo({ center: [place.lng, place.lat], zoom: 16 });
+  } catch (_) {}
+}
+document.addEventListener('click', e => {
+  const drop = document.getElementById('ttSearchDrop');
+  if (drop && !drop.contains(e.target) && e.target !== document.getElementById('ttMapSearch')) {
+    drop.style.display = 'none';
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+
+async function deleteCameraType(id) {
+  const t = allCameraTypes.find(x => x.id === id);
+  if (!confirm(`Delete type "${t ? t.name : id}"?\nAssigned streams will become unassigned.`)) return;
+  try {
+    await apiFetch(`/api/camera-types?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('Type deleted', 'success');
+    await loadCameraTypes();
+  } catch(err) { toast(err.message || 'Error deleting type', 'error'); }
+}
+</script>
+</body>
+</html>

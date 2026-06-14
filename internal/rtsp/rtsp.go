@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/rtsp"
@@ -53,6 +54,7 @@ func Init() {
 	}
 
 	_, Port, _ = net.SplitHostPort(address)
+	auth.SetRTSPListenPort(Port) // expose RTSP port to proxy layer for URL building
 
 	log.Info().Str("addr", address).Msg("[rtsp] listen")
 
@@ -169,7 +171,7 @@ func tcpHandler(conn *rtsp.Conn) {
 
 			name = conn.URL.Path[1:]
 
-			stream := streams.Get(name)
+			stream := streams.GetByAny(name)
 			if stream == nil {
 				return
 			}
@@ -235,7 +237,7 @@ func tcpHandler(conn *rtsp.Conn) {
 
 			name = conn.URL.Path[1:]
 
-			stream := streams.Get(name)
+			stream := streams.GetByAny(name)
 			if stream == nil {
 				return
 			}

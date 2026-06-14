@@ -5,6 +5,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/creds"
 	"github.com/AlexxIT/go2rtc/pkg/probe"
@@ -16,9 +17,27 @@ func apiStreams(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	src := query.Get("src")
 
-	// without source - return all streams list
+	// without source - return filtered streams list based on user permissions
 	if src == "" && r.Method != "POST" {
-		api.ResponseJSON(w, streams)
+		user, ok := auth.UserFromContext(r.Context())
+		if !ok || user.Role == auth.RoleAdmin {
+			api.ResponseJSON(w, streams)
+		} else {
+			// Return only the streams this viewer is allowed to see
+			filtered := make(map[string]any)
+			for name, stream := range streams {
+				if auth.CanAccessStream(r.Context(), name) {
+					filtered[name] = stream
+				}
+			}
+			api.ResponseJSON(w, filtered)
+		}
+		return
+	}
+
+	// For specific stream access, check permission
+	if src != "" && !auth.CanAccessStream(r.Context(), src) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 

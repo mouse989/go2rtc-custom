@@ -1,32 +1,104 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>config - go2rtc</title>
+    <title>Config – UTMC Camera</title>
+    <link rel="stylesheet" href="app.css">
     <style>
-        html, body {
-            height: 100%;
+        .cfg-toolbar {
+            display:flex; align-items:center; gap:.5rem; margin-bottom:1rem;
         }
-
+        .cfg-hint { font-size:.78rem; color:var(--text-muted); margin-left:auto; }
         #config {
-            flex: 1 1 auto;
-            border-top: 1px solid #ccc;
-            min-height: 300px;
+            height: calc(100vh - 180px); min-height: 360px;
+            border:1px solid var(--border); border-radius:var(--radius-lg);
+            overflow:hidden; background:var(--surface);
         }
     </style>
 </head>
 <body>
 
-<script src="main.js"></script>
-
-<main>
-    <div>
-        <button id="save">Save & Restart</button>
-        <button id="suggest" title="ctrl + space">Suggest</button>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item active" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
     </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Config (go2rtc.yaml)</h2>
+  </header>
+
+  <div class="content">
+    <div class="cfg-toolbar">
+      <button class="btn btn-primary" id="save">💾 Save &amp; Restart</button>
+      <button class="btn" id="suggest" title="Ctrl + Space">Suggest</button>
+      <span class="cfg-hint">Saving restarts the go2rtc service</span>
+    </div>
+    <div id="config"></div>
+  </div>
 </main>
-<div id="config"></div>
+
+<script src="app.js"></script>
+<script>
+// Boot the platform chrome (sidebar, user info, auth redirect). Admin only.
+(async () => {
+  await initApp('config');
+  const user = getUser();
+  if (!user || !hasTab('config')) window.location.href = '/';
+})();
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs/loader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
@@ -116,8 +188,8 @@
 
         ensureYamlLanguage();
 
-        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        monaco.editor.setTheme(prefersDark ? 'vs-dark' : 'vs');
+        // Platform UI is dark — always use the dark editor theme
+        monaco.editor.setTheme('vs-dark');
 
         const editor = monaco.editor.create(container, {
             language: 'yaml',
@@ -1174,26 +1246,34 @@
 
         const layout = () => {
             const top = container.getBoundingClientRect().top;
-            container.style.height = `${Math.max(200, window.innerHeight - top)}px`;
+            container.style.height = `${Math.max(360, window.innerHeight - top - 24)}px`;
             editor.layout();
         };
         window.addEventListener('resize', layout);
         layout();
 
+        // Authenticated fetch — /api/config and /api/restart require a JWT
+        const authedFetch = (url, opts = {}) => {
+            const t = getToken && getToken();
+            opts.headers = Object.assign({}, opts.headers,
+                t ? { Authorization: 'Bearer ' + t } : {});
+            return fetch(url, opts);
+        };
+
         let dump;
 
         document.getElementById('save').addEventListener('click', async () => {
-            let r = await fetch('api/config', {cache: 'no-cache'});
+            let r = await authedFetch('api/config', {cache: 'no-cache'});
             if (r.ok && dump !== await r.text()) {
                 alert('Config was changed from another place. Refresh the page and make changes again');
                 return;
             }
 
-            r = await fetch('api/config', {method: 'POST', body: editor.getValue()});
+            r = await authedFetch('api/config', {method: 'POST', body: editor.getValue()});
             if (r.ok) {
-                alert('OK');
+                alert('Saved. Restarting service…');
                 dump = editor.getValue();
-                await fetch('api/restart', {method: 'POST'});
+                await authedFetch('api/restart', {method: 'POST'});
             } else {
                 alert(await r.text());
             }
@@ -1211,7 +1291,7 @@
                 // ignore schema load errors
             }
 
-            const r = await fetch('api/config', {cache: 'no-cache'});
+            const r = await authedFetch('api/config', {cache: 'no-cache'});
             if (r.status === 410) {
                 alert('Config file is not set');
             } else if (r.status === 404) {
@@ -1219,6 +1299,8 @@
             } else if (r.ok) {
                 dump = await r.text();
                 editor.setValue(dump);
+            } else if (r.status === 401) {
+                window.location.href = '/login.html';
             } else {
                 alert(`Unknown error: ${r.statusText} (${r.status})`);
             }

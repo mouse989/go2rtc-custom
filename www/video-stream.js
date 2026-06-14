@@ -71,12 +71,17 @@ class VideoStream extends VideoRTC {
             console.debug('stream.onmessge', msg);
             switch (msg.type) {
                 case 'error':
+                    // Suppress H.265/MSE mismatch errors when WebRTC is also active:
+                    // WebRTC handles H.265 natively (priority 0x240 > MSE H.264 0x210).
+                    // Showing the error here confuses users — WebRTC will succeed in 1-3s.
+                    if (msg.value && msg.value.includes('H265') && this.mode.includes('webrtc')) {
+                        break; // silent — WebRTC will take over
+                    }
                     this.divError = msg.value;
                     break;
                 case 'mse':
                 case 'hls':
                 case 'mp4':
-                case 'mjpeg':
                     this.divMode = msg.type.toUpperCase();
                     break;
             }

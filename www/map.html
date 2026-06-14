@@ -1,0 +1,1664 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera Map – UTMC Camera</title>
+<link href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+<style>
+/* ── Base ─────────────────────────────────────────────────────── */
+body { overflow:hidden; }
+
+/* ── Sidebar collapse support ────────────────────────────────── */
+body { --map-left: var(--sidebar-w); }
+body.sb-collapsed .sidebar  { width:0; min-width:0; }
+body.sb-collapsed .main     { margin-left:0; }
+body.sb-collapsed           { --map-left:0; }
+@media (max-width:768px) { body { --map-left:0; } }
+
+/* ── Map canvas ────────────────────────────────────────────── */
+#map {
+  position:fixed; top:0; right:0; bottom:0;
+  left:var(--map-left);
+  z-index:0;
+  transition:left var(--transition);
+}
+
+/* ── Floating toolbar (top-right) ──────────────────────────── */
+#mapToolbar {
+  position:fixed; top:calc(var(--topbar-h) + .5rem); right:.8rem;
+  z-index:400; display:flex; flex-direction:column; gap:.4rem;
+}
+.map-btn {
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  color:var(--text); padding:.42rem .75rem; font-size:.8rem; font-weight:600;
+  cursor:pointer; white-space:nowrap;
+  display:flex; align-items:center; gap:.4rem;
+  transition:border-color .15s, background .15s;
+  box-shadow:0 2px 6px rgba(0,0,0,.3);
+}
+.map-btn:hover  { border-color:var(--accent); }
+.map-btn.active { border-color:var(--accent); background:rgba(47,129,247,.12); color:var(--accent); }
+
+/* ── Sidebar layout ────────────────────────────────────────── */
+.sidebar { z-index:500; display:flex; flex-direction:column; }
+.sidebar-nav { flex-shrink:0; }
+.cam-list {
+  flex:1; min-height:0;
+  overflow-y:auto; padding:.3rem 0;
+  display:flex; flex-direction:column;
+}
+.cam-item {
+  display:flex; align-items:center; gap:.55rem;
+  padding:.38rem .8rem; cursor:pointer; border-radius:6px;
+  margin:0 .3rem; font-size:.81rem; transition:background .12s;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0;
+}
+.cam-item:hover { background:var(--surface2); }
+.cam-item.located   { color:var(--text); }
+.cam-item.unplaced  { color:var(--text-muted); font-style:italic; }
+.cam-item.in-radius { background:rgba(249,115,22,.12); color:#f97316; }
+.cam-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.cam-dot.on  { background:#4ade80; }
+.cam-dot.off { background:#555; }
+.list-section {
+  font-size:.66rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted);
+  padding:.5rem .8rem .15rem; flex-shrink:0;
+}
+
+/* ── Results panel (bottom strip) ──────────────────────────── */
+#resultsPanel {
+  position:fixed; bottom:0; right:0;
+  left:var(--map-left);
+  z-index:450;
+  background:var(--surface); border-top:1px solid var(--border);
+  transform:translateY(100%); transition:transform .3s ease, left var(--transition);
+  display:flex; flex-direction:column; max-height:45vh;
+}
+#resultsPanel.show { transform:translateY(0); }
+
+#resultsPanelHeader {
+  display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+  padding:.5rem .8rem; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+#resultsPanelHeader h4 { font-size:.85rem; font-weight:700; flex-shrink:0; }
+.radius-row { display:flex; align-items:center; gap:.45rem; flex:1; min-width:180px; }
+.radius-row label { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
+#radiusSlider { flex:1; accent-color:var(--accent); min-width:80px; }
+#radiusNum {
+  width:68px; padding:.18rem .35rem; background:var(--bg);
+  border:1px solid var(--border); border-radius:5px; color:var(--accent);
+  font-size:.8rem; font-weight:700; outline:none; text-align:center;
+  transition:border-color .12s;
+}
+#radiusNum:focus { border-color:var(--accent); }
+#radiusUnit { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
+.results-actions { display:flex; gap:.4rem; flex-shrink:0; }
+
+#resultsCams {
+  display:flex; gap:.55rem; padding:.55rem .8rem;
+  overflow-x:auto; flex:1; align-items:flex-start;
+}
+.result-card {
+  flex:0 0 160px; border:1px solid var(--border); border-radius:8px;
+  overflow:hidden; cursor:pointer; transition:border-color .15s;
+  background:var(--surface2);
+}
+.result-card:hover { border-color:var(--accent); }
+.result-card video { width:100%; aspect-ratio:16/9; display:block; background:#111; }
+.result-card .rc-name {
+  font-size:.73rem; padding:.25rem .45rem;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-muted);
+}
+
+/* ── Map overlay container (Mode 2 – PiP windows) ──────────── */
+#mapOverlays {
+  position:fixed; top:0; right:0; bottom:0;
+  left:var(--map-left);
+  z-index:460;
+  pointer-events:none;
+  transition:left var(--transition);
+}
+
+/* ── Draggable overlay window ───────────────────────────────── */
+.ov-win {
+  position:absolute;
+  width:230px;
+  background:var(--surface);
+  border:2px solid var(--accent);
+  border-radius:8px; overflow:visible;
+  pointer-events:all;
+  box-shadow:0 4px 20px rgba(0,0,0,.7);
+  user-select:none;
+}
+.ov-body { border-radius:0 0 6px 6px; overflow:hidden; }
+.ov-win.dragging { opacity:.85; box-shadow:0 8px 32px rgba(0,0,0,.9); z-index:10; }
+.ov-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:.22rem .45rem .22rem .6rem;
+  background:rgba(0,0,0,.80);
+  border-radius:6px 6px 0 0;
+  font-size:.72rem; font-weight:600; color:#fff;
+  cursor:grab;
+}
+.ov-header:active { cursor:grabbing; }
+.ov-close {
+  background:none; border:none; color:#fff; cursor:pointer;
+  font-size:1rem; padding:0 .2rem; line-height:1; opacity:.75; flex-shrink:0;
+}
+.ov-close:hover { opacity:1; }
+.ov-body video-stream { width:100%; aspect-ratio:16/9; display:block; }
+.ov-body video-stream::part(video) { width:100%; height:100%; }
+.ov-pin {
+  position:absolute; bottom:-10px; left:50%; transform:translateX(-50%);
+  width:0; height:0;
+  border:6px solid transparent; border-top-color:var(--accent);
+  pointer-events:none;
+}
+
+/* ── Single-camera modal ────────────────────────────────────── */
+#modalBackdrop { z-index:600; }
+#playerWrap video-stream { width:100%;aspect-ratio:16/9;display:block;background:#000;border-radius:6px;overflow:hidden; }
+#playerWrap video-stream::part(video){ width:100%;height:100%; }
+#playerWrap video.modal-snap { width:100%;aspect-ratio:16/9;display:block;background:#000;border-radius:6px;object-fit:contain; }
+.snap-bar { display:flex;align-items:center;justify-content:space-between;margin-top:.35rem;font-size:.72rem;color:var(--text-muted); }
+.mode-tabs { display:flex;gap:.35rem;margin-bottom:.7rem;flex-wrap:wrap; }
+.mode-tab { padding:.28rem .7rem;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text-muted);font-size:.81rem;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s; }
+.mode-tab:hover { color:var(--text);border-color:var(--text-muted); }
+.mode-tab.active { border-color:var(--accent);color:var(--accent);background:rgba(47,129,247,.08); }
+.stream-link { display:inline-flex;align-items:center;gap:.3rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .55rem;font-size:.77rem;text-decoration:none;color:var(--text);margin:.12rem .12rem 0 0;transition:border-color .12s,color .12s; }
+.stream-link:hover { border-color:var(--accent);color:var(--accent); }
+
+/* ── Grid modal ─────────────────────────────────────────────── */
+#gridBackdrop { z-index:620; align-items:stretch; padding:.5rem; }
+#gridBackdrop .grid-shell {
+  background:var(--surface); border-radius:12px; width:100%; max-width:1400px;
+  display:flex; flex-direction:column; overflow:hidden; max-height:98vh;
+}
+#gridPlayers { display:grid; gap:.45rem; padding:.45rem; overflow-y:auto; flex:1; }
+
+/* ── Edit location panel ────────────────────────────────────── */
+#editPanel {
+  position:fixed; right:.8rem; top:50%; transform:translateY(-50%);
+  z-index:400; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:.85rem;
+  width:340px; min-width:280px; max-width:560px;
+  resize:horizontal; overflow:hidden;
+  display:none; flex-direction:column; gap:.5rem;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+}
+#editPanel.show { display:flex; }
+#editPanel h4 { font-size:.9rem; font-weight:700; }
+#editPanel label { font-size:.73rem; color:var(--text-muted); display:block; margin-bottom:.15rem; }
+#editPanel input, #editPanel select {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:6px; padding:.32rem .5rem; color:var(--text); font-size:.81rem;
+  box-sizing:border-box;
+}
+#editCamSearch { margin-bottom:.25rem; }
+#editCamSelect { height:120px; }
+#editSnapshotWrap {
+  display:none; border-radius:6px; overflow:hidden;
+  background:var(--surface2); border:1px solid var(--border);
+}
+#editSnapshotWrap video {
+  width:100%; display:block; max-height:180px; object-fit:cover;
+  border:none; border-radius:0; background:#000;
+}
+#editSnapshotMsg {
+  font-size:.7rem; color:var(--text-muted);
+  padding:.3rem .5rem; text-align:center;
+}
+
+/* ── Camera marker HTML element (edit mode) ─────────────────── */
+.cam-marker-wrap {
+  background:#2f81f7; border:2px solid rgba(255,255,255,.9); border-radius:50%;
+  width:30px; height:30px; display:flex; align-items:center; justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,.5); cursor:pointer;
+  transition:transform .15s, background .15s;
+}
+.cam-marker-wrap:hover { transform:scale(1.2); }
+.cam-marker-wrap svg { width:15px; height:15px; fill:#fff; }
+.cam-marker-wrap.edit { background:#22c55e; }
+
+/* ── VietMap attribution tweak ─────────────────────────────── */
+.mapboxgl-ctrl-attrib { font-size:.62rem !important; }
+
+/* .main on map page: pass clicks through except topbar */
+.main { pointer-events:none; }
+.topbar { pointer-events:all; }
+
+/* ── No-key overlay ─────────────────────────────────────────── */
+#mapNoKey {
+  position:fixed; inset:0; left:var(--map-left);
+  z-index:200; background:var(--bg);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:.8rem; text-align:center; padding:1rem;
+}
+#mapNoKey h3 { font-size:1rem; font-weight:700; }
+#mapNoKey p  { font-size:.83rem; color:var(--text-muted); max-width:340px; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ──────────────────────────────────────────────── -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item active" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+
+  <div class="cam-list" id="camList">
+    <div class="list-section">On map (<span id="cntLocated">0</span>)</div>
+    <div id="listLocated"></div>
+    <div class="list-section admin-only" id="secUnplaced" style="display:none">
+      Unplaced (<span id="cntUnplaced">0</span>)
+    </div>
+    <div id="listUnplaced"></div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<!-- ── Top bar ───────────────────────────────────────────────── -->
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">
+      <svg viewBox="0 0 20 20" fill="currentColor">
+        <path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
+      </svg>
+    </button>
+    <h2 class="page-title">Camera Map</h2>
+  </header>
+</main>
+
+<!-- ── Map ──────────────────────────────────────────────────── -->
+<div id="map"></div>
+
+<!-- ── No API key message ────────────────────────────────────── -->
+<div id="mapNoKey" style="display:none">
+  <h3>🗺 VietMap API key not configured</h3>
+  <p>To display the map, an admin must set the VietMap API key in Settings.</p>
+  <a href="/admin.html" class="btn btn-primary" style="text-decoration:none">Go to Admin → Settings</a>
+</div>
+
+<!-- ── Floating toolbar ──────────────────────────────────────── -->
+<div id="mapToolbar">
+  <button class="map-btn" id="btnSearch">
+    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+    Search area
+  </button>
+  <!-- Traffic: shown only for admin or users with allow_traffic -->
+  <button class="map-btn" id="btnTraffic" style="display:none">
+    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
+    🚦 Traffic
+  </button>
+  <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
+  <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
+  <!-- Map style toggle (single button, shows current mode) -->
+  <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
+  <button class="map-btn admin-only" id="btnEdit" style="display:none">
+    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+    Edit locations
+  </button>
+</div>
+
+<!-- ── Results panel ──────────────────────────────────────────── -->
+<div id="resultsPanel">
+  <div id="resultsPanelHeader">
+    <h4 id="resultsTitle">Cameras</h4>
+    <div class="radius-row">
+      <label>📍 R:</label>
+      <input type="range" id="radiusSlider" min="0.1" max="10" step="0.1" value="1">
+      <input type="number" id="radiusNum" value="1" min="0.1" step="0.1" title="Type any value (km)">
+      <span id="radiusUnit">km</span>
+    </div>
+    <div class="results-actions">
+      <button class="btn btn-secondary" id="btnGrid"
+              style="font-size:.75rem;padding:.25rem .55rem" title="Full-screen grid">
+        ⊞ Grid
+      </button>
+      <button class="btn btn-primary" id="btnMapOverlay"
+              style="font-size:.75rem;padding:.25rem .55rem" title="Floating PiP windows">
+        📍 On map
+      </button>
+      <button class="btn btn-secondary" id="btnCloseResults"
+              style="font-size:.75rem;padding:.25rem .55rem">✕</button>
+    </div>
+  </div>
+  <div id="resultsCams"></div>
+</div>
+
+<!-- ── Overlay container ──────────────────────────────────────── -->
+<div id="mapOverlays"></div>
+
+<!-- ── Edit panel ────────────────────────────────────────────── -->
+<div id="editPanel">
+  <h4 id="editTitle">📍 Set location</h4>
+  <div>
+    <label>Search camera</label>
+    <input type="search" id="editCamSearch" placeholder="Type to filter…">
+  </div>
+  <div>
+    <label>Camera</label>
+    <select id="editCamSelect" size="5"></select>
+  </div>
+  <!-- Snapshot preview — shown when a camera is selected -->
+  <div id="editSnapshotWrap">
+    <video id="editSnapshotImg" autoplay muted loop playsinline></video>
+    <div id="editSnapshotMsg"></div>
+  </div>
+  <div>
+    <label>Label (optional)</label>
+    <input type="text" id="editLabel" placeholder="e.g. Ngã tư chợ">
+  </div>
+  <div style="display:flex;gap:.5rem">
+    <div style="flex:1"><label>Lat</label><input type="number" id="editLat" step="0.000001"></div>
+    <div style="flex:1"><label>Lon</label><input type="number" id="editLon" step="0.000001"></div>
+  </div>
+  <p style="font-size:.71rem;color:var(--text-muted);margin:0">Click on map to auto-fill coordinates.</p>
+  <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+    <button class="btn btn-primary"   id="editSave"   style="flex:1;font-size:.8rem">💾 Save</button>
+    <button class="btn btn-secondary" id="editCancel" style="font-size:.8rem">Cancel</button>
+    <button class="btn btn-danger"    id="editDelete" style="font-size:.8rem;display:none">🗑</button>
+  </div>
+</div>
+
+<!-- ── Stream modal ───────────────────────────────────────────── -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" style="max-width:900px">
+    <div class="modal-header">
+      <h3 id="modalTitle">Stream</h3>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mode-tabs" id="modeTabs">
+        <button class="mode-tab active" data-mode="snapshot">📷 Snapshot</button>
+        <button class="mode-tab" data-mode="webrtc,mse,hls">Auto</button>
+        <button class="mode-tab" data-mode="webrtc">WebRTC</button>
+        <button class="mode-tab" data-mode="mse">MSE</button>
+        <button class="mode-tab" data-mode="hls">HLS</button>
+      </div>
+      <div id="playerWrap" style="background:#000;border-radius:6px;min-height:180px"></div>
+      <div id="streamLinks" style="margin-top:.65rem"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Grid modal ─────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="gridBackdrop" style="align-items:stretch;padding:.5rem;">
+  <div class="grid-shell">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:.55rem 1rem;border-bottom:1px solid var(--border);flex-shrink:0">
+      <h3 id="gridTitle" style="font-size:.92rem">Watch all</h3>
+      <button class="modal-close" id="gridClose">✕</button>
+    </div>
+    <div id="gridPlayers"></div>
+  </div>
+</div>
+
+<!-- ── Scripts ────────────────────────────────────────────────── -->
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script type="module" src="video-stream.js"></script>
+<script src="app.js"></script>
+<script>
+// ── Constants ─────────────────────────────────────────────────
+const OV_W     = 230;
+const OV_H     = 188;
+const OV_PAD   = 14;
+const TOPBAR_H = 56;
+const SNAP_IV  = 10;
+
+// ── State ─────────────────────────────────────────────────────
+let map = null;
+let _vietmapKey  = '';
+let _currentStyle = 'lm';
+let _token = '', _isAdmin = false;
+let _allStreams = [], _locations = [];
+let _streamByID = {}, _locByID = {};
+let _editMarkers = {};    // id → vietmapgl.Marker (edit mode only)
+let _searchHits  = [];
+let _searchCenter = null; // [lng, lat]
+let _searchMode = false, _editMode = false, _editingID = null;
+let _ovWindows  = {};     // id → { el, lat, lon, pinned }
+let _snapshotTimer = null, _currentModalID = null;
+let _trafficOn = false, _trafficSourceIds = [], _trafficLayerIds = [];
+let _heatmapOn = false, _heatmapData = null, _heatmapCfg = null;
+let _clusterMarkers = new Map();  // cluster_id → {marker, el, count} — diff-based, avoids full rebuild every frame
+let _clusterUpdatePending = false;
+let _ovUpdatePending = false;
+
+// ── Camera SVG (for HTML markers in edit mode) ────────────────
+const CAM_SVG = `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm12 2.5l4-2v7l-4-2V8.5z"/></svg>`;
+
+// Shim for app.js sidebar-toggle: call map.resize() after sidebar animates
+window.__map = { invalidateSize: () => { if (map) map.resize(); } };
+
+// ── Camera icon: circle + DSLR camera (matches reference image) ─
+function makeCameraIconData(fillColor) {
+  const S = 44;
+  const canvas = document.createElement('canvas');
+  canvas.width = S; canvas.height = S;
+  const c = canvas.getContext('2d');
+  const cx = S / 2, cy = S / 2;
+
+  // Drop shadow
+  c.shadowColor = 'rgba(0,0,0,0.40)';
+  c.shadowBlur = 4;
+  c.shadowOffsetY = 2;
+
+  // Background circle
+  c.beginPath();
+  c.arc(cx, cy, 20, 0, Math.PI * 2);
+  c.fillStyle = fillColor;
+  c.fill();
+  c.shadowBlur = 0; c.shadowOffsetY = 0;
+
+  // ── White camera body ──
+  c.fillStyle = '#ffffff';
+
+  // Main body (rounded rect)
+  const bx = 9, by = 18, bw = 26, bh = 15, br = 3;
+  c.beginPath(); c.roundRect(bx, by, bw, bh, br); c.fill();
+
+  // Viewfinder bump (top center, wider)
+  c.beginPath(); c.roundRect(bx + 6, by - 5, 13, 7, 2); c.fill();
+
+  // Flash stub (small square, top-left)
+  c.beginPath(); c.roundRect(bx, by - 3, 4, 4, 1); c.fill();
+
+  // Slot/detail inside viewfinder bump (colored cutout)
+  c.fillStyle = fillColor;
+  c.beginPath(); c.roundRect(bx + 9, by - 4, 7, 2.5, 0.8); c.fill();
+  c.fillStyle = '#ffffff';
+
+  // ── Lens (concentric circles, centered in body) ──
+  const lx = cx + 1, ly = by + bh * 0.5 + 0.5;
+
+  // Outer white disc
+  c.beginPath(); c.arc(lx, ly, 7.5, 0, Math.PI * 2);
+  c.fillStyle = '#ffffff'; c.fill();
+
+  // Colored ring
+  c.beginPath(); c.arc(lx, ly, 6, 0, Math.PI * 2);
+  c.fillStyle = fillColor; c.fill();
+
+  // White inner disc
+  c.beginPath(); c.arc(lx, ly, 3.8, 0, Math.PI * 2);
+  c.fillStyle = '#ffffff'; c.fill();
+
+  // Colored center dot
+  c.beginPath(); c.arc(lx, ly, 2.2, 0, Math.PI * 2);
+  c.fillStyle = fillColor; c.fill();
+
+  return { width: S, height: S, data: new Uint8Array(c.getImageData(0, 0, S, S).data.buffer) };
+}
+
+function addCameraImages() {
+  const imgs = [
+    ['cam-normal', '#2f81f7'],
+    ['cam-hit',    '#f97316'],
+    ['cam-active', '#22c55e'],
+  ];
+  imgs.forEach(([name, color]) => {
+    if (map.hasImage(name)) map.removeImage(name);
+    map.addImage(name, makeCameraIconData(color));
+  });
+}
+
+// ── GeoJSON helpers ───────────────────────────────────────────
+function emptyFC() { return { type:'FeatureCollection', features:[] }; }
+
+function circleGeoJSON(lat, lng, km, n = 64) {
+  const coords = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    const dLat = (km / 111.32) * Math.cos(a);
+    const dLng = (km / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(a);
+    coords.push([lng + dLng, lat + dLat]);
+  }
+  return { type:'Feature', geometry:{ type:'Polygon', coordinates:[coords] } };
+}
+
+function buildCamerasGeoJSON() {
+  const features = _locations
+    .filter(loc => _streamByID[loc.id])
+    .map(loc => ({
+      type:'Feature',
+      geometry:{ type:'Point', coordinates:[loc.lon, loc.lat] },
+      properties:{
+        id: loc.id,
+        name: loc.label || loc.name || loc.id,
+        state: _searchHits.includes(loc.id) ? 'hit'
+               : (_ovWindows[loc.id] ? 'active' : 'normal'),
+      }
+    }));
+  return { type:'FeatureCollection', features };
+}
+
+// ── Rebuild all custom map layers (called on load + style change) ──
+// ── Hide POI / place-icon layers to declutter the map ─────────────
+// VietMap vector tiles keep POIs in source-layers named 'poi' (icons)
+// and 'poi_label' (text). We also match any symbol layer whose id
+// contains common POI keywords as a fallback for style variants.
+const POI_SOURCE_LAYERS = new Set(['poi','poi_label','poi-label']);
+const POI_ID_KEYWORDS   = ['bank','atm','hospital','clinic','pharmacy',
+  'school','kindergarten','university','church','mosque','temple',
+  'hotel','restaurant','cafe','shop','store','mall','market',
+  'gas_station','fuel','parking','police','fire_station',
+  'post_office','embassy','government'];
+
+function hidePOILayers() {
+  const style = map.getStyle();
+  if (!style?.layers) return;
+  let hidden = 0;
+  style.layers.forEach(layer => {
+    if (layer.type !== 'symbol') return;
+    const sl  = layer['source-layer'] || '';
+    const lid = (layer.id || '').toLowerCase();
+    const isPOI = POI_SOURCE_LAYERS.has(sl)
+      || POI_ID_KEYWORDS.some(k => lid.includes(k));
+    if (isPOI && map.getLayer(layer.id)) {
+      map.setLayoutProperty(layer.id, 'visibility', 'none');
+      hidden++;
+    }
+  });
+  if (hidden) console.log(`[map] hidden ${hidden} POI layers`);
+}
+
+function rebuildMapLayers() {
+  // Clean up HTML cluster count markers first
+  _clusterMarkers.forEach(e => e.marker.remove());
+  _clusterMarkers.clear();
+
+  // Clean up any existing custom layers/sources
+  const LAYERS = ['clusters','unclustered-point',
+                  'search-circle-fill','search-circle-line','search-center-dot',
+                  'map-jams-dot','map-jams-heat'];
+  const SOURCES = ['cameras','search-circle','search-center','map-jams'];
+  LAYERS.forEach(id  => { try { if (map.getLayer(id))   map.removeLayer(id);   } catch(_){} });
+  SOURCES.forEach(id => { try { if (map.getSource(id))  map.removeSource(id);  } catch(_){} });
+
+  // Hide POI layers to keep the map clean
+  try { hidePOILayers(); } catch(_) {}
+
+  // Camera icon images (synchronous canvas-based)
+  try { addCameraImages(); } catch(_) {}
+
+  // Camera GeoJSON source with clustering.
+  if (!map.getSource('cameras')) {
+    map.addSource('cameras', {
+      type: 'geojson',
+      data: buildCamerasGeoJSON(),
+      cluster: true,
+      clusterMaxZoom: 14,
+      clusterRadius: 60,
+    });
+  } else {
+    map.getSource('cameras').setData(buildCamerasGeoJSON());
+  }
+
+  // Cluster circle
+  if (!map.getLayer('clusters')) {
+    map.addLayer({
+      id: 'clusters', type: 'circle', source: 'cameras',
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': [
+          'step', ['get','point_count'],
+          '#2f81f7', 10, '#1a6fd4', 30, '#1254aa'
+        ],
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': 'rgba(255,255,255,0.95)',
+        'circle-radius': ['step', ['get','point_count'], 13, 10, 17, 30, 21],
+      }
+    });
+  }
+  // Note: cluster count labels are rendered via HTML markers (updateClusterCounts)
+  // instead of a symbol layer to avoid glyph/font dependency issues in VietMap GL.
+
+  // Individual camera icons
+  if (!map.getLayer('unclustered-point')) {
+    map.addLayer({
+      id: 'unclustered-point', type: 'symbol', source: 'cameras',
+      filter: ['!', ['has', 'point_count']],
+      layout: {
+        'icon-image': ['match', ['get','state'],
+          'hit',    'cam-hit',
+          'active', 'cam-active',
+          'cam-normal'],
+        'icon-size': 0.5,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      }
+    });
+  }
+
+  // Search circle sources/layers
+  if (!map.getSource('search-circle')) map.addSource('search-circle', { type:'geojson', data: emptyFC() });
+  if (!map.getSource('search-center')) map.addSource('search-center', { type:'geojson', data: emptyFC() });
+  // Restore circle if search was active
+  if (_searchCenter) {
+    const km = getRadiusKm();
+    map.getSource('search-circle').setData(circleGeoJSON(_searchCenter[1], _searchCenter[0], km));
+    map.getSource('search-center').setData({
+      type:'Feature', geometry:{ type:'Point', coordinates:_searchCenter }
+    });
+  }
+
+  if (!map.getLayer('search-circle-fill')) map.addLayer({
+    id:'search-circle-fill', type:'fill', source:'search-circle',
+    paint:{ 'fill-color':'#f97316', 'fill-opacity':0.07 }
+  });
+  if (!map.getLayer('search-circle-line')) map.addLayer({
+    id:'search-circle-line', type:'line', source:'search-circle',
+    paint:{ 'line-color':'#f97316', 'line-width':2, 'line-dasharray':[4,2] }
+  });
+  if (!map.getLayer('search-center-dot')) map.addLayer({
+    id:'search-center-dot', type:'circle', source:'search-center',
+    paint:{ 'circle-color':'#f97316', 'circle-radius':6,
+            'circle-stroke-width':2, 'circle-stroke-color':'#fff' }
+  });
+
+  // Re-enable traffic if it was on (traffic was wiped by setStyle)
+  if (_trafficOn) {
+    // Reset state so toggleTraffic() goes into add-branch
+    _trafficOn = false;
+    _trafficLayerIds = [];
+    _trafficSourceIds = [];
+    document.getElementById('btnTraffic').classList.remove('active');
+    toggleTraffic(); // re-fetch and re-add on top of new style
+  }
+
+  // Rebuild edit-mode markers if needed
+  if (_editMode) buildMarkers();
+
+  // Re-add heatmap below cameras if it was active before style change
+  if (_heatmapOn) _addHeatmapLayers();
+}
+
+// ── Map initialisation ────────────────────────────────────────
+async function initMap(apiKey) {
+  map = new vietmapgl.Map({
+    container: 'map',
+    style: `https://maps.vietmap.vn/maps/styles/${_currentStyle}/style.json?apikey=${apiKey}`,
+    center: [106.6297, 10.8231],
+    zoom: 12,
+    attributionControl: false,
+  });
+
+  map.addControl(new vietmapgl.NavigationControl({ showCompass:false }), 'top-left');
+  map.addControl(new vietmapgl.ScaleControl({ unit:'metric' }), 'bottom-right');
+  map.addControl(new vietmapgl.AttributionControl({ compact:true }), 'bottom-right');
+
+  // Initial load + future style switches all go through rebuildMapLayers
+  map.on('style.load', rebuildMapLayers);
+
+  // Cluster count HTML labels — update every render frame (throttled via rAF)
+  map.on('render', scheduleClusterUpdate);
+
+  // Click events are registered once (survive style change)
+  map.on('click', 'clusters', async e => {
+    const feat  = e.features[0];
+    const src   = map.getSource('cameras');
+    const coord = feat.geometry.coordinates.slice();
+    const cid   = feat.properties.cluster_id;
+
+    // getClusterExpansionZoom returns the zoom at which THIS cluster breaks apart.
+    // With clusterMaxZoom:17, cameras that are very close will remain grouped even
+    // at moderate zoom levels, requiring multiple clicks to reach individual icons
+    // (progressive zoom). We use the raw expansionZoom — no artificial floor.
+    try {
+      // Promise-style (MapLibre GL JS v2+)
+      const expansionZoom = await src.getClusterExpansionZoom(cid);
+      map.easeTo({ center: coord, zoom: expansionZoom, duration: 400 });
+    } catch (_) {
+      // Callback-style fallback
+      src.getClusterExpansionZoom(cid, (err, zoom) => {
+        if (!err) map.easeTo({ center: coord, zoom: zoom, duration: 400 });
+      });
+    }
+  });
+
+  map.on('click', 'unclustered-point', e => {
+    if (_editMode) return;
+    const id = e.features[0].properties.id;
+    if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
+    openModal(id);
+  });
+
+  map.on('click', e => {
+    const layers = ['unclustered-point','clusters'];
+    if (map.queryRenderedFeatures(e.point, { layers }).length > 0) return;
+    if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
+    if (_editMode) {
+      document.getElementById('editLat').value = e.lngLat.lat.toFixed(6);
+      document.getElementById('editLon').value = e.lngLat.lng.toFixed(6);
+      document.getElementById('editPanel').classList.add('show');
+      // Refresh snapshot for whichever camera is currently selected in the list
+      const curSel = document.getElementById('editCamSelect').value;
+      if (curSel) updateEditSnapshot(curSel);
+    }
+  });
+
+  ['unclustered-point','clusters'].forEach(layer => {
+    map.on('mouseenter', layer, () => {
+      if (!_editMode) map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', layer, () => {
+      map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
+    });
+  });
+
+  map.on('move', scheduleOverlayUpdate);
+  map.on('zoom', scheduleOverlayUpdate);
+
+  // Wait for initial load
+  await new Promise(resolve => map.once('load', resolve));
+}
+
+// ── Map style switch ──────────────────────────────────────────
+function switchMapStyle(style) {
+  if (style === _currentStyle || !map) return;
+  _currentStyle = style;
+  // Update single toggle button label to show current mode
+  const btn = document.getElementById('btnStyleToggle');
+  if (btn) btn.textContent = style === 'lm' ? '☀ Light' : '🌙 Dark';
+  // diff:false ensures a clean slate before style.load fires — avoids "source already exists" errors
+  map.setStyle(`https://maps.vietmap.vn/maps/styles/${style}/style.json?apikey=${_vietmapKey}`, { diff: false });
+}
+
+// Single toggle button handler
+document.getElementById('btnStyleToggle').addEventListener('click', () => {
+  switchMapStyle(_currentStyle === 'lm' ? 'dm' : 'lm');
+});
+
+// ── Markers ───────────────────────────────────────────────────
+function buildMarkers() {
+  removeEditMarkers();
+
+  if (_editMode) {
+    // Edit mode: individual draggable HTML Markers — hide GeoJSON layers + cluster labels
+    _clusterMarkers.forEach(e => e.marker.remove());
+    _clusterMarkers.clear();
+    ['clusters','unclustered-point'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    });
+    _locations.filter(l => _streamByID[l.id]).forEach(loc => {
+      const el = document.createElement('div');
+      el.className = 'cam-marker-wrap edit';
+      el.innerHTML = CAM_SVG;
+      const marker = new vietmapgl.Marker({ element: el, draggable: true })
+        .setLngLat([loc.lon, loc.lat])
+        .addTo(map);
+
+      let _dragged = false;
+      marker.on('dragstart', () => { _dragged = false; });
+      marker.on('drag', () => { _dragged = true; });
+      marker.on('dragend', () => {
+        const ll = marker.getLngLat();
+        document.getElementById('editLat').value = ll.lat.toFixed(6);
+        document.getElementById('editLon').value = ll.lng.toFixed(6);
+        openEditPanel(loc.id, { ...loc, lat: ll.lat, lon: ll.lng });
+      });
+      el.addEventListener('click', () => {
+        if (!_dragged) openEditPanel(loc.id, loc);
+      });
+
+      _editMarkers[loc.id] = marker;
+    });
+  } else {
+    // Normal mode: restore GeoJSON layers
+    ['clusters','unclustered-point'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+    refreshMarkerIcons();
+  }
+}
+
+function removeEditMarkers() {
+  Object.values(_editMarkers).forEach(m => m.remove());
+  _editMarkers = {};
+}
+
+function refreshMarkerIcons() {
+  if (_editMode || !map || !map.getSource('cameras')) return;
+  map.getSource('cameras').setData(buildCamerasGeoJSON());
+}
+
+// ── Cluster count via HTML markers (bypasses glyph/font issues) ──
+// Diff-based: reuse existing markers — only add/remove/update what changed.
+// VietMap GL repositions markers automatically during pan, so no setLngLat needed.
+function updateClusterCounts() {
+  if (_editMode || !map || !map.getLayer('clusters')) {
+    _clusterMarkers.forEach(e => e.marker.remove());
+    _clusterMarkers.clear();
+    return;
+  }
+
+  const features = map.queryRenderedFeatures({ layers: ['clusters'] });
+
+  // Deduplicate by cluster_id (a cluster can span multiple tiles)
+  const visible = new Map();
+  features.forEach(f => {
+    const cid = f.properties.cluster_id;
+    if (!visible.has(cid)) visible.set(cid, f);
+  });
+
+  // Remove markers that left the viewport
+  for (const [cid, entry] of _clusterMarkers) {
+    if (!visible.has(cid)) {
+      entry.marker.remove();
+      _clusterMarkers.delete(cid);
+    }
+  }
+
+  // Add new markers or update label text for existing ones
+  for (const [cid, f] of visible) {
+    const count = f.properties.point_count;
+    const label = count >= 1000 ? Math.floor(count / 1000) + 'k' : String(count);
+
+    if (_clusterMarkers.has(cid)) {
+      const entry = _clusterMarkers.get(cid);
+      if (entry.count !== count) { entry.el.textContent = label; entry.count = count; }
+    } else {
+      const el = document.createElement('div');
+      el.textContent = label;
+      el.style.cssText = [
+        'color:#fff', 'font-weight:700', 'font-size:11px',
+        'font-family:system-ui,-apple-system,Arial,sans-serif',
+        'pointer-events:none', 'user-select:none', 'line-height:1',
+        'text-shadow:0 1px 3px rgba(0,0,0,0.35)',
+      ].join(';');
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat(f.geometry.coordinates).addTo(map);
+      _clusterMarkers.set(cid, { marker, el, count });
+    }
+  }
+}
+
+// Throttle cluster updates to once per animation frame
+function scheduleClusterUpdate() {
+  if (_clusterUpdatePending) return;
+  _clusterUpdatePending = true;
+  requestAnimationFrame(() => {
+    _clusterUpdatePending = false;
+    updateClusterCounts();
+  });
+}
+
+// ── Search circle helpers ─────────────────────────────────────
+function drawSearchCircle(lat, lng, km) {
+  _searchCenter = [lng, lat];
+  map.getSource('search-circle').setData(circleGeoJSON(lat, lng, km));
+  map.getSource('search-center').setData({
+    type:'Feature', geometry:{ type:'Point', coordinates:[lng,lat] }
+  });
+}
+
+function clearSearchCircle() {
+  _searchCenter = null;
+  map.getSource('search-circle').setData(emptyFC());
+  map.getSource('search-center').setData(emptyFC());
+}
+
+// ── Radius ────────────────────────────────────────────────────
+function getRadiusKm() { return parseFloat(document.getElementById('radiusNum').value) || 1; }
+
+document.getElementById('radiusSlider').addEventListener('input', function() {
+  const km = parseFloat(this.value);
+  document.getElementById('radiusNum').value = km;
+  if (_searchCenter) runSearch({ lat:_searchCenter[1], lng:_searchCenter[0] }, km);
+});
+document.getElementById('radiusNum').addEventListener('input', function() {
+  const km = parseFloat(this.value);
+  if (!km || km <= 0) return;
+  // Clamp visual slider; allow any number in the input
+  document.getElementById('radiusSlider').value = Math.min(Math.max(km, 0.1), 10);
+  if (_searchCenter) runSearch({ lat:_searchCenter[1], lng:_searchCenter[0] }, km);
+});
+document.getElementById('radiusNum').addEventListener('change', function() {
+  if (!this.value || parseFloat(this.value) <= 0) this.value = 1;
+});
+
+// ── Search ────────────────────────────────────────────────────
+function runSearch(lngLat, km) {
+  const { lat, lng } = lngLat;
+  drawSearchCircle(lat, lng, km);
+  _searchHits = _locations
+    .filter(loc => _streamByID[loc.id] && haversine(lat, lng, loc.lat, loc.lon) <= km)
+    .map(loc => loc.id);
+  refreshMarkerIcons();
+  buildSidebar();
+  showResultsPanel(_searchHits, km);
+}
+
+function clearSearch() {
+  if (map) clearSearchCircle();
+  _searchHits = [];
+  refreshMarkerIcons();
+  buildSidebar();
+  document.getElementById('resultsPanel').classList.remove('show');
+  closeAllOverlays();
+}
+
+document.getElementById('btnCloseResults').addEventListener('click', clearSearch);
+
+// ── Results panel ─────────────────────────────────────────────
+function showResultsPanel(ids, km) {
+  document.getElementById('resultsTitle').textContent =
+    `${ids.length} camera${ids.length!==1?'s':''} found`;
+  document.getElementById('radiusNum').value   = km;
+  document.getElementById('radiusSlider').value = Math.min(Math.max(km, 0.1), 10);
+
+  const panel = document.getElementById('resultsCams');
+  panel.innerHTML = '';
+  [...ids]
+    .sort((a,b) => ((_locByID[a]?.label||_locByID[a]?.name||a))
+      .localeCompare(_locByID[b]?.label||_locByID[b]?.name||b))
+    .forEach(id => {
+      const loc = _locByID[id], s = _streamByID[id];
+      if (!loc||!s) return;
+      const label = loc.label||loc.name||id;
+      const card = document.createElement('div');
+      card.className = 'result-card';
+      card.innerHTML = `
+        <img src="${escHtml(s.frame_url)}&_t=${Date.now()}"
+             style="width:100%;aspect-ratio:16/9;display:block;background:#111;object-fit:cover;"
+             alt="${escHtml(label)}" onerror="this.style.background='#1a1a2e'">
+        <div class="rc-name" title="${escHtml(label)}">${escHtml(label)}</div>`;
+      card.addEventListener('click', () => openModal(id));
+      panel.appendChild(card);
+    });
+  document.getElementById('resultsPanel').classList.add('show');
+}
+
+// ── Overlay position helpers ──────────────────────────────────
+function getCircleRadiusPx() {
+  if (!_searchCenter || !map) return 0;
+  const km = getRadiusKm();
+  const [lng, lat] = _searchCenter;
+  const nLat = lat + km / 111.32;
+  const cPt = map.project([lng, lat]);
+  const nPt = map.project([lng, nLat]);
+  return Math.hypot(nPt.x - cPt.x, nPt.y - cPt.y);
+}
+
+function computeWindowPositions(ids) {
+  const n = ids.length;
+  if (_searchCenter && n > 0) {
+    const cPt  = map.project(_searchCenter);
+    const rPx  = getCircleRadiusPx();
+    const minR = Math.max(rPx + OV_W * 0.6, OV_W * 0.7);
+    const RING_CAP = 8;
+    return ids.map((id, i) => {
+      const ring = Math.floor(i / RING_CAP);
+      const pos  = i % RING_CAP;
+      const cnt  = Math.min(n - ring * RING_CAP, RING_CAP);
+      const R    = minR + ring * (OV_H + OV_PAD);
+      const a    = (pos / cnt) * 2 * Math.PI - Math.PI / 2;
+      return { id, x: cPt.x + R*Math.cos(a) - OV_W/2, y: cPt.y + R*Math.sin(a) - OV_H/2 };
+    });
+  }
+  return ids.map(id => {
+    const loc = _locByID[id];
+    const pt  = map.project([loc.lon, loc.lat]);
+    return { id, x: pt.x - OV_W/2, y: pt.y - OV_H - 18 };
+  });
+}
+
+function resolveOverlaps(items) {
+  const W = OV_W + OV_PAD, H = OV_H + OV_PAD;
+  for (let iter = 0; iter < 30; iter++) {
+    let moved = false;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i+1; j < items.length; j++) {
+        const a=items[i], b=items[j];
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const ox=W-Math.abs(dx), oy=H-Math.abs(dy);
+        if (ox>0 && oy>0) {
+          if (ox<oy){ const d=dx>=0?1:-1; a.x-=d; b.x+=d; }
+          else      { const d=dy>=0?1:-1; a.y-=d; b.y+=d; }
+          moved=true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  const cont=document.getElementById('mapOverlays');
+  const cW=cont.offsetWidth, cH=cont.offsetHeight;
+  items.forEach(item => {
+    item.x = Math.max(0, Math.min(cW-OV_W, item.x));
+    item.y = Math.max(TOPBAR_H, Math.min(cH-OV_H, item.y));
+  });
+}
+
+function scheduleOverlayUpdate() {
+  if (_ovUpdatePending) return;
+  _ovUpdatePending = true;
+  requestAnimationFrame(() => { _ovUpdatePending = false; updateOverlayPositions(); });
+}
+
+function updateOverlayPositions() {
+  if (!map) return;
+  const cont=document.getElementById('mapOverlays');
+  const cW=cont.offsetWidth, cH=cont.offsetHeight;
+  const items=[];
+  Object.entries(_ovWindows).forEach(([id,ov]) => {
+    if (ov.pinned) return;
+    const pt = map.project([ov.lon, ov.lat]);
+    items.push({
+      id,
+      x: Math.max(0, Math.min(cW-OV_W, pt.x - OV_W/2)),
+      y: Math.max(TOPBAR_H, Math.min(cH-OV_H, pt.y - OV_H - 18)),
+    });
+  });
+  resolveOverlaps(items);
+  items.forEach(item => {
+    const ov = _ovWindows[item.id];
+    if (ov) { ov.el.style.left=item.x+'px'; ov.el.style.top=item.y+'px'; }
+  });
+}
+
+// ── Sidebar ───────────────────────────────────────────────────
+function buildSidebar() {
+  const located  = document.getElementById('listLocated');
+  const unplaced = document.getElementById('listUnplaced');
+  const secUp    = document.getElementById('secUnplaced');
+  located.innerHTML = unplaced.innerHTML = '';
+
+  const locatedIDs = new Set(_locations.map(l => l.id));
+  const sortedLocs = [..._locations]
+    .filter(l => _streamByID[l.id])
+    .sort((a,b) => (a.label||a.name||a.id).localeCompare(b.label||b.name||b.id));
+
+  sortedLocs.forEach(loc => {
+    const label = loc.label||loc.name||loc.id;
+    const inR   = _searchHits.includes(loc.id);
+    located.appendChild(mkCamItem(label, true, inR, () => {
+      if (map) map.easeTo({ center:[loc.lon,loc.lat], zoom:Math.max(map.getZoom(),15) });
+      _editMode ? openEditPanel(loc.id, loc) : openModal(loc.id);
+    }));
+  });
+  document.getElementById('cntLocated').textContent = sortedLocs.length;
+
+  if (_isAdmin) {
+    const ups = _allStreams
+      .filter(s => !locatedIDs.has(s.id))
+      .sort((a,b) => (a.name||a.id).localeCompare(b.name||b.id));
+    if (ups.length) {
+      secUp.style.display='';
+      document.getElementById('cntUnplaced').textContent = ups.length;
+      ups.forEach(s => {
+        unplaced.appendChild(mkCamItem(s.name||s.id, false, false, () => {
+          if (_editMode) openEditPanel(s.id, null);
+        }));
+      });
+    } else { secUp.style.display='none'; }
+  }
+}
+
+function mkCamItem(label, located, inRadius, onClick) {
+  const el = document.createElement('div');
+  el.className='cam-item'+(inRadius?' in-radius':located?' located':' unplaced');
+  el.innerHTML=`<span class="cam-dot ${located?'on':'off'}"></span>${escHtml(label)}`;
+  el.addEventListener('click', onClick);
+  return el;
+}
+
+// ── Haversine ─────────────────────────────────────────────────
+function haversine(lat1,lon1,lat2,lon2) {
+  const R=6371,dL=(lat2-lat1)*Math.PI/180,dO=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dL/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dO/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// ── Traffic overlay ───────────────────────────────────────────
+async function toggleTraffic() {
+  if (_trafficOn) {
+    _trafficLayerIds.forEach(id => { try { map.removeLayer(id); } catch(_){} });
+    _trafficSourceIds.forEach(id => { try { map.removeSource(id); } catch(_){} });
+    _trafficLayerIds = []; _trafficSourceIds = [];
+    _trafficOn = false;
+    document.getElementById('btnTraffic').classList.remove('active');
+    return;
+  }
+  const btn = document.getElementById('btnTraffic');
+  btn.textContent = '⏳ Loading…';
+  try {
+    const tfStyle = await fetch(
+      `https://maps.vietmap.vn/maps/styles/tf/style.json?apikey=${_vietmapKey}`
+    ).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+
+    Object.entries(tfStyle.sources || {}).forEach(([id, src]) => {
+      if (!map.getSource(id)) { map.addSource(id, src); _trafficSourceIds.push(id); }
+    });
+    (tfStyle.layers || []).forEach(layer => {
+      if (!map.getLayer(layer.id)) {
+        try { map.addLayer(layer); _trafficLayerIds.push(layer.id); } catch(_) {}
+      }
+    });
+    // Bring camera layers above traffic so icons are always visible
+    ['clusters','unclustered-point'].forEach(id => {
+      if (map.getLayer(id)) map.moveLayer(id);
+    });
+    _trafficOn = true;
+    btn.classList.add('active');
+  } catch (err) {
+    console.error('[traffic]', err);
+    alert('Cannot load traffic data. Check your VietMap API key in Admin → Settings.');
+  }
+  btn.innerHTML = '🚦 Traffic';
+}
+
+document.getElementById('btnTraffic').addEventListener('click', toggleTraffic);
+
+// ── Mode toggles ──────────────────────────────────────────────
+document.getElementById('btnSearch').addEventListener('click', function() {
+  _searchMode = !_searchMode;
+  this.classList.toggle('active', _searchMode);
+  if (map) map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
+  if (_searchMode) {
+    document.getElementById('resultsCams').innerHTML = '';
+    document.getElementById('resultsTitle').textContent = '🖱 Click map to search…';
+    document.getElementById('resultsPanel').classList.add('show');
+  } else {
+    clearSearch();
+  }
+});
+
+document.getElementById('btnEdit').addEventListener('click', async function() {
+  _editMode = !_editMode;
+  this.classList.toggle('active', _editMode);
+  buildMarkers();
+  if (!_editMode) {
+    // Exiting edit mode: close panel and reset map view via a fresh data reload
+    // (reloadData calls fitBounds to show all cameras at the default overview zoom).
+    document.getElementById('editPanel').classList.remove('show');
+    _editingID = null;
+    await reloadData();
+  }
+});
+
+// ── Grid ──────────────────────────────────────────────────────
+document.getElementById('btnGrid').addEventListener('click', () => openGrid(_searchHits));
+
+function openGrid(ids) {
+  if (!ids.length) return;
+  const grid = document.getElementById('gridPlayers');
+  grid.innerHTML = '';
+  document.getElementById('gridTitle').textContent =
+    `Watching ${ids.length} camera${ids.length!==1?'s':''}`;
+  const cols = ids.length<=1?1:ids.length<=4?2:ids.length<=9?3:4;
+  grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  ids.forEach(id => {
+    const s=_streamByID[id], loc=_locByID[id]; if (!s) return;
+    const label=(loc&&(loc.label||loc.name))||id;
+    const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
+    const cell=document.createElement('div');
+    cell.style.cssText='background:#000;border-radius:8px;overflow:hidden;position:relative;aspect-ratio:16/9;';
+    const lbl=document.createElement('div');
+    lbl.style.cssText='position:absolute;top:.3rem;left:.45rem;z-index:5;font-size:.71rem;font-weight:600;background:rgba(0,0,0,.65);padding:.1rem .35rem;border-radius:4px;color:#fff;max-width:90%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    lbl.textContent=label;
+    const player=document.createElement('video-stream');
+    Object.assign(player,{mode:'webrtc,mse,hls',background:false,src:wsUrl});
+    player.style.cssText='width:100%;height:100%;display:block;';
+    cell.appendChild(lbl); cell.appendChild(player); grid.appendChild(cell);
+  });
+  document.getElementById('gridBackdrop').classList.add('open');
+}
+document.getElementById('gridClose').addEventListener('click', () => {
+  document.getElementById('gridBackdrop').classList.remove('open');
+  document.getElementById('gridPlayers').innerHTML='';
+});
+
+// ── PiP overlays ──────────────────────────────────────────────
+document.getElementById('btnMapOverlay').addEventListener('click', () => {
+  Object.keys(_ovWindows).length ? closeAllOverlays() : openOverlays(_searchHits);
+});
+
+function openOverlays(ids) {
+  closeAllOverlays(); if (!ids.length) return;
+  const valid = ids.filter(id => _streamByID[id] && _locByID[id]);
+  const items = computeWindowPositions(valid);
+  resolveOverlaps(items);
+  items.forEach(item => createOverlayWindow(item.id, _locByID[item.id], _streamByID[item.id], item.x, item.y));
+  document.getElementById('btnMapOverlay').classList.add('active');
+  refreshMarkerIcons();
+}
+
+function createOverlayWindow(id, loc, s, x, y) {
+  const label = loc.label||loc.name||id;
+  const wsUrl = `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
+  const win = document.createElement('div');
+  win.className='ov-win'; win.dataset.id=id;
+  win.style.left=x+'px'; win.style.top=y+'px';
+  const header=document.createElement('div'); header.className='ov-header'; header.title='Drag to reposition';
+  const nameSpan=document.createElement('span');
+  nameSpan.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;';
+  nameSpan.title=label; nameSpan.textContent=label;
+  const closeBtn=document.createElement('button'); closeBtn.className='ov-close'; closeBtn.title='Close'; closeBtn.textContent='✕';
+  closeBtn.addEventListener('click', e => { e.stopPropagation(); removeOverlayWindow(id); });
+  header.appendChild(nameSpan); header.appendChild(closeBtn); win.appendChild(header);
+  const body=document.createElement('div'); body.className='ov-body';
+  const player=document.createElement('video-stream');
+  Object.assign(player,{mode:'webrtc,mse,hls',background:false,src:wsUrl});
+  player.style.cssText='width:100%;aspect-ratio:16/9;display:block;';
+  body.appendChild(player); win.appendChild(body);
+  const pin=document.createElement('div'); pin.className='ov-pin'; win.appendChild(pin);
+  document.getElementById('mapOverlays').appendChild(win);
+  _ovWindows[id]={ el:win, lat:loc.lat, lon:loc.lon, pinned:false };
+  makeDraggable(win, id);
+}
+
+function makeDraggable(win, id) {
+  const header=win.querySelector('.ov-header');
+  let startPX=0,startPY=0,startL=0,startT=0,dragging=false;
+  header.addEventListener('pointerdown', e => {
+    if (e.target.closest('.ov-close')) return;
+    dragging=true; startPX=e.clientX; startPY=e.clientY;
+    startL=parseInt(win.style.left)||0; startT=parseInt(win.style.top)||0;
+    win.setPointerCapture(e.pointerId); win.classList.add('dragging'); e.preventDefault();
+  });
+  win.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const cont=document.getElementById('mapOverlays');
+    win.style.left=Math.max(0,Math.min(cont.offsetWidth-OV_W,startL+e.clientX-startPX))+'px';
+    win.style.top =Math.max(0,Math.min(cont.offsetHeight-OV_H,startT+e.clientY-startPY))+'px';
+  });
+  win.addEventListener('pointerup', () => {
+    if (!dragging) return; dragging=false; win.classList.remove('dragging');
+    if (_ovWindows[id]) {
+      _ovWindows[id].pinned=true;
+      const pin=win.querySelector('.ov-pin'); if(pin) pin.style.display='none';
+    }
+  });
+}
+
+function removeOverlayWindow(id) {
+  const ov=_ovWindows[id]; if(ov){ov.el.remove();delete _ovWindows[id];}
+  if(!Object.keys(_ovWindows).length) document.getElementById('btnMapOverlay').classList.remove('active');
+  refreshMarkerIcons();
+}
+function closeAllOverlays() {
+  Object.values(_ovWindows).forEach(ov=>ov.el.remove()); _ovWindows={};
+  document.getElementById('btnMapOverlay').classList.remove('active');
+  refreshMarkerIcons();
+}
+
+// ── Single camera modal ───────────────────────────────────────
+function openModal(maskedID) {
+  _currentModalID=maskedID;
+  const s=_streamByID[maskedID],loc=_locByID[maskedID]; if(!s) return;
+  const label=(loc&&(loc.label||loc.name))||maskedID;
+  document.getElementById('modalTitle').textContent=label;
+  document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('#modeTabs [data-mode="snapshot"]').classList.add('active');
+  showSnapshot(maskedID);
+  const t=encodeURIComponent(_token);
+  document.getElementById('streamLinks').innerHTML=[
+    {label:'⚡ Watch (HD)', url:`${location.origin}/watch.html?id=${maskedID}&token=${t}`},
+    {label:'📺 HLS', url:s.hls_url},
+    {label:'📷 Snapshot', url:s.frame_url},
+  ].map(l=>`<a href="${escHtml(l.url)}" target="_blank" class="stream-link">${l.label}</a>`).join('');
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+function showSnapshot(id) {
+  stopSnapshot();
+  const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
+  const img=document.createElement('img'); img.className='modal-snap';
+  img.style.cssText='width:100%;display:block;background:#111;object-fit:contain;max-height:60vh;';
+  img.alt='snapshot';
+  wrap.appendChild(img);
+  const bar=document.createElement('div'); bar.className='snap-bar';
+  bar.innerHTML='<span>🔄 auto-refresh</span><span id="snapCD"></span>';
+  wrap.appendChild(bar);
+  const refresh=()=>{ const s=_streamByID[id]; if(s) img.src=`${s.frame_url}&_t=${Date.now()}`; };
+  refresh();
+  let secs=SNAP_IV;
+  const cd=()=>{ const el=document.getElementById('snapCD'); if(el) el.textContent=secs+'s'; }; cd();
+  _snapshotTimer=setInterval(()=>{ secs--; if(secs<=0){secs=SNAP_IV;refresh();} cd(); },1000);
+}
+function stopSnapshot() { if(_snapshotTimer){clearInterval(_snapshotTimer);_snapshotTimer=null;} }
+function startPlayer(id,mode) {
+  stopSnapshot();
+  const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
+  const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
+  const player=document.createElement('video-stream');
+  Object.assign(player,{mode,background:false,src:wsUrl}); wrap.appendChild(player);
+}
+document.getElementById('modeTabs').addEventListener('click',e=>{
+  const tab=e.target.closest('.mode-tab'); if(!tab||!_currentModalID) return;
+  document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
+  tab.classList.add('active');
+  const mode=tab.dataset.mode;
+  mode==='snapshot'?showSnapshot(_currentModalID):startPlayer(_currentModalID,mode);
+});
+function closeModal() {
+  stopSnapshot();
+  document.getElementById('modalBackdrop').classList.remove('open');
+  document.getElementById('playerWrap').innerHTML=''; _currentModalID=null;
+}
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.getElementById('modalBackdrop').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeModal();clearSearch();} });
+
+// ── Edit panel ────────────────────────────────────────────────
+function populateEditSelect(filter) {
+  const sel=document.getElementById('editCamSelect'); const filt=(filter||'').toLowerCase();
+  sel.innerHTML='';
+  [..._allStreams].sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id)).forEach(s=>{
+    const name=s.name||s.id;
+    if(filt&&!name.toLowerCase().includes(filt)) return;
+    const opt=document.createElement('option'); opt.value=s.id; opt.textContent=name;
+    if(s.id===_editingID) opt.selected=true;
+    sel.appendChild(opt);
+  });
+}
+function openEditPanel(maskedID,locData) {
+  _editingID=maskedID; populateEditSelect('');
+  document.getElementById('editCamSearch').value='';
+  document.getElementById('editLabel').value=locData?.label||'';
+  document.getElementById('editLat').value=locData?.lat||'';
+  document.getElementById('editLon').value=locData?.lon||'';
+  document.getElementById('editTitle').textContent=locData?'📍 Edit location':'📍 Set location';
+  document.getElementById('editDelete').style.display=locData?'':'none';
+  document.getElementById('editPanel').classList.add('show');
+  updateEditSnapshot(maskedID||'');
+}
+document.getElementById('editCamSearch').addEventListener('input',function(){populateEditSelect(this.value);});
+
+// ── Snapshot preview for selected camera ──────────────────────
+function updateEditSnapshot(id) {
+  const wrap = document.getElementById('editSnapshotWrap');
+  const img  = document.getElementById('editSnapshotImg');
+  const msg  = document.getElementById('editSnapshotMsg');
+  if (!id) { wrap.style.display = 'none'; img.src = ''; return; }
+  wrap.style.display = 'block';
+  img.style.display  = 'none';
+  msg.textContent    = '⏳ Loading…';
+  // Use the same proxy-frame endpoint that the Cameras tab uses
+  const url = '/api/proxy/frame?id=' + encodeURIComponent(id) +
+              '&token=' + encodeURIComponent(_token || '') +
+              '&_t=' + Date.now();
+  img.onload  = () => { img.style.display = 'block'; msg.textContent = ''; };
+  img.onerror = () => { img.style.display = 'none';  msg.textContent = '📷 Snapshot không khả dụng'; };
+  img.src = url;
+}
+document.getElementById('editCamSelect').addEventListener('change', function() {
+  updateEditSnapshot(this.value);
+});
+document.getElementById('editSave').addEventListener('click', async()=>{
+  const id=document.getElementById('editCamSelect').value;
+  const lat=parseFloat(document.getElementById('editLat').value);
+  const lon=parseFloat(document.getElementById('editLon').value);
+  const label=document.getElementById('editLabel').value.trim();
+  if(!id||isNaN(lat)||isNaN(lon)){alert('Select a camera and enter valid coordinates.');return;}
+  const s=_allStreams.find(x=>x.id===id); if(!s?.name){alert('Camera name not found.');return;}
+  try{
+    await apiFetch('/api/camera-locations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name,lat,lon,label})});
+
+    // ── Update local state without moving the map ──────────────────
+    // (map keeps current position/zoom so user can set the next camera nearby)
+    const newLoc = { id, label, lat, lon };
+    const idx = _locations.findIndex(l => l.id === id);
+    if (idx >= 0) _locations[idx] = newLoc; else _locations.push(newLoc);
+    _locByID[id] = newLoc;
+    buildMarkers(); buildSidebar();
+
+    // ── Brief ✓ feedback, then clear fields for the next camera ────
+    const btn = document.getElementById('editSave');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Saved'; btn.disabled = true;
+    setTimeout(() => {
+      btn.textContent = orig; btn.disabled = false;
+      document.getElementById('editCamSelect').value   = '';
+      document.getElementById('editCamSearch').value   = '';
+      document.getElementById('editLabel').value        = '';
+      document.getElementById('editLat').value          = '';
+      document.getElementById('editLon').value          = '';
+      document.getElementById('editTitle').textContent  = '📍 Set location';
+      document.getElementById('editDelete').style.display = 'none';
+      _editingID = null;
+      updateEditSnapshot('');
+    }, 1200);
+  }catch(err){alert('Save failed: '+err.message);}
+});
+document.getElementById('editDelete').addEventListener('click', async()=>{
+  const id=document.getElementById('editCamSelect').value;
+  const s=_allStreams.find(x=>x.id===id);
+  if(!s?.name||!confirm(`Remove "${s.name}" from the map?`)) return;
+  try{
+    await apiFetch('/api/camera-locations?name='+encodeURIComponent(s.name),{method:'DELETE'});
+
+    // ── Remove from local state without moving the map ─────────────
+    _locations = _locations.filter(l => l.id !== id);
+    delete _locByID[id];
+    buildMarkers(); buildSidebar();
+    document.getElementById('editPanel').classList.remove('show');
+    _editingID = null;
+  }catch(err){alert('Delete failed: '+err.message);}
+});
+document.getElementById('editCancel').addEventListener('click',()=>{
+  document.getElementById('editPanel').classList.remove('show'); _editingID=null;
+});
+
+// ── Data ──────────────────────────────────────────────────────
+async function reloadData() {
+  const [streams,locs]=await Promise.all([
+    apiFetch('/api/proxy/streams').catch(()=>[]),
+    apiFetch('/api/camera-locations').catch(()=>[]),
+  ]);
+  _allStreams=Array.isArray(streams)?streams:[];
+  _locations=Array.isArray(locs)?locs:[];
+  _streamByID={}; _locByID={};
+  _allStreams.forEach(s=>(_streamByID[s.id]=s));
+  _locations.forEach(l=>(_locByID[l.id]=l));
+  buildMarkers(); buildSidebar();
+
+  if (!map) return;
+  const pts = _locations.filter(l => _streamByID[l.id]);
+  if (pts.length) {
+    const lngs=pts.map(l=>l.lon), lats=pts.map(l=>l.lat);
+    map.fitBounds(
+      [[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],
+      { padding:60, maxZoom:16 }
+    );
+  }
+}
+
+// ── Heatmap jam overlay ───────────────────────────────────────
+const _HEAT_DEF = { r5:8, r15:22, i5:6, i15:18, op:82,
+  c1:'#fbbf24', c1a:30, c2:'#f97316', c2a:60, c3:'#ef4444', c3a:82, c4:'#991b1b', c4a:95,
+  crf:2, crt:7 };
+
+function _hexRgba(hex, a) {
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function _addHeatmapLayers() {
+  if (!map || !_heatmapData) return;
+  const d = {..._HEAT_DEF, ...(_heatmapCfg||{})};
+  const r5=d.r5, r15=d.r15, r11=Math.round((r5*2+r15)/3);
+  const i5=d.i5/10, i15=d.i15/10, i12=Math.round((i5+i15)/2*10)/10;
+  const op=d.op/100;
+  const c = [
+    'rgba(0,0,0,0)',
+    _hexRgba(d.c1, d.c1a/100), _hexRgba(d.c2, d.c2a/100),
+    _hexRgba(d.c3, d.c3a/100), _hexRgba(d.c4, d.c4a/100),
+  ];
+
+  const fc = { type:'FeatureCollection', features: _heatmapData };
+  if (!map.getSource('map-jams')) {
+    map.addSource('map-jams', { type:'geojson', data: fc });
+  } else {
+    map.getSource('map-jams').setData(fc);
+  }
+
+  // Insert below camera cluster layer so cameras always render on top
+  const before = map.getLayer('clusters') ? 'clusters' : undefined;
+
+  if (!map.getLayer('map-jams-heat')) {
+    map.addLayer({
+      id: 'map-jams-heat', type: 'heatmap', source: 'map-jams', maxzoom: 15,
+      paint: {
+        'heatmap-weight':     ['interpolate',['linear'],['get','jf'], 0,0, 5,0.6, 10,1.5],
+        'heatmap-intensity':  ['interpolate',['linear'],['zoom'], 5,i5, 12,i12, 15,i15],
+        'heatmap-radius':     ['interpolate',['linear'],['zoom'], 5,r5, 11,r11, 15,r15],
+        'heatmap-opacity':    op,
+        'heatmap-color': ['interpolate',['linear'],['heatmap-density'],
+          0,c[0], 0.15,c[1], 0.4,c[2], 0.7,c[3], 1,c[4]],
+      }
+    }, before);
+  }
+
+  if (!map.getLayer('map-jams-dot')) {
+    map.addLayer({
+      id: 'map-jams-dot', type: 'circle', source: 'map-jams', minzoom: 13,
+      paint: {
+        'circle-radius': ['interpolate',['linear'],['get','jf'], 0,d.crf, 10,d.crt],
+        'circle-color':  ['case',['>=',['get','jf'],8],'#f87171',['>=',['get','jf'],5],'#fbbf24','#94a3b8'],
+        'circle-opacity': 0.85,
+        'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,.4)',
+      }
+    }, before);
+  }
+}
+
+async function toggleHeatmap() {
+  _heatmapOn = !_heatmapOn;
+  const btn = document.getElementById('btnHeatmap');
+  btn.classList.toggle('active', _heatmapOn);
+
+  if (!_heatmapOn) {
+    try { if (map.getLayer('map-jams-dot'))  map.removeLayer('map-jams-dot');  } catch(_){}
+    try { if (map.getLayer('map-jams-heat')) map.removeLayer('map-jams-heat'); } catch(_){}
+    try { if (map.getSource('map-jams'))     map.removeSource('map-jams');     } catch(_){}
+    return;
+  }
+
+  const origLabel = btn.textContent;
+  btn.textContent = '⏳ …';
+
+  try {
+    if (!_heatmapCfg) {
+      const cfg = await apiFetch('/api/heatmap-cfg');
+      _heatmapCfg = (cfg && typeof cfg === 'object') ? cfg : {};
+    }
+    if (!_heatmapData) {
+      const pts = await apiFetch('/api/traffic-heatmap');
+      _heatmapData = (Array.isArray(pts) ? pts : [])
+        .filter(p => p.lat && p.lng)
+        .map(p => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+          properties: { jf: p.jf || 0, label: p.label || '', area: p.area || '' },
+        }));
+    }
+    _addHeatmapLayers();
+  } catch(e) {
+    console.error('[heatmap]', e);
+    _heatmapOn = false;
+    btn.classList.remove('active');
+  }
+  btn.textContent = origLabel;
+}
+
+document.getElementById('btnHeatmap').addEventListener('click', toggleHeatmap);
+
+// ── Boot ──────────────────────────────────────────────────────
+(async () => {
+  await initApp('map');
+  _token = getToken(); _isAdmin = isAdmin();
+  if (_isAdmin) document.querySelectorAll('.admin-only').forEach(el=>el.style.display='');
+
+  // Fetch settings: VietMap API key + default search radius
+  try {
+    const settings = await apiFetch('/api/settings');
+    _vietmapKey = (settings && settings.vietmap_api_key) || '';
+    const r = parseFloat(settings && settings.map_search_radius_km);
+    if (r > 0) {
+      document.getElementById('radiusNum').value   = r;
+      document.getElementById('radiusSlider').value = Math.min(Math.max(r, 0.1), 10);
+    }
+  } catch (_) {}
+
+  if (!_vietmapKey) {
+    document.getElementById('mapNoKey').style.display = 'flex';
+    return;
+  }
+
+  // Show traffic/heatmap buttons only if user has permission
+  const trafficAllowed = canUseTraffic();
+  if (trafficAllowed) {
+    document.getElementById('btnTraffic').style.display = '';
+  }
+  if (canUseHeatmap()) {
+    document.getElementById('btnHeatmap').style.display = '';
+  }
+
+  try {
+    await initMap(_vietmapKey);
+    await reloadData();
+  } catch (err) {
+    console.error('[map] init error:', err);
+    document.getElementById('mapNoKey').style.display = 'flex';
+    document.getElementById('mapNoKey').querySelector('p').textContent =
+      'Map failed to load. Check API key in Admin → Settings.';
+  }
+})();
+
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
 	"sync"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/rs/zerolog"
 )
 
@@ -24,7 +27,15 @@ func Init() {
 
 	for name, item := range cfg.Streams {
 		streams[name] = NewStream(item)
+		auth.RegisterStreamID(name) // register masked ID for proxy
 	}
+	auth.SetStreamNamesProvider(GetAllNames) // allow snapshot worker to list streams
+	auth.SetStreamSourcesProvider(func(name string) []string {
+		if s := Get(name); s != nil {
+			return s.Sources()
+		}
+		return nil
+	})
 
 	api.HandleFunc("api/streams", apiStreams)
 	api.HandleFunc("api/streams.dot", apiStreamsDOT)
@@ -66,6 +77,8 @@ func New(name string, sources ...string) (*Stream, error) {
 	streamsMu.Lock()
 	streams[name] = stream
 	streamsMu.Unlock()
+
+	auth.RegisterStreamID(name) // register masked ID for proxy
 
 	return stream, nil
 }
@@ -149,6 +162,20 @@ func Get(name string) *Stream {
 	return streams[name]
 }
 
+// GetByAny resolves both real stream names AND masked camera IDs (12-char hex).
+// Used by the RTSP server so clients can connect with rtsp://host:8554/CAMERA_ID
+// without knowing the real stream name.
+func GetByAny(name string) *Stream {
+	if s := Get(name); s != nil {
+		return s
+	}
+	// Try resolving as a masked ID
+	if realName, ok := auth.StreamNameByID(name); ok && realName != name {
+		return Get(realName)
+	}
+	return nil
+}
+
 func Delete(name string) {
 	streamsMu.Lock()
 	defer streamsMu.Unlock()
@@ -163,6 +190,88 @@ func GetAllNames() []string {
 	}
 	streamsMu.Unlock()
 	return names
+}
+
+// GetStreamStats returns monitoring counters:
+//   - total:     number of configured streams
+//   - active:    streams currently being watched (>=1 consumer)
+//   - consumers: total consumer connections (viewing sessions) across all streams
+func GetStreamStats() (total, active, consumers int) {
+	streamsMu.Lock()
+	defer streamsMu.Unlock()
+	total = len(streams)
+	for _, s := range streams {
+		n := s.consumerCount()
+		if n > 0 {
+			active++
+		}
+		consumers += n
+	}
+	return
+}
+
+// SessionDetail holds per-viewing-session info extracted from a consumer.
+type SessionDetail struct {
+	RemoteAddr string `json:"remote_addr"` // IP:port of the viewer
+	FormatName string `json:"format_name"` // rtsp, webrtc, mp4, mjpeg…
+	Protocol   string `json:"protocol"`    // tcp, udp, http, ws…
+	UserAgent  string `json:"user_agent"`
+}
+
+// StreamDetail holds per-stream info for the activity API.
+type StreamDetail struct {
+	Name      string          `json:"name"`
+	Consumers int             `json:"consumers"`
+	Sessions  []SessionDetail `json:"sessions"`
+}
+
+// GetStreamDetails returns all streams with per-consumer session info,
+// sorted so streams with viewers appear first.
+func GetStreamDetails() []StreamDetail {
+	streamsMu.Lock()
+	// Snapshot consumers under lock, release before marshaling.
+	type snap struct {
+		name string
+		cons []core.Consumer
+	}
+	snaps := make([]snap, 0, len(streams))
+	for name, s := range streams {
+		s.mu.Lock()
+		cp := make([]core.Consumer, len(s.consumers))
+		copy(cp, s.consumers)
+		s.mu.Unlock()
+		snaps = append(snaps, snap{name, cp})
+	}
+	streamsMu.Unlock()
+
+	out := make([]StreamDetail, 0, len(snaps))
+	for _, sn := range snaps {
+		sessions := make([]SessionDetail, 0, len(sn.cons))
+		for _, cons := range sn.cons {
+			// All consumer types embed core.Connection which serialises its fields.
+			if data, err := json.Marshal(cons); err == nil {
+				var sd SessionDetail
+				_ = json.Unmarshal(data, &sd)
+				sessions = append(sessions, sd)
+			}
+		}
+		out = append(out, StreamDetail{
+			Name:      sn.name,
+			Consumers: len(sn.cons),
+			Sessions:  sessions,
+		})
+	}
+
+	// Sort: active first, then alphabetically.
+	for i := 0; i < len(out)-1; i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].Consumers > out[i].Consumers ||
+				(out[j].Consumers == out[i].Consumers && out[j].Name < out[i].Name) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
 }
 
 func GetAllSources() map[string][]string {

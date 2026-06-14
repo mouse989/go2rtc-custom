@@ -1,0 +1,1263 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor – UTMC Camera</title>
+<link rel="stylesheet" href="app.css">
+<style>
+/* ── Monitor grid ── */
+.mon-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(280px,1fr));
+  gap:1rem;
+}
+.mon-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:1.1rem 1.25rem;
+}
+.mon-card-title {
+  font-size:.72rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin-bottom:.65rem;
+  display:flex; align-items:center; gap:.4rem;
+}
+.mon-card-title svg { width:14px; height:14px; }
+.mon-value {
+  font-size:2rem; font-weight:800; line-height:1;
+  color:var(--text); letter-spacing:-.03em;
+}
+.mon-value sup { font-size:.85rem; font-weight:600; color:var(--text-muted); margin-left:.15rem; }
+.mon-sub { font-size:.78rem; color:var(--text-muted); margin-top:.25rem; }
+
+/* ── Progress bar ── */
+.mon-bar-wrap {
+  height:8px; background:var(--surface2); border-radius:4px;
+  overflow:hidden; margin-top:.75rem;
+}
+.mon-bar {
+  height:100%; border-radius:4px;
+  background:var(--accent);
+  transition:width .6s ease;
+}
+.mon-bar.warn  { background:var(--yellow); }
+.mon-bar.crit  { background:var(--red); }
+.mon-bar.green { background:var(--green); }
+
+/* ── Detail row ── */
+.mon-detail {
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:.78rem; margin-top:.45rem;
+}
+.mon-detail span:last-child { color:var(--text-muted); }
+
+/* ── Realtime sparkline (mini chart) ── */
+.mon-spark {
+  width:100%; height:48px; display:block;
+  margin-top:.5rem;
+}
+
+/* ── Network card ── */
+.net-rates { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-top:.35rem; }
+.net-rate-box {
+  background:var(--surface2); border-radius:6px;
+  padding:.55rem .7rem; text-align:center;
+}
+.net-rate-label { font-size:.68rem; color:var(--text-muted); margin-bottom:.15rem; }
+.net-rate-val { font-size:1.1rem; font-weight:700; }
+.net-in  { color:#38bdf8; }
+.net-out { color:#a78bfa; }
+
+/* ── Uptime card ── */
+.uptime-parts { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:.35rem; }
+.uptime-unit { text-align:center; }
+.uptime-num { font-size:1.5rem; font-weight:800; color:var(--text); }
+.uptime-lbl { font-size:.65rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
+
+/* ── Process card full-width ── */
+.proc-grid {
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+  gap:.6rem; margin-top:.35rem;
+}
+.proc-item { background:var(--surface2); border-radius:6px; padding:.5rem .7rem; }
+.proc-label { font-size:.68rem; color:var(--text-muted); margin-bottom:.1rem; }
+.proc-val { font-size:.95rem; font-weight:700; }
+
+/* ── Status dot ── */
+.status-dot {
+  width:8px; height:8px; border-radius:50%;
+  background:var(--green);
+  animation:pulse 2s ease-in-out infinite;
+  flex-shrink:0;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; } 50% { opacity:.4; }
+}
+
+/* ── Refresh indicator ── */
+#refreshBadge {
+  font-size:.72rem; color:var(--text-muted);
+  display:flex; align-items:center; gap:.3rem;
+}
+.spin-sm {
+  width:12px; height:12px;
+  border:2px solid var(--border); border-top-color:var(--accent);
+  border-radius:50%; animation:spin .6s linear infinite; display:none;
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item active" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">
+      <span class="status-dot" id="statusDot"></span>
+      Server Monitor
+    </h2>
+    <div class="topbar-actions">
+      <div id="refreshBadge">
+        <div class="spin-sm" id="spinIcon"></div>
+        <span id="refreshLabel">auto-refresh 3s</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- Loading -->
+    <div class="loading-state" id="loadingState"><div class="spinner"></div><p>Fetching stats…</p></div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" style="display:none">
+      <div class="mon-grid">
+
+        <!-- CPU -->
+        <div class="mon-card" id="cpuCard">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3 1h10v8H5V6zm6 7a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+            CPU Usage
+          </div>
+          <div class="mon-value" id="cpuVal">0<sup>%</sup></div>
+          <div class="mon-bar-wrap"><div class="mon-bar" id="cpuBar" style="width:0%"></div></div>
+          <div class="mon-detail">
+            <span id="cpuCores">— cores</span>
+            <span id="cpuHist"></span>
+          </div>
+          <canvas class="mon-spark" id="cpuSpark" height="48"></canvas>
+        </div>
+
+        <!-- RAM -->
+        <div class="mon-card" id="memCard">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 4a2 2 0 012-2h12a2 2 0 012 2v2H2V4zm0 4h16v6a2 2 0 01-2 2H4a2 2 0 01-2-2V8zm5 3a1 1 0 100 2h6a1 1 0 100-2H7z"/></svg>
+            Memory (RAM)
+          </div>
+          <div class="mon-value" id="memVal">0<sup>%</sup></div>
+          <div class="mon-bar-wrap"><div class="mon-bar green" id="memBar" style="width:0%"></div></div>
+          <div class="mon-detail">
+            <span id="memUsedLabel">— used</span>
+            <span id="memTotalLabel">— total</span>
+          </div>
+          <canvas class="mon-spark" id="memSpark" height="48"></canvas>
+        </div>
+
+        <!-- Disk -->
+        <div class="mon-card" id="diskCard">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h12a2 2 0 012 2v2H2V6zm0 4h16v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4zm10 3a1 1 0 011-1h.01a1 1 0 110 2H13a1 1 0 01-1-1z"/></svg>
+            Disk (C:\)
+          </div>
+          <div class="mon-value" id="diskVal">0<sup>%</sup></div>
+          <div class="mon-bar-wrap"><div class="mon-bar" id="diskBar" style="width:0%"></div></div>
+          <div class="mon-detail">
+            <span id="diskUsedLabel">— used</span>
+            <span id="diskTotalLabel">— total</span>
+          </div>
+        </div>
+
+        <!-- Uptime -->
+        <div class="mon-card">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+            System Uptime
+          </div>
+          <div class="uptime-parts" id="uptimeParts">
+            <div class="uptime-unit"><div class="uptime-num" id="upD">0</div><div class="uptime-lbl">days</div></div>
+            <div class="uptime-unit"><div class="uptime-num" id="upH">00</div><div class="uptime-lbl">hrs</div></div>
+            <div class="uptime-unit"><div class="uptime-num" id="upM">00</div><div class="uptime-lbl">min</div></div>
+            <div class="uptime-unit"><div class="uptime-num" id="upS">00</div><div class="uptime-lbl">sec</div></div>
+          </div>
+          <div class="mon-detail" style="margin-top:.65rem;">
+            <span>Server started</span>
+            <span id="svrStarted">—</span>
+          </div>
+        </div>
+
+        <!-- Network -->
+        <div class="mon-card">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/></svg>
+            Network Bandwidth
+          </div>
+          <div class="net-rates">
+            <div class="net-rate-box">
+              <div class="net-rate-label">↓ Inbound</div>
+              <div class="net-rate-val net-in" id="netIn">—</div>
+            </div>
+            <div class="net-rate-box">
+              <div class="net-rate-label">↑ Outbound</div>
+              <div class="net-rate-val net-out" id="netOut">—</div>
+            </div>
+          </div>
+          <canvas class="mon-spark" id="netSpark" height="48"></canvas>
+        </div>
+
+        <!-- go2rtc Process -->
+        <div class="mon-card" style="grid-column:1/-1">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            go2rtc Process
+          </div>
+          <div class="proc-grid">
+            <div class="proc-item"><div class="proc-label">Go Version</div><div class="proc-val" id="goVer">—</div></div>
+            <div class="proc-item"><div class="proc-label">Goroutines</div><div class="proc-val" id="goRoutines">—</div></div>
+            <div class="proc-item"><div class="proc-label">Heap Alloc</div><div class="proc-val" id="goAlloc">—</div></div>
+            <div class="proc-item"><div class="proc-label">Memory (OS)</div><div class="proc-val" id="goSys">—</div></div>
+            <div class="proc-item"><div class="proc-label">CPU Cores</div><div class="proc-val" id="goCores">—</div></div>
+            <div class="proc-item"><div class="proc-label">Process Uptime</div><div class="proc-val" id="procUptime">—</div></div>
+          </div>
+        </div>
+
+        <!-- Streaming & Users -->
+        <div class="mon-card" style="grid-column:1/-1;cursor:pointer" onclick="openActivityModal()" title="Click để xem chi tiết users và streaming">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm12.553 1.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/></svg>
+            Streaming &amp; Users
+            <span style="margin-left:auto;font-size:.7rem;color:var(--accent);font-weight:normal">🔍 Click để xem chi tiết</span>
+          </div>
+          <div class="proc-grid">
+            <div class="proc-item"><div class="proc-label">Active Users (5 min)</div><div class="proc-val" id="susers">—</div></div>
+            <div class="proc-item"><div class="proc-label">Viewing Sessions</div><div class="proc-val" id="sviews">—</div></div>
+            <div class="proc-item"><div class="proc-label">Cameras Streaming</div><div class="proc-val" id="scams">—</div></div>
+            <div class="proc-item"><div class="proc-label">Cameras Configured</div><div class="proc-val" id="stotal">—</div></div>
+            <div class="proc-item"><div class="proc-label">Traffic History Files</div><div class="proc-val" id="tfFiles">—</div></div>
+            <div class="proc-item"><div class="proc-label">Traffic History Size</div><div class="proc-val" id="tfSize">—</div></div>
+          </div>
+        </div>
+
+        <!-- Snapshot Status -->
+        <div class="mon-card" style="grid-column:1/-1;cursor:pointer" id="snapCard" onclick="openSnapModal()" title="Click để xem chi tiết camera mất kết nối">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm6 9a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+            Snapshot Status
+            <span style="margin-left:auto;font-size:.7rem;color:var(--accent);font-weight:normal">🔍 Click để xem chi tiết</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap">
+            <div class="mon-value" id="snapOKVal">—</div>
+            <div class="mon-sub" id="snapSub">đang tải…</div>
+          </div>
+          <div class="mon-bar-wrap" style="margin-top:.6rem"><div class="mon-bar green" id="snapBar" style="width:0%"></div></div>
+          <div class="mon-detail">
+            <span id="snapIntervalLabel">refresh: —</span>
+            <span id="snapRateLabel" style="color:var(--text-muted)"></span>
+            <span id="snapFailLabel" style="color:var(--red)"></span>
+          </div>
+        </div>
+
+        <!-- Device Monitoring -->
+        <div class="mon-card" style="grid-column:1/-1" id="devMonCard">
+          <div class="mon-card-title" style="margin-bottom:.75rem">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clip-rule="evenodd"/></svg>
+            Giám sát thiết bị
+            <span style="margin-left:auto;font-size:.7rem;color:var(--text-muted);font-weight:normal" id="devMonInterval">ping: —</span>
+          </div>
+          <!-- Summary row -->
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:.85rem;align-items:baseline">
+            <div>
+              <span class="mon-value" id="devTotalVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">thiết bị</span>
+            </div>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+              <span id="devOKBadge" style="background:#16a34a22;color:#4ade80;border-radius:6px;padding:.15rem .55rem;font-size:.8rem;font-weight:700">— kết nối</span>
+              <span id="devFailBadge" style="background:#dc262622;color:#f87171;border-radius:6px;padding:.15rem .55rem;font-size:.8rem;font-weight:700;cursor:pointer" onclick="openDevModal('')">— mất kết nối</span>
+            </div>
+          </div>
+          <!-- Per-type rows -->
+          <div id="devTypeRows" style="display:flex;flex-direction:column;gap:.5rem"></div>
+          <div id="devMonEmpty" style="display:none;font-size:.82rem;color:var(--text-muted);padding:.4rem 0">
+            Chưa có thiết bị nào — cấu hình trong Admin → Devices.
+          </div>
+        </div>
+
+      </div><!-- mon-grid -->
+    </div><!-- dashboard -->
+  </div><!-- content -->
+</main>
+
+<!-- ═══ Activity Modal (Users / Sessions / Streaming) ═══ -->
+<div id="actModal" style="display:none;position:fixed;inset:0;background:#000b;z-index:810;align-items:flex-start;justify-content:center;padding:3vh 1rem;overflow-y:auto">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:760px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+    <!-- Header -->
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-shrink:0">
+      <h3 style="margin:0;font-size:1rem;flex:1">📊 Chi tiết Streaming &amp; Users</h3>
+      <span id="actModalTime" style="font-size:.76rem;color:var(--text-muted)"></span>
+      <button onclick="refreshActivityModal()" title="Làm mới" style="background:none;border:1px solid var(--border);color:var(--text-muted);cursor:pointer;font-size:.8rem;border-radius:5px;padding:.2rem .5rem">↺</button>
+      <button onclick="closeActivityModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem;line-height:1;padding:.1rem .3rem">✕</button>
+    </div>
+    <!-- Tabs -->
+    <div style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0">
+      <button id="actTab-users"     onclick="switchActTab('users')"     style="flex:1;padding:.6rem .5rem;border:none;background:none;color:var(--text);font-size:.83rem;font-weight:600;cursor:pointer;border-bottom:2px solid var(--accent)">👤 Active Users</button>
+      <button id="actTab-streams"   onclick="switchActTab('streams')"   style="flex:1;padding:.6rem .5rem;border:none;background:none;color:var(--text-muted);font-size:.83rem;font-weight:500;cursor:pointer;border-bottom:2px solid transparent">📹 Cameras</button>
+      <button id="actTab-sessions"  onclick="switchActTab('sessions')"  style="flex:1;padding:.6rem .5rem;border:none;background:none;color:var(--text-muted);font-size:.83rem;font-weight:500;cursor:pointer;border-bottom:2px solid transparent">🎬 Viewing</button>
+      <button id="actTab-snapshots" onclick="switchActTab('snapshots')" style="flex:1;padding:.6rem .5rem;border:none;background:none;color:var(--text-muted);font-size:.83rem;font-weight:500;cursor:pointer;border-bottom:2px solid transparent">📷 Snapshot</button>
+    </div>
+    <!-- Content -->
+    <div id="actModalBody" style="flex:1;overflow-y:auto;min-height:200px">
+      <div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:.85rem">Đang tải…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Device Detail Modal ═══ -->
+<div id="devModal" style="display:none;position:fixed;inset:0;background:#000b;z-index:800;align-items:flex-start;justify-content:center;padding:3vh 1rem;overflow-y:auto">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:740px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-shrink:0">
+      <h3 style="margin:0;font-size:1rem;flex:1">Chi tiết thiết bị mất kết nối</h3>
+      <span id="devModalSummary" style="font-size:.82rem;color:var(--text-muted)"></span>
+      <button onclick="closeDevModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem;line-height:1;padding:.1rem .3rem">✕</button>
+    </div>
+    <div style="padding:.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:.6rem;align-items:center;flex-shrink:0;flex-wrap:wrap">
+      <input type="text" id="devModalSearch" placeholder="🔍 Tên / IP…" oninput="renderDevModalTable()"
+        style="flex:1;min-width:140px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .6rem;color:var(--text);font-size:.83rem;outline:none">
+      <select id="devModalTypeFilter" onchange="renderDevModalTable()"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .5rem;color:var(--text);font-size:.82rem;outline:none">
+        <option value="">Tất cả loại</option>
+      </select>
+      <select id="devModalStatusFilter" onchange="renderDevModalTable()"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .5rem;color:var(--text);font-size:.82rem;outline:none">
+        <option value="fail" selected>Chỉ mất kết nối</option>
+        <option value="all">Tất cả</option>
+      </select>
+      <select id="devModalSort" onchange="renderDevModalTable()"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .5rem;color:var(--text);font-size:.82rem;outline:none">
+        <option value="newest" selected>Mới nhất trước</option>
+        <option value="longest">Lâu nhất trước</option>
+      </select>
+      <span id="devModalCount" style="font-size:.78rem;color:var(--text-muted);white-space:nowrap"></span>
+    </div>
+    <div style="overflow-y:auto;flex:1">
+      <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+        <thead style="position:sticky;top:0;background:var(--surface2)">
+          <tr>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Tên thiết bị</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">IP</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Loại</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Mất kết nối lúc</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Thời gian mất</th>
+          </tr>
+        </thead>
+        <tbody id="devModalTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Device Alert Toast ═══ -->
+<div id="devAlertToast" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.5);padding:.9rem 1.1rem;font-size:.85rem">
+  <div style="display:flex;align-items:flex-start;gap:.6rem">
+    <div id="devAlertIcon" style="font-size:1.4rem;flex-shrink:0;line-height:1.2">⚠️</div>
+    <div style="flex:1;min-width:0">
+      <div id="devAlertTitle" style="font-weight:700;margin-bottom:.3rem"></div>
+      <div id="devAlertBody" style="color:var(--text-muted);font-size:.79rem;line-height:1.45;word-break:break-word"></div>
+    </div>
+    <button onclick="dismissDevAlert()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem;line-height:1;padding:0;flex-shrink:0">✕</button>
+  </div>
+  <div id="devAlertProgress" style="height:3px;border-radius:2px;margin-top:.75rem;width:100%;transition:width 10s linear"></div>
+</div>
+
+<!-- ═══ Snapshot Detail Modal ═══ -->
+<div class="dlg-backdrop" id="snapModal" style="display:none;position:fixed;inset:0;background:#000b;z-index:800;align-items:flex-start;justify-content:center;padding:3vh 1rem;overflow-y:auto">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:700px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+    <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-shrink:0">
+      <h3 style="margin:0;font-size:1rem;flex:1">Chi tiết Snapshot Status</h3>
+      <span id="snapModalSummary" style="font-size:.82rem;color:var(--text-muted)"></span>
+      <button onclick="closeSnapModal()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem;line-height:1;padding:.1rem .3rem">✕</button>
+    </div>
+    <!-- Filter bar -->
+    <div style="padding:.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:.6rem;align-items:center;flex-shrink:0">
+      <input type="text" id="snapModalSearch" placeholder="🔍 Lọc tên camera…" oninput="renderSnapTable()"
+        style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .6rem;color:var(--text);font-size:.83rem;outline:none">
+      <select id="snapModalFilter" onchange="renderSnapTable()"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .5rem;color:var(--text);font-size:.82rem;outline:none">
+        <option value="all">Tất cả</option>
+        <option value="fail" selected>Chỉ lỗi</option>
+        <option value="ok">Chỉ OK</option>
+      </select>
+      <span id="snapModalCount" style="font-size:.78rem;color:var(--text-muted);white-space:nowrap"></span>
+    </div>
+    <!-- Table -->
+    <div style="overflow-y:auto;flex:1">
+      <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+        <thead style="position:sticky;top:0;background:var(--surface2)">
+          <tr>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Camera</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Trạng thái</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Mất kết nối lúc</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Thời gian mất</th>
+          </tr>
+        </thead>
+        <tbody id="snapModalTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+// ── Sparkline history ─────────────────────────────────────────────
+const HISTORY = 60; // data points
+const cpuHistory  = [];
+const memHistory  = [];
+const netInHistory  = [];
+const netOutHistory = [];
+
+function pushHistory(arr, val) {
+  arr.push(val);
+  if (arr.length > HISTORY) arr.shift();
+}
+
+// ── Draw sparkline ────────────────────────────────────────────────
+function drawSpark(canvasId, data, color, maxVal) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.offsetWidth || 260;
+  const h = canvas.offsetHeight || 48;
+  canvas.width = w; canvas.height = h;
+
+  ctx.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+
+  const max = maxVal || Math.max(...data, 1);
+  const step = w / (HISTORY - 1);
+
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = i * step;
+    const y = h - (v / max) * (h - 4) - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Fill under
+  ctx.lineTo((data.length - 1) * step, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = color + '22';
+  ctx.fill();
+}
+
+// ── Format helpers ─────────────────────────────────────────────────
+function fmtBytes(b) {
+  if (b === 0) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
+  return (b / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+function fmtRate(b) {
+  if (b === 0) return '0 KB/s';
+  if (b < 1024) return b + ' B/s';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB/s';
+  return (b / 1024 / 1024).toFixed(2) + ' MB/s';
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function fmtUptime(sec) {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return { d, h: pad2(h), m: pad2(m), s: pad2(s) };
+}
+function fmtDuration(sec) {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${sec % 60}s`;
+}
+
+// ── Bar colour logic ───────────────────────────────────────────────
+function barClass(pct) {
+  if (pct >= 90) return 'crit';
+  if (pct >= 70) return 'warn';
+  return '';
+}
+
+// ── Render one stats snapshot ─────────────────────────────────────
+function render(s) {
+  // CPU
+  const cpu = Math.round(s.cpu_percent || 0);
+  document.getElementById('cpuVal').innerHTML = `${cpu}<sup>%</sup>`;
+  const cpuBar = document.getElementById('cpuBar');
+  cpuBar.style.width = cpu + '%';
+  cpuBar.className = 'mon-bar ' + barClass(cpu);
+  document.getElementById('cpuCores').textContent = `${s.go_num_cpu} logical cores`;
+  pushHistory(cpuHistory, cpu);
+  drawSpark('cpuSpark', cpuHistory, '#2f81f7', 100);
+
+  // Memory
+  const memPct = Math.round(s.mem_percent || 0);
+  document.getElementById('memVal').innerHTML = `${memPct}<sup>%</sup>`;
+  const memBar = document.getElementById('memBar');
+  memBar.style.width = memPct + '%';
+  memBar.className = 'mon-bar ' + (barClass(memPct) || 'green');
+  document.getElementById('memUsedLabel').textContent = fmtBytes(s.mem_used) + ' used';
+  document.getElementById('memTotalLabel').textContent = fmtBytes(s.mem_total) + ' total';
+  pushHistory(memHistory, memPct);
+  drawSpark('memSpark', memHistory, '#3fb950', 100);
+
+  // Disk
+  const diskPct = s.disk_total > 0 ? Math.round(s.disk_used / s.disk_total * 100) : 0;
+  document.getElementById('diskVal').innerHTML = `${diskPct}<sup>%</sup>`;
+  const diskBar = document.getElementById('diskBar');
+  diskBar.style.width = diskPct + '%';
+  diskBar.className = 'mon-bar ' + barClass(diskPct);
+  document.getElementById('diskUsedLabel').textContent = fmtBytes(s.disk_used) + ' used';
+  document.getElementById('diskTotalLabel').textContent = fmtBytes(s.disk_total) + ' total';
+
+  // Uptime
+  const u = fmtUptime(s.uptime_sec || 0);
+  document.getElementById('upD').textContent = u.d;
+  document.getElementById('upH').textContent = u.h;
+  document.getElementById('upM').textContent = u.m;
+  document.getElementById('upS').textContent = u.s;
+  if (s.start_time) {
+    document.getElementById('svrStarted').textContent =
+      new Date(s.start_time * 1000).toLocaleString();
+  }
+
+  // Network
+  document.getElementById('netIn').textContent  = fmtRate(s.net_in_rate  || 0);
+  document.getElementById('netOut').textContent = fmtRate(s.net_out_rate || 0);
+  pushHistory(netInHistory,  (s.net_in_rate  || 0) / 1024);
+  pushHistory(netOutHistory, (s.net_out_rate || 0) / 1024);
+  const maxNet = Math.max(...netInHistory, ...netOutHistory, 1);
+  drawSpark('netSpark', netInHistory,  '#38bdf8', maxNet);
+  // overlay out
+  const canvas = document.getElementById('netSpark');
+  if (canvas && netOutHistory.length > 1) {
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    const step = w / (HISTORY - 1);
+    ctx.beginPath();
+    netOutHistory.forEach((v, i) => {
+      const x = i * step;
+      const y = h - (v / maxNet) * (h - 4) - 2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = '#a78bfa';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Process
+  document.getElementById('goVer').textContent       = s.go_version || '—';
+  document.getElementById('goRoutines').textContent  = s.goroutines || 0;
+  document.getElementById('goAlloc').textContent     = fmtBytes(s.go_mem_alloc || 0);
+  document.getElementById('goSys').textContent       = fmtBytes(s.go_mem_sys   || 0);
+  document.getElementById('goCores').textContent     = s.go_num_cpu || '—';
+  if (s.start_time) {
+    const procSec = Math.floor(Date.now() / 1000 - s.start_time);
+    document.getElementById('procUptime').textContent = fmtDuration(procSec);
+  }
+
+  // Streaming & Users
+  document.getElementById('susers').textContent = s.active_users ?? 0;
+  document.getElementById('sviews').textContent = s.stream_consumers ?? 0;
+  document.getElementById('scams').textContent  =
+    `${s.streams_active ?? 0} / ${s.streams_total ?? 0}`;
+  document.getElementById('stotal').textContent = s.streams_total ?? 0;
+  document.getElementById('tfFiles').textContent = s.traffic_files ?? 0;
+  document.getElementById('tfSize').textContent  = fmtBytes(s.traffic_bytes || 0);
+}
+
+// ── Device monitoring ─────────────────────────────────────────────
+let _devStats = null;
+
+async function fetchDevStats() {
+  try {
+    _devStats = await apiFetch('/api/device-stats');
+    renderDevCard(_devStats);
+    checkDevAlerts(_devStats);
+  } catch {}
+}
+
+function renderDevCard(s) {
+  if (!s) return;
+  const types = s.types || [];
+  const failing = s.disconnected || [];
+  const total = types.reduce((a, t) => a + t.total, 0);
+  const totalFail = failing.length;
+  const totalOK = total - totalFail;
+
+  document.getElementById('devMonInterval').textContent = `ping: ${s.ping_interval_sec}s`;
+  document.getElementById('devTotalVal').textContent = total || '0';
+  document.getElementById('devOKBadge').textContent = totalOK + ' kết nối';
+  const failBadge = document.getElementById('devFailBadge');
+  failBadge.textContent = totalFail + ' mất kết nối';
+  failBadge.style.display = totalFail > 0 ? '' : 'none';
+
+  const empty = document.getElementById('devMonEmpty');
+  const rows  = document.getElementById('devTypeRows');
+
+  if (!types.length) {
+    empty.style.display = ''; rows.innerHTML = ''; return;
+  }
+  empty.style.display = 'none';
+
+  // Populate type filter in modal
+  const sel = document.getElementById('devModalTypeFilter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Tất cả loại</option>';
+  types.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.name;
+    sel.appendChild(o);
+  });
+  if (prev) sel.value = prev;
+
+  // Per-type rows
+  rows.innerHTML = '';
+  types.forEach(t => {
+    if (t.total === 0) return;
+    const pct  = Math.round(t.connected / t.total * 100);
+    const color = pct >= 90 ? 'var(--green)' : pct >= 70 ? '#f97316' : 'var(--red)';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:.75rem;cursor:pointer;padding:.3rem .4rem;border-radius:6px;transition:background .12s';
+    row.onmouseenter = () => row.style.background = 'var(--surface2)';
+    row.onmouseleave = () => row.style.background = '';
+    row.onclick = () => openDevModal(t.id);
+    row.innerHTML = `
+      <span style="min-width:130px;font-size:.83rem;font-weight:600">${t.name}</span>
+      <div style="flex:1;height:7px;background:var(--surface2);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width .5s"></div>
+      </div>
+      <span style="min-width:90px;text-align:right;font-size:.8rem;color:var(--text-muted)">
+        <span style="color:${color};font-weight:700">${t.connected}</span> / ${t.total}
+      </span>
+      ${t.disconnected > 0
+        ? `<span style="min-width:70px;text-align:right;font-size:.78rem;color:var(--red);font-weight:700">⚠ ${t.disconnected} lỗi</span>`
+        : `<span style="min-width:70px;text-align:right;font-size:.78rem;color:var(--green)">✓ OK</span>`}`;
+    rows.appendChild(row);
+  });
+}
+
+// ── Device modal ───────────────────────────────────────────────────
+function openDevModal(typeId) {
+  if (!_devStats) return;
+  document.getElementById('devModal').style.display = 'flex';
+  document.getElementById('devModalSearch').value = '';
+  document.getElementById('devModalTypeFilter').value = typeId || '';
+  document.getElementById('devModalStatusFilter').value = 'fail';
+  renderDevModalTable();
+}
+function closeDevModal() { document.getElementById('devModal').style.display = 'none'; }
+document.getElementById('devModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDevModal(); });
+
+function fmtFailDur(sec) {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d} ngày ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${sec % 60}s`;
+}
+
+function renderDevModalTable() {
+  if (!_devStats) return;
+  const q      = (document.getElementById('devModalSearch').value || '').toLowerCase();
+  const typeF  = document.getElementById('devModalTypeFilter').value;
+  const status = document.getElementById('devModalStatusFilter').value;
+  const tbody  = document.getElementById('devModalTbody');
+
+  const failing = _devStats.disconnected || [];
+  const types   = _devStats.types || [];
+  const typeMap = Object.fromEntries(types.map(t => [t.id, t.name]));
+  const totalDev = types.reduce((a, t) => a + t.total, 0);
+  const totalFail = failing.length;
+
+  document.getElementById('devModalSummary').textContent =
+    `${totalDev - totalFail} OK · ${totalFail} mất kết nối · tổng ${totalDev}`;
+
+  let rows = status === 'fail' ? [...failing] : [...failing];
+
+  if (typeF) rows = rows.filter(d => d.type_id === typeF);
+  if (q)     rows = rows.filter(d => d.name.toLowerCase().includes(q) || d.ip.includes(q));
+
+  // Sort: longest outage first (default) or newest first
+  const sortMode = (document.getElementById('devModalSort') || {}).value || 'longest';
+  if (sortMode === 'newest') {
+    rows.sort((a, b) => a.fail_sec - b.fail_sec); // ascending = shortest outage = newest disconnect
+  } else {
+    rows.sort((a, b) => b.fail_sec - a.fail_sec); // descending = longest outage first
+  }
+
+  document.getElementById('devModalCount').textContent = rows.length + ' thiết bị';
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:1.2rem;text-align:center;color:var(--green)">
+      ✓ Không có thiết bị mất kết nối${typeF ? ' ở loại này' : ''}!</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = '';
+  rows.forEach(d => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    const isNew = d.fail_sec < 900; // newly disconnected in last 15 min
+    if (isNew) tr.style.background = 'rgba(239,68,68,.07)';
+    const dur = fmtFailDur(d.fail_sec);
+    const urgency = d.fail_sec > 86400 ? 'var(--red)' : d.fail_sec > 3600 ? '#f97316' : 'var(--yellow)';
+    tr.innerHTML = `
+      <td style="padding:.45rem .75rem;font-weight:600">${escHtml(d.name)}</td>
+      <td style="padding:.45rem .75rem;font-family:monospace;font-size:.8rem">${d.ip}</td>
+      <td style="padding:.45rem .75rem;font-size:.8rem;color:var(--text-muted)">${escHtml(typeMap[d.type_id] || d.type_name || '—')}</td>
+      <td style="padding:.45rem .75rem;color:var(--text-muted);font-size:.8rem">${new Date(d.fail_since).toLocaleString()}</td>
+      <td style="padding:.45rem .75rem;color:${urgency};font-weight:700;font-size:.82rem">${dur}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Snapshot stats ─────────────────────────────────────────────────
+let _snapStats = null; // last fetched snapshot stats
+
+function renderSnapCard(s) {
+  if (!s) return;
+  _snapStats = s;
+  const total = s.total || 0;
+  const ok    = s.ok    || 0;
+  const fail  = s.fail  || 0;
+  const pct   = total > 0 ? Math.round(ok / total * 100) : 0;
+
+  document.getElementById('snapOKVal').innerHTML =
+    `<span style="color:var(--green)">${ok}</span><span style="font-size:1rem;font-weight:600;color:var(--text-muted)"> / ${total}</span>`;
+  document.getElementById('snapSub').textContent =
+    total > 0 ? `camera lấy được snapshot (${pct}%)` : 'Chưa có dữ liệu';
+
+  const bar = document.getElementById('snapBar');
+  bar.style.width = pct + '%';
+  bar.className = 'mon-bar ' + (pct >= 90 ? 'green' : pct >= 70 ? 'warn' : 'crit');
+
+  document.getElementById('snapIntervalLabel').textContent = `refresh: ${s.interval_sec}s`;
+  const rateEl = document.getElementById('snapRateLabel');
+  if (s.delay_ms && s.concurrency) {
+    rateEl.textContent = `· 1 cam/${s.delay_ms}ms · ${s.concurrency} luồng`;
+  } else {
+    rateEl.textContent = '';
+  }
+  const failEl = document.getElementById('snapFailLabel');
+  failEl.textContent = fail > 0 ? `⚠ ${fail} camera lỗi` : '';
+  failEl.style.color = fail > 0 ? 'var(--red)' : 'var(--green)';
+}
+
+async function fetchSnapStats() {
+  try {
+    const s = await apiFetch('/api/proxy/snapshot-stats');
+    renderSnapCard(s);
+  } catch {}
+}
+
+// ── Snapshot modal ─────────────────────────────────────────────────
+function openSnapModal() {
+  if (!_snapStats) return;
+  document.getElementById('snapModal').style.display = 'flex';
+  document.getElementById('snapModalSearch').value = '';
+  document.getElementById('snapModalFilter').value = 'fail';
+  renderSnapTable();
+}
+
+function closeSnapModal() {
+  document.getElementById('snapModal').style.display = 'none';
+}
+
+document.getElementById('snapModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeSnapModal();
+});
+
+function renderSnapTable() {
+  if (!_snapStats) return;
+  const q      = (document.getElementById('snapModalSearch').value || '').toLowerCase();
+  const mode   = document.getElementById('snapModalFilter').value;
+  const tbody  = document.getElementById('snapModalTbody');
+
+  // Build full list: failing + (if mode!=fail) ok cameras from healthMap equivalent
+  // We only have failing list from API; OK cameras have no fail_since.
+  const failing = _snapStats.failing || [];
+  const total   = _snapStats.total || 0;
+  const ok      = _snapStats.ok    || 0;
+
+  // Summary
+  document.getElementById('snapModalSummary').textContent =
+    `${ok} OK · ${_snapStats.fail || 0} lỗi · tổng ${total}`;
+  document.getElementById('snapModalCount').textContent = '';
+
+  let rows = [];
+  if (mode !== 'ok') {
+    // failing cameras
+    failing.forEach(c => {
+      if (!q || c.name.toLowerCase().includes(q)) {
+        rows.push({ name: c.name, ok: false, failSince: new Date(c.fail_since), failSec: c.fail_sec });
+      }
+    });
+  }
+  // We don't have individual OK camera names from the API (only count),
+  // so for mode=ok we show a placeholder message.
+  if (mode === 'ok') {
+    tbody.innerHTML = `<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--text-muted)">
+      ${ok} camera đang lấy snapshot bình thường.</td></tr>`;
+    document.getElementById('snapModalCount').textContent = `${ok} camera`;
+    return;
+  }
+
+  document.getElementById('snapModalCount').textContent = `${rows.length} camera`;
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--green)">
+      ✓ Tất cả camera đang lấy snapshot bình thường!</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = '';
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    const d = Math.floor(r.failSec / 86400);
+    const h = Math.floor((r.failSec % 86400) / 3600);
+    const m = Math.floor((r.failSec % 3600) / 60);
+    const durStr = d > 0 ? `${d} ngày ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m ${r.failSec % 60}s`;
+    const urgency = r.failSec > 86400 ? 'var(--red)' : r.failSec > 3600 ? '#f97316' : 'var(--yellow)';
+    tr.innerHTML = `
+      <td style="padding:.45rem .75rem;font-family:monospace;font-size:.82rem">${r.name}</td>
+      <td style="padding:.45rem .75rem"><span style="color:var(--red);font-weight:600">✗ Lỗi</span></td>
+      <td style="padding:.45rem .75rem;color:var(--text-muted);font-size:.8rem">${r.failSince.toLocaleString()}</td>
+      <td style="padding:.45rem .75rem;color:${urgency};font-weight:600;font-size:.82rem">${durStr}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Activity Modal ────────────────────────────────────────────────
+let _actData = null;
+let _actTab  = 'users';
+
+function fmtLastSeen(sec) {
+  if (sec < 60)  return `${sec}s trước`;
+  if (sec < 3600) return `${Math.floor(sec/60)}m trước`;
+  return `${Math.floor(sec/3600)}h ${Math.floor((sec%3600)/60)}m trước`;
+}
+
+async function openActivityModal() {
+  document.getElementById('actModal').style.display = 'flex';
+  _actTab = 'users';
+  switchActTab('users');
+  await refreshActivityModal();
+}
+
+function closeActivityModal() {
+  document.getElementById('actModal').style.display = 'none';
+}
+
+document.getElementById('actModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeActivityModal();
+});
+
+function switchActTab(tab) {
+  _actTab = tab;
+  ['users','streams','sessions','snapshots'].forEach(t => {
+    const btn = document.getElementById('actTab-' + t);
+    if (!btn) return;
+    btn.style.color        = t === tab ? 'var(--text)'       : 'var(--text-muted)';
+    btn.style.fontWeight   = t === tab ? '600'               : '500';
+    btn.style.borderBottom = t === tab ? '2px solid var(--accent)' : '2px solid transparent';
+  });
+  if (_actData) renderActTab();
+}
+
+async function refreshActivityModal() {
+  const body = document.getElementById('actModalBody');
+  body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:.85rem">Đang tải…</div>';
+  try {
+    _actData = await apiFetch('/api/system/activity');
+    document.getElementById('actModalTime').textContent = 'Cập nhật: ' + new Date().toLocaleTimeString();
+    renderActTab();
+  } catch(e) {
+    body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--red);font-size:.85rem">Lỗi: ${e.message}</div>`;
+  }
+}
+
+function renderActTab() {
+  if (_actTab === 'users')         renderActUsers();
+  else if (_actTab === 'streams')  renderActStreams();
+  else if (_actTab === 'sessions') renderActSessions();
+  else if (_actTab === 'snapshots') renderActSnapshots();
+}
+
+function parseBrowser(ua) {
+  if (!ua) return '—';
+  if (/Edg\//.test(ua))      return 'Edge';
+  if (/OPR\/|Opera/.test(ua)) return 'Opera';
+  if (/Chrome\//.test(ua))   return 'Chrome';
+  if (/Firefox\//.test(ua))  return 'Firefox';
+  if (/Safari\//.test(ua))   return 'Safari';
+  if (/curl/.test(ua))       return 'curl';
+  if (/Go-http/.test(ua))    return 'Go HTTP';
+  return 'Other';
+}
+
+function renderActUsers() {
+  const users = _actData?.users || [];
+  const body  = document.getElementById('actModalBody');
+  if (!users.length) {
+    body.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text-muted);font-size:.85rem">Không có user nào active trong 5 phút qua.</div>';
+    return;
+  }
+  const thStyle = 'padding:.55rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)';
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:.83rem">
+    <thead style="position:sticky;top:0;background:var(--surface2)"><tr>
+      <th style="${thStyle}">Username</th>
+      <th style="${thStyle}">Role</th>
+      <th style="${thStyle}">IP</th>
+      <th style="${thStyle}">Trình duyệt</th>
+      <th style="${thStyle}">Hoạt động gần nhất</th>
+      <th style="${thStyle}">Trạng thái</th>
+    </tr></thead><tbody>`;
+  users.forEach(u => {
+    const isAdmin  = u.role === 'admin';
+    const online   = u.last_seen_sec < 60;
+    const browser  = parseBrowser(u.user_agent);
+    const uaTitle  = escHtml(u.user_agent || '');
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:.5rem .85rem;font-weight:700">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${online ? 'var(--green)' : 'var(--yellow)'};margin-right:.45rem;vertical-align:middle"></span>
+        ${escHtml(u.username)}
+      </td>
+      <td style="padding:.5rem .85rem">
+        <span style="background:${isAdmin ? 'rgba(99,102,241,.18)' : 'rgba(16,185,129,.12)'};color:${isAdmin ? '#818cf8' : '#34d399'};padding:.1rem .45rem;border-radius:4px;font-size:.73rem;font-weight:600">
+          ${escHtml(u.role)}
+        </span>
+      </td>
+      <td style="padding:.5rem .85rem;font-family:monospace;font-size:.8rem;color:var(--text)">${escHtml(u.remote_addr || '—')}</td>
+      <td style="padding:.5rem .85rem;font-size:.8rem;color:var(--text)" title="${uaTitle}">${escHtml(browser)}</td>
+      <td style="padding:.5rem .85rem;color:var(--text-muted);font-size:.82rem">${fmtLastSeen(u.last_seen_sec)}</td>
+      <td style="padding:.5rem .85rem;font-size:.8rem;color:${online ? 'var(--green)' : 'var(--yellow)'}">
+        ${online ? '● Online' : '○ Gần đây'}
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function renderActStreams() {
+  const streams = _actData?.streams || [];
+  const body    = document.getElementById('actModalBody');
+  const active  = streams.filter(s => s.consumers > 0);
+  const idle    = streams.filter(s => s.consumers === 0);
+
+  let html = `<div style="padding:.65rem .85rem;font-size:.8rem;color:var(--text-muted);display:flex;gap:1.5rem;border-bottom:1px solid var(--border)">
+    <span>Tổng: <strong style="color:var(--text)">${streams.length}</strong> camera</span>
+    <span style="color:var(--green)">● Đang stream: <strong>${active.length}</strong></span>
+    <span>○ Không có viewer: <strong>${idle.length}</strong></span>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+    <thead style="position:sticky;top:0;background:var(--surface2)"><tr>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Camera</th>
+      <th style="padding:.5rem .85rem;text-align:center;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Viewers</th>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Trạng thái</th>
+    </tr></thead><tbody>`;
+  streams.forEach(s => {
+    const on = s.consumers > 0;
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:.45rem .85rem;font-weight:${on ? '700' : '400'}">
+        <span style="color:${on ? 'var(--green)' : 'var(--text-muted)'};margin-right:.4rem">${on ? '●' : '○'}</span>
+        ${escHtml(s.name)}
+      </td>
+      <td style="padding:.45rem .85rem;text-align:center">
+        ${on ? `<span style="background:var(--accent);color:#fff;border-radius:10px;padding:.08rem .5rem;font-size:.8rem;font-weight:700">${s.consumers}</span>` : '<span style="color:var(--text-muted);font-size:.8rem">0</span>'}
+      </td>
+      <td style="padding:.45rem .85rem;font-size:.8rem;color:${on ? 'var(--green)' : 'var(--text-muted)'}">
+        ${on ? `Đang streaming (${s.consumers} session)` : 'Không có viewer'}
+      </td>
+    </tr>`;
+  });
+  if (!streams.length) {
+    html += `<tr><td colspan="3" style="padding:2rem;text-align:center;color:var(--text-muted)">Chưa có camera nào được cấu hình.</td></tr>`;
+  }
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function _fmtProtocol(s) {
+  const fmt  = (s.format_name || '').toLowerCase();
+  const prot = (s.protocol   || '').toLowerCase();
+  if (fmt === 'rtsp')   return { label:'RTSP',   color:'#818cf8' };
+  if (fmt === 'webrtc') return { label:'WebRTC', color:'#34d399' };
+  if (fmt === 'mp4')    return { label:'MP4',    color:'#f97316' };
+  if (fmt === 'mjpeg' || fmt === 'mpjpeg') return { label:'MJPEG', color:'#fbbf24' };
+  if (fmt === 'hls')    return { label:'HLS',    color:'#60a5fa' };
+  if (prot === 'rtsp')  return { label:'RTSP',   color:'#818cf8' };
+  if (prot === 'ws' || prot === 'websocket') return { label:'WebSocket', color:'#34d399' };
+  if (fmt)  return { label: fmt.toUpperCase(), color:'var(--text-muted)' };
+  if (prot) return { label: prot.toUpperCase(), color:'var(--text-muted)' };
+  return { label:'—', color:'var(--text-muted)' };
+}
+
+function _fmtIP(remoteAddr) {
+  if (!remoteAddr) return '—';
+  // Strip port if present (keep host only for brevity)
+  const m = remoteAddr.match(/^(.+):(\d+)$/);
+  return m ? m[1] : remoteAddr;
+}
+
+function renderActSessions() {
+  const streams = _actData?.streams || [];
+  const body    = document.getElementById('actModalBody');
+  const active  = streams.filter(s => s.consumers > 0);
+  const totalSessions = active.reduce((a, s) => a + s.consumers, 0);
+
+  if (!totalSessions) {
+    body.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text-muted);font-size:.85rem">Không có viewing session nào đang hoạt động.</div>';
+    return;
+  }
+  let html = `<div style="padding:.65rem .85rem;font-size:.8rem;color:var(--text-muted);border-bottom:1px solid var(--border)">
+    Tổng <strong style="color:var(--text)">${totalSessions}</strong> viewing session trên <strong style="color:var(--text)">${active.length}</strong> camera
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+    <thead style="position:sticky;top:0;background:var(--surface2)"><tr>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">#</th>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Camera</th>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Giao thức</th>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ IP</th>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">User-Agent</th>
+    </tr></thead><tbody>`;
+
+  let idx = 1;
+  active.forEach(s => {
+    const sessions = s.sessions || [];
+    // Render each known session with full details
+    const count = Math.max(s.consumers, sessions.length);
+    for (let i = 0; i < count; i++) {
+      const sess = sessions[i] || {};
+      const proto = _fmtProtocol(sess);
+      const ip    = sess.remote_addr || '—';
+      const ua    = sess.user_agent  || '—';
+      const isFirst = i === 0;
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:.42rem .85rem;color:var(--text-muted);font-size:.8rem">${idx++}</td>
+        <td style="padding:.42rem .85rem;font-weight:${isFirst ? '700' : '400'};color:${isFirst ? 'var(--text)' : 'transparent'}">
+          ${isFirst ? '📹 ' + escHtml(s.name) : '└'}
+          ${isFirst && s.consumers > 1 ? `<span style="font-size:.7rem;font-weight:400;color:var(--text-muted);margin-left:.4rem">(${s.consumers} sessions)</span>` : ''}
+        </td>
+        <td style="padding:.42rem .85rem">
+          <span style="background:rgba(0,0,0,.15);color:${proto.color};border:1px solid ${proto.color}33;border-radius:4px;padding:.07rem .45rem;font-size:.73rem;font-weight:700">${proto.label}</span>
+        </td>
+        <td style="padding:.42rem .85rem;font-family:monospace;font-size:.81rem;color:var(--text)">
+          ${escHtml(ip)}
+        </td>
+        <td style="padding:.42rem .85rem;font-size:.75rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(ua)}">
+          ${escHtml(ua.length > 60 ? ua.slice(0,60) + '…' : ua)}
+        </td>
+      </tr>`;
+    }
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function renderActSnapshots() {
+  const snaps = _actData?.snapshot_sessions || [];
+  const body  = document.getElementById('actModalBody');
+  if (!snaps.length) {
+    body.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text-muted);font-size:.85rem">Chưa có snapshot request nào được ghi nhận.</div>';
+    return;
+  }
+  let html = `<div style="padding:.65rem .85rem;font-size:.8rem;color:var(--text-muted);border-bottom:1px solid var(--border)">
+    <strong style="color:var(--text)">${snaps.length}</strong> snapshot request gần nhất (mới nhất trước)
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+    <thead style="position:sticky;top:0;background:var(--surface2)"><tr>
+      <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">#</th>
+      <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Camera</th>
+      <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ IP</th>
+      <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thời điểm</th>
+      <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">User-Agent</th>
+    </tr></thead><tbody>`;
+  snaps.forEach((s, i) => {
+    const ip = s.remote_addr || '—';
+    const ua = s.user_agent || '—';
+    const t  = s.time ? new Date(s.time).toLocaleTimeString() : '—';
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:.4rem .75rem;color:var(--text-muted);font-size:.78rem">${i + 1}</td>
+      <td style="padding:.4rem .75rem;font-weight:600;color:var(--text)">📷 ${escHtml(s.camera_name || '—')}</td>
+      <td style="padding:.4rem .75rem;font-family:monospace;font-size:.8rem">${escHtml(ip)}</td>
+      <td style="padding:.4rem .75rem;font-size:.78rem;color:var(--text-muted);white-space:nowrap">${t}</td>
+      <td style="padding:.4rem .75rem;font-size:.74rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(ua)}">
+        ${escHtml(ua.length > 55 ? ua.slice(0, 55) + '…' : ua)}
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+// ── Device connect/disconnect alerts ─────────────────────────────
+let _prevDisconnectedMap = null; // null = first poll (skip alert)
+let _devAlertTimer = null;
+
+function showDevAlert(icon, title, bodyText, color) {
+  clearTimeout(_devAlertTimer);
+  const toast = document.getElementById('devAlertToast');
+  document.getElementById('devAlertIcon').textContent = icon;
+  document.getElementById('devAlertTitle').textContent = title;
+  document.getElementById('devAlertTitle').style.color = color;
+  document.getElementById('devAlertBody').textContent = bodyText;
+  const prog = document.getElementById('devAlertProgress');
+  prog.style.background = color;
+  prog.style.transition = 'none';
+  prog.style.width = '100%';
+  toast.style.display = 'block';
+  // Trigger animation after paint
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    prog.style.transition = 'width 10s linear';
+    prog.style.width = '0%';
+  }));
+  _devAlertTimer = setTimeout(dismissDevAlert, 10000);
+}
+
+function dismissDevAlert() {
+  clearTimeout(_devAlertTimer);
+  document.getElementById('devAlertToast').style.display = 'none';
+}
+
+function checkDevAlerts(newStats) {
+  if (!newStats) return;
+  const newMap = new Map((newStats.disconnected || []).map(d => [d.id, d.name]));
+  if (_prevDisconnectedMap === null) {
+    _prevDisconnectedMap = newMap;
+    return;
+  }
+  const prevMap = _prevDisconnectedMap;
+  const newDisc  = [...newMap.entries()].filter(([id]) => !prevMap.has(id));
+  const reconn   = [...prevMap.entries()].filter(([id]) => !newMap.has(id));
+  _prevDisconnectedMap = newMap;
+
+  if (newDisc.length > 0) {
+    const names = newDisc.map(([, n]) => n).join(', ');
+    showDevAlert('🔴', `${newDisc.length} thiết bị mất kết nối!`, names, '#ef4444');
+  } else if (reconn.length > 0) {
+    const names = reconn.map(([, n]) => n).join(', ');
+    showDevAlert('🟢', `${reconn.length} thiết bị kết nối lại!`, names, '#22c55e');
+  }
+}
+
+// ── Poll ──────────────────────────────────────────────────────────
+let pollTimer = null;
+
+async function fetchStats() {
+  document.getElementById('spinIcon').style.display = 'inline-block';
+  try {
+    const s = await apiFetch('/api/system/stats');
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('dashboard').style.display = '';
+    document.getElementById('statusDot').style.background = 'var(--green)';
+    render(s);
+  } catch(err) {
+    document.getElementById('statusDot').style.background = 'var(--red)';
+    if (document.getElementById('dashboard').style.display === 'none') {
+      document.getElementById('loadingState').querySelector('p').textContent =
+        'Cannot reach server: ' + err.message;
+    }
+  } finally {
+    document.getElementById('spinIcon').style.display = 'none';
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────
+(async () => {
+  await initApp('monitor');
+  const user = getUser();
+  if (!user || !hasTab('monitor')) {
+    document.getElementById('loadingState').querySelector('p').textContent =
+      'Access denied — Monitor permission required.';
+    return;
+  }
+  await Promise.all([fetchStats(), fetchSnapStats(), fetchDevStats()]);
+  pollTimer = setInterval(fetchStats, 3000);
+  setInterval(fetchSnapStats, 10000);
+  setInterval(fetchDevStats, 15000); // device stats refresh every 15 s
+
+  window.addEventListener('resize', () => {
+    drawSpark('cpuSpark', cpuHistory, '#2f81f7', 100);
+    drawSpark('memSpark', memHistory, '#3fb950', 100);
+  });
+})();
+</script>
+</body>
+</html>

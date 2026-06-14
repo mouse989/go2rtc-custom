@@ -1,145 +1,233 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>log - go2rtc</title>
-    <style>
-        main > div {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logs – UTMC Camera</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.log-toolbar { display:flex; align-items:center; gap:.5rem; margin-bottom:1rem; flex-wrap:wrap; }
+.log-toolbar .spacer { flex:1; }
+.log-count { font-size:.78rem; color:var(--text-muted); }
 
-        table tbody {
-            font-size: 13px;
-        }
+.log-wrap {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); overflow:hidden;
+}
+.log-table { width:100%; border-collapse:collapse; font-family:monospace; font-size:.78rem; }
+.log-table th {
+  position:sticky; top:0; background:var(--surface2);
+  text-align:left; padding:.5rem .8rem; font-size:.7rem;
+  text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted);
+  border-bottom:1px solid var(--border); font-family:inherit;
+}
+.log-table td { padding:.3rem .8rem; border-bottom:1px solid var(--border-soft,var(--border)); vertical-align:top; }
+.log-table tr:last-child td { border-bottom:none; }
+.log-time  { white-space:nowrap; color:var(--text-muted); width:110px; }
+.log-level { width:60px; }
+.log-msg   { word-break:break-word; color:var(--text); }
 
-        .trace {
-            color: #585858 !important;
-        }
+.lv {
+  display:inline-block; padding:.05rem .45rem; border-radius:4px;
+  font-size:.68rem; font-weight:700; text-transform:uppercase;
+}
+.lv.trace { background:#37415122; color:#6b7280; }
+.lv.debug { background:#4b556322; color:#9ca3af; }
+.lv.info  { background:#1d4ed822; color:#60a5fa; }
+.lv.warn  { background:#92400e22; color:#fbbf24; }
+.lv.error, .lv.fatal, .lv.panic { background:#7f1d1d22; color:#f87171; }
 
-        .debug {
-            color: #808080 !important;
-        }
-
-        .info {
-            color: #0174DF !important;
-        }
-
-        .warn {
-            color: #FF9966 !important;
-        }
-
-        .error {
-            color: #DF0101 !important;
-        }
-    </style>
+.log-scroll { max-height:calc(100vh - 210px); overflow-y:auto; }
+.log-empty { text-align:center; color:var(--text-muted); padding:2.5rem; font-size:.85rem; }
+</style>
 </head>
 <body>
 
-<script src="main.js"></script>
-
-<main>
-    <div>
-        <button id="clean">Clean</button>
-        <button id="update">Auto Update: ON</button>
-        <button id="reverse">Reverse Log Order: OFF</button>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item active" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
     </div>
-    <table>
-        <thead>
-        <tr>
-            <th style="width: 100px">Time</th>
-            <th style="width: 40px">Level</th>
-            <th>Message</th>
-        </tr>
-        </thead>
-        <tbody id="log">
-        </tbody>
-    </table>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Server Logs</h2>
+  </header>
+
+  <div class="content">
+    <div class="log-toolbar">
+      <button class="btn btn-sm" id="btnAuto">⏸ Auto-update: ON</button>
+      <button class="btn btn-sm" id="btnReverse">↕ Newest first: ON</button>
+      <select id="levelFilter" class="btn btn-sm" style="cursor:pointer">
+        <option value="">All levels</option>
+        <option value="trace">trace+</option>
+        <option value="debug">debug+</option>
+        <option value="info" selected>info+</option>
+        <option value="warn">warn+</option>
+        <option value="error">error</option>
+      </select>
+      <span class="spacer"></span>
+      <span class="log-count" id="logCount">—</span>
+      <button class="btn btn-sm" id="btnClean">🗑 Clean</button>
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="logScroll">
+        <table class="log-table">
+          <thead><tr><th class="log-time">Time</th><th class="log-level">Level</th><th>Message</th></tr></thead>
+          <tbody id="logBody"><tr><td colspan="3" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </main>
 
+<script src="app.js"></script>
 <script>
-    document.getElementById('clean').addEventListener('click', async () => {
-        const r = await fetch('api/log', {method: 'DELETE'});
-        if (r.ok) reload();
-        alert(await r.text());
-    });
+const LEVEL_ORDER = { trace:0, debug:1, info:2, warn:3, error:4, fatal:5, panic:6 };
+let autoUpdate = true;
+let newestFirst = true;
+let minLevel = 'info';
 
-    // Sanitizes the input text to prevent XSS when inserting into the DOM
-    function escapeHTML(text) {
-        return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;')
-            .replace(/\n/g, '<br>');
-    }
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
-    const reverseBtn = document.getElementById('reverse');
-    const update = document.getElementById('update');
+function parseLines(text) {
+  const out = [];
+  for (const raw of text.split('\n')) {
+    const t = raw.trim();
+    if (!t) continue;
+    try { out.push(JSON.parse(t)); } catch(_) {}
+  }
+  return out;
+}
 
-    let reverseOrder = false;
-    let autoUpdateEnabled = true;
+function fmtLine(line) {
+  const KEYS = ['time','level','message'];
+  const ts = line.time ? new Date(line.time).toLocaleTimeString(undefined, {
+    hour:'numeric', minute:'numeric', second:'numeric', fractionalSecondDigits:3,
+  }) : '—';
+  let msg = line.message || '';
+  for (const k of Object.keys(line)) {
+    if (!KEYS.includes(k)) msg += ` ${k}=${line[k]}`;
+  }
+  const lv = line.level || 'info';
+  return `<tr>
+    <td class="log-time">${escHtml(ts)}</td>
+    <td class="log-level"><span class="lv ${escHtml(lv)}">${escHtml(lv)}</span></td>
+    <td class="log-msg">${escHtml(msg)}</td>
+  </tr>`;
+}
 
-    reverseBtn.textContent = `Reverse Log Order: ${reverseOrder ? 'ON' : 'OFF'}`;
-    update.textContent = `Auto Update: ${autoUpdateEnabled ? 'ON' : 'OFF'}`;
+async function reload() {
+  try {
+    const token = getToken();
+    const res = await fetch('/api/log', token ? { headers: { Authorization: 'Bearer ' + token } } : {});
+    if (res.status === 401) { window.location.href = '/login.html'; return; }
+    if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
+    const text = await res.text();
+    let lines = parseLines(text);
 
-    function applyLogStyling(jsonlines) {
-        const KEYS = ['time', 'level', 'message'];
-        let lines = JSON.parse('[' + jsonlines.trimEnd().replaceAll('\n', ',') + ']');
-        if (reverseOrder) {
-            lines = lines.reverse();
-        }
-        return lines.map(line => {
-            const ts = new Date(line['time']).toLocaleString(undefined, {
-                hour: 'numeric',
-                minute: 'numeric',
-                second: 'numeric',
-                fractionalSecondDigits: 3
-            });
-            const msg = Object.keys(line).reduce((msg, key) => {
-                return KEYS.indexOf(key) < 0 ? `${msg} ${key}=${line[key]}` : msg;
-            }, line['message']);
-            return `<tr class="${line['level']}"><td>${ts}</td><td>${line['level']}</td><td>${escapeHTML(msg)}</td></tr>`;
-        }).join('');
-    }
+    const min = LEVEL_ORDER[minLevel] ?? 0;
+    lines = lines.filter(l => (LEVEL_ORDER[l.level] ?? 2) >= min);
 
-    function reload() {
-        const url = new URL('api/log', location.href);
-        fetch(url, {cache: 'no-cache'})
-            .then(response => response.text())
-            .then(data => {
-                // Apply styling to the log data
-                document.getElementById('log').innerHTML = applyLogStyling(data);
-            })
-            .catch(error => {
-                console.error('An error occurred:', error);
-            });
-    }
+    if (newestFirst) lines = lines.reverse();
 
-    reload();
+    document.getElementById('logCount').textContent = lines.length + ' entries';
+    document.getElementById('logBody').innerHTML = lines.length
+      ? lines.map(fmtLine).join('')
+      : '<tr><td colspan="3" class="log-empty">No log entries.</td></tr>';
+  } catch(e) {
+    document.getElementById('logBody').innerHTML =
+      `<tr><td colspan="3" class="log-empty">Cannot load logs: ${escHtml(e.message)}</td></tr>`;
+  }
+}
 
-    update.textContent = `Auto Update: ${autoUpdateEnabled ? 'ON' : 'OFF'}`;
-    update.addEventListener('click', () => {
-        autoUpdateEnabled = !autoUpdateEnabled;
-        update.textContent = `Auto Update: ${autoUpdateEnabled ? 'ON' : 'OFF'}`;
-    });
+document.getElementById('btnClean').addEventListener('click', async () => {
+  if (!confirm('Delete all server logs?')) return;
+  try {
+    await apiFetch('/api/log', { method: 'DELETE' });
+    await reload();
+  } catch(e) { alert('Clean failed: ' + e.message); }
+});
 
-    // Toggle log order
-    reverseBtn.textContent = `Reverse Log Order: ${reverseOrder ? 'ON' : 'OFF'}`;
-    reverseBtn.addEventListener('click', () => {
-        reverseOrder = !reverseOrder;
-        reverseBtn.textContent = `Reverse Log Order: ${reverseOrder ? 'ON' : 'OFF'}`;
-        reload(); // Reload logs to apply the new order
-    });
+document.getElementById('btnAuto').addEventListener('click', () => {
+  autoUpdate = !autoUpdate;
+  document.getElementById('btnAuto').textContent =
+    (autoUpdate ? '⏸' : '▶') + ' Auto-update: ' + (autoUpdate ? 'ON' : 'OFF');
+});
 
-    // Reload the logs every 5 seconds
-    setInterval(() => {
-        if (autoUpdateEnabled) reload();
-    }, 5000);
+document.getElementById('btnReverse').addEventListener('click', () => {
+  newestFirst = !newestFirst;
+  document.getElementById('btnReverse').textContent =
+    '↕ Newest first: ' + (newestFirst ? 'ON' : 'OFF');
+  reload();
+});
+
+document.getElementById('levelFilter').addEventListener('change', e => {
+  minLevel = e.target.value || 'trace';
+  reload();
+});
+
+// ── Boot ──
+(async () => {
+  await initApp('log');
+  const user = getUser();
+  if (!user || !hasTab('log')) { window.location.href = '/'; return; }
+  await reload();
+  setInterval(() => { if (autoUpdate) reload(); }, 5000);
+})();
 </script>
-
 </body>
 </html>

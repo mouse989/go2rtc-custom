@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watch – go2rtc</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:#000; overflow:hidden; font-family:system-ui,sans-serif; }
+video-stream { width:100vw; height:100vh; display:block; }
+video-stream::part(video) { width:100%; height:100%; object-fit:contain; }
+.err {
+  position:fixed; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; color:#e6edf3;
+  gap:.75rem; font-size:1rem;
+}
+.err svg { opacity:.4; }
+.err a { color:#60a5fa; text-decoration:none; font-size:.85rem; }
+.back { position:fixed; top:1rem; left:1rem; z-index:10; }
+.back a {
+  display:inline-flex; align-items:center; gap:.4rem;
+  background:rgba(0,0,0,.55); color:#e6edf3; padding:.4rem .75rem;
+  border-radius:8px; text-decoration:none; font-size:.82rem;
+  backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,.1);
+  transition:background .15s;
+}
+.back a:hover { background:rgba(0,0,0,.8); }
+</style>
+</head>
+<body>
+
+<div class="back">
+  <a href="javascript:history.back()">
+    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>
+    Back
+  </a>
+</div>
+
+<div id="mount"></div>
+
+<script type="module" src="video-stream.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const id    = params.get('id');
+const token = params.get('token') || localStorage.getItem('go2rtc_token') || '';
+
+if (!id) {
+  document.getElementById('mount').innerHTML = `
+    <div class="err">
+      <svg viewBox="0 0 48 48" fill="none" width="64"><rect x="4" y="10" width="40" height="28" rx="4" stroke="#e6edf3" stroke-width="2"/><line x1="4" y1="10" x2="44" y2="38" stroke="#e6edf3" stroke-width="2"/></svg>
+      <span>Missing camera ID</span>
+      <a href="/">← Back to dashboard</a>
+    </div>`;
+} else {
+  const mount  = document.getElementById('mount');
+  const isIOS  = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  if (isIOS) {
+    // iOS Safari: native <video> with HLS — most reliable path on iOS.
+    // /api/proxy/hls rewrites m3u8 so all segments go through our proxy.
+    const vid = document.createElement('video');
+    Object.assign(vid, { autoplay: true, muted: true, controls: true, playsInline: true });
+    vid.style.cssText = 'width:100vw;height:100vh;display:block;object-fit:contain;background:#000;';
+    vid.src = `/api/proxy/hls?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`;
+    mount.appendChild(vid);
+  } else {
+    // Desktop / Android: WebRTC → MSE → HLS cascade via video-stream.js
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl   = `${wsProto}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`;
+    const player  = document.createElement('video-stream');
+    Object.assign(player, { mode: 'webrtc,mse,hls', background: false, src: wsUrl });
+    player.style.cssText = 'width:100vw;height:100vh;display:block;';
+    mount.appendChild(player);
+  }
+
+  document.title = 'Watch – go2rtc';
+}
+</script>
+</body>
+</html>

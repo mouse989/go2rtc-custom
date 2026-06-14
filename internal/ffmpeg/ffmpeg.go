@@ -1,7 +1,11 @@
 package ffmpeg
 
 import (
+	"errors"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
@@ -16,6 +20,37 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// resolveFFmpegBin resolves a binary name to an absolute path.
+// Go 1.19+ blocks exec.Command when the binary is found relative to the current
+// directory (exec.ErrDot security feature). Placing ffmpeg.exe next to the
+// server exe is a common Windows deployment pattern, so we check there first.
+func resolveFFmpegBin(name string) string {
+	if filepath.IsAbs(name) {
+		return name // user already specified a full path
+	}
+	// 1. Same directory as the running executable.
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		for _, n := range []string{name + ".exe", name} {
+			p := filepath.Join(dir, n)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return p
+			}
+		}
+	}
+	// 2. PATH search; convert ErrDot to absolute so exec.Command accepts it.
+	p, err := exec.LookPath(name)
+	if err == nil {
+		return p
+	}
+	if errors.Is(err, exec.ErrDot) {
+		if abs, absErr := filepath.Abs(p); absErr == nil {
+			return abs
+		}
+	}
+	return ""
+}
+
 func Init() {
 	var cfg struct {
 		Mod map[string]string `yaml:"ffmpeg"`
@@ -28,6 +63,12 @@ func Init() {
 	cfg.Log.Level = "error"
 
 	app.LoadConfig(&cfg)
+
+	// Resolve to absolute path — fixes Go 1.19+ ErrDot when ffmpeg.exe is placed
+	// next to the server binary (current directory) on Windows.
+	if bin := resolveFFmpegBin(defaults["bin"]); bin != "" {
+		defaults["bin"] = bin
+	}
 
 	log = app.GetLogger("ffmpeg")
 

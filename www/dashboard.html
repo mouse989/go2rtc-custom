@@ -1,0 +1,844 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Giao Thông – UTMC</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+/* ── Status bar ── */
+.db-status-bar {
+  display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:.65rem 1.1rem; margin-bottom:.7rem; font-size:.82rem;
+}
+.db-pill { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .65rem; border-radius:20px; font-size:.71rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.db-pill.running { background:#16a34a22; color:#4ade80; }
+.db-pill.idle    { background:#4b556322; color:#9ca3af; }
+.db-pill-dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+.db-pill.running .db-pill-dot { animation:db-pulse 2s ease-in-out infinite; }
+@keyframes db-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+.db-spacer { flex:1; }
+
+/* ── KPI strip (compact row) ── */
+.db-kpi-strip { display:flex; gap:.65rem; margin-bottom:.7rem; }
+.db-kpi-mini {
+  flex:1; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:.6rem .9rem;
+  display:flex; flex-direction:column; gap:.1rem; min-width:0;
+}
+.db-kpi-mini .lbl { font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.db-kpi-mini .val { font-size:1.55rem; font-weight:800; line-height:1.05; letter-spacing:-.025em; color:var(--text); }
+.db-kpi-mini .sub { font-size:.68rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.db-kpi-mini.green .val { color:#4ade80; }
+.db-kpi-mini.blue  .val { color:#60a5fa; }
+.db-kpi-mini.amber .val { color:#fbbf24; }
+.db-kpi-mini.red   .val { color:#f87171; }
+.db-kpi-mini.orange .val { color:#f97316; }
+
+/* ── Section card ── */
+.db-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:.9rem 1.1rem; margin-bottom:.75rem;
+}
+.db-section h3 {
+  font-size:.73rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--text-muted); margin:0 0 .7rem;
+  display:flex; align-items:center; gap:.5rem;
+}
+
+/* ── TTI Combined Chart ── */
+.tti-chart-wrap { }
+.tti-chart-row { display:flex; align-items:flex-start; gap:.6rem; margin-bottom:.25rem; }
+.tti-row-label {
+  width:128px; flex-shrink:0; padding-top:2px;
+  display:flex; flex-direction:column; gap:.18rem;
+}
+.tti-rname {
+  font-size:.72rem; font-weight:600; color:var(--text);
+  line-height:1.3; word-break:break-word;
+}
+.tti-row-bars { flex:1; min-width:0; }
+.tti-bar {
+  display:flex; width:100%; overflow:hidden;
+  border-radius:3px; position:relative;
+}
+.tti-bar-today { height:20px; }
+.tti-bar-hist  { height:11px; margin-top:2px; opacity:.82; }
+.tti-slot { flex:1; height:100%; }
+.tti-slot[data-tip] { cursor:pointer; }
+.tti-slot[data-tip]:hover { filter:brightness(1.3); }
+
+/* ── Axis ── */
+.tti-axis-wrap {
+  position:relative; height:17px;
+  margin-left:calc(128px + .6rem); margin-top:.25rem;
+}
+.tti-axis-lbl {
+  position:absolute; font-size:.62rem;
+  color:var(--text-muted); transform:translateX(-50%); white-space:nowrap;
+}
+
+/* ── Legend ── */
+.tti-legend {
+  display:flex; gap:.65rem; margin-top:.65rem; font-size:.7rem;
+  color:var(--text-muted); flex-wrap:wrap; align-items:center;
+}
+.tti-legend span { display:flex; align-items:center; gap:.28rem; }
+.tti-legend-dot { width:11px; height:11px; border-radius:2px; display:inline-block; flex-shrink:0; }
+
+/* ── Bottom layout ── */
+.db-bottom { display:grid; grid-template-columns:1fr 310px; gap:.75rem; }
+
+/* ── Top routes table ── */
+.db-table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.db-table th { text-align:left; padding:.35rem .45rem; color:var(--text-muted); font-size:.67rem; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--border); white-space:nowrap; }
+.db-table td { padding:.38rem .45rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+.db-table tr:last-child td { border-bottom:none; }
+.db-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+.db-tti-badge { display:inline-block; padding:.08rem .38rem; border-radius:4px; font-weight:700; font-size:.75rem; min-width:38px; text-align:center; }
+
+/* ── Map ── */
+#dashMap { width:100%; height:440px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); }
+
+/* ── Tooltip ── */
+#dbTooltip {
+  position:fixed; display:none; z-index:9999;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:.48rem .7rem;
+  font-size:.74rem; line-height:1.6; pointer-events:none;
+  box-shadow:0 4px 20px rgba(0,0,0,.55); max-width:210px;
+  white-space:pre-line; color:var(--text);
+}
+
+/* ── Misc ── */
+#dbRefreshTs { font-size:.74rem; color:var(--text-muted); }
+.db-empty { color:var(--text-muted); text-align:center; padding:1.5rem; font-size:.83rem; }
+.hist-ctrl { display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; margin-left:auto; }
+.hist-ctrl label { font-size:.74rem; color:var(--text-muted); font-weight:400; text-transform:none; letter-spacing:0; }
+.hist-ctrl input[type=date] { font-size:.75rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:.2rem .45rem; cursor:pointer; }
+
+@media (max-width:960px) {
+  .db-kpi-strip { flex-wrap:wrap; }
+  .db-kpi-mini  { min-width:calc(50% - .35rem); flex:none; }
+  .db-bottom { grid-template-columns:1fr; }
+  #dashMap { height:300px; }
+  .tti-row-label { width:90px; }
+  .tti-axis-wrap { margin-left:calc(90px + .6rem); }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item active" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">🚦 Dashboard Giao Thông</h2>
+    <div class="topbar-actions">
+      <span id="dbRefreshTs"></span>
+      <button class="btn btn-secondary" style="font-size:.79rem;padding:.3rem .65rem" onclick="loadDashboard()">↺ Làm mới</button>
+    </div>
+  </header>
+
+  <div class="content" id="dbContent">
+    <div class="loading-state"><div class="spinner"></div><p>Đang tải dữ liệu…</p></div>
+  </div>
+</main>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="app.js"></script>
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────
+const SLOT_MIN    = 15;          // minutes per slot
+const TOTAL_SLOTS = 96;          // 24h × 4 slots/h
+
+// ── State ─────────────────────────────────────────────────────────────────
+let _data       = null;
+let _histLogs   = [];
+let _histDate   = '';
+let _map        = null;
+let _mapInited  = false;
+let _skelBuilt  = false;
+let _refreshTimer = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function escH(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString('vi-VN',{hour12:false,hour:'2-digit',minute:'2-digit'});
+}
+function ttiColor(v) {
+  return v >= 1.5 ? '#ef4444' : v >= 1.2 ? '#f59e0b' : v > 0 ? '#22c55e' : '';
+}
+function ttiLabel(v) {
+  return v >= 1.5 ? 'Tắc nghẽn' : v >= 1.2 ? 'Chậm' : v > 0 ? 'Thông thoáng' : 'Không có dữ liệu';
+}
+function ttiBg(v)  { return v >= 1.5 ? '#7f1d1d33' : v >= 1.2 ? '#92400e33' : v > 0 ? '#14532d33' : '#1e293b'; }
+function ttiFg(v)  { return v >= 1.5 ? '#f87171'   : v >= 1.2 ? '#fbbf24'   : v > 0 ? '#4ade80'   : '#9ca3af'; }
+
+// Slot helpers
+function slotOfTs(ts) {
+  const d = new Date(ts);
+  return Math.floor((d.getHours() * 60 + d.getMinutes()) / SLOT_MIN);
+}
+function slotLabel(idx) {
+  const s = idx * SLOT_MIN, e = s + SLOT_MIN;
+  const p = n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0');
+  return p(s) + '–' + p(e);
+}
+
+// Build 96-slot array from log entries for one route
+function buildSlots(logs, routeId) {
+  const acc = Array.from({length: TOTAL_SLOTS}, () => null);
+  const buf = Array.from({length: TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0, len:0}));
+  (logs||[]).filter(e => e.routeId === routeId && e.timestamp && e.tti > 0).forEach(e => {
+    const i = slotOfTs(e.timestamp);
+    if (i < 0 || i >= TOTAL_SLOTS) return;
+    buf[i].n++;
+    buf[i].tti   += e.tti;
+    buf[i].delay += e.delaySec || 0;
+    buf[i].len   += e.lengthM  || 0;
+  });
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    if (buf[i].n > 0) {
+      acc[i] = {
+        tti:   buf[i].tti   / buf[i].n,
+        delay: Math.round(buf[i].delay / buf[i].n),
+        len:   Math.round(buf[i].len   / buf[i].n),
+        n:     buf[i].n,
+      };
+    }
+  }
+  return acc;
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────
+let _tipEl = null;
+function initTooltip() {
+  if (_tipEl) return;
+  _tipEl = document.createElement('div');
+  _tipEl.id = 'dbTooltip';
+  document.body.appendChild(_tipEl);
+  const cont = document.getElementById('dbContent');
+  cont.addEventListener('mouseover', e => {
+    const el = e.target.closest('[data-tip]');
+    if (el?.dataset.tip) { _tipEl.textContent = el.dataset.tip; _tipEl.style.display = 'block'; posTip(e); }
+  });
+  cont.addEventListener('mouseout', e => {
+    const from = e.target.closest('[data-tip]');
+    const to   = e.relatedTarget?.closest?.('[data-tip]');
+    if (from && from !== to) _tipEl.style.display = 'none';
+  });
+  document.addEventListener('mousemove', e => { if (_tipEl?.style.display !== 'none') posTip(e); });
+}
+function posTip(e) {
+  if (!_tipEl) return;
+  const w = _tipEl.offsetWidth||190, h = _tipEl.offsetHeight||70;
+  let x = e.clientX+14, y = e.clientY-8;
+  if (x+w > window.innerWidth-6)  x = e.clientX-w-10;
+  if (y+h > window.innerHeight-6) y = e.clientY-h-6;
+  _tipEl.style.left = x+'px'; _tipEl.style.top = y+'px';
+}
+
+// ── Data loading ──────────────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    _data = await apiFetch('/api/dashboard/summary');
+    renderDashboard();
+  } catch (e) {
+    document.getElementById('dbContent').innerHTML =
+      `<div class="db-empty" style="margin-top:3rem">⚠️ Không tải được dữ liệu: ${escH(e.message)}</div>`;
+  }
+}
+
+async function loadHistory() {
+  const dateEl = document.getElementById('histDate');
+  if (!dateEl?.value) return;
+  const date = dateEl.value;
+  const statEl = document.getElementById('histStatus');
+  if (statEl) statEl.textContent = 'Đang tải…';
+  try {
+    const logs = await apiFetch('/api/dashboard/history?date=' + date);
+    _histLogs = logs || [];
+    _histDate = date;
+    // Re-render only TTI chart
+    const tt = (_data||{}).travelTime || {};
+    renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
+    if (statEl) statEl.textContent = _histLogs.length
+      ? `${_histDate}: ${_histLogs.length} bản ghi`
+      : `${_histDate}: không có dữ liệu`;
+  } catch (e) {
+    if (statEl) statEl.textContent = 'Lỗi: ' + e.message;
+  }
+}
+
+// ── Render orchestration ──────────────────────────────────────────────────
+function renderDashboard() {
+  if (!_skelBuilt) {
+    buildSkeleton();
+    _skelBuilt = true;
+    initTooltip();
+    setTimeout(initMap, 80);
+  }
+
+  const tf = _data.traffic    || {};
+  const tt = _data.travelTime || {};
+
+  const ts = _data.updatedAt
+    ? new Date(_data.updatedAt).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour12:false})
+    : '';
+  document.getElementById('dbRefreshTs').textContent = ts ? 'Cập nhật: ' + ts : '';
+
+  updateStatusBar(tf, tt);
+  updateKPIs(tf, tt);
+  renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
+  updateTopRoutes(tt);
+  updateMapData(tf);
+}
+
+// ── Skeleton (one-time) ───────────────────────────────────────────────────
+function buildSkeleton() {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+  document.getElementById('dbContent').innerHTML = `
+    <div class="db-status-bar" id="dbStatusBar"></div>
+    <div class="db-kpi-strip" id="dbKpiStrip"></div>
+
+    <!-- TTI chart: full width -->
+    <div class="db-section">
+      <h3>
+        📊 Biểu đồ TTI theo thời gian trong ngày
+        <div class="hist-ctrl">
+          <label>So sánh ngày:</label>
+          <input type="date" id="histDate" value="${yesterday}" max="${new Date().toISOString().slice(0,10)}">
+          <button class="btn btn-sm btn-secondary" onclick="loadHistory()" style="font-size:.74rem">Tải</button>
+          <span id="histStatus" style="font-size:.72rem;color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0"></span>
+        </div>
+      </h3>
+      <div id="ttiChartBody" class="tti-chart-wrap"></div>
+      <div class="tti-axis-wrap" id="ttiAxis"></div>
+      <div class="tti-legend">
+        <span><span class="tti-legend-dot" style="background:#22c55e"></span>&lt;1.2 Thông thoáng</span>
+        <span><span class="tti-legend-dot" style="background:#f59e0b"></span>1.2–1.5 Chậm</span>
+        <span><span class="tti-legend-dot" style="background:#ef4444"></span>&gt;1.5 Tắc nghẽn</span>
+        <span><span class="tti-legend-dot" style="background:var(--surface2);border:1px solid var(--border)"></span>Không có dữ liệu</span>
+      </div>
+    </div>
+
+    <!-- Bottom: map + top routes -->
+    <div class="db-bottom">
+      <!-- Left: map -->
+      <div>
+        <div class="db-section" style="padding:.75rem">
+          <h3 style="margin-bottom:.5rem">
+            🗺 Heatmap ùn tắc
+            <span id="heatmapCount" style="font-weight:400;font-size:.68rem;text-transform:none;letter-spacing:0;color:var(--text-muted);margin-left:.4rem"></span>
+            <button onclick="toggleHeatmapCfg()" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:.68rem;padding:.12rem .45rem;cursor:pointer;font-family:inherit">⚙ Cấu hình</button>
+          </h3>
+          <div id="heatmapCfgPanel" style="display:none;margin-bottom:.55rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.6rem .8rem;font-size:.74rem">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.45rem .9rem">
+              <label style="display:flex;flex-direction:column;gap:.18rem">Bán kính zoom 5:<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgR5" min="2" max="60" value="8" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgR5v" style="width:24px;text-align:right;font-variant-numeric:tabular-nums">8</span></span></label>
+              <label style="display:flex;flex-direction:column;gap:.18rem">Bán kính zoom 15:<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgR15" min="5" max="120" value="22" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgR15v" style="width:24px;text-align:right;font-variant-numeric:tabular-nums">22</span></span></label>
+              <label style="display:flex;flex-direction:column;gap:.18rem">Cường độ zoom 5:<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgI5" min="1" max="30" value="6" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgI5v" style="width:28px;text-align:right;font-variant-numeric:tabular-nums">0.6</span></span></label>
+              <label style="display:flex;flex-direction:column;gap:.18rem">Cường độ zoom 15:<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgI15" min="5" max="50" value="18" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgI15v" style="width:28px;text-align:right;font-variant-numeric:tabular-nums">1.8</span></span></label>
+              <label style="display:flex;flex-direction:column;gap:.18rem">Độ mờ:<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgOp" min="10" max="100" value="82" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgOpv" style="width:34px;text-align:right;font-variant-numeric:tabular-nums">82%</span></span></label>
+              <label style="display:flex;flex-direction:column;gap:.18rem">Kích thước điểm (JF thấp):<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgCrf" min="1" max="20" value="2" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgCrfv" style="width:34px;text-align:right;font-variant-numeric:tabular-nums">2px</span></span></label>
+              <label style="display:flex;flex-direction:column;gap:.18rem">Kích thước điểm (JF cao):<span style="display:flex;align-items:center;gap:.4rem"><input type="range" id="cfgCrt" min="2" max="40" value="7" oninput="applyHeatmapCfg()" style="flex:1"><span id="cfgCrtv" style="width:34px;text-align:right;font-variant-numeric:tabular-nums">7px</span></span></label>
+              <div style="grid-column:1/-1;margin-top:.25rem">
+                <div style="margin-bottom:.28rem;color:var(--text-muted)">Màu sắc (thấp → cao) — chọn màu &amp; độ trong suốt:</div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem">
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:.18rem">
+                    <span style="font-size:.65rem;color:var(--text-muted)">Thấp</span>
+                    <input type="color" id="cfgC1" value="#fbbf24" oninput="applyHeatmapCfg()" style="width:38px;height:28px;border:1px solid var(--border);cursor:pointer;border-radius:4px;padding:1px;background:none">
+                    <input type="range" id="cfgC1a" min="0" max="100" value="35" oninput="applyHeatmapCfg()" style="width:100%">
+                    <span id="cfgC1av" style="font-size:.62rem;font-variant-numeric:tabular-nums">35%</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:.18rem">
+                    <span style="font-size:.65rem;color:var(--text-muted)">Trung bình</span>
+                    <input type="color" id="cfgC2" value="#f97316" oninput="applyHeatmapCfg()" style="width:38px;height:28px;border:1px solid var(--border);cursor:pointer;border-radius:4px;padding:1px;background:none">
+                    <input type="range" id="cfgC2a" min="0" max="100" value="65" oninput="applyHeatmapCfg()" style="width:100%">
+                    <span id="cfgC2av" style="font-size:.62rem;font-variant-numeric:tabular-nums">65%</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:.18rem">
+                    <span style="font-size:.65rem;color:var(--text-muted)">Cao</span>
+                    <input type="color" id="cfgC3" value="#ef4444" oninput="applyHeatmapCfg()" style="width:38px;height:28px;border:1px solid var(--border);cursor:pointer;border-radius:4px;padding:1px;background:none">
+                    <input type="range" id="cfgC3a" min="0" max="100" value="85" oninput="applyHeatmapCfg()" style="width:100%">
+                    <span id="cfgC3av" style="font-size:.62rem;font-variant-numeric:tabular-nums">85%</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:.18rem">
+                    <span style="font-size:.65rem;color:var(--text-muted)">Cực cao</span>
+                    <input type="color" id="cfgC4" value="#991b1b" oninput="applyHeatmapCfg()" style="width:38px;height:28px;border:1px solid var(--border);cursor:pointer;border-radius:4px;padding:1px;background:none">
+                    <input type="range" id="cfgC4a" min="0" max="100" value="95" oninput="applyHeatmapCfg()" style="width:100%">
+                    <span id="cfgC4av" style="font-size:.62rem;font-variant-numeric:tabular-nums">95%</span>
+                  </div>
+                </div>
+                <div style="margin-top:.5rem;display:flex;gap:.5rem;align-items:center">
+                  <button onclick="saveHeatmapCfg()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:.22rem .7rem;font-size:.72rem;cursor:pointer;font-family:inherit">💾 Lưu cấu hình</button>
+                  <button onclick="resetHeatmapCfg()" style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.22rem .6rem;font-size:.72rem;cursor:pointer;font-family:inherit">↺ Mặc định</button>
+                  <span id="heatCfgSaved" style="font-size:.68rem;color:var(--accent);display:none">✓ Đã lưu</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="dashMap"></div>
+          <div class="tti-legend" style="margin-top:.45rem">
+            <span><span class="tti-legend-dot" style="background:linear-gradient(to right,#fbbf24,#ef4444)"></span>Mật độ ùn tắc dai dẳng</span>
+          </div>
+        </div>
+      </div>
+      <!-- Right: top routes -->
+      <div>
+        <div class="db-section">
+          <h3>🔥 Tắc nghẽn nhất</h3>
+          <div id="dbTopRoutes"><div class="db-empty">Đang tải…</div></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Status bar ────────────────────────────────────────────────────────────
+function updateStatusBar(tf, tt) {
+  const sb = document.getElementById('dbStatusBar');
+  if (!sb) return;
+  const scanned = tf.scannedAt
+    ? new Date(tf.scannedAt).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour12:false})
+    : '—';
+  const today = tt.date || new Date().toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'});
+  sb.innerHTML = `
+    <span class="db-pill ${tf.running?'running':'idle'}">
+      <span class="db-pill-dot"></span>${tf.running?'Traffic Monitor':'Monitor Offline'}
+    </span>
+    <span style="color:var(--text-muted)">Quét: <b style="color:var(--text)">${escH(scanned)}</b></span>
+    <span style="color:var(--text-muted)">Ngày: <b style="color:var(--text)">${escH(today)}</b></span>
+    <span class="db-spacer"></span>
+    <a href="/admin.html" class="btn btn-secondary btn-sm" style="font-size:.73rem">⚙ Cấu hình</a>
+  `;
+}
+
+// ── KPI strip ─────────────────────────────────────────────────────────────
+function updateKPIs(tf, tt) {
+  const el = document.getElementById('dbKpiStrip');
+  if (!el) return;
+  const delayC = (tt.avgDelaySec||0)>120?'red':(tt.avgDelaySec||0)>60?'amber':'green';
+  const ttiC   = (tt.avgTTI||0)>=1.5?'red':(tt.avgTTI||0)>=1.2?'amber':'green';
+  el.innerHTML = `
+    <div class="db-kpi-mini blue">
+      <div class="lbl">Tuyến</div>
+      <div class="val">${tt.routeCount||0}</div>
+      <div class="sub">tuyến giám sát</div>
+    </div>
+    <div class="db-kpi-mini">
+      <div class="lbl">Chiều dài</div>
+      <div class="val">${(tt.totalLengthKm||0).toFixed(1)}</div>
+      <div class="sub">km giám sát</div>
+    </div>
+    <div class="db-kpi-mini ${delayC}">
+      <div class="lbl">Trễ TB</div>
+      <div class="val">${Math.round((tt.avgDelaySec||0)/60*10)/10}</div>
+      <div class="sub">phút / tuyến</div>
+    </div>
+    <div class="db-kpi-mini ${ttiC}">
+      <div class="lbl">TTI TB</div>
+      <div class="val">${(tt.avgTTI||0).toFixed(2)}</div>
+      <div class="sub">chỉ số tắc nghẽn</div>
+    </div>
+    <div class="db-kpi-mini orange">
+      <div class="lbl">Ùn tắc</div>
+      <div class="val">${tf.persistent||0}</div>
+      <div class="sub">điểm dai dẳng · ${tf.filtered||0} filtered</div>
+    </div>
+  `;
+}
+
+// ── TTI Combined Chart (full-width) ───────────────────────────────────────
+function renderTTIChart(routes, todayLogs, histLogs) {
+  const body  = document.getElementById('ttiChartBody');
+  const axis  = document.getElementById('ttiAxis');
+  if (!body || !axis) return;
+
+  if (!routes.length) {
+    body.innerHTML = '<div class="db-empty">Chưa có tuyến đường nào</div>';
+    axis.innerHTML = '';
+    return;
+  }
+
+  const now        = new Date();
+  const currentSlot = slotOfTs(now.toISOString());
+  const nowMinPct  = ((now.getHours()*60 + now.getMinutes()) / (24*60) * 100).toFixed(2);
+
+  // Sort routes by latest TTI desc
+  const sorted = [...routes].sort((a,b) => (b.latestTTI||0) - (a.latestTTI||0));
+
+  body.innerHTML = sorted.map(r => {
+    const todaySlots = buildSlots(todayLogs, r.id);
+    const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
+    const hasHistData = histSlots && histSlots.some(s => s !== null);
+
+    const todayBar   = renderSlotBar(todaySlots, currentSlot, false);
+    const histBar    = histSlots ? renderSlotBar(histSlots, -1, true) : '';
+    const histLabel  = histSlots
+      ? `<span style="font-size:.64rem;color:var(--text-muted)">${escH(_histDate)}${!hasHistData ? ' (không có dữ liệu)' : ''}</span>`
+      : '';
+
+    return `<div class="tti-chart-row">
+      <div class="tti-row-label">
+        <span class="tti-rname" title="${escH(r.name)}">${escH(r.name)}</span>
+      </div>
+      <div class="tti-row-bars">
+        <div class="tti-bar tti-bar-today">${todayBar}</div>
+        ${histSlots ? `
+        <div style="display:flex;align-items:center;gap:0">
+          <div class="tti-bar tti-bar-hist" style="flex:1">${histBar}</div>
+        </div>` : ''}
+        ${histLabel}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Axis
+  const marks = [0,6,12,18].map(h => {
+    const pct = (h/24*100).toFixed(2);
+    return `<span class="tti-axis-lbl" style="left:${pct}%">${String(h).padStart(2,'0')}:00</span>`;
+  }).join('');
+  const nowMark = `<span class="tti-axis-lbl" style="left:${nowMinPct}%;color:var(--accent);font-weight:600">${fmtTime(now.toISOString())} ▲</span>`;
+  axis.innerHTML = marks + nowMark;
+}
+
+// Render one row of 96 slots
+function renderSlotBar(slots, currentSlot, isHistory) {
+  return slots.map((s, i) => {
+    const isFuture = !isHistory && currentSlot >= 0 && i > currentSlot;
+
+    let bg, tip = '';
+    if (s) {
+      bg = ttiColor(s.tti) || 'var(--surface2)';
+      const prefix = isHistory ? (_histDate + ' ') : 'Hôm nay ';
+      tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\nTrễ TB: ${Math.round(s.delay/60)} phút\n${s.n} lần đo`;
+    } else if (isFuture) {
+      bg = 'var(--surface2)';
+      return `<div class="tti-slot" style="flex:1;background:${bg};opacity:.18"></div>`;
+    } else {
+      bg = 'var(--surface2)';
+    }
+
+    const tipAttr = tip ? ` data-tip="${escH(tip)}"` : '';
+    return `<div class="tti-slot" style="flex:1;background:${bg}"${tipAttr}></div>`;
+  }).join('');
+}
+
+// ── Top routes table ──────────────────────────────────────────────────────
+function updateTopRoutes(tt) {
+  const el = document.getElementById('dbTopRoutes');
+  if (!el) return;
+  const routes = [...(tt.routes||[])].filter(r => r.latestTTI > 0).sort((a,b) => b.latestTTI - a.latestTTI);
+  if (!routes.length) { el.innerHTML = '<div class="db-empty">Chưa có dữ liệu</div>'; return; }
+  el.innerHTML = `<table class="db-table"><thead><tr>
+    <th>Tuyến</th><th class="num">TTI</th><th class="num">Trễ</th><th class="num">Lúc</th>
+  </tr></thead><tbody>
+  ${routes.slice(0,8).map(r => `<tr>
+    <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong title="${escH(r.name)}">${escH(r.name)}</strong></td>
+    <td class="num"><span class="db-tti-badge" style="background:${ttiBg(r.latestTTI)};color:${ttiFg(r.latestTTI)}">${r.latestTTI.toFixed(2)}</span></td>
+    <td class="num" style="color:var(--text-muted)">${Math.round(r.latestDelaySec/60)} ph</td>
+    <td class="num" style="color:var(--text-muted);font-size:.73rem">${r.timestamp ? fmtTime(r.timestamp) : '—'}</td>
+  </tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ── Map ───────────────────────────────────────────────────────────────────
+async function initMap() {
+  try {
+    const settings = await apiFetch('/api/settings');
+    const apiKey   = (settings||{}).vietmap_api_key || '';
+    const mapEl    = document.getElementById('dashMap');
+    if (!mapEl) return;
+    if (!apiKey) { mapEl.innerHTML = '<div class="db-empty">Chưa cấu hình VietMap API Key</div>'; return; }
+
+    _map = new vietmapgl.Map({
+      container: 'dashMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apiKey}`,
+      center: [106.700, 10.776],
+      zoom: 11,
+    });
+    _map.addControl(new vietmapgl.NavigationControl({showCompass:false}), 'top-right');
+    _map.on('load', () => {
+      _mapInited = true;
+      const tf = (_data||{}).traffic || {};
+      addMapLayers(tf);
+      applyHeatmapCfg();
+    });
+  } catch (e) {
+    const el = document.getElementById('dashMap');
+    if (el) el.innerHTML = `<div class="db-empty">Lỗi bản đồ: ${escH(e.message)}</div>`;
+  }
+}
+
+function buildJamFeatures(tf) {
+  return (tf.points||[]).map(p => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+    properties: { jf: p.jf, label: p.label||'', area: p.area||'' },
+  }));
+}
+
+function addMapLayers(tf) {
+  if (!_map || !_mapInited) return;
+  const features = buildJamFeatures(tf);
+
+  _map.addSource('jams', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features },
+  });
+
+  // Heatmap layer
+  _map.addLayer({
+    id: 'jams-heat', type: 'heatmap', source: 'jams',
+    paint: {
+      'heatmap-weight': ['interpolate',['linear'],['get','jf'], 0,0, 5,0.6, 10,1.5],
+      'heatmap-intensity': ['interpolate',['linear'],['zoom'], 5,0.8, 12,1.8, 15,2.5],
+      'heatmap-color': [
+        'interpolate',['linear'],['heatmap-density'],
+        0,   'rgba(0,0,0,0)',
+        0.15,'rgba(251,191,36,0.35)',
+        0.4, 'rgba(249,115,22,0.65)',
+        0.7, 'rgba(239,68,68,0.85)',
+        1,   'rgba(153,27,27,0.95)',
+      ],
+      'heatmap-radius': ['interpolate',['linear'],['zoom'], 5,8, 11,13, 15,22],
+      'heatmap-opacity': 0.88,
+    },
+  });
+
+  // Individual circles (shown at higher zoom)
+  _map.addLayer({
+    id: 'jams-dot', type: 'circle', source: 'jams',
+    minzoom: 13,
+    paint: {
+      'circle-radius': ['interpolate',['linear'],['get','jf'], 0,2, 10,7],
+      'circle-color':  ['case',['>=',['get','jf'],8],'#f87171',['>=',['get','jf'],5],'#fbbf24','#94a3b8'],
+      'circle-opacity': .85,
+      'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,.45)',
+    },
+  });
+
+  // Click popup on dots
+  _map.on('click','jams-dot', e => {
+    const p = e.features[0].properties;
+    const jf = (+p.jf).toFixed(1);
+    const jfColor = +p.jf >= 8 ? '#dc2626' : +p.jf >= 5 ? '#d97706' : '#475569';
+    const html = `<div style="font-family:sans-serif;line-height:1.5;min-width:110px">` +
+      `<div style="font-size:.95rem;font-weight:700;color:${jfColor}">JF ${jf}</div>` +
+      (p.area  ? `<div style="color:#111;font-size:.82rem">${p.area}</div>` : '') +
+      (p.label ? `<div style="color:#333;font-size:.75rem">${p.label}</div>` : '') +
+      `</div>`;
+    new vietmapgl.Popup({closeButton:false, maxWidth:'200px'})
+      .setLngLat(e.lngLat).setHTML(html).addTo(_map);
+  });
+  _map.on('mouseenter','jams-dot',() => _map.getCanvas().style.cursor='pointer');
+  _map.on('mouseleave','jams-dot',() => _map.getCanvas().style.cursor='');
+
+  // Update point count display
+  const countEl = document.getElementById('heatmapCount');
+  if (countEl) countEl.textContent = features.length ? `(${features.length} điểm)` : '';
+
+  // Fit to jam points if available
+  if (features.length > 0) {
+    try {
+      const b = new vietmapgl.LngLatBounds();
+      features.forEach(f => b.extend(f.geometry.coordinates));
+      _map.fitBounds(b, {padding:50, maxZoom:14, duration:600});
+    } catch (_) {}
+  }
+}
+
+function updateMapData(tf) {
+  if (!_map || !_mapInited) return;
+  try {
+    const src = _map.getSource('jams');
+    if (src) src.setData({type:'FeatureCollection', features: buildJamFeatures(tf)});
+  } catch (_) {}
+  const countEl = document.getElementById('heatmapCount');
+  if (countEl) {
+    const n = (tf.points||[]).length;
+    countEl.textContent = n ? `(${n} điểm)` : '';
+  }
+}
+
+// ── Heatmap config ────────────────────────────────────────────────────────
+const _HEAT_DEFAULTS = { r5:8, r15:22, i5:6, i15:18, op:82,
+  c1:'#fbbf24', c1a:30, c2:'#f97316', c2a:60, c3:'#ef4444', c3a:82, c4:'#991b1b', c4a:95,
+  crf:2, crt:7 }; // dot circle-radius: at JF=0 and JF=10
+
+function toggleHeatmapCfg() {
+  const p = document.getElementById('heatmapCfgPanel');
+  if (p) p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+
+function _hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function _readHeatCfg() {
+  return {
+    r5:  +document.getElementById('cfgR5').value,
+    r15: +document.getElementById('cfgR15').value,
+    i5:  +document.getElementById('cfgI5').value,
+    i15: +document.getElementById('cfgI15').value,
+    op:  +document.getElementById('cfgOp').value,
+    c1:  document.getElementById('cfgC1').value,
+    c1a: +document.getElementById('cfgC1a').value,
+    c2:  document.getElementById('cfgC2').value,
+    c2a: +document.getElementById('cfgC2a').value,
+    c3:  document.getElementById('cfgC3').value,
+    c3a: +document.getElementById('cfgC3a').value,
+    c4:  document.getElementById('cfgC4').value,
+    c4a: +document.getElementById('cfgC4a').value,
+    crf: +document.getElementById('cfgCrf').value,
+    crt: +document.getElementById('cfgCrt').value,
+  };
+}
+
+function _applyHeatCfgToUI(v) {
+  document.getElementById('cfgR5').value  = v.r5;   document.getElementById('cfgR5v').textContent  = v.r5;
+  document.getElementById('cfgR15').value = v.r15;  document.getElementById('cfgR15v').textContent = v.r15;
+  document.getElementById('cfgI5').value  = v.i5;   document.getElementById('cfgI5v').textContent  = (v.i5/10).toFixed(1);
+  document.getElementById('cfgI15').value = v.i15;  document.getElementById('cfgI15v').textContent = (v.i15/10).toFixed(1);
+  document.getElementById('cfgOp').value  = v.op;   document.getElementById('cfgOpv').textContent  = v.op + '%';
+  document.getElementById('cfgC1').value  = v.c1;   document.getElementById('cfgC1a').value = v.c1a; document.getElementById('cfgC1av').textContent = v.c1a + '%';
+  document.getElementById('cfgC2').value  = v.c2;   document.getElementById('cfgC2a').value = v.c2a; document.getElementById('cfgC2av').textContent = v.c2a + '%';
+  document.getElementById('cfgC3').value  = v.c3;   document.getElementById('cfgC3a').value = v.c3a; document.getElementById('cfgC3av').textContent = v.c3a + '%';
+  document.getElementById('cfgC4').value  = v.c4;   document.getElementById('cfgC4a').value = v.c4a; document.getElementById('cfgC4av').textContent = v.c4a + '%';
+  const crf = v.crf ?? _HEAT_DEFAULTS.crf;
+  const crt = v.crt ?? _HEAT_DEFAULTS.crt;
+  document.getElementById('cfgCrf').value = crf; document.getElementById('cfgCrfv').textContent = crf + 'px';
+  document.getElementById('cfgCrt').value = crt; document.getElementById('cfgCrtv').textContent = crt + 'px';
+}
+
+async function loadHeatmapCfg() {
+  let v = _HEAT_DEFAULTS;
+  try {
+    const cfg = await apiFetch('/api/heatmap-cfg');
+    if (cfg && typeof cfg === 'object') v = {..._HEAT_DEFAULTS, ...cfg};
+  } catch(_) {}
+  _applyHeatCfgToUI(v);
+}
+
+function applyHeatmapCfg() {
+  const v = _readHeatCfg();
+  document.getElementById('cfgR5v').textContent  = v.r5;
+  document.getElementById('cfgR15v').textContent = v.r15;
+  document.getElementById('cfgI5v').textContent  = (v.i5/10).toFixed(1);
+  document.getElementById('cfgI15v').textContent = (v.i15/10).toFixed(1);
+  document.getElementById('cfgOpv').textContent  = v.op + '%';
+  document.getElementById('cfgC1av').textContent = v.c1a + '%';
+  document.getElementById('cfgC2av').textContent = v.c2a + '%';
+  document.getElementById('cfgC3av').textContent = v.c3a + '%';
+  document.getElementById('cfgC4av').textContent = v.c4a + '%';
+  document.getElementById('cfgCrfv').textContent = v.crf + 'px';
+  document.getElementById('cfgCrtv').textContent = v.crt + 'px';
+
+  if (!_map || !_mapInited) return;
+  const r5 = v.r5, r15 = v.r15, i5 = v.i5/10, i15 = v.i15/10, op = v.op/100;
+  const r11 = Math.round((r5*2+r15)/3), i12 = Math.round((i5+i15)/2*10)/10;
+  const c = ['rgba(0,0,0,0)', _hexToRgba(v.c1,v.c1a/100), _hexToRgba(v.c2,v.c2a/100), _hexToRgba(v.c3,v.c3a/100), _hexToRgba(v.c4,v.c4a/100)];
+  try {
+    _map.setPaintProperty('jams-heat', 'heatmap-radius',
+      ['interpolate',['linear'],['zoom'], 5,r5, 11,r11, 15,r15]);
+    _map.setPaintProperty('jams-heat', 'heatmap-intensity',
+      ['interpolate',['linear'],['zoom'], 5,i5, 12,i12, 15,i15]);
+    _map.setPaintProperty('jams-heat', 'heatmap-opacity', op);
+    _map.setPaintProperty('jams-heat', 'heatmap-color',
+      ['interpolate',['linear'],['heatmap-density'], 0,c[0], 0.15,c[1], 0.4,c[2], 0.7,c[3], 1,c[4]]);
+    _map.setPaintProperty('jams-dot', 'circle-radius',
+      ['interpolate',['linear'],['get','jf'], 0,v.crf, 10,v.crt]);
+  } catch(_) {}
+}
+
+async function saveHeatmapCfg() {
+  const cfg = _readHeatCfg();
+  try {
+    await apiFetch('/api/heatmap-cfg', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)});
+  } catch(_) {}
+  const msg = document.getElementById('heatCfgSaved');
+  if (msg) { msg.style.display = ''; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+}
+
+async function resetHeatmapCfg() {
+  try { await apiFetch('/api/heatmap-cfg', {method:'DELETE'}); } catch(_) {}
+  _applyHeatCfgToUI(_HEAT_DEFAULTS);
+  applyHeatmapCfg();
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+(async () => {
+  await initApp('dashboard');
+  const user = getUser();
+  if (!user || (!hasTab('dashboard') && user.role !== 'admin')) {
+    document.getElementById('dbContent').innerHTML =
+      '<div class="db-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard.</div>';
+    return;
+  }
+  await loadDashboard();
+  loadHeatmapCfg();
+  _refreshTimer = setInterval(loadDashboard, 60000);
+})();
+</script>
+</body>
+</html>

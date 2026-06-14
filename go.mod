@@ -1,6 +1,6 @@
 module github.com/AlexxIT/go2rtc
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/asticode/go-astits v1.14.0
@@ -44,6 +44,7 @@ require (
 	github.com/pion/turn/v4 v4.1.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	golang.org/x/image v0.42.0 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
