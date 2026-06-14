@@ -8,6 +8,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/counting"
 	"github.com/AlexxIT/go2rtc/internal/dashboard"
 	"github.com/AlexxIT/go2rtc/internal/monitor"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
@@ -115,9 +116,10 @@ func main() {
 		{"wyze", wyze.Init},
 		{"xiaomi", xiaomi.Init},
 		{"yandex", yandex.Init},
-		// Traffic monitoring, travel time & dashboard
+		// Traffic monitoring, travel time, vehicle counting & dashboard
 		{"", traffic.Init},
 		{"", traveltime.Init},
+		{"", counting.Init},
 		{"", dashboard.Init},
 		// Helper modules
 		{"debug", debug.Init},

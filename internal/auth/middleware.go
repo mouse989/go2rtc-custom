@@ -111,6 +111,12 @@ func Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Allow internal loopback requests from the counting module
+		if r.Header.Get("X-Internal") == "counting" && isLoopback(r.RemoteAddr) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		token := extractToken(r)
 		if token == "" {
 			respondUnauthorized(w, r)
@@ -177,6 +183,7 @@ var tabExtraPaths = map[string][]string{
 	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg"},
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
+	TabCounting:  {"/api/counting"},
 }
 
 func extractToken(r *http.Request) string {
@@ -216,6 +223,14 @@ func userCanAccessPath(u *User, path string) bool {
 		}
 	}
 	return false
+}
+
+func isLoopback(remoteAddr string) bool {
+	h := remoteAddr
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		h = host
+	}
+	return h == "127.0.0.1" || h == "::1"
 }
 
 func isPublicPath(path string) bool {

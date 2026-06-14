@@ -16,10 +16,11 @@ const (
 	TabLog       = "log"       // /log.html
 	TabConfig    = "config"    // /config.html
 	TabAPIDocs   = "api_docs"  // /api-docs.html
+	TabCounting  = "counting"  // /counting.html
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabLog, TabConfig, TabAPIDocs}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabLog, TabConfig, TabAPIDocs, TabCounting}
 
 // User represents an application user
 type User struct {
