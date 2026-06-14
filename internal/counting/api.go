@@ -3,6 +3,7 @@ package counting
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/cameras", handleCameras)
 	api.HandleFunc("api/counting/data", handleData)
 	api.HandleFunc("api/counting/summary", handleSummary)
+	api.HandleFunc("api/counting/events", handleEvents)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -257,6 +259,24 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, summary)
+}
+
+// GET /api/counting/events?limit=N
+func handleEvents(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	limit := 100
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+	events := evRing.recent(limit)
+	if events == nil {
+		events = []CountEvent{}
+	}
+	writeJSON(w, events)
 }
 
 func newCameraID(streamName string) string {

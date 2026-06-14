@@ -8,13 +8,16 @@ import (
 
 // CameraStatus holds the live state of one camera worker.
 type CameraStatus struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Stream  string `json:"streamName"`
-	Running bool   `json:"running"`
-	Total   int    `json:"total"`
-	LastErr string `json:"lastErr,omitempty"`
-	Tier    int    `json:"tier"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Stream          string `json:"streamName"`
+	Running         bool   `json:"running"`
+	Total           int    `json:"total"`
+	FramesProcessed int    `json:"framesProcessed"`
+	LastFrameAt     int64  `json:"lastFrameAt"` // unix seconds, 0 = never
+	StartedAt       int64  `json:"startedAt"`   // unix seconds
+	LastErr         string `json:"lastErr,omitempty"`
+	Tier            int    `json:"tier"`
 }
 
 // Manager owns and supervises all camera workers.
@@ -108,6 +111,9 @@ func (m *Manager) statuses() []CameraStatus {
 		if e, ok := m.workers[cam.ID]; ok {
 			st.Running = true
 			st.Total = e.worker.total
+			st.FramesProcessed = e.worker.framesProcessed
+			st.LastFrameAt = e.worker.lastFrameAt
+			st.StartedAt = e.worker.startedAt
 			st.LastErr = e.worker.lastErr
 		}
 		out = append(out, st)
