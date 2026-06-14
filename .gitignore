@@ -21,4 +21,5 @@ website/.vitepress/dist
 
 node_modules
 package-lock.json
-CLAUDE.mdgo2rtc-custom.exe
+CLAUDE.md
+/go2rtc-custom.exe
