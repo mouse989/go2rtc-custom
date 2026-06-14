@@ -6,710 +6,918 @@
   <title>Đếm Phương tiện</title>
   <link rel="stylesheet" href="app.css">
   <style>
-    .counting-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border);
+    /* ── Layout ── */
+    .cnt-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
     }
-    .counting-header h2 { margin: 0; font-size: 1.1rem; flex: 1; min-width: 160px; }
-    .status-badge {
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 0.78rem;
-      font-weight: 600;
-    }
-    .status-badge.running { background: #16a34a22; color: #16a34a; border: 1px solid #16a34a44; }
-    .status-badge.stopped { background: #dc262622; color: #dc2626; border: 1px solid #dc262644; }
+    .cnt-header h2 { margin: 0; font-size: 1.05rem; flex: 1; min-width: 140px; }
 
-    .section { padding: 16px 20px; }
-    .section-title {
-      font-size: 0.8rem;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .05em;
-      color: var(--text-secondary);
-      margin: 0 0 12px;
+    .tabs-bar {
+      display: flex; border-bottom: 1px solid var(--border); padding: 0 20px;
     }
-
-    /* Summary cards */
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .summary-card {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 14px 16px;
-      text-align: center;
-    }
-    .summary-card .num {
-      font-size: 2rem;
-      font-weight: 700;
-      line-height: 1;
-      color: var(--accent);
-    }
-    .summary-card .lbl {
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      margin-top: 4px;
-    }
-
-    /* Camera table */
-    .cam-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.82rem;
-    }
-    .cam-table th {
-      text-align: left;
-      padding: 7px 10px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    .cam-table td {
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    .cam-table tr:hover td { background: var(--surface2); }
-    .cam-table .run-dot {
-      display: inline-block;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      margin-right: 6px;
-    }
-    .run-dot.on { background: #16a34a; }
-    .run-dot.off { background: #dc2626; }
-    .tier-badge {
-      display: inline-block;
-      padding: 1px 7px;
-      border-radius: 9px;
-      font-size: 0.7rem;
-      font-weight: 600;
-    }
-    .tier-1 { background: #0ea5e922; color: #0ea5e9; }
-    .tier-2 { background: #f59e0b22; color: #d97706; }
-    .tier-3 { background: #ef444422; color: #dc2626; }
-
-    /* Hourly chart */
-    .chart-wrap {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 20px;
-    }
-    .chart-bars {
-      display: flex;
-      align-items: flex-end;
-      gap: 3px;
-      height: 90px;
-      margin-top: 8px;
-    }
-    .chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
-    .chart-bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
-    .chart-bar {
-      width: 100%;
-      background: var(--accent);
-      border-radius: 3px 3px 0 0;
-      min-height: 2px;
-      opacity: 0.85;
-      transition: height 0.3s;
-    }
-    .chart-bar.current { opacity: 1; }
-    .chart-label { font-size: 0.6rem; color: var(--text-secondary); }
-
-    /* Config panel */
-    .cfg-panel {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-    .cfg-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 12px;
-    }
-    .cfg-field label {
-      display: block;
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      margin-bottom: 4px;
-      font-weight: 500;
-    }
-    .cfg-field input, .cfg-field select {
-      width: 100%;
-      box-sizing: border-box;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 6px 9px;
-      font-size: 0.82rem;
-      color: var(--text);
-    }
-
-    /* Modal */
-    .modal-backdrop {
-      display: none;
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.55);
-      z-index: 100;
-      align-items: center;
-      justify-content: center;
-    }
-    .modal-backdrop.open { display: flex; }
-    .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 24px;
-      width: 420px;
-      max-width: 96vw;
-    }
-    .modal h3 { margin: 0 0 16px; font-size: 1rem; }
-    .modal-field { margin-bottom: 12px; }
-    .modal-field label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
-    .modal-field input, .modal-field select {
-      width: 100%; box-sizing: border-box;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 7px 10px;
-      font-size: 0.85rem;
-      color: var(--text);
-    }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-
-    .btn { padding: 7px 14px; border-radius: 6px; font-size: 0.82rem; cursor: pointer; border: none; font-weight: 500; }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-primary:hover { opacity: .88; }
-    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    .btn-ghost:hover { background: var(--surface2); }
-    .btn-danger { background: #dc2626; color: #fff; }
-    .btn-danger:hover { opacity: .88; }
-    .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
-    .btn-green { background: #16a34a; color: #fff; }
-    .btn-green:hover { opacity: .88; }
-
-    .err-msg { color: #dc2626; font-size: 0.8rem; margin-top: 8px; }
-    .tabs-inner { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; padding: 0 20px; }
     .tab-btn {
-      padding: 10px 16px;
-      font-size: 0.82rem;
-      font-weight: 500;
-      border: none;
-      background: none;
-      color: var(--text-secondary);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
+      padding: 9px 15px; font-size: 0.82rem; font-weight: 500;
+      border: none; background: none; color: var(--text-secondary);
+      cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
     }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-    /* Date picker row */
-    .date-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-    .date-row input[type=date] {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 5px 9px;
-      font-size: 0.82rem;
-      color: var(--text);
+    .section { padding: 14px 20px; }
+
+    /* ── Status badge ── */
+    .badge {
+      padding: 2px 9px; border-radius: 11px; font-size: 0.75rem; font-weight: 600;
     }
+    .badge-green  { background:#16a34a22; color:#16a34a; border:1px solid #16a34a44; }
+    .badge-red    { background:#dc262622; color:#dc2626; border:1px solid #dc262644; }
+    .badge-gray   { background:#6b728022; color:#6b7280; border:1px solid #6b728044; }
+    .badge-yellow { background:#d9770622; color:#d97706; border:1px solid #d9770644; }
+
+    /* ── Summary cards ── */
+    .card-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+    .card {
+      flex:1; min-width:120px;
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:8px; padding:12px 14px; text-align:center;
+    }
+    .card .num { font-size:1.9rem; font-weight:700; color:var(--accent); line-height:1; }
+    .card .lbl { font-size:0.72rem; color:var(--text-secondary); margin-top:3px; }
+
+    /* ── Chart ── */
+    .chart-box {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:8px; padding:14px; margin-bottom:14px;
+    }
+    .chart-title { font-size:0.75rem; font-weight:600; text-transform:uppercase;
+      letter-spacing:.05em; color:var(--text-secondary); margin-bottom:8px; }
+    .chart-bars { display:flex; align-items:flex-end; gap:3px; height:80px; }
+    .chart-col  { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; }
+    .chart-bar-wrap { flex:1; width:100%; display:flex; align-items:flex-end; }
+    .chart-bar  { width:100%; background:var(--accent); border-radius:2px 2px 0 0;
+      min-height:2px; opacity:.8; transition:height .3s; }
+    .chart-bar.cur { opacity:1; }
+    .chart-lbl  { font-size:0.58rem; color:var(--text-secondary); }
+
+    /* ── Camera table ── */
+    .tbl { width:100%; border-collapse:collapse; font-size:0.82rem; }
+    .tbl th { text-align:left; padding:6px 10px; font-weight:600;
+      color:var(--text-secondary); border-bottom:1px solid var(--border); white-space:nowrap; }
+    .tbl td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .tbl tr:hover td { background:var(--surface2); }
+    .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
+    .dot-on { background:#16a34a; }
+    .dot-off { background:#9ca3af; }
+    .dot-err { background:#dc2626; }
+    .tier-b { display:inline-block; padding:1px 6px; border-radius:9px; font-size:0.7rem; font-weight:600; }
+    .t1 { background:#0ea5e922; color:#0ea5e9; }
+    .t2 { background:#f59e0b22; color:#d97706; }
+    .t3 { background:#ef444422; color:#dc2626; }
+
+    /* ── Event log ── */
+    .log-wrap {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:8px; max-height:420px; overflow-y:auto; font-size:0.78rem;
+    }
+    .log-row {
+      display:flex; align-items:center; gap:10px;
+      padding:6px 12px; border-bottom:1px solid var(--border);
+      animation: fadeIn .4s;
+    }
+    @keyframes fadeIn { from { background:var(--accent)18; } to { background:transparent; } }
+    .log-row:last-child { border-bottom:none; }
+    .log-ts { color:var(--text-secondary); white-space:nowrap; min-width:75px; }
+    .log-cam { font-weight:600; min-width:120px; }
+    .log-cnt { color:var(--accent); font-weight:700; min-width:50px; }
+    .log-total { color:var(--text-secondary); }
+
+    /* ── History ── */
+    .date-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+    .date-row input[type=date] {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:5px; padding:5px 9px; font-size:0.82rem; color:var(--text);
+    }
+
+    /* ── Buttons ── */
+    .btn { padding:6px 13px; border-radius:5px; font-size:0.8rem; cursor:pointer;
+      border:none; font-weight:500; }
+    .btn-primary { background:var(--accent); color:#fff; }
+    .btn-primary:hover { opacity:.88; }
+    .btn-ghost  { background:transparent; border:1px solid var(--border); color:var(--text); }
+    .btn-ghost:hover  { background:var(--surface2); }
+    .btn-green  { background:#16a34a; color:#fff; }
+    .btn-green:hover  { opacity:.88; }
+    .btn-danger { background:#dc2626; color:#fff; }
+    .btn-danger:hover { opacity:.88; }
+    .btn-sm { padding:3px 9px; font-size:0.73rem; }
+
+    /* ── Modal ── */
+    .overlay {
+      display:none; position:fixed; inset:0;
+      background:rgba(0,0,0,.55); z-index:200;
+      align-items:flex-start; justify-content:center;
+      padding:40px 16px; overflow-y:auto;
+    }
+    .overlay.open { display:flex; }
+    .modal {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:10px; padding:22px; width:480px; max-width:100%;
+      position:relative;
+    }
+    .modal h3 { margin:0 0 14px; font-size:1rem; }
+    .mfield { margin-bottom:11px; }
+    .mfield label { display:block; font-size:0.78rem; color:var(--text-secondary); margin-bottom:3px; }
+    .mfield input, .mfield select {
+      width:100%; box-sizing:border-box;
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:5px; padding:6px 9px; font-size:0.82rem; color:var(--text);
+    }
+    .mfield input[type=range] { padding:4px 0; }
+    .mactions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+    .err { color:#dc2626; font-size:0.78rem; margin-top:6px; }
+
+    /* ── Stream picker ── */
+    .stream-search {
+      width:100%; box-sizing:border-box;
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:5px; padding:6px 9px; font-size:0.82rem; color:var(--text);
+      margin-bottom:6px;
+    }
+    .stream-list {
+      max-height:200px; overflow-y:auto;
+      border:1px solid var(--border); border-radius:5px;
+    }
+    .stream-item {
+      display:flex; align-items:center; gap:8px;
+      padding:7px 10px; cursor:pointer;
+      border-bottom:1px solid var(--border);
+    }
+    .stream-item:last-child { border-bottom:none; }
+    .stream-item:hover { background:var(--surface2); }
+    .stream-item input[type=checkbox] { margin:0; cursor:pointer; }
+    .stream-item .sname { font-size:0.82rem; font-weight:500; }
+
+    /* ── Canvas preview ── */
+    .preview-wrap {
+      position:relative; margin-top:8px;
+      background:#000; border-radius:6px; overflow:hidden;
+      cursor:crosshair; user-select:none;
+    }
+    #previewCanvas { display:block; width:100%; height:auto; }
+    .preview-hint {
+      font-size:0.72rem; color:var(--text-secondary); margin-top:4px; text-align:center;
+    }
+
+    /* ── Settings panel ── */
+    .cfg-grid {
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px;
+    }
+    .cfg-field label { display:block; font-size:0.75rem; color:var(--text-secondary); margin-bottom:3px; }
+    .cfg-field input {
+      width:100%; box-sizing:border-box;
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:5px; padding:5px 8px; font-size:0.82rem; color:var(--text);
+    }
+
+    .sep { height:1px; background:var(--border); margin:12px 0; }
+    .sub-title { font-size:0.75rem; font-weight:600; text-transform:uppercase;
+      letter-spacing:.05em; color:var(--text-secondary); margin:0 0 10px; }
+    .empty-log { padding:24px; text-align:center; color:var(--text-secondary); font-size:0.82rem; }
   </style>
 </head>
 <body data-tab-require="counting">
 <div id="app">
-  <header class="counting-header">
-    <h2>🚦 Đếm Lưu lượng Phương tiện</h2>
-    <span id="svcStatus" class="status-badge stopped">Đã dừng</span>
-    <button class="btn btn-green btn-sm" onclick="startAll()">▶ Bắt đầu</button>
-    <button class="btn btn-ghost btn-sm" onclick="stopAll()">⏹ Dừng</button>
-    <button class="btn btn-ghost btn-sm" onclick="openAddModal()">+ Thêm camera</button>
-    <button class="btn btn-ghost btn-sm" onclick="openSettings()">⚙ Cài đặt</button>
-  </header>
 
-  <div class="tabs-inner">
-    <button class="tab-btn active" onclick="showTab('live', this)">Thực time</button>
-    <button class="tab-btn" onclick="showTab('history', this)">Lịch sử</button>
-    <button class="tab-btn" onclick="showTab('settings', this)">Cài đặt</button>
+  <!-- ── Header ── -->
+  <div class="cnt-header">
+    <h2>🚦 Đếm Lưu lượng Phương tiện</h2>
+    <span id="svcBadge" class="badge badge-gray">Đã dừng</span>
+    <button class="btn btn-green btn-sm" onclick="startAll()">▶ Bắt đầu tất cả</button>
+    <button class="btn btn-ghost btn-sm" onclick="stopAll()">⏹ Dừng tất cả</button>
+    <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Thêm camera</button>
   </div>
 
-  <!-- ── LIVE TAB ── -->
+  <!-- ── Tabs ── -->
+  <div class="tabs-bar">
+    <button class="tab-btn active" onclick="showTab('live',this)">Thực time</button>
+    <button class="tab-btn" onclick="showTab('log',this)">Nhật ký sự kiện</button>
+    <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
+    <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
+  </div>
+
+  <!-- ══════════════ LIVE ══════════════ -->
   <div id="tab-live">
     <div class="section">
-      <div class="summary-grid" id="summaryCards"></div>
-      <div class="chart-wrap">
-        <div class="section-title">Lưu lượng theo giờ — hôm nay</div>
-        <div class="chart-bars" id="hourlyChart"></div>
+      <div class="card-row" id="cards"></div>
+      <div class="chart-box">
+        <div class="chart-title">Lưu lượng theo giờ — hôm nay</div>
+        <div class="chart-bars" id="hourChart"></div>
       </div>
-      <div class="section-title">Danh sách Camera</div>
+      <div class="sub-title">Danh sách Camera</div>
       <div style="overflow-x:auto">
-        <table class="cam-table">
+        <table class="tbl">
           <thead>
             <tr>
-              <th>Camera</th>
-              <th>Stream</th>
-              <th>Tier</th>
-              <th>Trạng thái</th>
-              <th>Tổng hôm nay</th>
-              <th>Thao tác</th>
+              <th>Camera</th><th>Stream</th><th>Tier</th>
+              <th>Trạng thái</th><th>Frame xử lý</th>
+              <th>Frame cuối</th><th>Tổng hôm nay</th><th>Thao tác</th>
             </tr>
           </thead>
-          <tbody id="camTableBody"></tbody>
+          <tbody id="camBody"></tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- ── HISTORY TAB ── -->
+  <!-- ══════════════ LOG ══════════════ -->
+  <div id="tab-log" style="display:none">
+    <div class="section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="sub-title" style="margin:0">Nhật ký sự kiện (500 gần nhất)</div>
+        <button class="btn btn-ghost btn-sm" onclick="clearLogView()">Xoá hiển thị</button>
+      </div>
+      <div class="log-wrap" id="logWrap">
+        <div class="empty-log" id="logEmpty">Chưa có sự kiện. Bắt đầu counting để xem log.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ HISTORY ══════════════ -->
   <div id="tab-history" style="display:none">
     <div class="section">
       <div class="date-row">
-        <label style="font-size:0.82rem;color:var(--text-secondary)">Ngày:</label>
-        <input type="date" id="histDate" onchange="loadHistory()">
+        <label style="font-size:.82rem;color:var(--text-secondary)">Ngày:</label>
+        <input type="date" id="histDate">
         <button class="btn btn-ghost btn-sm" onclick="loadHistory()">Xem</button>
       </div>
-      <div class="chart-wrap">
-        <div class="section-title" id="histTitle">Lưu lượng theo giờ</div>
+      <div class="chart-box">
+        <div class="chart-title" id="histTitle">Chọn ngày để xem</div>
         <div class="chart-bars" id="histChart"></div>
       </div>
       <div style="overflow-x:auto">
-        <table class="cam-table" id="histTable">
-          <thead>
-            <tr>
-              <th>Camera</th>
-              <th>Tổng ngày</th>
-              <th id="histHourCols"></th>
-            </tr>
-          </thead>
-          <tbody id="histTableBody"></tbody>
+        <table class="tbl" id="histTbl">
+          <thead><tr><th>Camera</th><th>Tổng ngày</th>
+            <th>0h</th><th>1h</th><th>2h</th><th>3h</th><th>4h</th><th>5h</th>
+            <th>6h</th><th>7h</th><th>8h</th><th>9h</th><th>10h</th><th>11h</th>
+            <th>12h</th><th>13h</th><th>14h</th><th>15h</th><th>16h</th><th>17h</th>
+            <th>18h</th><th>19h</th><th>20h</th><th>21h</th><th>22h</th><th>23h</th>
+          </tr></thead>
+          <tbody id="histBody"></tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- ── SETTINGS TAB ── -->
+  <!-- ══════════════ SETTINGS ══════════════ -->
   <div id="tab-settings" style="display:none">
     <div class="section">
-      <div class="cfg-panel" id="cfgPanel">
-        <div class="section-title">Tham số xử lý (MOG2)</div>
-        <div class="cfg-grid">
-          <div class="cfg-field">
-            <label>FPS xử lý mặc định (1-5)</label>
-            <input type="number" id="cfgFps" min="0.5" max="5" step="0.5">
-          </div>
-          <div class="cfg-field">
-            <label>Ngưỡng nền (threshold)</label>
-            <input type="number" id="cfgThresh" min="5" max="100">
-          </div>
-          <div class="cfg-field">
-            <label>Tốc độ học nền (learningRate)</label>
-            <input type="number" id="cfgLr" min="0.001" max="0.1" step="0.001">
-          </div>
-          <div class="cfg-field">
-            <label>Chiều rộng frame (px)</label>
-            <input type="number" id="cfgFw" min="160" max="640" step="80">
-          </div>
-          <div class="cfg-field">
-            <label>Blob min area (px²)</label>
-            <input type="number" id="cfgBlobMin" min="50" max="5000">
-          </div>
-          <div class="cfg-field">
-            <label>Blob max area (px²)</label>
-            <input type="number" id="cfgBlobMax" min="1000" max="100000">
-          </div>
-          <div class="cfg-field">
-            <label>Lưu dữ liệu (ngày)</label>
-            <input type="number" id="cfgRetention" min="1" max="365">
-          </div>
-        </div>
-        <div style="margin-top:14px">
-          <button class="btn btn-primary btn-sm" onclick="saveSettings()">Lưu cài đặt</button>
-          <span id="cfgMsg" style="margin-left:10px;font-size:0.8rem;color:var(--accent)"></span>
-        </div>
+      <div class="sub-title">Tham số xử lý ảnh (MOG2)</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>FPS xử lý mặc định</label><input type="number" id="sFps" min="0.5" max="5" step="0.5"></div>
+        <div class="cfg-field"><label>Ngưỡng foreground (threshold)</label><input type="number" id="sThresh" min="5" max="100"></div>
+        <div class="cfg-field"><label>Tốc độ học nền (learningRate)</label><input type="number" id="sLr" min="0.001" max="0.1" step="0.001"></div>
+        <div class="cfg-field"><label>Chiều rộng frame (px)</label><input type="number" id="sFw" min="160" max="640" step="80"></div>
+        <div class="cfg-field"><label>Blob min area (px²)</label><input type="number" id="sBlobMin" min="50" max="5000"></div>
+        <div class="cfg-field"><label>Blob max area (px²)</label><input type="number" id="sBlobMax" min="1000" max="200000"></div>
+        <div class="cfg-field"><label>Lưu trữ (ngày)</label><input type="number" id="sRetention" min="1" max="365"></div>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">Lưu cài đặt</button>
+        <span id="sMsg" style="margin-left:8px;font-size:.78rem;color:var(--accent)"></span>
       </div>
     </div>
   </div>
-</div>
 
-<!-- Add/Edit Camera Modal -->
-<div class="modal-backdrop" id="camModal">
+</div><!-- /#app -->
+
+<!-- ══════════════ ADD CAMERA MODAL ══════════════ -->
+<div class="overlay" id="modalOverlay" onclick="overlayClick(event)">
   <div class="modal">
-    <h3 id="modalTitle">Thêm Camera</h3>
-    <input type="hidden" id="editId">
-    <div class="modal-field">
-      <label>Tên hiển thị</label>
-      <input type="text" id="mName" placeholder="VD: Ngã tư Lý Thường Kiệt">
+    <h3 id="mTitle">Thêm Camera đếm</h3>
+
+    <!-- Bước 1: chọn stream -->
+    <div id="step1">
+      <div class="mfield">
+        <label>Tìm và chọn camera (từ danh sách go2rtc)</label>
+        <input type="text" class="stream-search" id="streamSearch"
+               placeholder="Tìm kiếm..." oninput="filterStreams()">
+      </div>
+      <div class="stream-list" id="streamList">
+        <div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:.8rem">
+          Đang tải...
+        </div>
+      </div>
+      <div class="mfield" style="margin-top:10px">
+        <label>Tên hiển thị (tuỳ chọn, để trống = tên stream)</label>
+        <input type="text" id="mName" placeholder="VD: Ngã tư Đinh Tiên Hoàng">
+      </div>
+      <div class="mactions">
+        <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
+        <button class="btn btn-primary" onclick="goStep2()">Tiếp tục →</button>
+      </div>
     </div>
-    <div class="modal-field">
-      <label>Stream Name (go2rtc)</label>
-      <input type="text" id="mStream" placeholder="VD: camera_001">
-    </div>
-    <div class="modal-field">
-      <label>Vị trí đường đếm (0.0 – 1.0)</label>
-      <input type="number" id="mLine" value="0.5" min="0.1" max="0.9" step="0.05">
-    </div>
-    <div class="modal-field">
-      <label>Trục đường đếm</label>
-      <select id="mAxis">
-        <option value="h">Ngang (horizontal)</option>
-        <option value="v">Dọc (vertical)</option>
-      </select>
-    </div>
-    <div class="modal-field">
-      <label>FPS xử lý (0 = dùng mặc định)</label>
-      <input type="number" id="mFps" value="0" min="0" max="5" step="0.5">
-    </div>
-    <div class="modal-field">
-      <label>Tier</label>
-      <select id="mTier">
-        <option value="1">1 — Thường</option>
-        <option value="2">2 — Quan trọng</option>
-        <option value="3">3 — Trọng điểm</option>
-      </select>
-    </div>
-    <div class="modal-field" style="display:flex;align-items:center;gap:8px">
-      <input type="checkbox" id="mEnabled" checked>
-      <label for="mEnabled" style="margin:0">Bật counting</label>
-    </div>
-    <div id="modalErr" class="err-msg"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
-      <button class="btn btn-primary" onclick="saveCamera()">Lưu</button>
+
+    <!-- Bước 2: cấu hình đường đếm -->
+    <div id="step2" style="display:none">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <button class="btn btn-ghost btn-sm" onclick="goStep1()">← Quay lại</button>
+        <span style="font-size:.82rem;color:var(--text-secondary)">Stream: <strong id="s2Stream"></strong></span>
+      </div>
+
+      <div class="mfield">
+        <label>Trục đường đếm</label>
+        <select id="mAxis" onchange="drawPreview()">
+          <option value="h">Ngang (Horizontal) — đếm xe qua từ trên/dưới</option>
+          <option value="v">Dọc (Vertical) — đếm xe qua từ trái/phải</option>
+        </select>
+      </div>
+
+      <div class="mfield">
+        <label>Vị trí đường đếm — kéo trên ảnh hoặc dùng thanh trượt
+          (<span id="linePosVal">0.50</span>)</label>
+        <input type="range" id="mLine" min="0.05" max="0.95" step="0.01" value="0.50"
+               oninput="linePosChanged(this.value)">
+      </div>
+
+      <!-- Canvas preview -->
+      <div class="preview-wrap" id="previewWrap">
+        <canvas id="previewCanvas"></canvas>
+      </div>
+      <div class="preview-hint">
+        📌 Kéo chuột trên ảnh để đặt đường đếm • Đường đỏ = vị trí đếm
+      </div>
+      <div style="text-align:center;margin-top:4px">
+        <button class="btn btn-ghost btn-sm" onclick="refreshPreview()">↺ Làm mới ảnh</button>
+      </div>
+
+      <div class="sep"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="mfield">
+          <label>FPS xử lý (0 = dùng mặc định)</label>
+          <input type="number" id="mFps" value="0" min="0" max="5" step="0.5">
+        </div>
+        <div class="mfield">
+          <label>Tier ưu tiên</label>
+          <select id="mTier">
+            <option value="1">1 — Thường (60s/frame)</option>
+            <option value="2">2 — Quan trọng</option>
+            <option value="3">3 — Trọng điểm</option>
+          </select>
+        </div>
+      </div>
+      <div class="mfield" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="mEnabled" checked>
+        <label for="mEnabled" style="margin:0;cursor:pointer">Bật counting ngay sau khi thêm</label>
+      </div>
+
+      <div class="err" id="mErr"></div>
+      <div class="mactions">
+        <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
+        <button class="btn btn-primary" id="mSaveBtn" onclick="saveCamera()">Lưu camera</button>
+      </div>
     </div>
   </div>
 </div>
 
 <script src="app.js"></script>
 <script>
-let statuses = [];
-let currentCfg = {};
-let pollTimer = null;
-let editingId = null;
+// ════════════════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════════════════
+let cfg        = {};
+let statuses   = [];
+let allStreams  = [];        // stream names from /api/streams
+let editId     = null;
+let pollTimer  = null;
+let logTimer   = null;
+let isDragging = false;
+let logFrozen  = false;     // true when user scrolled up
 
-// ── Init ──────────────────────────────────────────────────────────
+const today = () => new Date().toISOString().slice(0,10);
+
+// ════════════════════════════════════════════════════════
+// Init
+// ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('histDate').value = today;
+  document.getElementById('histDate').value = today();
   await loadConfig();
   await poll();
   await loadTodaySummary();
-  pollTimer = setInterval(async () => {
-    await poll();
-    await loadTodaySummary();
-  }, 5000);
+  pollTimer = setInterval(async () => { await poll(); await loadTodaySummary(); }, 5000);
+  logTimer  = setInterval(loadEvents, 3000);
+
+  // Canvas drag
+  const canvas = document.getElementById('previewCanvas');
+  canvas.addEventListener('mousedown', e => { isDragging = true; dragLine(e); });
+  canvas.addEventListener('mousemove', e => { if (isDragging) dragLine(e); });
+  canvas.addEventListener('mouseup',   () => { isDragging = false; });
+  canvas.addEventListener('mouseleave',() => { isDragging = false; });
+  canvas.addEventListener('touchstart', e => { isDragging = true; dragLine(e.touches[0]); }, {passive:true});
+  canvas.addEventListener('touchmove',  e => { if(isDragging) dragLine(e.touches[0]); }, {passive:true});
+  canvas.addEventListener('touchend',   () => { isDragging = false; });
 });
 
-// ── Tabs ──────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+// Tabs
+// ════════════════════════════════════════════════════════
 function showTab(name, btn) {
-  ['live', 'history', 'settings'].forEach(t => {
-    document.getElementById('tab-' + t).style.display = (t === name) ? '' : 'none';
-  });
+  ['live','log','history','settings'].forEach(t =>
+    document.getElementById('tab-'+t).style.display = (t===name) ? '' : 'none'
+  );
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   if (name === 'history') loadHistory();
+  if (name === 'log')     loadEvents();
 }
 
-// ── API helpers ───────────────────────────────────────────────────
-async function apiFetch(path, opts) {
+// ════════════════════════════════════════════════════════
+// API helpers
+// ════════════════════════════════════════════════════════
+async function apiFetch(path, opts={}) {
   const token = localStorage.getItem('go2rtc_token') || '';
   const res = await fetch(path, {
-    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(opts?.headers || {}) },
+    headers: {'Authorization':'Bearer '+token, 'Content-Type':'application/json', ...(opts.headers||{})},
     ...opts
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-// ── Load Config ───────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+// Config
+// ════════════════════════════════════════════════════════
 async function loadConfig() {
   try {
-    currentCfg = await apiFetch('/api/counting/config');
-    document.getElementById('cfgFps').value     = currentCfg.defaultFps ?? 2.5;
-    document.getElementById('cfgThresh').value  = currentCfg.threshold ?? 28;
-    document.getElementById('cfgLr').value      = currentCfg.learningRate ?? 0.005;
-    document.getElementById('cfgFw').value      = currentCfg.frameWidth ?? 320;
-    document.getElementById('cfgBlobMin').value = currentCfg.blobMinArea ?? 200;
-    document.getElementById('cfgBlobMax').value = currentCfg.blobMaxArea ?? 30000;
-    document.getElementById('cfgRetention').value = currentCfg.storage?.retentionDays ?? 30;
+    cfg = await apiFetch('/api/counting/config');
+    document.getElementById('sFps').value      = cfg.defaultFps      ?? 2.5;
+    document.getElementById('sThresh').value   = cfg.threshold       ?? 28;
+    document.getElementById('sLr').value       = cfg.learningRate    ?? 0.005;
+    document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
+    document.getElementById('sBlobMin').value  = cfg.blobMinArea     ?? 200;
+    document.getElementById('sBlobMax').value  = cfg.blobMaxArea     ?? 30000;
+    document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
   } catch(e) { console.error('loadConfig', e); }
 }
 
-// ── Poll status ───────────────────────────────────────────────────
+async function saveSettings() {
+  const newCfg = {
+    ...cfg,
+    defaultFps:   parseFloat(document.getElementById('sFps').value),
+    threshold:    parseFloat(document.getElementById('sThresh').value),
+    learningRate: parseFloat(document.getElementById('sLr').value),
+    frameWidth:   parseInt(document.getElementById('sFw').value),
+    blobMinArea:  parseInt(document.getElementById('sBlobMin').value),
+    blobMaxArea:  parseInt(document.getElementById('sBlobMax').value),
+    storage: { ...cfg.storage, retentionDays: parseInt(document.getElementById('sRetention').value) }
+  };
+  try {
+    cfg = await apiFetch('/api/counting/config', {method:'PUT', body:JSON.stringify(newCfg)});
+    const m = document.getElementById('sMsg');
+    m.textContent = '✓ Đã lưu';
+    setTimeout(() => m.textContent='', 2500);
+  } catch(e) {
+    document.getElementById('sMsg').textContent = '✗ '+e.message;
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// Poll status
+// ════════════════════════════════════════════════════════
 async function poll() {
   try {
     const st = await apiFetch('/api/counting/status');
     statuses = st.cameras || [];
-    const isRunning = st.running;
-
-    const badge = document.getElementById('svcStatus');
-    badge.textContent = isRunning ? 'Đang chạy' : 'Đã dừng';
-    badge.className = 'status-badge ' + (isRunning ? 'running' : 'stopped');
-
+    const running = st.running;
+    const badge = document.getElementById('svcBadge');
+    badge.textContent  = running ? 'Đang chạy' : 'Đã dừng';
+    badge.className    = 'badge '+(running ? 'badge-green' : 'badge-red');
+    renderCards();
     renderCamTable();
-    renderSummaryCards();
-  } catch(e) { console.error('poll', e); }
-}
-
-// ── Summary cards ─────────────────────────────────────────────────
-function renderSummaryCards() {
-  const totalAll  = statuses.reduce((s, c) => s + (c.total || 0), 0);
-  const running   = statuses.filter(c => c.running).length;
-  const stopped   = statuses.filter(c => !c.running).length;
-
-  document.getElementById('summaryCards').innerHTML = `
-    <div class="summary-card">
-      <div class="num">${totalAll.toLocaleString()}</div>
-      <div class="lbl">Tổng lượt hôm nay</div>
-    </div>
-    <div class="summary-card">
-      <div class="num">${statuses.length}</div>
-      <div class="lbl">Camera cấu hình</div>
-    </div>
-    <div class="summary-card">
-      <div class="num" style="color:#16a34a">${running}</div>
-      <div class="lbl">Đang đếm</div>
-    </div>
-    <div class="summary-card">
-      <div class="num" style="color:#dc2626">${stopped}</div>
-      <div class="lbl">Đã dừng</div>
-    </div>
-  `;
-}
-
-// ── Camera table ──────────────────────────────────────────────────
-function renderCamTable() {
-  const body = document.getElementById('camTableBody');
-  if (!statuses.length) {
-    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:24px">Chưa có camera nào. Nhấn "+ Thêm camera" để bắt đầu.</td></tr>';
-    return;
-  }
-  body.innerHTML = statuses.map(c => `
-    <tr>
-      <td>
-        <span class="run-dot ${c.running ? 'on' : 'off'}"></span>
-        ${escHtml(c.name || c.id)}
-      </td>
-      <td><code style="font-size:0.78rem">${escHtml(c.streamName)}</code></td>
-      <td><span class="tier-badge tier-${c.tier || 1}">T${c.tier || 1}</span></td>
-      <td>${c.running
-        ? '<span style="color:#16a34a;font-size:0.8rem">● Đang chạy</span>'
-        : (c.lastErr
-            ? `<span style="color:#dc2626;font-size:0.78rem" title="${escHtml(c.lastErr)}">✗ Lỗi</span>`
-            : '<span style="color:var(--text-secondary);font-size:0.8rem">○ Dừng</span>')
-      }</td>
-      <td><strong>${(c.total || 0).toLocaleString()}</strong></td>
-      <td style="white-space:nowrap">
-        ${c.running
-          ? `<button class="btn btn-ghost btn-sm" onclick="stopCam('${c.id}')">⏹</button>`
-          : `<button class="btn btn-green btn-sm" onclick="startCam('${c.id}')">▶</button>`
-        }
-        <button class="btn btn-ghost btn-sm" onclick="editCam('${c.id}')">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteCam('${c.id}')">✕</button>
-      </td>
-    </tr>
-  `).join('');
-}
-
-// ── Hourly chart ──────────────────────────────────────────────────
-async function loadTodaySummary() {
-  const today = new Date().toISOString().slice(0, 10);
-  try {
-    const data = await apiFetch('/api/counting/summary?date=' + today);
-    renderHourlyChart('hourlyChart', data, new Date().getHours());
   } catch(e) {}
 }
 
-function renderHourlyChart(elemId, summaries, currentHour = -1) {
-  const el = document.getElementById(elemId);
-  if (!el) return;
-
-  // Aggregate all cameras
-  const hours = new Array(24).fill(0);
-  (summaries || []).forEach(s => {
-    (s.hours || []).forEach((v, h) => { hours[h] += v; });
-  });
-
-  const maxVal = Math.max(...hours, 1);
-  el.innerHTML = hours.map((v, h) => `
-    <div class="chart-col" title="${h}:00 — ${v} xe">
-      <div class="chart-bar-wrap">
-        <div class="chart-bar ${h === currentHour ? 'current' : ''}"
-             style="height:${Math.round((v/maxVal)*80)+4}px"></div>
-      </div>
-      <span class="chart-label">${h}</span>
-    </div>
-  `).join('');
+// ════════════════════════════════════════════════════════
+// Summary cards
+// ════════════════════════════════════════════════════════
+function renderCards() {
+  const total   = statuses.reduce((s,c) => s+(c.total||0), 0);
+  const running = statuses.filter(c=>c.running).length;
+  const errors  = statuses.filter(c=>c.lastErr).length;
+  document.getElementById('cards').innerHTML = `
+    <div class="card"><div class="num">${total.toLocaleString()}</div><div class="lbl">Tổng lượt hôm nay</div></div>
+    <div class="card"><div class="num">${statuses.length}</div><div class="lbl">Camera cấu hình</div></div>
+    <div class="card"><div class="num" style="color:#16a34a">${running}</div><div class="lbl">Đang chạy</div></div>
+    <div class="card"><div class="num" style="color:#dc2626">${errors}</div><div class="lbl">Có lỗi</div></div>
+  `;
 }
 
-// ── History ───────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+// Camera table
+// ════════════════════════════════════════════════════════
+function renderCamTable() {
+  const body = document.getElementById('camBody');
+  if (!statuses.length) {
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-secondary)">
+      Chưa có camera. Nhấn <strong>+ Thêm camera</strong> để bắt đầu.</td></tr>`;
+    return;
+  }
+  const now = Math.floor(Date.now()/1000);
+  body.innerHTML = statuses.map(c => {
+    const dotCls = c.running ? (c.lastErr ? 'dot-err' : 'dot-on') : 'dot-off';
+    const stLbl  = c.running
+      ? (c.lastErr
+          ? `<span style="color:#dc2626" title="${esc(c.lastErr)}">✗ Lỗi</span>`
+          : `<span style="color:#16a34a">● Đang chạy</span>`)
+      : `<span style="color:#9ca3af">○ Dừng</span>`;
+    const lastFrame = c.lastFrameAt
+      ? agoStr(now - c.lastFrameAt)
+      : (c.running ? '<span style="color:#d97706">Chờ frame...</span>' : '—');
+    return `<tr>
+      <td><span class="dot ${dotCls}"></span>${esc(c.name||c.id)}</td>
+      <td><code style="font-size:.75rem">${esc(c.streamName)}</code></td>
+      <td><span class="tier-b t${c.tier||1}">T${c.tier||1}</span></td>
+      <td>${stLbl}</td>
+      <td>${(c.framesProcessed||0).toLocaleString()}</td>
+      <td>${lastFrame}</td>
+      <td><strong>${(c.total||0).toLocaleString()}</strong></td>
+      <td style="white-space:nowrap">
+        ${c.running
+          ? `<button class="btn btn-ghost btn-sm" onclick="stopCam('${c.id}')">⏹</button>`
+          : `<button class="btn btn-green btn-sm" onclick="startCam('${c.id}')">▶</button>`}
+        <button class="btn btn-ghost btn-sm" onclick="editCam('${c.id}')">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="delCam('${c.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function agoStr(sec) {
+  if (sec < 5)  return '<span style="color:#16a34a">Vừa xong</span>';
+  if (sec < 60) return `${sec}s trước`;
+  if (sec < 3600) return `${Math.floor(sec/60)}m trước`;
+  return `${Math.floor(sec/3600)}h trước`;
+}
+
+// ════════════════════════════════════════════════════════
+// Hourly chart
+// ════════════════════════════════════════════════════════
+async function loadTodaySummary() {
+  try {
+    const data = await apiFetch('/api/counting/summary?date='+today());
+    renderBarChart('hourChart', data, new Date().getHours());
+  } catch(e) {}
+}
+
+function renderBarChart(elemId, summaries, curHour=-1) {
+  const el = document.getElementById(elemId);
+  if (!el) return;
+  const hours = new Array(24).fill(0);
+  (summaries||[]).forEach(s => (s.hours||[]).forEach((v,h) => hours[h]+=v));
+  const mx = Math.max(...hours, 1);
+  el.innerHTML = hours.map((v,h) => `
+    <div class="chart-col" title="${h}:00 — ${v} xe">
+      <div class="chart-bar-wrap">
+        <div class="chart-bar ${h===curHour?'cur':''}" style="height:${Math.round(v/mx*72)+4}px"></div>
+      </div>
+      <span class="chart-lbl">${h}</span>
+    </div>`).join('');
+}
+
+// ════════════════════════════════════════════════════════
+// Event log
+// ════════════════════════════════════════════════════════
+let lastLogTs = 0;
+
+async function loadEvents() {
+  try {
+    const events = await apiFetch('/api/counting/events?limit=100');
+    const wrap = document.getElementById('logWrap');
+    const empty = document.getElementById('logEmpty');
+
+    if (!events.length) {
+      empty.style.display = '';
+      return;
+    }
+    empty.style.display = 'none';
+
+    // Only prepend new events (newer ts than last seen)
+    const newEvs = events.filter(e => e.ts > lastLogTs);
+    if (!newEvs.length) return;
+    lastLogTs = newEvs[0].ts;
+
+    const wasAtBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 30;
+
+    newEvs.forEach(ev => {
+      const row = document.createElement('div');
+      row.className = 'log-row';
+      row.innerHTML = `
+        <span class="log-ts">${fmtTime(ev.ts)}</span>
+        <span class="log-cam">${esc(ev.name||ev.cameraId)}</span>
+        <span class="log-cnt">+${ev.count} xe</span>
+        <span class="log-total">Tổng: ${ev.total}</span>
+      `;
+      wrap.insertBefore(row, wrap.children[1] || null); // insert after empty-msg
+    });
+
+    // Keep max 300 rows in DOM
+    while (wrap.children.length > 301) wrap.removeChild(wrap.lastChild);
+
+    if (!logFrozen || wasAtBottom) {
+      wrap.scrollTop = 0; // newest at top since we prepend
+    }
+  } catch(e) {}
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts*1000);
+  return d.getHours().toString().padStart(2,'0')+':'+
+    d.getMinutes().toString().padStart(2,'0')+':'+
+    d.getSeconds().toString().padStart(2,'0');
+}
+
+function clearLogView() {
+  const wrap = document.getElementById('logWrap');
+  // Remove all log rows except the empty msg
+  [...wrap.querySelectorAll('.log-row')].forEach(r => r.remove());
+  document.getElementById('logEmpty').style.display = '';
+  lastLogTs = Math.floor(Date.now()/1000);
+}
+
+// ════════════════════════════════════════════════════════
+// History
+// ════════════════════════════════════════════════════════
 async function loadHistory() {
   const date = document.getElementById('histDate').value;
   if (!date) return;
+  document.getElementById('histTitle').textContent = `Lưu lượng — ${date}`;
   try {
-    const data = await apiFetch('/api/counting/summary?date=' + date);
-    document.getElementById('histTitle').textContent = 'Lưu lượng theo giờ — ' + date;
-    renderHourlyChart('histChart', data);
-
-    const body = document.getElementById('histTableBody');
+    const data = await apiFetch('/api/counting/summary?date='+date);
+    renderBarChart('histChart', data);
+    const body = document.getElementById('histBody');
     if (!data.length) {
-      body.innerHTML = '<tr><td colspan="26" style="text-align:center;color:var(--text-secondary);padding:20px">Không có dữ liệu</td></tr>';
+      body.innerHTML = `<tr><td colspan="26" style="text-align:center;padding:16px;color:var(--text-secondary)">Không có dữ liệu</td></tr>`;
       return;
     }
-
-    // Build hour header
-    document.getElementById('histHourCols').textContent = '';
-    const thead = document.querySelector('#histTable thead tr');
-    // Rebuild header
-    thead.innerHTML = '<th>Camera</th><th>Tổng</th>' +
-      Array.from({length:24}, (_,h) => `<th>${h}h</th>`).join('');
-
-    body.innerHTML = data.map(s => `
-      <tr>
-        <td>${escHtml(s.name || s.cameraId)}</td>
-        <td><strong>${(s.total||0).toLocaleString()}</strong></td>
-        ${(s.hours||new Array(24).fill(0)).map(v =>
-          `<td style="text-align:center">${v || ''}</td>`
-        ).join('')}
-      </tr>
-    `).join('');
-  } catch(e) { console.error('loadHistory', e); }
+    body.innerHTML = data.map(s => `<tr>
+      <td>${esc(s.name||s.cameraId)}</td>
+      <td><strong>${(s.total||0).toLocaleString()}</strong></td>
+      ${(s.hours||new Array(24).fill(0)).map(v=>`<td style="text-align:center;font-size:.75rem">${v||''}</td>`).join('')}
+    </tr>`).join('');
+  } catch(e) {}
 }
 
-// ── Controls ──────────────────────────────────────────────────────
-async function startAll() {
-  await apiFetch('/api/counting/start', { method: 'POST' });
-  await poll();
-}
-async function stopAll() {
-  await apiFetch('/api/counting/stop', { method: 'POST' });
-  await poll();
-}
-async function startCam(id) {
-  await apiFetch('/api/counting/start?id=' + id, { method: 'POST' });
-  await poll();
-}
-async function stopCam(id) {
-  await apiFetch('/api/counting/stop?id=' + id, { method: 'POST' });
-  await poll();
-}
-async function deleteCam(id) {
+// ════════════════════════════════════════════════════════
+// Controls
+// ════════════════════════════════════════════════════════
+async function startAll() { await apiFetch('/api/counting/start',{method:'POST'}); await poll(); }
+async function stopAll()  { await apiFetch('/api/counting/stop', {method:'POST'}); await poll(); }
+async function startCam(id) { await apiFetch('/api/counting/start?id='+id,{method:'POST'}); await poll(); }
+async function stopCam(id)  { await apiFetch('/api/counting/stop?id='+id, {method:'POST'}); await poll(); }
+async function delCam(id) {
   if (!confirm('Xoá camera này?')) return;
-  await apiFetch('/api/counting/cameras?id=' + id, { method: 'DELETE' });
+  await apiFetch('/api/counting/cameras?id='+id,{method:'DELETE'});
   await poll();
 }
 
-// ── Save settings ─────────────────────────────────────────────────
-async function saveSettings() {
-  const newCfg = {
-    ...currentCfg,
-    defaultFps:    parseFloat(document.getElementById('cfgFps').value),
-    threshold:     parseFloat(document.getElementById('cfgThresh').value),
-    learningRate:  parseFloat(document.getElementById('cfgLr').value),
-    frameWidth:    parseInt(document.getElementById('cfgFw').value),
-    blobMinArea:   parseInt(document.getElementById('cfgBlobMin').value),
-    blobMaxArea:   parseInt(document.getElementById('cfgBlobMax').value),
-    storage: {
-      ...currentCfg.storage,
-      retentionDays: parseInt(document.getElementById('cfgRetention').value),
-    }
-  };
+// ════════════════════════════════════════════════════════
+// Modal — Step 1: Stream picker
+// ════════════════════════════════════════════════════════
+async function openAddModal() {
+  editId = null;
+  document.getElementById('mTitle').textContent = 'Thêm Camera đếm';
+  document.getElementById('mName').value = '';
+  document.getElementById('mErr').textContent = '';
+  showStep(1);
+  document.getElementById('modalOverlay').classList.add('open');
+
+  // Load streams
   try {
-    currentCfg = await apiFetch('/api/counting/config', {
-      method: 'PUT',
-      body: JSON.stringify(newCfg)
-    });
-    const msg = document.getElementById('cfgMsg');
-    msg.textContent = '✓ Đã lưu';
-    setTimeout(() => msg.textContent = '', 2500);
+    const streamsMap = await apiFetch('/api/streams');
+    allStreams = Object.keys(streamsMap).sort();
+    renderStreamList(allStreams);
   } catch(e) {
-    document.getElementById('cfgMsg').textContent = '✗ ' + e.message;
+    document.getElementById('streamList').innerHTML =
+      `<div style="padding:12px;color:#dc2626;font-size:.8rem">Lỗi tải streams: ${e.message}</div>`;
   }
 }
 
-// ── Modal ─────────────────────────────────────────────────────────
-function openAddModal() {
-  editingId = null;
-  document.getElementById('modalTitle').textContent = 'Thêm Camera';
-  document.getElementById('editId').value = '';
-  document.getElementById('mName').value = '';
-  document.getElementById('mStream').value = '';
-  document.getElementById('mLine').value = '0.5';
+function filterStreams() {
+  const q = document.getElementById('streamSearch').value.toLowerCase();
+  renderStreamList(allStreams.filter(s => s.toLowerCase().includes(q)));
+}
+
+function renderStreamList(streams) {
+  const existing = new Set((cfg.cameras||[]).map(c=>c.streamName));
+  if (!streams.length) {
+    document.getElementById('streamList').innerHTML =
+      `<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:.8rem">Không tìm thấy stream</div>`;
+    return;
+  }
+  document.getElementById('streamList').innerHTML = streams.map(s => {
+    const used = existing.has(s);
+    return `<label class="stream-item" style="${used?'opacity:.5':''}">
+      <input type="radio" name="streamPick" value="${esc(s)}" ${used?'disabled':''}>
+      <span class="sname">${esc(s)}</span>
+      ${used ? '<span style="font-size:.7rem;color:#9ca3af">(đã thêm)</span>' : ''}
+    </label>`;
+  }).join('');
+}
+
+function getSelectedStream() {
+  const r = document.querySelector('input[name=streamPick]:checked');
+  return r ? r.value : null;
+}
+
+function goStep2() {
+  const stream = getSelectedStream();
+  if (!stream) {
+    document.getElementById('mErr').textContent = 'Vui lòng chọn một stream.';
+    return;
+  }
+  document.getElementById('mErr').textContent = '';
+  document.getElementById('s2Stream').textContent = stream;
+  document.getElementById('mLine').value = '0.50';
+  document.getElementById('linePosVal').textContent = '0.50';
   document.getElementById('mAxis').value = 'h';
-  document.getElementById('mFps').value = '0';
-  document.getElementById('mTier').value = '1';
-  document.getElementById('mEnabled').checked = true;
-  document.getElementById('modalErr').textContent = '';
-  document.getElementById('camModal').classList.add('open');
+  showStep(2);
+  refreshPreview();
 }
 
-function editCam(id) {
-  const cfg = (currentCfg.cameras || []).find(c => c.id === id);
-  if (!cfg) return;
-  editingId = id;
-  document.getElementById('modalTitle').textContent = 'Sửa Camera';
-  document.getElementById('editId').value  = id;
-  document.getElementById('mName').value   = cfg.name || '';
-  document.getElementById('mStream').value = cfg.streamName || '';
-  document.getElementById('mLine').value   = cfg.linePos ?? 0.5;
-  document.getElementById('mAxis').value   = cfg.lineAxis || 'h';
-  document.getElementById('mFps').value    = cfg.fps ?? 0;
-  document.getElementById('mTier').value   = cfg.tier ?? 1;
-  document.getElementById('mEnabled').checked = cfg.enabled !== false;
-  document.getElementById('modalErr').textContent = '';
-  document.getElementById('camModal').classList.add('open');
+function goStep1() { showStep(1); }
+function showStep(n) {
+  document.getElementById('step1').style.display = n===1 ? '' : 'none';
+  document.getElementById('step2').style.display = n===2 ? '' : 'none';
 }
 
-function closeModal() {
-  document.getElementById('camModal').classList.remove('open');
+// ════════════════════════════════════════════════════════
+// Modal — Step 2: Canvas preview
+// ════════════════════════════════════════════════════════
+let previewImg = null;
+
+async function refreshPreview() {
+  const stream = document.getElementById('s2Stream').textContent;
+  if (!stream) return;
+  const token = localStorage.getItem('go2rtc_token')||'';
+  const url = `/api/frame.jpeg?src=${encodeURIComponent(stream)}&width=480&_=${Date.now()}&token=${token}`;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { previewImg = img; drawPreview(); };
+  img.onerror = () => {
+    // Show placeholder
+    const canvas = document.getElementById('previewCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 320; canvas.height = 180;
+    ctx.fillStyle = '#1f2937';
+    ctx.fillRect(0,0,320,180);
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Không lấy được frame từ camera', 160, 90);
+    previewImg = null;
+  };
+  img.src = url;
 }
 
+function drawPreview() {
+  const canvas = document.getElementById('previewCanvas');
+  const ctx    = canvas.getContext('2d');
+  const pos    = parseFloat(document.getElementById('mLine').value);
+  const axis   = document.getElementById('mAxis').value;
+
+  if (previewImg) {
+    canvas.width  = previewImg.naturalWidth;
+    canvas.height = previewImg.naturalHeight;
+    ctx.drawImage(previewImg, 0, 0);
+  } else {
+    if (!canvas.width) { canvas.width=320; canvas.height=180; }
+    ctx.fillStyle = '#1f2937';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+
+  const W = canvas.width, H = canvas.height;
+
+  // Counting line
+  ctx.save();
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth   = Math.max(2, W/160);
+  ctx.setLineDash([12,6]);
+  ctx.shadowColor = 'rgba(0,0,0,.6)';
+  ctx.shadowBlur  = 4;
+  ctx.beginPath();
+  if (axis === 'h') {
+    const y = H * pos;
+    ctx.moveTo(0, y); ctx.lineTo(W, y);
+  } else {
+    const x = W * pos;
+    ctx.moveTo(x, 0); ctx.lineTo(x, H);
+  }
+  ctx.stroke();
+
+  // Arrow indicators
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ef4444';
+  ctx.font = `bold ${Math.max(12, W/26)}px sans-serif`;
+  ctx.textAlign = 'center';
+  if (axis === 'h') {
+    const y = H * pos;
+    ctx.fillText('▼', W*0.05, y-6);
+    ctx.fillText('▲', W*0.95, y+14);
+  } else {
+    const x = W * pos;
+    ctx.fillText('▶', x+8, H*0.05);
+    ctx.fillText('◀', x-8, H*0.95);
+  }
+
+  // Position label
+  ctx.fillStyle = 'rgba(0,0,0,.65)';
+  ctx.fillRect(W/2-28, 4, 56, 18);
+  ctx.fillStyle = '#fff';
+  ctx.font = `${Math.max(10,W/40)}px monospace`;
+  ctx.fillText(pos.toFixed(2), W/2, 16);
+  ctx.restore();
+}
+
+function linePosChanged(val) {
+  document.getElementById('linePosVal').textContent = parseFloat(val).toFixed(2);
+  drawPreview();
+}
+
+function dragLine(e) {
+  const canvas = document.getElementById('previewCanvas');
+  const rect   = canvas.getBoundingClientRect();
+  const axis   = document.getElementById('mAxis').value;
+  let pos;
+  if (axis === 'h') {
+    pos = (e.clientY - rect.top) / rect.height;
+  } else {
+    pos = (e.clientX - rect.left) / rect.width;
+  }
+  pos = Math.max(0.05, Math.min(0.95, pos));
+  document.getElementById('mLine').value = pos.toFixed(2);
+  document.getElementById('linePosVal').textContent = pos.toFixed(2);
+  drawPreview();
+}
+
+// ════════════════════════════════════════════════════════
+// Save camera
+// ════════════════════════════════════════════════════════
 async function saveCamera() {
+  const stream = document.getElementById('s2Stream').textContent;
+  const name   = document.getElementById('mName').value.trim() || stream;
   const cam = {
-    id:         editingId || '',
-    name:       document.getElementById('mName').value.trim(),
-    streamName: document.getElementById('mStream').value.trim(),
+    id:         editId || '',
+    name,
+    streamName: stream,
     linePos:    parseFloat(document.getElementById('mLine').value),
     lineAxis:   document.getElementById('mAxis').value,
     fps:        parseFloat(document.getElementById('mFps').value),
     tier:       parseInt(document.getElementById('mTier').value),
     enabled:    document.getElementById('mEnabled').checked,
   };
-  if (!cam.streamName) {
-    document.getElementById('modalErr').textContent = 'Vui lòng nhập Stream Name';
-    return;
-  }
   try {
-    if (editingId) {
-      await apiFetch('/api/counting/cameras', { method: 'PUT', body: JSON.stringify(cam) });
+    if (editId) {
+      await apiFetch('/api/counting/cameras',{method:'PUT', body:JSON.stringify(cam)});
     } else {
-      await apiFetch('/api/counting/cameras', { method: 'POST', body: JSON.stringify(cam) });
+      await apiFetch('/api/counting/cameras',{method:'POST', body:JSON.stringify(cam)});
     }
     closeModal();
     await loadConfig();
     await poll();
   } catch(e) {
-    document.getElementById('modalErr').textContent = e.message;
+    document.getElementById('mErr').textContent = e.message;
   }
 }
 
-// ── Utils ─────────────────────────────────────────────────────────
-function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// Edit existing camera
+async function editCam(id) {
+  const cam = (cfg.cameras||[]).find(c=>c.id===id);
+  if (!cam) return;
+  editId = id;
+  document.getElementById('mTitle').textContent = 'Sửa Camera: '+esc(cam.name||cam.id);
+  document.getElementById('mName').value  = cam.name||'';
+  document.getElementById('mLine').value  = cam.linePos ?? 0.5;
+  document.getElementById('linePosVal').textContent = (cam.linePos ?? 0.5).toFixed(2);
+  document.getElementById('mAxis').value  = cam.lineAxis||'h';
+  document.getElementById('mFps').value   = cam.fps ?? 0;
+  document.getElementById('mTier').value  = cam.tier ?? 1;
+  document.getElementById('mEnabled').checked = cam.enabled !== false;
+  document.getElementById('mErr').textContent = '';
+  document.getElementById('s2Stream').textContent = cam.streamName;
+  showStep(2);
+  document.getElementById('modalOverlay').classList.add('open');
+  refreshPreview();
 }
 
-function openSettings() { showTab('settings', document.querySelectorAll('.tab-btn')[2]); }
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+function overlayClick(e) { if (e.target===document.getElementById('modalOverlay')) closeModal(); }
+
+// ════════════════════════════════════════════════════════
+// Util
+// ════════════════════════════════════════════════════════
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 </script>
 </body>
 </html>

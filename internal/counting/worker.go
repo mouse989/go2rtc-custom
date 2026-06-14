@@ -22,9 +22,12 @@ type CameraWorker struct {
 	store   *dailyStore
 	client  *http.Client
 
-	// live totals (atomic-friendly, protected by Manager.mu)
-	total   int
-	lastErr string
+	// live stats — read under Manager.mu
+	total           int
+	framesProcessed int
+	lastFrameAt     int64  // unix seconds
+	lastErr         string
+	startedAt       int64  // unix seconds
 }
 
 func newCameraWorker(cam CameraConfig, store *dailyStore) *CameraWorker {
@@ -38,12 +41,13 @@ func newCameraWorker(cam CameraConfig, store *dailyStore) *CameraWorker {
 		axis = "h"
 	}
 	return &CameraWorker{
-		cam:     cam,
-		bg:      newBGModel(c.LearningRate, c.Threshold),
-		tracker: newTracker(),
-		counter: &LineCrossCounter{LinePos: lp, LineAxis: axis},
-		store:   store,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		cam:       cam,
+		bg:        newBGModel(c.LearningRate, c.Threshold),
+		tracker:   newTracker(),
+		counter:   &LineCrossCounter{LinePos: lp, LineAxis: axis},
+		store:     store,
+		client:    &http.Client{Timeout: 10 * time.Second},
+		startedAt: time.Now().Unix(),
 	}
 }
 
@@ -68,6 +72,8 @@ func (w *CameraWorker) run(ctx context.Context) {
 				log.Debug().Str("cam", w.cam.ID).Err(err).Msg("[counting] frame error")
 			} else {
 				w.lastErr = ""
+				w.framesProcessed++
+				w.lastFrameAt = time.Now().Unix()
 			}
 		}
 	}
@@ -81,12 +87,10 @@ func (w *CameraWorker) processFrame() error {
 		fw = 320
 	}
 
-	// Fetch frame from go2rtc's own MJPEG keyframe endpoint.
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/frame.jpeg?src=%s&width=%d",
 		api.Port, w.cam.StreamName, fw)
 
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
-	// Internal request — bypass auth
 	req.Header.Set("X-Internal", "counting")
 
 	resp, err := w.client.Do(req)
@@ -116,36 +120,29 @@ func (w *CameraWorker) processFrame() error {
 func (w *CameraWorker) processImage(img image.Image) {
 	c := getConfig()
 
-	// Convert to grayscale
 	gray, fw, fh := toGrayscale(img)
 
-	// Background subtraction
 	mask := w.bg.apply(gray, fw, fh)
 	if mask == nil {
-		return // first frame used for background init
+		return
 	}
 
-	// Morphological opening to reduce noise
 	mask = morphOpen(mask, fw, fh)
-
-	// Blob detection
 	blobs := findBlobs(mask, fw, fh, c.BlobMinArea, c.BlobMaxArea)
-
-	// Tracker update
 	tracks := w.tracker.Update(blobs)
 
-	// Count line crossings
 	n := w.counter.Process(tracks, fw, fh)
 	if n > 0 {
 		w.total += n
+		ev := CountEvent{
+			Timestamp: time.Now().Unix(),
+			CameraID:  w.cam.ID,
+			Name:      w.cam.Name,
+			Count:     n,
+			Total:     w.total,
+		}
+		evRing.add(ev)
 		if c.Storage.Enabled {
-			ev := CountEvent{
-				Timestamp: time.Now().Unix(),
-				CameraID:  w.cam.ID,
-				Name:      w.cam.Name,
-				Count:     n,
-				Total:     w.total,
-			}
 			_ = w.store.append(ev)
 		}
 		log.Debug().Str("cam", w.cam.ID).Int("crossed", n).Int("total", w.total).Msg("[counting]")
