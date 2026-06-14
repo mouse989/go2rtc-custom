@@ -111,6 +111,7 @@ function firstPermittedPage(u) {
     { tab: 'log',       page: '/log.html' },
     { tab: 'config',    page: '/config.html' },
     { tab: 'api_docs',  page: '/api-docs.html' },
+    { tab: 'counting',  page: '/counting.html' },
   ];
   for (const { tab, page } of order) {
     if ((u.tabs || []).includes(tab)) return page;

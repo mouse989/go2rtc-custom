@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đếm Phương tiện</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    .counting-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .counting-header h2 { margin: 0; font-size: 1.1rem; flex: 1; min-width: 160px; }
+    .status-badge {
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .status-badge.running { background: #16a34a22; color: #16a34a; border: 1px solid #16a34a44; }
+    .status-badge.stopped { background: #dc262622; color: #dc2626; border: 1px solid #dc262644; }
+
+    .section { padding: 16px 20px; }
+    .section-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--text-secondary);
+      margin: 0 0 12px;
+    }
+
+    /* Summary cards */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .summary-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      text-align: center;
+    }
+    .summary-card .num {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--accent);
+    }
+    .summary-card .lbl {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    /* Camera table */
+    .cam-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .cam-table th {
+      text-align: left;
+      padding: 7px 10px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .cam-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .cam-table tr:hover td { background: var(--surface2); }
+    .cam-table .run-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .run-dot.on { background: #16a34a; }
+    .run-dot.off { background: #dc2626; }
+    .tier-badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 9px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+    .tier-1 { background: #0ea5e922; color: #0ea5e9; }
+    .tier-2 { background: #f59e0b22; color: #d97706; }
+    .tier-3 { background: #ef444422; color: #dc2626; }
+
+    /* Hourly chart */
+    .chart-wrap {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 90px;
+      margin-top: 8px;
+    }
+    .chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+    .chart-bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+    .chart-bar {
+      width: 100%;
+      background: var(--accent);
+      border-radius: 3px 3px 0 0;
+      min-height: 2px;
+      opacity: 0.85;
+      transition: height 0.3s;
+    }
+    .chart-bar.current { opacity: 1; }
+    .chart-label { font-size: 0.6rem; color: var(--text-secondary); }
+
+    /* Config panel */
+    .cfg-panel {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .cfg-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .cfg-field label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .cfg-field input, .cfg-field select {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 6px 9px;
+      font-size: 0.82rem;
+      color: var(--text);
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      width: 420px;
+      max-width: 96vw;
+    }
+    .modal h3 { margin: 0 0 16px; font-size: 1rem; }
+    .modal-field { margin-bottom: 12px; }
+    .modal-field label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
+    .modal-field input, .modal-field select {
+      width: 100%; box-sizing: border-box;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+    .btn { padding: 7px 14px; border-radius: 6px; font-size: 0.82rem; cursor: pointer; border: none; font-weight: 500; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-ghost:hover { background: var(--surface2); }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { opacity: .88; }
+    .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+    .btn-green { background: #16a34a; color: #fff; }
+    .btn-green:hover { opacity: .88; }
+
+    .err-msg { color: #dc2626; font-size: 0.8rem; margin-top: 8px; }
+    .tabs-inner { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0; padding: 0 20px; }
+    .tab-btn {
+      padding: 10px 16px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      border: none;
+      background: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* Date picker row */
+    .date-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .date-row input[type=date] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 9px;
+      font-size: 0.82rem;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body data-tab-require="counting">
+<div id="app">
+  <header class="counting-header">
+    <h2>🚦 Đếm Lưu lượng Phương tiện</h2>
+    <span id="svcStatus" class="status-badge stopped">Đã dừng</span>
+    <button class="btn btn-green btn-sm" onclick="startAll()">▶ Bắt đầu</button>
+    <button class="btn btn-ghost btn-sm" onclick="stopAll()">⏹ Dừng</button>
+    <button class="btn btn-ghost btn-sm" onclick="openAddModal()">+ Thêm camera</button>
+    <button class="btn btn-ghost btn-sm" onclick="openSettings()">⚙ Cài đặt</button>
+  </header>
+
+  <div class="tabs-inner">
+    <button class="tab-btn active" onclick="showTab('live', this)">Thực time</button>
+    <button class="tab-btn" onclick="showTab('history', this)">Lịch sử</button>
+    <button class="tab-btn" onclick="showTab('settings', this)">Cài đặt</button>
+  </div>
+
+  <!-- ── LIVE TAB ── -->
+  <div id="tab-live">
+    <div class="section">
+      <div class="summary-grid" id="summaryCards"></div>
+      <div class="chart-wrap">
+        <div class="section-title">Lưu lượng theo giờ — hôm nay</div>
+        <div class="chart-bars" id="hourlyChart"></div>
+      </div>
+      <div class="section-title">Danh sách Camera</div>
+      <div style="overflow-x:auto">
+        <table class="cam-table">
+          <thead>
+            <tr>
+              <th>Camera</th>
+              <th>Stream</th>
+              <th>Tier</th>
+              <th>Trạng thái</th>
+              <th>Tổng hôm nay</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="camTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HISTORY TAB ── -->
+  <div id="tab-history" style="display:none">
+    <div class="section">
+      <div class="date-row">
+        <label style="font-size:0.82rem;color:var(--text-secondary)">Ngày:</label>
+        <input type="date" id="histDate" onchange="loadHistory()">
+        <button class="btn btn-ghost btn-sm" onclick="loadHistory()">Xem</button>
+      </div>
+      <div class="chart-wrap">
+        <div class="section-title" id="histTitle">Lưu lượng theo giờ</div>
+        <div class="chart-bars" id="histChart"></div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="cam-table" id="histTable">
+          <thead>
+            <tr>
+              <th>Camera</th>
+              <th>Tổng ngày</th>
+              <th id="histHourCols"></th>
+            </tr>
+          </thead>
+          <tbody id="histTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SETTINGS TAB ── -->
+  <div id="tab-settings" style="display:none">
+    <div class="section">
+      <div class="cfg-panel" id="cfgPanel">
+        <div class="section-title">Tham số xử lý (MOG2)</div>
+        <div class="cfg-grid">
+          <div class="cfg-field">
+            <label>FPS xử lý mặc định (1-5)</label>
+            <input type="number" id="cfgFps" min="0.5" max="5" step="0.5">
+          </div>
+          <div class="cfg-field">
+            <label>Ngưỡng nền (threshold)</label>
+            <input type="number" id="cfgThresh" min="5" max="100">
+          </div>
+          <div class="cfg-field">
+            <label>Tốc độ học nền (learningRate)</label>
+            <input type="number" id="cfgLr" min="0.001" max="0.1" step="0.001">
+          </div>
+          <div class="cfg-field">
+            <label>Chiều rộng frame (px)</label>
+            <input type="number" id="cfgFw" min="160" max="640" step="80">
+          </div>
+          <div class="cfg-field">
+            <label>Blob min area (px²)</label>
+            <input type="number" id="cfgBlobMin" min="50" max="5000">
+          </div>
+          <div class="cfg-field">
+            <label>Blob max area (px²)</label>
+            <input type="number" id="cfgBlobMax" min="1000" max="100000">
+          </div>
+          <div class="cfg-field">
+            <label>Lưu dữ liệu (ngày)</label>
+            <input type="number" id="cfgRetention" min="1" max="365">
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <button class="btn btn-primary btn-sm" onclick="saveSettings()">Lưu cài đặt</button>
+          <span id="cfgMsg" style="margin-left:10px;font-size:0.8rem;color:var(--accent)"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Camera Modal -->
+<div class="modal-backdrop" id="camModal">
+  <div class="modal">
+    <h3 id="modalTitle">Thêm Camera</h3>
+    <input type="hidden" id="editId">
+    <div class="modal-field">
+      <label>Tên hiển thị</label>
+      <input type="text" id="mName" placeholder="VD: Ngã tư Lý Thường Kiệt">
+    </div>
+    <div class="modal-field">
+      <label>Stream Name (go2rtc)</label>
+      <input type="text" id="mStream" placeholder="VD: camera_001">
+    </div>
+    <div class="modal-field">
+      <label>Vị trí đường đếm (0.0 – 1.0)</label>
+      <input type="number" id="mLine" value="0.5" min="0.1" max="0.9" step="0.05">
+    </div>
+    <div class="modal-field">
+      <label>Trục đường đếm</label>
+      <select id="mAxis">
+        <option value="h">Ngang (horizontal)</option>
+        <option value="v">Dọc (vertical)</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>FPS xử lý (0 = dùng mặc định)</label>
+      <input type="number" id="mFps" value="0" min="0" max="5" step="0.5">
+    </div>
+    <div class="modal-field">
+      <label>Tier</label>
+      <select id="mTier">
+        <option value="1">1 — Thường</option>
+        <option value="2">2 — Quan trọng</option>
+        <option value="3">3 — Trọng điểm</option>
+      </select>
+    </div>
+    <div class="modal-field" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="mEnabled" checked>
+      <label for="mEnabled" style="margin:0">Bật counting</label>
+    </div>
+    <div id="modalErr" class="err-msg"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
+      <button class="btn btn-primary" onclick="saveCamera()">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+let statuses = [];
+let currentCfg = {};
+let pollTimer = null;
+let editingId = null;
+
+// ── Init ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('histDate').value = today;
+  await loadConfig();
+  await poll();
+  await loadTodaySummary();
+  pollTimer = setInterval(async () => {
+    await poll();
+    await loadTodaySummary();
+  }, 5000);
+});
+
+// ── Tabs ──────────────────────────────────────────────────────────
+function showTab(name, btn) {
+  ['live', 'history', 'settings'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = (t === name) ? '' : 'none';
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (name === 'history') loadHistory();
+}
+
+// ── API helpers ───────────────────────────────────────────────────
+async function apiFetch(path, opts) {
+  const token = localStorage.getItem('go2rtc_token') || '';
+  const res = await fetch(path, {
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(opts?.headers || {}) },
+    ...opts
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ── Load Config ───────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    currentCfg = await apiFetch('/api/counting/config');
+    document.getElementById('cfgFps').value     = currentCfg.defaultFps ?? 2.5;
+    document.getElementById('cfgThresh').value  = currentCfg.threshold ?? 28;
+    document.getElementById('cfgLr').value      = currentCfg.learningRate ?? 0.005;
+    document.getElementById('cfgFw').value      = currentCfg.frameWidth ?? 320;
+    document.getElementById('cfgBlobMin').value = currentCfg.blobMinArea ?? 200;
+    document.getElementById('cfgBlobMax').value = currentCfg.blobMaxArea ?? 30000;
+    document.getElementById('cfgRetention').value = currentCfg.storage?.retentionDays ?? 30;
+  } catch(e) { console.error('loadConfig', e); }
+}
+
+// ── Poll status ───────────────────────────────────────────────────
+async function poll() {
+  try {
+    const st = await apiFetch('/api/counting/status');
+    statuses = st.cameras || [];
+    const isRunning = st.running;
+
+    const badge = document.getElementById('svcStatus');
+    badge.textContent = isRunning ? 'Đang chạy' : 'Đã dừng';
+    badge.className = 'status-badge ' + (isRunning ? 'running' : 'stopped');
+
+    renderCamTable();
+    renderSummaryCards();
+  } catch(e) { console.error('poll', e); }
+}
+
+// ── Summary cards ─────────────────────────────────────────────────
+function renderSummaryCards() {
+  const totalAll  = statuses.reduce((s, c) => s + (c.total || 0), 0);
+  const running   = statuses.filter(c => c.running).length;
+  const stopped   = statuses.filter(c => !c.running).length;
+
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="summary-card">
+      <div class="num">${totalAll.toLocaleString()}</div>
+      <div class="lbl">Tổng lượt hôm nay</div>
+    </div>
+    <div class="summary-card">
+      <div class="num">${statuses.length}</div>
+      <div class="lbl">Camera cấu hình</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#16a34a">${running}</div>
+      <div class="lbl">Đang đếm</div>
+    </div>
+    <div class="summary-card">
+      <div class="num" style="color:#dc2626">${stopped}</div>
+      <div class="lbl">Đã dừng</div>
+    </div>
+  `;
+}
+
+// ── Camera table ──────────────────────────────────────────────────
+function renderCamTable() {
+  const body = document.getElementById('camTableBody');
+  if (!statuses.length) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);padding:24px">Chưa có camera nào. Nhấn "+ Thêm camera" để bắt đầu.</td></tr>';
+    return;
+  }
+  body.innerHTML = statuses.map(c => `
+    <tr>
+      <td>
+        <span class="run-dot ${c.running ? 'on' : 'off'}"></span>
+        ${escHtml(c.name || c.id)}
+      </td>
+      <td><code style="font-size:0.78rem">${escHtml(c.streamName)}</code></td>
+      <td><span class="tier-badge tier-${c.tier || 1}">T${c.tier || 1}</span></td>
+      <td>${c.running
+        ? '<span style="color:#16a34a;font-size:0.8rem">● Đang chạy</span>'
+        : (c.lastErr
+            ? `<span style="color:#dc2626;font-size:0.78rem" title="${escHtml(c.lastErr)}">✗ Lỗi</span>`
+            : '<span style="color:var(--text-secondary);font-size:0.8rem">○ Dừng</span>')
+      }</td>
+      <td><strong>${(c.total || 0).toLocaleString()}</strong></td>
+      <td style="white-space:nowrap">
+        ${c.running
+          ? `<button class="btn btn-ghost btn-sm" onclick="stopCam('${c.id}')">⏹</button>`
+          : `<button class="btn btn-green btn-sm" onclick="startCam('${c.id}')">▶</button>`
+        }
+        <button class="btn btn-ghost btn-sm" onclick="editCam('${c.id}')">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCam('${c.id}')">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── Hourly chart ──────────────────────────────────────────────────
+async function loadTodaySummary() {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const data = await apiFetch('/api/counting/summary?date=' + today);
+    renderHourlyChart('hourlyChart', data, new Date().getHours());
+  } catch(e) {}
+}
+
+function renderHourlyChart(elemId, summaries, currentHour = -1) {
+  const el = document.getElementById(elemId);
+  if (!el) return;
+
+  // Aggregate all cameras
+  const hours = new Array(24).fill(0);
+  (summaries || []).forEach(s => {
+    (s.hours || []).forEach((v, h) => { hours[h] += v; });
+  });
+
+  const maxVal = Math.max(...hours, 1);
+  el.innerHTML = hours.map((v, h) => `
+    <div class="chart-col" title="${h}:00 — ${v} xe">
+      <div class="chart-bar-wrap">
+        <div class="chart-bar ${h === currentHour ? 'current' : ''}"
+             style="height:${Math.round((v/maxVal)*80)+4}px"></div>
+      </div>
+      <span class="chart-label">${h}</span>
+    </div>
+  `).join('');
+}
+
+// ── History ───────────────────────────────────────────────────────
+async function loadHistory() {
+  const date = document.getElementById('histDate').value;
+  if (!date) return;
+  try {
+    const data = await apiFetch('/api/counting/summary?date=' + date);
+    document.getElementById('histTitle').textContent = 'Lưu lượng theo giờ — ' + date;
+    renderHourlyChart('histChart', data);
+
+    const body = document.getElementById('histTableBody');
+    if (!data.length) {
+      body.innerHTML = '<tr><td colspan="26" style="text-align:center;color:var(--text-secondary);padding:20px">Không có dữ liệu</td></tr>';
+      return;
+    }
+
+    // Build hour header
+    document.getElementById('histHourCols').textContent = '';
+    const thead = document.querySelector('#histTable thead tr');
+    // Rebuild header
+    thead.innerHTML = '<th>Camera</th><th>Tổng</th>' +
+      Array.from({length:24}, (_,h) => `<th>${h}h</th>`).join('');
+
+    body.innerHTML = data.map(s => `
+      <tr>
+        <td>${escHtml(s.name || s.cameraId)}</td>
+        <td><strong>${(s.total||0).toLocaleString()}</strong></td>
+        ${(s.hours||new Array(24).fill(0)).map(v =>
+          `<td style="text-align:center">${v || ''}</td>`
+        ).join('')}
+      </tr>
+    `).join('');
+  } catch(e) { console.error('loadHistory', e); }
+}
+
+// ── Controls ──────────────────────────────────────────────────────
+async function startAll() {
+  await apiFetch('/api/counting/start', { method: 'POST' });
+  await poll();
+}
+async function stopAll() {
+  await apiFetch('/api/counting/stop', { method: 'POST' });
+  await poll();
+}
+async function startCam(id) {
+  await apiFetch('/api/counting/start?id=' + id, { method: 'POST' });
+  await poll();
+}
+async function stopCam(id) {
+  await apiFetch('/api/counting/stop?id=' + id, { method: 'POST' });
+  await poll();
+}
+async function deleteCam(id) {
+  if (!confirm('Xoá camera này?')) return;
+  await apiFetch('/api/counting/cameras?id=' + id, { method: 'DELETE' });
+  await poll();
+}
+
+// ── Save settings ─────────────────────────────────────────────────
+async function saveSettings() {
+  const newCfg = {
+    ...currentCfg,
+    defaultFps:    parseFloat(document.getElementById('cfgFps').value),
+    threshold:     parseFloat(document.getElementById('cfgThresh').value),
+    learningRate:  parseFloat(document.getElementById('cfgLr').value),
+    frameWidth:    parseInt(document.getElementById('cfgFw').value),
+    blobMinArea:   parseInt(document.getElementById('cfgBlobMin').value),
+    blobMaxArea:   parseInt(document.getElementById('cfgBlobMax').value),
+    storage: {
+      ...currentCfg.storage,
+      retentionDays: parseInt(document.getElementById('cfgRetention').value),
+    }
+  };
+  try {
+    currentCfg = await apiFetch('/api/counting/config', {
+      method: 'PUT',
+      body: JSON.stringify(newCfg)
+    });
+    const msg = document.getElementById('cfgMsg');
+    msg.textContent = '✓ Đã lưu';
+    setTimeout(() => msg.textContent = '', 2500);
+  } catch(e) {
+    document.getElementById('cfgMsg').textContent = '✗ ' + e.message;
+  }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Thêm Camera';
+  document.getElementById('editId').value = '';
+  document.getElementById('mName').value = '';
+  document.getElementById('mStream').value = '';
+  document.getElementById('mLine').value = '0.5';
+  document.getElementById('mAxis').value = 'h';
+  document.getElementById('mFps').value = '0';
+  document.getElementById('mTier').value = '1';
+  document.getElementById('mEnabled').checked = true;
+  document.getElementById('modalErr').textContent = '';
+  document.getElementById('camModal').classList.add('open');
+}
+
+function editCam(id) {
+  const cfg = (currentCfg.cameras || []).find(c => c.id === id);
+  if (!cfg) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Sửa Camera';
+  document.getElementById('editId').value  = id;
+  document.getElementById('mName').value   = cfg.name || '';
+  document.getElementById('mStream').value = cfg.streamName || '';
+  document.getElementById('mLine').value   = cfg.linePos ?? 0.5;
+  document.getElementById('mAxis').value   = cfg.lineAxis || 'h';
+  document.getElementById('mFps').value    = cfg.fps ?? 0;
+  document.getElementById('mTier').value   = cfg.tier ?? 1;
+  document.getElementById('mEnabled').checked = cfg.enabled !== false;
+  document.getElementById('modalErr').textContent = '';
+  document.getElementById('camModal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('camModal').classList.remove('open');
+}
+
+async function saveCamera() {
+  const cam = {
+    id:         editingId || '',
+    name:       document.getElementById('mName').value.trim(),
+    streamName: document.getElementById('mStream').value.trim(),
+    linePos:    parseFloat(document.getElementById('mLine').value),
+    lineAxis:   document.getElementById('mAxis').value,
+    fps:        parseFloat(document.getElementById('mFps').value),
+    tier:       parseInt(document.getElementById('mTier').value),
+    enabled:    document.getElementById('mEnabled').checked,
+  };
+  if (!cam.streamName) {
+    document.getElementById('modalErr').textContent = 'Vui lòng nhập Stream Name';
+    return;
+  }
+  try {
+    if (editingId) {
+      await apiFetch('/api/counting/cameras', { method: 'PUT', body: JSON.stringify(cam) });
+    } else {
+      await apiFetch('/api/counting/cameras', { method: 'POST', body: JSON.stringify(cam) });
+    }
+    closeModal();
+    await loadConfig();
+    await poll();
+  } catch(e) {
+    document.getElementById('modalErr').textContent = e.message;
+  }
+}
+
+// ── Utils ─────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function openSettings() { showTab('settings', document.querySelectorAll('.tab-btn')[2]); }
+</script>
+</body>
+</html>
