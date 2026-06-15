@@ -36,11 +36,19 @@ type CameraConfig struct {
 	ID         string  `json:"id"`
 	StreamName string  `json:"streamName"` // go2rtc stream name
 	Name       string  `json:"name"`       // display name
-	FPS        float64 `json:"fps"`        // 0 = use Config.DefaultFPS
-	LinePos    float64 `json:"linePos"`    // 0.0-1.0, relative crossing line position
-	LineAxis   string  `json:"lineAxis"`   // "h" (horizontal) or "v" (vertical)
+	FPS        float64 `json:"fps"`        // 0 = use Config.DefaultFPS; tier applies multiplier
+	LineHPos   float64 `json:"lineHPos"`   // horizontal line Y position 0.01-0.99 (0=disabled)
+	LineVPos   float64 `json:"lineVPos"`   // vertical line X position 0.01-0.99 (0=disabled)
+	CountDown  bool    `json:"countDown"`  // count objects crossing H-line top→bottom
+	CountUp    bool    `json:"countUp"`    // count objects crossing H-line bottom→top
+	CountRight bool    `json:"countRight"` // count objects crossing V-line left→right
+	CountLeft  bool    `json:"countLeft"`  // count objects crossing V-line right→left
 	Enabled    bool    `json:"enabled"`
-	Tier       int     `json:"tier"` // 1=normal, 2=important, 3=critical
+	// Tier controls processing FPS relative to camera FPS setting:
+	//   1 = full FPS (high-traffic road)
+	//   2 = half FPS (medium traffic)
+	//   3 = quarter FPS (low traffic / backup)
+	Tier int `json:"tier"`
 }
 
 // StorageConfig holds data retention settings.

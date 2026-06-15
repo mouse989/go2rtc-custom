@@ -14,7 +14,8 @@ type Track struct {
 	PrevX    float64
 	PrevY    float64
 	Missed   int  // consecutive frames without a matching detection
-	Crossed  bool // true once the vehicle has been counted crossing the line
+	CrossedH bool // counted crossing the horizontal line
+	CrossedV bool // counted crossing the vertical line
 }
 
 // Tracker maintains vehicle identities across frames using nearest-centroid matching.

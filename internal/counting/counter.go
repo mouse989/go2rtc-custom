@@ -1,37 +1,58 @@
 package counting
 
-// LineCrossCounter detects when tracked vehicles cross a virtual line.
-// For horizontal lines (axis="h"): counts when a track crosses linePos*frameHeight on the Y axis.
-// For vertical lines   (axis="v"): counts when a track crosses linePos*frameWidth  on the X axis.
-type LineCrossCounter struct {
-	LinePos  float64 // 0.0-1.0
-	LineAxis string  // "h" or "v"
-	Total    int
+// CrossResult holds per-direction crossing counts from one frame.
+type CrossResult struct {
+	Down  int // top → bottom (horizontal line)
+	Up    int // bottom → top (horizontal line)
+	Right int // left → right (vertical line)
+	Left  int // right → left (vertical line)
+	Total int
 }
 
-// Process checks all active tracks for line crossings and returns the number of new crossings.
-func (c *LineCrossCounter) Process(tracks []*Track, frameW, frameH int) int {
-	n := 0
+// LineCrossCounter detects directional vehicle crossings over one or two virtual lines.
+// LineHPos controls a horizontal line (detects CountDown / CountUp).
+// LineVPos controls a vertical line (detects CountRight / CountLeft).
+// A position of 0 means that line is disabled.
+type LineCrossCounter struct {
+	LineHPos   float64
+	LineVPos   float64
+	CountDown  bool
+	CountUp    bool
+	CountRight bool
+	CountLeft  bool
+}
+
+// Process checks all active tracks for line crossings and returns per-direction counts.
+func (c *LineCrossCounter) Process(tracks []*Track, frameW, frameH int) CrossResult {
+	var res CrossResult
 	for _, tr := range tracks {
-		if tr.Crossed || tr.Missed > 0 {
+		if tr.Missed > 0 {
 			continue
 		}
-		crossed := false
-		if c.LineAxis == "v" {
-			line := c.LinePos * float64(frameW)
-			crossed = (tr.PrevX < line && tr.X >= line) ||
-				(tr.PrevX > line && tr.X <= line)
-		} else {
-			// default: horizontal
-			line := c.LinePos * float64(frameH)
-			crossed = (tr.PrevY < line && tr.Y >= line) ||
-				(tr.PrevY > line && tr.Y <= line)
+		if c.LineHPos > 0 && (c.CountDown || c.CountUp) && !tr.CrossedH {
+			line := c.LineHPos * float64(frameH)
+			if c.CountDown && tr.PrevY < line && tr.Y >= line {
+				tr.CrossedH = true
+				res.Down++
+				res.Total++
+			} else if c.CountUp && tr.PrevY > line && tr.Y <= line {
+				tr.CrossedH = true
+				res.Up++
+				res.Total++
+			}
 		}
-		if crossed {
-			tr.Crossed = true
-			c.Total++
-			n++
+		if c.LineVPos > 0 && (c.CountRight || c.CountLeft) && !tr.CrossedV {
+			line := c.LineVPos * float64(frameW)
+			if c.CountRight && tr.PrevX < line && tr.X >= line {
+				tr.CrossedV = true
+				res.Right++
+				res.Total++
+			} else if c.CountLeft && tr.PrevX > line && tr.X <= line {
+				tr.CrossedV = true
+				res.Left++
+				res.Total++
+			}
 		}
 	}
-	return n
+	return res
 }

@@ -194,9 +194,9 @@ var getStreamNames func() []string
 
 func SetStreamNamesProvider(f func() []string) { getStreamNames = f }
 
-// snapshotFilePath returns the .jpg path for a camera.
+// SnapshotFilePath returns the .jpg path for a camera snapshot on disk.
 // Non [a-zA-Z0-9_-] bytes are replaced with '_' for filesystem safety.
-func snapshotFilePath(streamName string) string {
+func SnapshotFilePath(streamName string) string {
 	var b strings.Builder
 	for _, c := range []byte(streamName) {
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
@@ -211,7 +211,7 @@ func snapshotFilePath(streamName string) string {
 
 // writeSnapshotToDisk atomically saves JPEG data via temp→rename.
 func writeSnapshotToDisk(streamName string, data []byte) error {
-	path := snapshotFilePath(streamName)
+	path := SnapshotFilePath(streamName)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
@@ -397,7 +397,7 @@ func snapshotScheduler() {
 				} else {
 					recordHealth(name, false)
 					log.Debug().Err(err).Str("stream", name).Msg("[snapshot] fetch failed")
-					if _, statErr := os.Stat(snapshotFilePath(name)); os.IsNotExist(statErr) {
+					if _, statErr := os.Stat(SnapshotFilePath(name)); os.IsNotExist(statErr) {
 						writeSnapshotToDisk(name, placeholderJPEG)
 					}
 				}
@@ -511,7 +511,7 @@ func proxyFrameHandler(w http.ResponseWriter, r *http.Request) {
 	recordSnapshotAccess(addr, streamName, ua)
 
 	// Fast path: serve from disk (worker keeps this fresh every 5 s).
-	path := snapshotFilePath(streamName)
+	path := SnapshotFilePath(streamName)
 	if f, fi, err := openSnapshot(path); err == nil {
 		defer f.Close()
 		w.Header().Set("X-Frame-Cache", "HIT")

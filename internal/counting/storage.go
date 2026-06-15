@@ -13,8 +13,9 @@ type CountEvent struct {
 	Timestamp int64  `json:"ts"`
 	CameraID  string `json:"cameraId"`
 	Name      string `json:"name"`
-	Count     int    `json:"count"` // crossings in this event
-	Total     int    `json:"total"` // cumulative total for today
+	Count     int    `json:"count"`          // crossings in this event
+	Total     int    `json:"total"`          // cumulative total for this camera today
+	Direction string `json:"dir,omitempty"` // "down" | "up" | "right" | "left"
 }
 
 // dailyRecord aggregates all events for one day.
