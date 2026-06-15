@@ -20,6 +20,7 @@ type CameraWorker struct {
 	// per-direction totals — read under Manager.mu
 	totalDown, totalUp, totalRight, totalLeft int
 	total                                     int
+	totalCar, totalMotorcycle, totalBus, totalTruck int
 	framesProcessed                           int
 	lastFrameAt                               int64 // unix seconds
 	lastErr                                   string
@@ -154,6 +155,10 @@ type yoloStatus struct {
 	TotalUp         int     `json:"totalUp"`
 	TotalRight      int     `json:"totalRight"`
 	TotalLeft       int     `json:"totalLeft"`
+	TotalCar        int     `json:"totalCar"`
+	TotalMotorcycle int     `json:"totalMotorcycle"`
+	TotalBus        int     `json:"totalBus"`
+	TotalTruck      int     `json:"totalTruck"`
 	FramesProcessed int     `json:"framesProcessed"`
 	LastFrameAt     float64 `json:"lastFrameAt"`
 	LastErr         string  `json:"lastErr"`
@@ -191,6 +196,10 @@ func (w *CameraWorker) syncStats() {
 	w.totalUp = st.TotalUp
 	w.totalRight = st.TotalRight
 	w.totalLeft = st.TotalLeft
+	w.totalCar = st.TotalCar
+	w.totalMotorcycle = st.TotalMotorcycle
+	w.totalBus = st.TotalBus
+	w.totalTruck = st.TotalTruck
 	w.framesProcessed = st.FramesProcessed
 	w.lastFrameAt = int64(st.LastFrameAt)
 	if st.LastErr != "" {
@@ -202,12 +211,13 @@ func (w *CameraWorker) syncStats() {
 
 // yoloEvent is one entry from GET /events on the Python service.
 type yoloEvent struct {
-	Ts       float64 `json:"ts"`
-	CameraID string  `json:"cameraId"`
-	Name     string  `json:"name"`
-	Count    int     `json:"count"`
-	Total    int     `json:"total"`
-	Dir      string  `json:"dir"`
+	Ts           float64 `json:"ts"`
+	CameraID     string  `json:"cameraId"`
+	Name         string  `json:"name"`
+	Count        int     `json:"count"`
+	Total        int     `json:"total"`
+	Dir          string  `json:"dir"`
+	VehicleClass string  `json:"vehicleClass"`
 }
 
 // pollEvents fetches new events from the YOLO service since the last seen timestamp.
@@ -238,12 +248,13 @@ func (w *CameraWorker) pollEvents() {
 		}
 
 		ce := CountEvent{
-			Timestamp: ts,
-			CameraID:  ev.CameraID,
-			Name:      ev.Name,
-			Count:     ev.Count,
-			Total:     ev.Total,
-			Direction: ev.Dir,
+			Timestamp:    ts,
+			CameraID:     ev.CameraID,
+			Name:         ev.Name,
+			Count:        ev.Count,
+			Total:        ev.Total,
+			Direction:    ev.Dir,
+			VehicleClass: ev.VehicleClass,
 		}
 		evRing.add(ce)
 		if c.Storage.Enabled {

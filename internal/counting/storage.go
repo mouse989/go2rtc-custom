@@ -15,7 +15,8 @@ type CountEvent struct {
 	Name      string `json:"name"`
 	Count     int    `json:"count"`          // crossings in this event
 	Total     int    `json:"total"`          // cumulative total for this camera today
-	Direction string `json:"dir,omitempty"` // "down" | "up" | "right" | "left"
+	Direction    string `json:"dir,omitempty"`          // "down" | "up" | "right" | "left"
+	VehicleClass string `json:"vehicleClass,omitempty"` // "car" | "motorcycle" | "bus" | "truck"
 }
 
 // dailyRecord aggregates all events for one day.
