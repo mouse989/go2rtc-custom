@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gán nhãn Dataset</title>
   <link rel="stylesheet" href="app.css">
+  <script src="app.js"></script>
   <style>
     .ann-layout { display:flex; height:100%; overflow:hidden; }
     .ann-left { width:200px; flex-shrink:0; border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
@@ -197,13 +198,23 @@
   </div>
 </main>
 
-<script type="module">
+<script>
+// ── API helper ──
+function getToken() { return localStorage.getItem('go2rtc_token') || ''; }
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 // ── app init ──
-const { initApp } = await import('./app.js').catch(() => ({ initApp: async () => {} }));
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp('counting');
   await loadImages();
-  loadCameras();
+  await loadCameras();
 });
 
 // ── class colors ──
@@ -231,8 +242,7 @@ document.getElementById('sidebarToggle')?.addEventListener('click', () => {
 // ── load image list ──
 async function loadImages() {
   try {
-    const r = await fetch('/api/counting/dataset-images');
-    const d = await r.json();
+    const d = await apiFetch('/api/counting/dataset-images');
     images = d.images || [];
     document.getElementById('imgCount').textContent = images.length;
     renderImageList();
@@ -422,12 +432,10 @@ document.getElementById('btnSave').addEventListener('click', async () => {
   const msg = document.getElementById('saveMsg');
   msg.textContent = 'Đang lưu...';
   try {
-    const r = await fetch('/api/counting/dataset-label', {
+    const d = await apiFetch('/api/counting/dataset-label', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: fname, boxes: normalized }),
     });
-    const d = await r.json();
     if (d.ok) {
       msg.textContent = `Đã lưu ${d.boxes} hộp`;
       // Mark as labeled in list
@@ -444,17 +452,18 @@ document.getElementById('btnSave').addEventListener('click', async () => {
 // ── load cameras for collect dropdown ──
 async function loadCameras() {
   try {
-    const r = await fetch('/api/counting/cameras');
-    const cams = await r.json();
+    const cams = await apiFetch('/api/counting/cameras');
     const sel = document.getElementById('collectCam');
-    sel.innerHTML = '';
+    sel.innerHTML = '<option value="">— Chọn camera —</option>';
     (cams || []).forEach(cam => {
       const opt = document.createElement('option');
       opt.value = cam.id || cam.ID;
-      opt.textContent = cam.name || cam.Name || cam.id;
+      opt.textContent = (cam.name || cam.id) + ' (' + (cam.streamName || '') + ')';
       sel.appendChild(opt);
     });
-  } catch (_) {}
+  } catch (e) {
+    document.getElementById('collectMsg').textContent = 'Không tải được danh sách camera: ' + e.message;
+  }
 }
 
 // ── collect frames ──
@@ -465,33 +474,33 @@ document.getElementById('btnCollect').addEventListener('click', async () => {
   const msg = document.getElementById('collectMsg');
   msg.textContent = 'Đang thu thập...';
   try {
-    const r = await fetch(`/api/counting/collect?camera=${encodeURIComponent(camId)}&frames=${frames}`, {
-      method: 'POST',
-    });
-    const d = await r.json();
+    const d = await apiFetch(`/api/counting/collect?camera=${encodeURIComponent(camId)}&frames=${frames}`, { method: 'POST' });
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = `Thu thập ${d.collected} ảnh`;
+    msg.textContent = `✓ Thu thập ${d.collected} ảnh vào dataset/raw/`;
     await loadImages();
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
   }
 });
 
-// ── train ──
+// ── generate dataset.yaml then train ──
 document.getElementById('btnTrain').addEventListener('click', async () => {
   const model = document.getElementById('trainModel').value;
-  const epochs = document.getElementById('trainEpochs').value || '50';
+  const epochs = parseInt(document.getElementById('trainEpochs').value) || 50;
   const msg = document.getElementById('trainMsg');
-  msg.textContent = 'Đang gửi...';
+  msg.textContent = 'Đang tạo dataset.yaml...';
   try {
-    const r = await fetch(`/api/counting/train?model=${encodeURIComponent(model)}&epochs=${epochs}`, {
+    // Step 1: auto-generate dataset.yaml
+    const yaml = await apiFetch('/api/counting/dataset-yaml', { method: 'POST' });
+    if (yaml.error) { msg.textContent = 'Lỗi tạo yaml: ' + yaml.error; return; }
+    msg.textContent = `✓ dataset.yaml (${yaml.labeled} ảnh đã gán nhãn). Đang khởi động train...`;
+    // Step 2: start training
+    const d = await apiFetch('/api/counting/train', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({ model, epochs }),
     });
-    const d = await r.json();
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = d.message || 'Đã bắt đầu';
+    msg.textContent = d.message || '✓ Training bắt đầu (xem log trong console)';
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
   }

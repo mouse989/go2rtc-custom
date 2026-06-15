@@ -29,6 +29,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/dataset-images", handleDatasetImages)
 	api.HandleFunc("api/counting/dataset-image", handleDatasetImage)
 	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
+	api.HandleFunc("api/counting/dataset-yaml", handleDatasetYaml)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -442,6 +443,30 @@ func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Post(yoloURL+"/dataset/label", "application/json", r.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+// POST /api/counting/dataset-yaml
+func handleDatasetYaml(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(yoloURL+"/dataset/yaml", "application/json", nil)
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
