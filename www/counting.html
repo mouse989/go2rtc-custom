@@ -320,10 +320,11 @@
         <div class="form-row">
           <label>Model YOLO</label>
           <select id="sYoloModel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
-            <option value="yolo11n.pt">yolo11n.pt — Nhanh nhất (Nano)</option>
-            <option value="yolo11s.pt">yolo11s.pt — Nhỏ (Small)</option>
-            <option value="yolo11m.pt">yolo11m.pt — Trung bình (Medium)</option>
-            <option value="yolo12n.pt">yolo12n.pt — YOLO12 Nano (mới nhất)</option>
+            <option value="yolo26n.pt">yolo26n.pt — YOLO26 Nano (mới nhất, nhanh nhất)</option>
+            <option value="yolo26s.pt">yolo26s.pt — YOLO26 Small</option>
+            <option value="yolo26m.pt">yolo26m.pt — YOLO26 Medium</option>
+            <option value="yolo11n.pt">yolo11n.pt — YOLO11 Nano</option>
+            <option value="yolo11s.pt">yolo11s.pt — YOLO11 Small</option>
           </select>
         </div>
         <div class="form-row">
@@ -532,7 +533,7 @@ async function loadConfig() {
     cfg = await apiFetch('/api/counting/config');
     document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
     document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
-    document.getElementById('sYoloModel').value = cfg.yoloModel      ?? 'yolo11n.pt';
+    document.getElementById('sYoloModel').value = cfg.yoloModel      ?? 'yolo26n.pt';
     document.getElementById('sFps').value      = cfg.defaultFps      ?? 2.5;
     document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
     document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
