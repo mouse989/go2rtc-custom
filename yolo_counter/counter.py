@@ -612,7 +612,7 @@ def dataset_image(filename: str):
 @app.post("/dataset/yaml")
 def generate_dataset_yaml():
     """Auto-generate dataset.yaml from labeled images in dataset/labels/."""
-    import os
+    import os, sys
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     raw_dir = os.path.join(base, "dataset", "raw")
     label_dir = os.path.join(base, "dataset", "labels")
