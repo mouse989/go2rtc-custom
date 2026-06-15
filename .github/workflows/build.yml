@@ -132,7 +132,7 @@ jobs:
         run: pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
 
       - name: Build yolo_counter.exe
-        run: pyinstaller --onefile --name yolo_counter --exclude-module torchvision --exclude-module torchaudio yolo_counter/counter.py
+        run: pyinstaller --onefile --name yolo_counter yolo_counter/counter.py
 
       - name: Upload yolo_counter_win64
         uses: actions/upload-artifact@v4
