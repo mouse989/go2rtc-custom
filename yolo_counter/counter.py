@@ -191,7 +191,8 @@ class CameraState:
         return max(fps, 0.05)
 
     def _run(self):
-        rtsp_url = f"{_args.rtsp_base}/{self.config.streamName}"
+        from urllib.parse import quote
+        rtsp_url = f"{_args.rtsp_base}/{quote(self.config.streamName, safe='')}"
         logger.info(f"[{self.config.id}] starting RTSP: {rtsp_url}")
 
         cap = None
