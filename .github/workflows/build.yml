@@ -112,3 +112,30 @@ jobs:
         uses: actions/upload-artifact@v4
         with: { name: go2rtc_freebsd_arm64, path: go2rtc }
 
+  build-yolo-win64:
+    name: Build yolo_counter.exe (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install CPU-only PyTorch (lighter build)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install ultralytics, opencv, web stack, PyInstaller
+        run: pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+
+      - name: Build yolo_counter.exe
+        run: pyinstaller --onefile --name yolo_counter --exclude-module torchvision --exclude-module torchaudio --exclude-module matplotlib yolo_counter/counter.py
+
+      - name: Upload yolo_counter_win64
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolo_counter_win64
+          path: dist\yolo_counter.exe

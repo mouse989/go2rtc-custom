@@ -318,6 +318,15 @@
           <input type="number" id="sYoloConf" step="0.05" min="0.1" max="0.9">
         </div>
         <div class="form-row">
+          <label>Model YOLO</label>
+          <select id="sYoloModel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="yolo11n.pt">yolo11n.pt — Nhanh nhất (Nano)</option>
+            <option value="yolo11s.pt">yolo11s.pt — Nhỏ (Small)</option>
+            <option value="yolo11m.pt">yolo11m.pt — Trung bình (Medium)</option>
+            <option value="yolo12n.pt">yolo12n.pt — YOLO12 Nano (mới nhất)</option>
+          </select>
+        </div>
+        <div class="form-row">
           <label>FPS xử lý mặc định</label>
           <input type="number" id="sFps" step="0.5" min="0.2" max="10">
         </div>
@@ -523,6 +532,7 @@ async function loadConfig() {
     cfg = await apiFetch('/api/counting/config');
     document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
     document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
+    document.getElementById('sYoloModel').value = cfg.yoloModel      ?? 'yolo11n.pt';
     document.getElementById('sFps').value      = cfg.defaultFps      ?? 2.5;
     document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
     document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
@@ -534,6 +544,7 @@ async function saveSettings() {
     ...cfg,
     yoloUrl:      document.getElementById('sYoloUrl').value.trim() || 'http://localhost:8765',
     yoloConf:     parseFloat(document.getElementById('sYoloConf').value),
+    yoloModel:    document.getElementById('sYoloModel').value,
     defaultFps:   parseFloat(document.getElementById('sFps').value),
     frameWidth:   parseInt(document.getElementById('sFw').value),
     storage: { ...cfg.storage, retentionDays: parseInt(document.getElementById('sRetention').value) }

@@ -29,6 +29,7 @@ type Config struct {
 	FrameWidth   int            `json:"frameWidth"`   // resize width for processing (default 320)
 	YoloURL      string         `json:"yoloUrl"`      // Python YOLO service URL, default "http://localhost:8765"
 	YoloConf     float64        `json:"yoloConf"`     // confidence threshold, default 0.35
+	YoloModel    string         `json:"yoloModel"`    // YOLO model filename, default "yolo11n.pt"
 	Cameras      []CameraConfig `json:"cameras"`
 	Storage      StorageConfig  `json:"storage"`
 }
@@ -70,6 +71,7 @@ func defaultConfig() Config {
 		FrameWidth:   320,
 		YoloURL:      "http://localhost:8765",
 		YoloConf:     0.35,
+		YoloModel:    "yolo11n.pt",
 		Cameras:      []CameraConfig{},
 		Storage:      StorageConfig{Enabled: true, RetentionDays: 30},
 	}
@@ -93,6 +95,7 @@ func Init() {
 
 	mgr = newManager()
 	registerAPI()
+	autoLaunchYolo() // auto-launch if yolo_counter.exe exists next to binary
 
 	if cfg.Running {
 		mgr.startAll()
