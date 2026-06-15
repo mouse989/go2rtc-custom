@@ -9,24 +9,24 @@
     /* ── Layout ── */
     .cnt-header {
       display: flex; align-items: center; gap: 10px;
-      padding: 14px 20px; border-bottom: 1px solid var(--border);
-      flex-wrap: wrap;
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      flex-wrap: wrap; flex-shrink: 0;
     }
-    .cnt-header h2 { margin: 0; font-size: 1.05rem; flex: 1; min-width: 140px; }
+    .cnt-header h2 { margin: 0; font-size: 1.0rem; flex: 1; min-width: 140px; }
 
     .tabs-bar {
-      display: flex; border-bottom: 1px solid var(--border); padding: 0 20px;
+      display: flex; border-bottom: 1px solid var(--border); padding: 0 16px;
+      flex-shrink: 0; overflow-x: auto;
     }
     .tab-btn {
-      padding: 9px 15px; font-size: 0.82rem; font-weight: 500;
+      padding: 8px 13px; font-size: 0.81rem; font-weight: 500; white-space: nowrap;
       border: none; background: none; color: var(--text-secondary);
       cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
     }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-    .section { padding: 14px 20px; }
+    .section { padding: 12px 16px; }
 
-    /* ── Status badge ── */
     .badge {
       padding: 2px 9px; border-radius: 11px; font-size: 0.75rem; font-weight: 600;
     }
@@ -35,36 +35,33 @@
     .badge-gray   { background:#6b728022; color:#6b7280; border:1px solid #6b728044; }
     .badge-yellow { background:#d9770622; color:#d97706; border:1px solid #d9770644; }
 
-    /* ── Summary cards ── */
-    .card-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+    .card-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
     .card {
-      flex:1; min-width:120px;
+      flex:1; min-width:110px;
       background:var(--surface2); border:1px solid var(--border);
-      border-radius:8px; padding:12px 14px; text-align:center;
+      border-radius:8px; padding:10px 12px; text-align:center;
     }
-    .card .num { font-size:1.9rem; font-weight:700; color:var(--accent); line-height:1; }
-    .card .lbl { font-size:0.72rem; color:var(--text-secondary); margin-top:3px; }
+    .card .num { font-size:1.7rem; font-weight:700; color:var(--accent); line-height:1; }
+    .card .lbl { font-size:0.71rem; color:var(--text-secondary); margin-top:3px; }
 
-    /* ── Chart ── */
     .chart-box {
       background:var(--surface2); border:1px solid var(--border);
-      border-radius:8px; padding:14px; margin-bottom:14px;
+      border-radius:8px; padding:12px; margin-bottom:12px;
     }
     .chart-title { font-size:0.75rem; font-weight:600; text-transform:uppercase;
       letter-spacing:.05em; color:var(--text-secondary); margin-bottom:8px; }
-    .chart-bars { display:flex; align-items:flex-end; gap:3px; height:80px; }
+    .chart-bars { display:flex; align-items:flex-end; gap:3px; height:70px; }
     .chart-col  { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; }
     .chart-bar-wrap { flex:1; width:100%; display:flex; align-items:flex-end; }
     .chart-bar  { width:100%; background:var(--accent); border-radius:2px 2px 0 0;
-      min-height:2px; opacity:.8; transition:height .3s; }
+      min-height:2px; opacity:.8; }
     .chart-bar.cur { opacity:1; }
-    .chart-lbl  { font-size:0.58rem; color:var(--text-secondary); }
+    .chart-lbl  { font-size:0.56rem; color:var(--text-secondary); }
 
-    /* ── Camera table ── */
-    .tbl { width:100%; border-collapse:collapse; font-size:0.82rem; }
-    .tbl th { text-align:left; padding:6px 10px; font-weight:600;
+    .tbl { width:100%; border-collapse:collapse; font-size:0.8rem; }
+    .tbl th { text-align:left; padding:5px 8px; font-weight:600;
       color:var(--text-secondary); border-bottom:1px solid var(--border); white-space:nowrap; }
-    .tbl td { padding:7px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .tbl td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
     .tbl tr:hover td { background:var(--surface2); }
     .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
     .dot-on { background:#16a34a; }
@@ -74,123 +71,130 @@
     .t1 { background:#0ea5e922; color:#0ea5e9; }
     .t2 { background:#f59e0b22; color:#d97706; }
     .t3 { background:#ef444422; color:#dc2626; }
+    .dir-b { font-size:0.75rem; margin-right:3px; }
 
-    /* ── Event log ── */
     .log-wrap {
       background:var(--surface2); border:1px solid var(--border);
-      border-radius:8px; max-height:420px; overflow-y:auto; font-size:0.78rem;
+      border-radius:8px; max-height:420px; overflow-y:auto;
+      font-size:0.79rem; font-family:monospace;
     }
-    .log-row {
-      display:flex; align-items:center; gap:10px;
-      padding:6px 12px; border-bottom:1px solid var(--border);
-      animation: fadeIn .4s;
-    }
-    @keyframes fadeIn { from { background:var(--accent)18; } to { background:transparent; } }
-    .log-row:last-child { border-bottom:none; }
-    .log-ts { color:var(--text-secondary); white-space:nowrap; min-width:75px; }
-    .log-cam { font-weight:600; min-width:120px; }
-    .log-cnt { color:var(--accent); font-weight:700; min-width:50px; }
-    .log-total { color:var(--text-secondary); }
+    .log-row { display:flex; gap:8px; padding:4px 10px; border-bottom:1px solid var(--border); align-items:center; }
+    .log-ts  { color:var(--text-secondary); flex-shrink:0; }
+    .log-cam { flex:1; font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .log-cnt { color:var(--accent); font-weight:700; flex-shrink:0; }
+    .log-total { color:var(--text-secondary); flex-shrink:0; }
+    .log-dir { flex-shrink:0; }
+    .empty-log { padding:24px; text-align:center; color:var(--text-secondary); font-size:0.82rem; }
 
-    /* ── History ── */
-    .date-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
-    .date-row input[type=date] {
-      background:var(--surface2); border:1px solid var(--border);
-      border-radius:5px; padding:5px 9px; font-size:0.82rem; color:var(--text);
-    }
+    .sub-title { font-size:0.75rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--text-secondary); margin:12px 0 8px; }
 
-    /* ── Buttons ── */
-    .btn { padding:6px 13px; border-radius:5px; font-size:0.8rem; cursor:pointer;
-      border:none; font-weight:500; }
-    .btn-primary { background:var(--accent); color:#fff; }
-    .btn-primary:hover { opacity:.88; }
-    .btn-ghost  { background:transparent; border:1px solid var(--border); color:var(--text); }
-    .btn-ghost:hover  { background:var(--surface2); }
-    .btn-green  { background:#16a34a; color:#fff; }
-    .btn-green:hover  { opacity:.88; }
-    .btn-danger { background:#dc2626; color:#fff; }
-    .btn-danger:hover { opacity:.88; }
-    .btn-sm { padding:3px 9px; font-size:0.73rem; }
-
-    /* ── Modal ── */
+    /* ── Overlay / Modal ── */
     .overlay {
-      display:none; position:fixed; inset:0;
-      background:rgba(0,0,0,.55); z-index:200;
-      align-items:flex-start; justify-content:center;
-      padding:40px 16px; overflow-y:auto;
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,.5);
+      z-index:1000; overflow-y:auto; padding:40px 16px;
     }
-    .overlay.open { display:flex; }
+    .overlay.open { display:flex; align-items:flex-start; justify-content:center; }
     .modal {
       background:var(--surface); border:1px solid var(--border);
-      border-radius:10px; padding:22px; width:480px; max-width:100%;
-      position:relative;
+      border-radius:12px; padding:20px; width:100%; max-width:520px;
+      position:relative; box-shadow:0 8px 32px rgba(0,0,0,.3);
     }
-    .modal h3 { margin:0 0 14px; font-size:1rem; }
-    .mfield { margin-bottom:11px; }
-    .mfield label { display:block; font-size:0.78rem; color:var(--text-secondary); margin-bottom:3px; }
-    .mfield input, .mfield select {
-      width:100%; box-sizing:border-box;
-      background:var(--surface2); border:1px solid var(--border);
-      border-radius:5px; padding:6px 9px; font-size:0.82rem; color:var(--text);
-    }
-    .mfield input[type=range] { padding:4px 0; }
-    .mactions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
-    .err { color:#dc2626; font-size:0.78rem; margin-top:6px; }
+    .modal-title { font-size:1rem; font-weight:700; margin:0 0 14px; }
+    .form-row { margin-bottom:10px; }
+    .form-row label { display:block; font-size:0.78rem; font-weight:600; margin-bottom:3px; color:var(--text-secondary); }
+    .form-row input, .form-row select { width:100%; box-sizing:border-box; }
+    .form-row.dir-row { display:flex; flex-wrap:wrap; gap:8px 16px; }
+    .dir-check { display:flex; align-items:center; gap:5px; font-size:0.82rem; cursor:pointer; }
+    .modal-footer { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; padding-top:10px; border-top:1px solid var(--border); }
+    .err-msg { color:#dc2626; font-size:0.8rem; margin:6px 0 0; min-height:1.2em; }
 
-    /* ── Stream picker ── */
-    .stream-search {
-      width:100%; box-sizing:border-box;
-      background:var(--surface2); border:1px solid var(--border);
-      border-radius:5px; padding:6px 9px; font-size:0.82rem; color:var(--text);
-      margin-bottom:6px;
-    }
-    .stream-list {
-      max-height:200px; overflow-y:auto;
-      border:1px solid var(--border); border-radius:5px;
-    }
-    .stream-item {
-      display:flex; align-items:center; gap:8px;
-      padding:7px 10px; cursor:pointer;
-      border-bottom:1px solid var(--border);
-    }
-    .stream-item:last-child { border-bottom:none; }
+    /* Stream picker */
+    .stream-list { max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-top:6px; }
+    .stream-item { display:flex; align-items:center; gap:8px; padding:7px 10px; cursor:pointer; font-size:0.82rem; }
+    .stream-item:not(:last-child) { border-bottom:1px solid var(--border); }
     .stream-item:hover { background:var(--surface2); }
-    .stream-item input[type=checkbox] { margin:0; cursor:pointer; }
-    .stream-item .sname { font-size:0.82rem; font-weight:500; }
+    .stream-item input[type=radio] { flex-shrink:0; }
+    .sname { flex:1; font-family:monospace; font-size:0.8rem; }
 
-    /* ── Canvas preview ── */
-    .preview-wrap {
-      position:relative; margin-top:8px;
-      background:#000; border-radius:6px; overflow:hidden;
-      cursor:crosshair; user-select:none;
-    }
-    #previewCanvas { display:block; width:100%; height:auto; }
-    .preview-hint {
-      font-size:0.72rem; color:var(--text-secondary); margin-top:4px; text-align:center;
-    }
+    /* Canvas preview */
+    #previewCanvas { display:block; max-width:100%; border-radius:6px; cursor:crosshair; border:1px solid var(--border); }
 
-    /* ── Settings panel ── */
-    .cfg-grid {
-      display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px;
-    }
-    .cfg-field label { display:block; font-size:0.75rem; color:var(--text-secondary); margin-bottom:3px; }
-    .cfg-field input {
-      width:100%; box-sizing:border-box;
-      background:var(--surface2); border:1px solid var(--border);
-      border-radius:5px; padding:5px 8px; font-size:0.82rem; color:var(--text);
-    }
+    /* Debug view */
+    .debug-box { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; }
+    .debug-legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:10px; font-size:0.78rem; }
+    .legend-dot { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:4px; vertical-align:middle; }
 
-    .sep { height:1px; background:var(--border); margin:12px 0; }
-    .sub-title { font-size:0.75rem; font-weight:600; text-transform:uppercase;
-      letter-spacing:.05em; color:var(--text-secondary); margin:0 0 10px; }
-    .empty-log { padding:24px; text-align:center; color:var(--text-secondary); font-size:0.82rem; }
+    /* Content scroll */
+    .tab-content { overflow-y:auto; flex:1; }
   </style>
 </head>
-<body data-tab-require="counting">
-<div id="app">
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Camera</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/counting.html" class="nav-item active" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Users
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
 
   <!-- ── Header ── -->
   <div class="cnt-header">
+    <button class="sidebar-toggle" id="sidebarToggle" style="flex-shrink:0;background:none;border:none;color:var(--text-muted);width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:var(--radius)">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
     <h2>🚦 Đếm Lưu lượng Phương tiện</h2>
     <span id="svcBadge" class="badge badge-gray">Đã dừng</span>
     <button class="btn btn-green btn-sm" onclick="startAll()">▶ Bắt đầu tất cả</button>
@@ -203,11 +207,12 @@
     <button class="tab-btn active" onclick="showTab('live',this)">Thực time</button>
     <button class="tab-btn" onclick="showTab('log',this)">Nhật ký sự kiện</button>
     <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
+    <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra MOG2</button>
     <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
   </div>
 
   <!-- ══════════════ LIVE ══════════════ -->
-  <div id="tab-live">
+  <div id="tab-live" class="tab-content">
     <div class="section">
       <div class="card-row" id="cards"></div>
       <div class="chart-box">
@@ -220,8 +225,8 @@
           <thead>
             <tr>
               <th>Camera</th><th>Stream</th><th>Tier</th>
-              <th>Trạng thái</th><th>Frame xử lý</th>
-              <th>Frame cuối</th><th>Tổng hôm nay</th><th>Thao tác</th>
+              <th>Trạng thái</th><th>Frames</th>
+              <th>Frame cuối</th><th>Hướng &amp; Tổng</th><th>Thao tác</th>
             </tr>
           </thead>
           <tbody id="camBody"></tbody>
@@ -231,150 +236,216 @@
   </div>
 
   <!-- ══════════════ LOG ══════════════ -->
-  <div id="tab-log" style="display:none">
+  <div id="tab-log" class="tab-content" style="display:none">
     <div class="section">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="sub-title" style="margin:0">Nhật ký sự kiện (500 gần nhất)</div>
-        <button class="btn btn-ghost btn-sm" onclick="clearLogView()">Xoá hiển thị</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="sub-title" style="margin:0">Sự kiện đếm gần nhất (tự làm mới 3s)</div>
+        <button class="btn btn-ghost btn-sm" onclick="clearLogView()">✕ Xoá log</button>
       </div>
       <div class="log-wrap" id="logWrap">
-        <div class="empty-log" id="logEmpty">Chưa có sự kiện. Bắt đầu counting để xem log.</div>
+        <div class="empty-log" id="logEmpty">Chưa có sự kiện nào.</div>
       </div>
     </div>
   </div>
 
   <!-- ══════════════ HISTORY ══════════════ -->
-  <div id="tab-history" style="display:none">
+  <div id="tab-history" class="tab-content" style="display:none">
     <div class="section">
-      <div class="date-row">
-        <label style="font-size:.82rem;color:var(--text-secondary)">Ngày:</label>
-        <input type="date" id="histDate">
-        <button class="btn btn-ghost btn-sm" onclick="loadHistory()">Xem</button>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <input type="date" id="histDate" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+        <button class="btn btn-primary btn-sm" onclick="loadHistory()">Xem</button>
+        <span id="histTitle" style="font-size:.82rem;color:var(--text-secondary)"></span>
       </div>
       <div class="chart-box">
-        <div class="chart-title" id="histTitle">Chọn ngày để xem</div>
+        <div class="chart-title">Biểu đồ theo giờ</div>
         <div class="chart-bars" id="histChart"></div>
       </div>
       <div style="overflow-x:auto">
-        <table class="tbl" id="histTbl">
-          <thead><tr><th>Camera</th><th>Tổng ngày</th>
-            <th>0h</th><th>1h</th><th>2h</th><th>3h</th><th>4h</th><th>5h</th>
-            <th>6h</th><th>7h</th><th>8h</th><th>9h</th><th>10h</th><th>11h</th>
-            <th>12h</th><th>13h</th><th>14h</th><th>15h</th><th>16h</th><th>17h</th>
-            <th>18h</th><th>19h</th><th>20h</th><th>21h</th><th>22h</th><th>23h</th>
-          </tr></thead>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Camera</th><th>Tổng</th>
+              <th>0h</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+              <th>6</th><th>7</th><th>8</th><th>9</th><th>10</th><th>11</th>
+              <th>12</th><th>13</th><th>14</th><th>15</th><th>16</th><th>17</th>
+              <th>18</th><th>19</th><th>20</th><th>21</th><th>22</th><th>23h</th>
+            </tr>
+          </thead>
           <tbody id="histBody"></tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <!-- ══════════════ SETTINGS ══════════════ -->
-  <div id="tab-settings" style="display:none">
+  <!-- ══════════════ DEBUG MOG2 ══════════════ -->
+  <div id="tab-debug" class="tab-content" style="display:none">
     <div class="section">
-      <div class="sub-title">Tham số xử lý ảnh (MOG2)</div>
-      <div class="cfg-grid">
-        <div class="cfg-field"><label>FPS xử lý mặc định</label><input type="number" id="sFps" min="0.5" max="5" step="0.5"></div>
-        <div class="cfg-field"><label>Ngưỡng foreground (threshold)</label><input type="number" id="sThresh" min="5" max="100"></div>
-        <div class="cfg-field"><label>Tốc độ học nền (learningRate)</label><input type="number" id="sLr" min="0.001" max="0.1" step="0.001"></div>
-        <div class="cfg-field"><label>Chiều rộng frame (px)</label><input type="number" id="sFw" min="160" max="640" step="80"></div>
-        <div class="cfg-field"><label>Blob min area (px²)</label><input type="number" id="sBlobMin" min="50" max="5000"></div>
-        <div class="cfg-field"><label>Blob max area (px²)</label><input type="number" id="sBlobMax" min="1000" max="200000"></div>
-        <div class="cfg-field"><label>Lưu trữ (ngày)</label><input type="number" id="sRetention" min="1" max="365"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <label style="font-size:.82rem;font-weight:600">Camera:</label>
+        <select id="debugCamSel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem" onchange="openDebugCam()">
+          <option value="">— Chọn camera —</option>
+        </select>
+        <span id="debugStatus" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
-      <div style="margin-top:12px">
-        <button class="btn btn-primary btn-sm" onclick="saveSettings()">Lưu cài đặt</button>
-        <span id="sMsg" style="margin-left:8px;font-size:.78rem;color:var(--accent)"></span>
+      <div class="debug-box">
+        <div id="debugImgWrap" style="text-align:center">
+          <div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh phân tích MOG2</div>
+        </div>
+        <div class="debug-legend" id="debugLegend" style="display:none">
+          <span><span class="legend-dot" style="background:#dc3030"></span>Mask nền động (vùng có xe)</span>
+          <span><span class="legend-dot" style="background:#00e600"></span>Đường đếm ngang H (↑↓)</span>
+          <span><span class="legend-dot" style="background:#00dcdc"></span>Đường đếm dọc V (←→)</span>
+          <span><span class="legend-dot" style="background:#ffdc00"></span>Tâm xe đang theo dõi</span>
+        </div>
       </div>
     </div>
   </div>
 
-</div><!-- /#app -->
-
-<!-- ══════════════ ADD CAMERA MODAL ══════════════ -->
-<div class="overlay" id="modalOverlay" onclick="overlayClick(event)">
-  <div class="modal">
-    <h3 id="mTitle">Thêm Camera đếm</h3>
-
-    <!-- Bước 1: chọn stream -->
-    <div id="step1">
-      <div class="mfield">
-        <label>Tìm và chọn camera (từ danh sách go2rtc)</label>
-        <input type="text" class="stream-search" id="streamSearch"
-               placeholder="Tìm kiếm..." oninput="filterStreams()">
-      </div>
-      <div class="stream-list" id="streamList">
-        <div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:.8rem">
-          Đang tải...
+  <!-- ══════════════ SETTINGS ══════════════ -->
+  <div id="tab-settings" class="tab-content" style="display:none">
+    <div class="section">
+      <div class="sub-title">Thông số toàn cục MOG2</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px">
+        <div class="form-row">
+          <label>FPS xử lý mặc định</label>
+          <input type="number" id="sFps" step="0.5" min="0.2" max="10">
+        </div>
+        <div class="form-row">
+          <label>Ngưỡng phát hiện (Threshold)</label>
+          <input type="number" id="sThresh" step="1" min="5" max="100">
+        </div>
+        <div class="form-row">
+          <label>Tốc độ học nền (LearningRate)</label>
+          <input type="number" id="sLr" step="0.001" min="0.001" max="0.1">
+        </div>
+        <div class="form-row">
+          <label>Chiều rộng frame xử lý (px)</label>
+          <input type="number" id="sFw" step="32" min="160" max="640">
+        </div>
+        <div class="form-row">
+          <label>Diện tích blob nhỏ nhất (px²)</label>
+          <input type="number" id="sBlobMin" step="50" min="50">
+        </div>
+        <div class="form-row">
+          <label>Diện tích blob lớn nhất (px²)</label>
+          <input type="number" id="sBlobMax" step="1000" min="1000">
+        </div>
+        <div class="form-row">
+          <label>Lưu dữ liệu (ngày)</label>
+          <input type="number" id="sRetention" step="1" min="1" max="365">
         </div>
       </div>
-      <div class="mfield" style="margin-top:10px">
-        <label>Tên hiển thị (tuỳ chọn, để trống = tên stream)</label>
-        <input type="text" id="mName" placeholder="VD: Ngã tư Đinh Tiên Hoàng">
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">Lưu cài đặt</button>
+        <span id="sMsg" style="font-size:.8rem;color:var(--accent)"></span>
       </div>
-      <div class="mactions">
-        <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
-        <button class="btn btn-primary" onclick="goStep2()">Tiếp tục →</button>
+      <div style="margin-top:16px;padding:12px;background:var(--surface2);border-radius:8px;font-size:.78rem;line-height:1.6">
+        <strong>Ý nghĩa Tier ưu tiên:</strong><br>
+        <span class="tier-b t1">T1</span> Tốc độ đầy đủ — dùng cho ngã tư bận, đường cao tốc<br>
+        <span class="tier-b t2">T2</span> ½ tốc độ — đường phố thông thường, tiết kiệm CPU<br>
+        <span class="tier-b t3">T3</span> ¼ tốc độ — đường ít xe, hẻm, camera dự phòng
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ══════════════ MODAL: Add/Edit Camera ══════════════ -->
+<div class="overlay" id="modalOverlay" onclick="overlayClick(event)">
+  <div class="modal">
+    <div class="modal-title" id="mTitle">Thêm Camera đếm</div>
+
+    <!-- Step 1: Stream picker -->
+    <div id="step1">
+      <div class="form-row">
+        <label>Tìm stream</label>
+        <input type="text" id="streamSearch" placeholder="Lọc theo tên…" oninput="filterStreams()" autocomplete="off">
+      </div>
+      <div class="stream-list" id="streamList">
+        <div class="empty-log">Đang tải danh sách stream…</div>
+      </div>
+      <div class="err-msg" id="mErr"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Huỷ</button>
+        <button class="btn btn-primary btn-sm" onclick="goStep2()">Tiếp theo →</button>
       </div>
     </div>
 
-    <!-- Bước 2: cấu hình đường đếm -->
+    <!-- Step 2: Config + Canvas -->
     <div id="step2" style="display:none">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <button class="btn btn-ghost btn-sm" onclick="goStep1()">← Quay lại</button>
-        <span style="font-size:.82rem;color:var(--text-secondary)">Stream: <strong id="s2Stream"></strong></span>
+      <div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:10px">
+        Stream: <strong id="s2Stream"></strong>
       </div>
-
-      <div class="mfield">
-        <label>Trục đường đếm</label>
-        <select id="mAxis" onchange="drawPreview()">
-          <option value="h">Ngang (Horizontal) — đếm xe qua từ trên/dưới</option>
-          <option value="v">Dọc (Vertical) — đếm xe qua từ trái/phải</option>
-        </select>
-      </div>
-
-      <div class="mfield">
-        <label>Vị trí đường đếm — kéo trên ảnh hoặc dùng thanh trượt
-          (<span id="linePosVal">0.50</span>)</label>
-        <input type="range" id="mLine" min="0.05" max="0.95" step="0.01" value="0.50"
-               oninput="linePosChanged(this.value)">
+      <div class="form-row">
+        <label>Tên hiển thị</label>
+        <input type="text" id="mName" placeholder="Ví dụ: Ngã tư Lê Lợi">
       </div>
 
       <!-- Canvas preview -->
-      <div class="preview-wrap" id="previewWrap">
-        <canvas id="previewCanvas"></canvas>
-      </div>
-      <div class="preview-hint">
-        📌 Kéo chuột trên ảnh để đặt đường đếm • Đường đỏ = vị trí đếm
-      </div>
-      <div style="text-align:center;margin-top:4px">
-        <button class="btn btn-ghost btn-sm" onclick="refreshPreview()">↺ Làm mới ảnh</button>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label style="font-size:.78rem;font-weight:600;color:var(--text-secondary)">Xem trước (kéo để đặt đường đếm)</label>
+          <button class="btn btn-ghost btn-sm" onclick="refreshPreview()">↺ Refresh</button>
+        </div>
+        <canvas id="previewCanvas" style="max-height:200px;object-fit:contain"></canvas>
       </div>
 
-      <div class="sep"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div class="mfield">
-          <label>FPS xử lý (0 = dùng mặc định)</label>
-          <input type="number" id="mFps" value="0" min="0" max="5" step="0.5">
+      <!-- Line H (horizontal) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label class="dir-check">
+          <input type="checkbox" id="mHEnable" onchange="drawPreview()"> Đường ngang (H)
+        </label>
+        <span style="font-size:.78rem;color:var(--text-secondary)">Vị trí Y:</span>
+        <input type="range" id="mHPos" min="0.05" max="0.95" step="0.01" value="0.50"
+          style="flex:1" oninput="syncSlider('H');drawPreview()">
+        <span id="mHPosVal" style="font-size:.78rem;min-width:34px;text-align:right">0.50</span>
+      </div>
+      <!-- Line V (vertical) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <label class="dir-check">
+          <input type="checkbox" id="mVEnable" onchange="drawPreview()"> Đường dọc (V)
+        </label>
+        <span style="font-size:.78rem;color:var(--text-secondary)">Vị trí X:</span>
+        <input type="range" id="mVPos" min="0.05" max="0.95" step="0.01" value="0.50"
+          style="flex:1" oninput="syncSlider('V');drawPreview()">
+        <span id="mVPosVal" style="font-size:.78rem;min-width:34px;text-align:right">0.50</span>
+      </div>
+
+      <!-- Direction checkboxes -->
+      <div class="form-row">
+        <label>Hướng đếm</label>
+        <div class="form-row dir-row">
+          <label class="dir-check"><input type="checkbox" id="mDown"> ↓ Trên xuống</label>
+          <label class="dir-check"><input type="checkbox" id="mUp"> ↑ Dưới lên</label>
+          <label class="dir-check"><input type="checkbox" id="mRight"> → Trái qua phải</label>
+          <label class="dir-check"><input type="checkbox" id="mLeft"> ← Phải qua trái</label>
         </div>
-        <div class="mfield">
-          <label>Tier ưu tiên</label>
+        <div style="font-size:.73rem;color:var(--text-secondary);margin-top:4px">H-line: đếm ↑↓ | V-line: đếm ←→</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="form-row">
+          <label>FPS (0=mặc định)</label>
+          <input type="number" id="mFps" value="0" min="0" max="10" step="0.5">
+        </div>
+        <div class="form-row">
+          <label title="T1=đầy đủ, T2=½, T3=¼ FPS">Tier ưu tiên</label>
           <select id="mTier">
-            <option value="1">1 — Thường (60s/frame)</option>
-            <option value="2">2 — Quan trọng</option>
-            <option value="3">3 — Trọng điểm</option>
+            <option value="1">T1 — Cao</option>
+            <option value="2">T2 — Trung bình</option>
+            <option value="3">T3 — Thấp</option>
           </select>
         </div>
-      </div>
-      <div class="mfield" style="display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="mEnabled" checked>
-        <label for="mEnabled" style="margin:0;cursor:pointer">Bật counting ngay sau khi thêm</label>
+        <div class="form-row" style="display:flex;align-items:flex-end;padding-bottom:4px">
+          <label class="dir-check"><input type="checkbox" id="mEnabled" checked> Bật camera</label>
+        </div>
       </div>
 
-      <div class="err" id="mErr"></div>
-      <div class="mactions">
-        <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
-        <button class="btn btn-primary" id="mSaveBtn" onclick="saveCamera()">Lưu camera</button>
+      <div class="err-msg" id="mErr2"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="goStep1()">← Quay lại</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Huỷ</button>
+        <button class="btn btn-primary btn-sm" onclick="saveCamera()">Lưu</button>
       </div>
     </div>
   </div>
@@ -387,14 +458,16 @@
 // ════════════════════════════════════════════════════════
 let cfg        = {};
 let statuses   = [];
-let allStreams  = [];        // stream names from /api/streams
+let allStreams  = [];
 let editId     = null;
 let pollTimer  = null;
 let logTimer   = null;
-let isDragging = false;
-let logFrozen  = false;     // true when user scrolled up
+let debugTimer = null;
+let logFrozen  = false;
+let dragTarget = null; // 'H' or 'V'
 
 const today = () => new Date().toISOString().slice(0,10);
+const TABS  = ['live','log','history','debug','settings'];
 
 // ════════════════════════════════════════════════════════
 // Init
@@ -407,28 +480,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   pollTimer = setInterval(async () => { await poll(); await loadTodaySummary(); }, 5000);
   logTimer  = setInterval(loadEvents, 3000);
 
-  // Canvas drag
   const canvas = document.getElementById('previewCanvas');
-  canvas.addEventListener('mousedown', e => { isDragging = true; dragLine(e); });
-  canvas.addEventListener('mousemove', e => { if (isDragging) dragLine(e); });
-  canvas.addEventListener('mouseup',   () => { isDragging = false; });
-  canvas.addEventListener('mouseleave',() => { isDragging = false; });
-  canvas.addEventListener('touchstart', e => { isDragging = true; dragLine(e.touches[0]); }, {passive:true});
-  canvas.addEventListener('touchmove',  e => { if(isDragging) dragLine(e.touches[0]); }, {passive:true});
-  canvas.addEventListener('touchend',   () => { isDragging = false; });
+  canvas.addEventListener('mousedown', e => { dragTarget = pickDragTarget(e); startDrag(e); });
+  canvas.addEventListener('mousemove', e => { if (dragTarget) dodrag(e); });
+  canvas.addEventListener('mouseup',   () => { dragTarget = null; });
+  canvas.addEventListener('mouseleave',() => { dragTarget = null; });
+  canvas.addEventListener('touchstart', e => { dragTarget = pickDragTarget(e.touches[0]); startDrag(e.touches[0]); }, {passive:true});
+  canvas.addEventListener('touchmove',  e => { if(dragTarget) dodrag(e.touches[0]); }, {passive:true});
+  canvas.addEventListener('touchend',   () => { dragTarget = null; });
 });
 
 // ════════════════════════════════════════════════════════
 // Tabs
 // ════════════════════════════════════════════════════════
 function showTab(name, btn) {
-  ['live','log','history','settings'].forEach(t =>
-    document.getElementById('tab-'+t).style.display = (t===name) ? '' : 'none'
-  );
+  TABS.forEach(t => {
+    const el = document.getElementById('tab-'+t);
+    if (el) el.style.display = (t===name) ? '' : 'none';
+  });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   if (name === 'history') loadHistory();
   if (name === 'log')     loadEvents();
+  if (name === 'debug')   openDebugTab();
+  if (name !== 'debug')   stopDebugRefresh();
 }
 
 // ════════════════════════════════════════════════════════
@@ -490,10 +565,11 @@ async function poll() {
     statuses = st.cameras || [];
     const running = st.running;
     const badge = document.getElementById('svcBadge');
-    badge.textContent  = running ? 'Đang chạy' : 'Đã dừng';
-    badge.className    = 'badge '+(running ? 'badge-green' : 'badge-red');
+    badge.textContent = running ? 'Đang chạy' : 'Đã dừng';
+    badge.className   = 'badge '+(running ? 'badge-green' : 'badge-red');
     renderCards();
     renderCamTable();
+    populateDebugSelect();
   } catch(e) {}
 }
 
@@ -524,28 +600,35 @@ function renderCamTable() {
   }
   const now = Math.floor(Date.now()/1000);
   body.innerHTML = statuses.map(c => {
-    const dotCls = c.running ? (c.lastErr ? 'dot-err' : 'dot-on') : 'dot-off';
-    const stLbl  = c.running
+    const dotCls  = c.running ? (c.lastErr ? 'dot-err' : 'dot-on') : 'dot-off';
+    const stLbl   = c.running
       ? (c.lastErr
-          ? `<span style="color:#dc2626" title="${esc(c.lastErr)}">✗ Lỗi</span>`
-          : `<span style="color:#16a34a">● Đang chạy</span>`)
-      : `<span style="color:#9ca3af">○ Dừng</span>`;
+          ? `<span style="color:#dc2626;font-size:.75rem" title="${esc(c.lastErr)}">✗ Lỗi</span>`
+          : `<span style="color:#16a34a;font-size:.75rem">● Đang chạy</span>`)
+      : `<span style="color:#9ca3af;font-size:.75rem">○ Dừng</span>`;
     const lastFrame = c.lastFrameAt
       ? agoStr(now - c.lastFrameAt)
-      : (c.running ? '<span style="color:#d97706">Chờ frame...</span>' : '—');
+      : (c.running ? '<span style="color:#d97706;font-size:.75rem">Chờ snapshot…</span>' : '—');
+    const dirParts = [];
+    if (c.totalDown)  dirParts.push(`<span class="dir-b" title="Từ trên xuống">↓${c.totalDown}</span>`);
+    if (c.totalUp)    dirParts.push(`<span class="dir-b" title="Từ dưới lên">↑${c.totalUp}</span>`);
+    if (c.totalRight) dirParts.push(`<span class="dir-b" title="Trái qua phải">→${c.totalRight}</span>`);
+    if (c.totalLeft)  dirParts.push(`<span class="dir-b" title="Phải qua trái">←${c.totalLeft}</span>`);
+    const dirStr = dirParts.length ? dirParts.join(' ') : '';
     return `<tr>
       <td><span class="dot ${dotCls}"></span>${esc(c.name||c.id)}</td>
-      <td><code style="font-size:.75rem">${esc(c.streamName)}</code></td>
-      <td><span class="tier-b t${c.tier||1}">T${c.tier||1}</span></td>
+      <td><code style="font-size:.73rem">${esc(c.streamName)}</code></td>
+      <td><span class="tier-b t${c.tier||1}" title="T1=FPS đầy đủ T2=½FPS T3=¼FPS">T${c.tier||1}</span></td>
       <td>${stLbl}</td>
       <td>${(c.framesProcessed||0).toLocaleString()}</td>
       <td>${lastFrame}</td>
-      <td><strong>${(c.total||0).toLocaleString()}</strong></td>
+      <td>${dirStr}<br><strong style="font-size:.85rem">${(c.total||0).toLocaleString()}</strong> tổng</td>
       <td style="white-space:nowrap">
         ${c.running
           ? `<button class="btn btn-ghost btn-sm" onclick="stopCam('${c.id}')">⏹</button>`
           : `<button class="btn btn-green btn-sm" onclick="startCam('${c.id}')">▶</button>`}
         <button class="btn btn-ghost btn-sm" onclick="editCam('${c.id}')">✎</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDebugFor('${c.id}')" title="Xem MOG2">🔬</button>
         <button class="btn btn-danger btn-sm" onclick="delCam('${c.id}')">✕</button>
       </td>
     </tr>`;
@@ -553,10 +636,10 @@ function renderCamTable() {
 }
 
 function agoStr(sec) {
-  if (sec < 5)  return '<span style="color:#16a34a">Vừa xong</span>';
-  if (sec < 60) return `${sec}s trước`;
-  if (sec < 3600) return `${Math.floor(sec/60)}m trước`;
-  return `${Math.floor(sec/3600)}h trước`;
+  if (sec < 5)    return '<span style="color:#16a34a;font-size:.75rem">Vừa xong</span>';
+  if (sec < 60)   return `<span style="font-size:.75rem">${sec}s trước</span>`;
+  if (sec < 3600) return `<span style="font-size:.75rem">${Math.floor(sec/60)}m trước</span>`;
+  return `<span style="font-size:.75rem">${Math.floor(sec/3600)}h trước</span>`;
 }
 
 // ════════════════════════════════════════════════════════
@@ -578,7 +661,7 @@ function renderBarChart(elemId, summaries, curHour=-1) {
   el.innerHTML = hours.map((v,h) => `
     <div class="chart-col" title="${h}:00 — ${v} xe">
       <div class="chart-bar-wrap">
-        <div class="chart-bar ${h===curHour?'cur':''}" style="height:${Math.round(v/mx*72)+4}px"></div>
+        <div class="chart-bar ${h===curHour?'cur':''}" style="height:${Math.round(v/mx*62)+4}px"></div>
       </div>
       <span class="chart-lbl">${h}</span>
     </div>`).join('');
@@ -588,44 +671,34 @@ function renderBarChart(elemId, summaries, curHour=-1) {
 // Event log
 // ════════════════════════════════════════════════════════
 let lastLogTs = 0;
+const DIR_ARROW = {down:'↓',up:'↑',right:'→',left:'←'};
 
 async function loadEvents() {
   try {
     const events = await apiFetch('/api/counting/events?limit=100');
-    const wrap = document.getElementById('logWrap');
+    const wrap  = document.getElementById('logWrap');
     const empty = document.getElementById('logEmpty');
-
-    if (!events.length) {
-      empty.style.display = '';
-      return;
-    }
+    if (!events.length) { empty.style.display = ''; return; }
     empty.style.display = 'none';
 
-    // Only prepend new events (newer ts than last seen)
     const newEvs = events.filter(e => e.ts > lastLogTs);
     if (!newEvs.length) return;
     lastLogTs = newEvs[0].ts;
 
-    const wasAtBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 30;
-
     newEvs.forEach(ev => {
       const row = document.createElement('div');
       row.className = 'log-row';
+      const dirArrow = ev.dir ? `<span class="log-dir" title="${ev.dir}">${DIR_ARROW[ev.dir]||''}</span>` : '';
       row.innerHTML = `
         <span class="log-ts">${fmtTime(ev.ts)}</span>
         <span class="log-cam">${esc(ev.name||ev.cameraId)}</span>
-        <span class="log-cnt">+${ev.count} xe</span>
-        <span class="log-total">Tổng: ${ev.total}</span>
+        ${dirArrow}
+        <span class="log-cnt">+${ev.count}</span>
+        <span class="log-total">Σ${ev.total}</span>
       `;
-      wrap.insertBefore(row, wrap.children[1] || null); // insert after empty-msg
+      wrap.insertBefore(row, wrap.children[1] || null);
     });
-
-    // Keep max 300 rows in DOM
     while (wrap.children.length > 301) wrap.removeChild(wrap.lastChild);
-
-    if (!logFrozen || wasAtBottom) {
-      wrap.scrollTop = 0; // newest at top since we prepend
-    }
   } catch(e) {}
 }
 
@@ -638,7 +711,6 @@ function fmtTime(ts) {
 
 function clearLogView() {
   const wrap = document.getElementById('logWrap');
-  // Remove all log rows except the empty msg
   [...wrap.querySelectorAll('.log-row')].forEach(r => r.remove());
   document.getElementById('logEmpty').style.display = '';
   lastLogTs = Math.floor(Date.now()/1000);
@@ -662,9 +734,69 @@ async function loadHistory() {
     body.innerHTML = data.map(s => `<tr>
       <td>${esc(s.name||s.cameraId)}</td>
       <td><strong>${(s.total||0).toLocaleString()}</strong></td>
-      ${(s.hours||new Array(24).fill(0)).map(v=>`<td style="text-align:center;font-size:.75rem">${v||''}</td>`).join('')}
+      ${(s.hours||new Array(24).fill(0)).map(v=>`<td style="text-align:center;font-size:.73rem">${v||''}</td>`).join('')}
     </tr>`).join('');
   } catch(e) {}
+}
+
+// ════════════════════════════════════════════════════════
+// Debug MOG2 view
+// ════════════════════════════════════════════════════════
+function populateDebugSelect() {
+  const sel = document.getElementById('debugCamSel');
+  const cur = sel.value;
+  const running = statuses.filter(c => c.running);
+  sel.innerHTML = '<option value="">— Chọn camera —</option>' +
+    running.map(c => `<option value="${esc(c.id)}">${esc(c.name||c.id)}</option>`).join('');
+  if (cur && running.find(c=>c.id===cur)) sel.value = cur;
+}
+
+function openDebugFor(camId) {
+  showTab('debug', document.querySelector('.tab-btn:nth-child(4)'));
+  document.getElementById('debugCamSel').value = camId;
+  openDebugCam();
+}
+
+function openDebugTab() {
+  populateDebugSelect();
+  if (document.getElementById('debugCamSel').value) {
+    openDebugCam();
+  }
+}
+
+function openDebugCam() {
+  stopDebugRefresh();
+  const id = document.getElementById('debugCamSel').value;
+  if (!id) {
+    document.getElementById('debugImgWrap').innerHTML =
+      '<div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh phân tích MOG2</div>';
+    document.getElementById('debugLegend').style.display = 'none';
+    return;
+  }
+  document.getElementById('debugLegend').style.display = '';
+  refreshDebugFrame(id);
+  debugTimer = setInterval(() => refreshDebugFrame(id), 2000);
+}
+
+function stopDebugRefresh() {
+  if (debugTimer) { clearInterval(debugTimer); debugTimer = null; }
+}
+
+function refreshDebugFrame(id) {
+  const token = localStorage.getItem('go2rtc_token')||'';
+  const url = `/api/counting/debug?camera=${encodeURIComponent(id)}&_=${Date.now()}&token=${token}`;
+  const st = statuses.find(c=>c.id===id);
+  const info = st ? `Frames: ${st.framesProcessed||0}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}` : '';
+  document.getElementById('debugStatus').textContent = info;
+
+  const img = new Image();
+  img.style.cssText = 'max-width:100%;border-radius:6px;border:1px solid var(--border)';
+  img.onload = () => { document.getElementById('debugImgWrap').innerHTML = ''; document.getElementById('debugImgWrap').appendChild(img); };
+  img.onerror = () => {
+    document.getElementById('debugImgWrap').innerHTML =
+      `<div style="padding:30px;color:#d97706;font-size:.82rem;text-align:center">Chưa có frame — camera chưa nhận được snapshot từ disk.<br>Đảm bảo thư mục <code>snapshots/</code> có file .jpg cho stream này.</div>`;
+  };
+  img.src = url;
 }
 
 // ════════════════════════════════════════════════════════
@@ -688,10 +820,10 @@ async function openAddModal() {
   document.getElementById('mTitle').textContent = 'Thêm Camera đếm';
   document.getElementById('mName').value = '';
   document.getElementById('mErr').textContent = '';
+  document.getElementById('mErr2').textContent = '';
   showStep(1);
   document.getElementById('modalOverlay').classList.add('open');
 
-  // Load streams
   try {
     const streamsMap = await apiFetch('/api/streams');
     allStreams = Object.keys(streamsMap).sort();
@@ -737,9 +869,20 @@ function goStep2() {
   }
   document.getElementById('mErr').textContent = '';
   document.getElementById('s2Stream').textContent = stream;
-  document.getElementById('mLine').value = '0.50';
-  document.getElementById('linePosVal').textContent = '0.50';
-  document.getElementById('mAxis').value = 'h';
+  // Defaults
+  document.getElementById('mHEnable').checked = true;
+  document.getElementById('mHPos').value = '0.50';
+  document.getElementById('mHPosVal').textContent = '0.50';
+  document.getElementById('mVEnable').checked = false;
+  document.getElementById('mVPos').value = '0.50';
+  document.getElementById('mVPosVal').textContent = '0.50';
+  document.getElementById('mDown').checked = true;
+  document.getElementById('mUp').checked   = true;
+  document.getElementById('mRight').checked= false;
+  document.getElementById('mLeft').checked = false;
+  document.getElementById('mFps').value  = '0';
+  document.getElementById('mTier').value = '1';
+  document.getElementById('mEnabled').checked = true;
   showStep(2);
   refreshPreview();
 }
@@ -755,35 +898,52 @@ function showStep(n) {
 // ════════════════════════════════════════════════════════
 let previewImg = null;
 
+function syncSlider(axis) {
+  const val = parseFloat(document.getElementById('m'+axis+'Pos').value).toFixed(2);
+  document.getElementById('m'+axis+'PosVal').textContent = val;
+}
+
 async function refreshPreview() {
   const stream = document.getElementById('s2Stream').textContent;
   if (!stream) return;
   const token = localStorage.getItem('go2rtc_token')||'';
-  const url = `/api/frame.jpeg?src=${encodeURIComponent(stream)}&width=480&_=${Date.now()}&token=${token}`;
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => { previewImg = img; drawPreview(); };
-  img.onerror = () => {
-    // Show placeholder
+  const url = `/api/proxy/frame?name=${encodeURIComponent(stream)}&token=${token}&_=${Date.now()}`;
+  // Try proxy endpoint first (snapshot-based), then fall back to frame.jpeg
+  const urls = [
+    `/api/proxy/frame?name=${encodeURIComponent(stream)}&token=${token}&_=${Date.now()}`,
+    `/api/frame.jpeg?src=${encodeURIComponent(stream)}&width=480&_=${Date.now()}&token=${token}`
+  ];
+  let loaded = false;
+  for (const u of urls) {
+    try {
+      await new Promise((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => { previewImg = img; loaded = true; res(); };
+        img.onerror = rej;
+        img.src = u;
+      });
+      if (loaded) break;
+    } catch(e) { /* try next */ }
+  }
+  if (!loaded) {
     const canvas = document.getElementById('previewCanvas');
-    const ctx = canvas.getContext('2d');
     canvas.width = 320; canvas.height = 180;
+    const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#1f2937';
     ctx.fillRect(0,0,320,180);
     ctx.fillStyle = '#6b7280';
-    ctx.font = '13px sans-serif';
+    ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Không lấy được frame từ camera', 160, 90);
+    ctx.fillText('Không lấy được snapshot — snapshot sẽ có sau khi hệ thống chạy', 160, 90);
     previewImg = null;
-  };
-  img.src = url;
+  }
+  drawPreview();
 }
 
 function drawPreview() {
   const canvas = document.getElementById('previewCanvas');
   const ctx    = canvas.getContext('2d');
-  const pos    = parseFloat(document.getElementById('mLine').value);
-  const axis   = document.getElementById('mAxis').value;
 
   if (previewImg) {
     canvas.width  = previewImg.naturalWidth;
@@ -796,66 +956,87 @@ function drawPreview() {
   }
 
   const W = canvas.width, H = canvas.height;
+  const lw = Math.max(2, W/160);
 
-  // Counting line
-  ctx.save();
-  ctx.strokeStyle = '#ef4444';
-  ctx.lineWidth   = Math.max(2, W/160);
-  ctx.setLineDash([12,6]);
-  ctx.shadowColor = 'rgba(0,0,0,.6)';
-  ctx.shadowBlur  = 4;
-  ctx.beginPath();
-  if (axis === 'h') {
+  // Horizontal line (green)
+  if (document.getElementById('mHEnable').checked) {
+    const pos = parseFloat(document.getElementById('mHPos').value);
     const y = H * pos;
-    ctx.moveTo(0, y); ctx.lineTo(W, y);
-  } else {
-    const x = W * pos;
-    ctx.moveTo(x, 0); ctx.lineTo(x, H);
-  }
-  ctx.stroke();
-
-  // Arrow indicators
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ef4444';
-  ctx.font = `bold ${Math.max(12, W/26)}px sans-serif`;
-  ctx.textAlign = 'center';
-  if (axis === 'h') {
-    const y = H * pos;
-    ctx.fillText('▼', W*0.05, y-6);
-    ctx.fillText('▲', W*0.95, y+14);
-  } else {
-    const x = W * pos;
-    ctx.fillText('▶', x+8, H*0.05);
-    ctx.fillText('◀', x-8, H*0.95);
+    ctx.save();
+    ctx.strokeStyle = '#00e600';
+    ctx.lineWidth   = lw;
+    ctx.setLineDash([10,5]);
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#00e600';
+    ctx.font = `bold ${Math.max(11,W/28)}px sans-serif`;
+    ctx.textAlign = 'center';
+    if (document.getElementById('mDown').checked) ctx.fillText('↓', W*0.15, y-4);
+    if (document.getElementById('mUp').checked)   ctx.fillText('↑', W*0.85, y+14);
+    ctx.restore();
   }
 
-  // Position label
-  ctx.fillStyle = 'rgba(0,0,0,.65)';
-  ctx.fillRect(W/2-28, 4, 56, 18);
-  ctx.fillStyle = '#fff';
-  ctx.font = `${Math.max(10,W/40)}px monospace`;
-  ctx.fillText(pos.toFixed(2), W/2, 16);
-  ctx.restore();
+  // Vertical line (cyan)
+  if (document.getElementById('mVEnable').checked) {
+    const pos = parseFloat(document.getElementById('mVPos').value);
+    const x = W * pos;
+    ctx.save();
+    ctx.strokeStyle = '#00dcdc';
+    ctx.lineWidth   = lw;
+    ctx.setLineDash([10,5]);
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#00dcdc';
+    ctx.font = `bold ${Math.max(11,W/28)}px sans-serif`;
+    ctx.textAlign = 'center';
+    if (document.getElementById('mRight').checked) ctx.fillText('→', x+14, H*0.15);
+    if (document.getElementById('mLeft').checked)  ctx.fillText('←', x-14, H*0.85);
+    ctx.restore();
+  }
 }
 
-function linePosChanged(val) {
-  document.getElementById('linePosVal').textContent = parseFloat(val).toFixed(2);
-  drawPreview();
-}
-
-function dragLine(e) {
+// Pick which line to drag based on proximity to existing lines
+function pickDragTarget(e) {
   const canvas = document.getElementById('previewCanvas');
   const rect   = canvas.getBoundingClientRect();
-  const axis   = document.getElementById('mAxis').value;
-  let pos;
-  if (axis === 'h') {
-    pos = (e.clientY - rect.top) / rect.height;
-  } else {
-    pos = (e.clientX - rect.left) / rect.width;
+  const relY   = (e.clientY - rect.top) / rect.height;
+  const relX   = (e.clientX - rect.left) / rect.width;
+  const hEnabled = document.getElementById('mHEnable').checked;
+  const vEnabled = document.getElementById('mVEnable').checked;
+  if (hEnabled && vEnabled) {
+    const hPos = parseFloat(document.getElementById('mHPos').value);
+    const vPos = parseFloat(document.getElementById('mVPos').value);
+    const dH = Math.abs(relY - hPos);
+    const dV = Math.abs(relX - vPos);
+    return dH < dV ? 'H' : 'V';
   }
-  pos = Math.max(0.05, Math.min(0.95, pos));
-  document.getElementById('mLine').value = pos.toFixed(2);
-  document.getElementById('linePosVal').textContent = pos.toFixed(2);
+  if (hEnabled) return 'H';
+  if (vEnabled) return 'V';
+  return 'H'; // fallback: enable H and drag
+}
+
+function startDrag(e) {
+  if (!dragTarget) return;
+  if (!document.getElementById('m'+dragTarget+'Enable').checked) {
+    document.getElementById('m'+dragTarget+'Enable').checked = true;
+  }
+  dodrag(e);
+}
+
+function dodrag(e) {
+  const canvas = document.getElementById('previewCanvas');
+  const rect   = canvas.getBoundingClientRect();
+  if (dragTarget === 'H') {
+    const pos = Math.max(0.05, Math.min(0.95, (e.clientY - rect.top) / rect.height));
+    document.getElementById('mHPos').value = pos.toFixed(2);
+    document.getElementById('mHPosVal').textContent = pos.toFixed(2);
+  } else {
+    const pos = Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width));
+    document.getElementById('mVPos').value = pos.toFixed(2);
+    document.getElementById('mVPosVal').textContent = pos.toFixed(2);
+  }
   drawPreview();
 }
 
@@ -865,12 +1046,18 @@ function dragLine(e) {
 async function saveCamera() {
   const stream = document.getElementById('s2Stream').textContent;
   const name   = document.getElementById('mName').value.trim() || stream;
+  const hEnabled = document.getElementById('mHEnable').checked;
+  const vEnabled = document.getElementById('mVEnable').checked;
   const cam = {
     id:         editId || '',
     name,
     streamName: stream,
-    linePos:    parseFloat(document.getElementById('mLine').value),
-    lineAxis:   document.getElementById('mAxis').value,
+    lineHPos:   hEnabled ? parseFloat(document.getElementById('mHPos').value) : 0,
+    lineVPos:   vEnabled ? parseFloat(document.getElementById('mVPos').value) : 0,
+    countDown:  document.getElementById('mDown').checked,
+    countUp:    document.getElementById('mUp').checked,
+    countRight: document.getElementById('mRight').checked,
+    countLeft:  document.getElementById('mLeft').checked,
     fps:        parseFloat(document.getElementById('mFps').value),
     tier:       parseInt(document.getElementById('mTier').value),
     enabled:    document.getElementById('mEnabled').checked,
@@ -885,7 +1072,7 @@ async function saveCamera() {
     await loadConfig();
     await poll();
   } catch(e) {
-    document.getElementById('mErr').textContent = e.message;
+    document.getElementById('mErr2').textContent = e.message;
   }
 }
 
@@ -896,13 +1083,26 @@ async function editCam(id) {
   editId = id;
   document.getElementById('mTitle').textContent = 'Sửa Camera: '+esc(cam.name||cam.id);
   document.getElementById('mName').value  = cam.name||'';
-  document.getElementById('mLine').value  = cam.linePos ?? 0.5;
-  document.getElementById('linePosVal').textContent = (cam.linePos ?? 0.5).toFixed(2);
-  document.getElementById('mAxis').value  = cam.lineAxis||'h';
+  // Line H
+  const hPos = cam.lineHPos ?? 0.5;
+  document.getElementById('mHEnable').checked = hPos > 0;
+  document.getElementById('mHPos').value  = hPos > 0 ? hPos : 0.5;
+  document.getElementById('mHPosVal').textContent = (hPos > 0 ? hPos : 0.5).toFixed(2);
+  // Line V
+  const vPos = cam.lineVPos ?? 0;
+  document.getElementById('mVEnable').checked = vPos > 0;
+  document.getElementById('mVPos').value  = vPos > 0 ? vPos : 0.5;
+  document.getElementById('mVPosVal').textContent = (vPos > 0 ? vPos : 0.5).toFixed(2);
+  // Directions
+  document.getElementById('mDown').checked  = cam.countDown  !== false && (cam.countDown || !cam.countUp && !cam.countRight && !cam.countLeft);
+  document.getElementById('mUp').checked    = cam.countUp   || false;
+  document.getElementById('mRight').checked = cam.countRight || false;
+  document.getElementById('mLeft').checked  = cam.countLeft  || false;
   document.getElementById('mFps').value   = cam.fps ?? 0;
   document.getElementById('mTier').value  = cam.tier ?? 1;
   document.getElementById('mEnabled').checked = cam.enabled !== false;
-  document.getElementById('mErr').textContent = '';
+  document.getElementById('mErr').textContent  = '';
+  document.getElementById('mErr2').textContent = '';
   document.getElementById('s2Stream').textContent = cam.streamName;
   showStep(2);
   document.getElementById('modalOverlay').classList.add('open');

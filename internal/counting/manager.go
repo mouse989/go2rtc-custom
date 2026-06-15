@@ -13,6 +13,10 @@ type CameraStatus struct {
 	Stream          string `json:"streamName"`
 	Running         bool   `json:"running"`
 	Total           int    `json:"total"`
+	TotalDown       int    `json:"totalDown,omitempty"`
+	TotalUp         int    `json:"totalUp,omitempty"`
+	TotalRight      int    `json:"totalRight,omitempty"`
+	TotalLeft       int    `json:"totalLeft,omitempty"`
 	FramesProcessed int    `json:"framesProcessed"`
 	LastFrameAt     int64  `json:"lastFrameAt"` // unix seconds, 0 = never
 	StartedAt       int64  `json:"startedAt"`   // unix seconds
@@ -111,6 +115,10 @@ func (m *Manager) statuses() []CameraStatus {
 		if e, ok := m.workers[cam.ID]; ok {
 			st.Running = true
 			st.Total = e.worker.total
+			st.TotalDown = e.worker.totalDown
+			st.TotalUp = e.worker.totalUp
+			st.TotalRight = e.worker.totalRight
+			st.TotalLeft = e.worker.totalLeft
 			st.FramesProcessed = e.worker.framesProcessed
 			st.LastFrameAt = e.worker.lastFrameAt
 			st.StartedAt = e.worker.startedAt

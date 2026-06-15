@@ -20,6 +20,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/data", handleData)
 	api.HandleFunc("api/counting/summary", handleSummary)
 	api.HandleFunc("api/counting/events", handleEvents)
+	api.HandleFunc("api/counting/debug", handleDebug)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -145,11 +146,13 @@ func handleCameras(w http.ResponseWriter, r *http.Request) {
 		if cam.ID == "" {
 			cam.ID = newCameraID(cam.StreamName)
 		}
-		if cam.LinePos == 0 {
-			cam.LinePos = 0.5
+		// Default to horizontal line at 50% counting both directions
+		if cam.LineHPos == 0 && cam.LineVPos == 0 {
+			cam.LineHPos = 0.5
 		}
-		if cam.LineAxis == "" {
-			cam.LineAxis = "h"
+		if !cam.CountDown && !cam.CountUp && !cam.CountRight && !cam.CountLeft {
+			cam.CountDown = true
+			cam.CountUp = true
 		}
 		if cam.Tier == 0 {
 			cam.Tier = 1
@@ -277,6 +280,37 @@ func handleEvents(w http.ResponseWriter, r *http.Request) {
 		events = []CountEvent{}
 	}
 	writeJSON(w, events)
+}
+
+// GET /api/counting/debug?camera=id
+// Returns an annotated JPEG showing the MOG2 mask, blobs, tracks, and counting lines.
+func handleDebug(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("camera")
+	if id == "" {
+		http.Error(w, "camera required", http.StatusBadRequest)
+		return
+	}
+	mgr.mu.Lock()
+	e, ok := mgr.workers[id]
+	mgr.mu.Unlock()
+	if !ok {
+		http.Error(w, "camera not running", http.StatusNotFound)
+		return
+	}
+	e.worker.debugMu.Lock()
+	frame := e.worker.debugJPEG
+	e.worker.debugMu.Unlock()
+	if len(frame) == 0 {
+		http.Error(w, "no debug frame yet — waiting for first snapshot", http.StatusNotFound)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "image/jpeg")
+	h.Set("Cache-Control", "no-cache, no-store")
+	_, _ = w.Write(frame)
 }
 
 func newCameraID(streamName string) string {
