@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Any
 import cv2
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -65,6 +65,7 @@ class Track:
     missed: int = 0
     crossed_h: bool = False
     crossed_v: bool = False
+    vehicle_class: str = "unknown"
 
 
 class Tracker:
@@ -79,7 +80,7 @@ class Tracker:
 
     def update(self, detections: List[tuple]) -> List[Track]:
         """
-        detections: list of (cx, cy) floats
+        detections: list of (cx, cy, cls_name) tuples
         Returns the current list of active tracks (including newly created ones).
         """
         # Mark all as missed; we'll clear the flag for matched ones
@@ -94,25 +95,27 @@ class Tracker:
             best_idx = None
             best_dist = self.MAX_DIST
             for idx in unmatched_dets:
-                cx, cy = detections[idx]
+                cx, cy, _cls = detections[idx]
                 dist = math.hypot(cx - tr.cx, cy - tr.cy)
                 if dist < best_dist:
                     best_dist = dist
                     best_idx = idx
             if best_idx is not None:
-                cx, cy = detections[best_idx]
+                cx, cy, cls_name = detections[best_idx]
                 tr.prev_cx, tr.prev_cy = tr.cx, tr.cy
                 tr.cx, tr.cy = cx, cy
+                tr.vehicle_class = cls_name
                 tr.missed = 0
                 unmatched_dets.remove(best_idx)
 
         # Create new tracks for unmatched detections
         for idx in unmatched_dets:
-            cx, cy = detections[idx]
+            cx, cy, cls_name = detections[idx]
             self._tracks.append(Track(
                 id=self._next_id,
                 cx=cx, cy=cy,
                 prev_cx=cx, prev_cy=cy,
+                vehicle_class=cls_name,
             ))
             self._next_id += 1
 
@@ -152,6 +155,10 @@ class CameraState:
     totalUp: int = 0
     totalRight: int = 0
     totalLeft: int = 0
+    totalCar: int = 0
+    totalMotorcycle: int = 0
+    totalBus: int = 0
+    totalTruck: int = 0
     framesProcessed: int = 0
     lastFrameAt: float = 0.0
     startedAt: float = field(default_factory=time.time)
@@ -268,7 +275,7 @@ class CameraState:
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
                 cls_name = VEHICLE_CLASSES[cls_id]
-                detections.append((cx, cy))
+                detections.append((cx, cy, cls_name))
                 boxes_info.append({
                     "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                     "cx": cx, "cy": cy,
@@ -293,22 +300,22 @@ class CameraState:
                 line_y = cfg.lineHPos * fh
                 if cfg.countDown and tr.prev_cy < line_y and tr.cy >= line_y:
                     tr.crossed_h = True
-                    self._emit_event(ts, "down")
+                    self._emit_event(ts, "down", tr.vehicle_class)
                 elif cfg.countUp and tr.prev_cy > line_y and tr.cy <= line_y:
                     tr.crossed_h = True
-                    self._emit_event(ts, "up")
+                    self._emit_event(ts, "up", tr.vehicle_class)
 
             # --- Vertical line ---
             if cfg.lineVPos > 0 and (cfg.countRight or cfg.countLeft) and not tr.crossed_v:
                 line_x = cfg.lineVPos * fw
                 if cfg.countRight and tr.prev_cx < line_x and tr.cx >= line_x:
                     tr.crossed_v = True
-                    self._emit_event(ts, "right")
+                    self._emit_event(ts, "right", tr.vehicle_class)
                 elif cfg.countLeft and tr.prev_cx > line_x and tr.cx <= line_x:
                     tr.crossed_v = True
-                    self._emit_event(ts, "left")
+                    self._emit_event(ts, "left", tr.vehicle_class)
 
-    def _emit_event(self, ts: float, direction: str):
+    def _emit_event(self, ts: float, direction: str, vehicle_class: str = "unknown"):
         self.total += 1
         if direction == "down":
             self.totalDown += 1
@@ -319,6 +326,15 @@ class CameraState:
         elif direction == "left":
             self.totalLeft += 1
 
+        if vehicle_class == "car":
+            self.totalCar += 1
+        elif vehicle_class == "motorcycle":
+            self.totalMotorcycle += 1
+        elif vehicle_class == "bus":
+            self.totalBus += 1
+        elif vehicle_class == "truck":
+            self.totalTruck += 1
+
         event = {
             "ts": ts,
             "cameraId": self.config.id,
@@ -326,6 +342,7 @@ class CameraState:
             "count": 1,
             "total": self.total,
             "dir": direction,
+            "vehicleClass": vehicle_class,
         }
         with self.events_lock:
             self.events.append(event)
@@ -404,6 +421,10 @@ class CameraState:
             "totalUp": self.totalUp,
             "totalRight": self.totalRight,
             "totalLeft": self.totalLeft,
+            "totalCar": self.totalCar,
+            "totalMotorcycle": self.totalMotorcycle,
+            "totalBus": self.totalBus,
+            "totalTruck": self.totalTruck,
             "framesProcessed": self.framesProcessed,
             "lastFrameAt": self.lastFrameAt,
             "startedAt": self.startedAt,
@@ -501,6 +522,111 @@ def debug_camera(cam_id: str):
                     headers={"Cache-Control": "no-cache, no-store"})
 
 
+@app.post("/collect/{cam_id}")
+def collect_frames(cam_id: str, frames: int = 50):
+    """Capture N frames from a running camera and save to dataset/raw/"""
+    import os
+    with _cameras_lock:
+        state = _cameras.get(cam_id)
+    if state is None:
+        raise HTTPException(404, "camera not found")
+
+    out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable), "dataset", "raw")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Grab frames from RTSP
+    from urllib.parse import quote
+    import threading
+    rtsp_url = f"{_args.rtsp_base}/{quote(state.config.streamName, safe='')}"
+    collected = []
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        raise HTTPException(503, f"Cannot open RTSP: {rtsp_url}")
+
+    try:
+        count = 0
+        attempts = 0
+        while count < frames and attempts < frames * 3:
+            ret, frame = cap.read()
+            attempts += 1
+            if not ret:
+                continue
+            if attempts % 3 != 0:  # skip 2/3 frames to get variety
+                continue
+            fname = f"{int(time.time()*1000)}_{cam_id}_{count:04d}.jpg"
+            fpath = os.path.join(out_dir, fname)
+            cv2.imwrite(fpath, frame)
+            collected.append(fname)
+            count += 1
+    finally:
+        cap.release()
+
+    return {"collected": len(collected), "dir": out_dir, "files": collected}
+
+
+@app.post("/train")
+def start_training(
+    model: str = "yolo11n.pt",
+    epochs: int = 50,
+    imgsz: int = 640,
+    batch: int = 8,
+):
+    """Start YOLO fine-tuning in background. Dataset must be at dataset/ dir."""
+    import subprocess, sys, os
+    dataset_yaml = os.path.join(
+        os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__)),
+        "dataset", "dataset.yaml"
+    )
+    if not os.path.exists(dataset_yaml):
+        raise HTTPException(400, f"dataset.yaml not found at {dataset_yaml}. Prepare dataset first.")
+
+    cmd = [sys.executable, "-c",
+        f"from ultralytics import YOLO; YOLO('{model}').train(data='{dataset_yaml}', epochs={epochs}, imgsz={imgsz}, batch={batch})"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return {"ok": True, "pid": proc.pid, "message": f"Training started (PID {proc.pid})"}
+
+
+@app.get("/dataset/images")
+def dataset_images():
+    import os, glob
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    raw_dir = os.path.join(base, "dataset", "raw")
+    if not os.path.isdir(raw_dir):
+        return {"images": [], "dir": raw_dir}
+    files = sorted([f for f in os.listdir(raw_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+    return {"images": files, "dir": raw_dir, "count": len(files)}
+
+
+@app.get("/dataset/image/{filename}")
+def dataset_image(filename: str):
+    import os
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "dataset", "raw", filename)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "image not found")
+    with open(path, "rb") as f:
+        data = f.read()
+    return Response(content=data, media_type="image/jpeg")
+
+
+@app.post("/dataset/label")
+async def dataset_label(request: Request):
+    """Save YOLO format label for an image."""
+    import os
+    body = await request.json()
+    filename = body.get("filename", "")
+    boxes = body.get("boxes", [])  # [{cls_id, x_center, y_center, width, height}] normalized
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    label_dir = os.path.join(base, "dataset", "labels")
+    os.makedirs(label_dir, exist_ok=True)
+    stem = os.path.splitext(filename)[0]
+    label_path = os.path.join(label_dir, stem + ".txt")
+    lines = [f"{b['cls_id']} {b['x_center']:.6f} {b['y_center']:.6f} {b['width']:.6f} {b['height']:.6f}" for b in boxes]
+    with open(label_path, "w") as f:
+        f.write("\n".join(lines))
+    return {"ok": True, "saved": label_path, "boxes": len(boxes)}
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -526,4 +652,8 @@ if __name__ == "__main__":
     logger.info("Model loaded and warmed up")
 
     logger.info(f"Starting server on port {_args.port}")
+    import logging as _logging
+    _logging.getLogger("uvicorn.error").addFilter(
+        type("_f", (_logging.Filter,), {"filter": lambda self, r: "Invalid HTTP request" not in r.getMessage()})()
+    )
     uvicorn.run(app, host="0.0.0.0", port=_args.port, log_level="warning")

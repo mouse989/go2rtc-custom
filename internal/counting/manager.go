@@ -17,6 +17,10 @@ type CameraStatus struct {
 	TotalUp         int    `json:"totalUp,omitempty"`
 	TotalRight      int    `json:"totalRight,omitempty"`
 	TotalLeft       int    `json:"totalLeft,omitempty"`
+	TotalCar        int    `json:"totalCar,omitempty"`
+	TotalMotorcycle int    `json:"totalMotorcycle,omitempty"`
+	TotalBus        int    `json:"totalBus,omitempty"`
+	TotalTruck      int    `json:"totalTruck,omitempty"`
 	FramesProcessed int    `json:"framesProcessed"`
 	LastFrameAt     int64  `json:"lastFrameAt"` // unix seconds, 0 = never
 	StartedAt       int64  `json:"startedAt"`   // unix seconds
@@ -119,6 +123,10 @@ func (m *Manager) statuses() []CameraStatus {
 			st.TotalUp = e.worker.totalUp
 			st.TotalRight = e.worker.totalRight
 			st.TotalLeft = e.worker.totalLeft
+			st.TotalCar = e.worker.totalCar
+			st.TotalMotorcycle = e.worker.totalMotorcycle
+			st.TotalBus = e.worker.totalBus
+			st.TotalTruck = e.worker.totalTruck
 			st.FramesProcessed = e.worker.framesProcessed
 			st.LastFrameAt = e.worker.lastFrameAt
 			st.StartedAt = e.worker.startedAt

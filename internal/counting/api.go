@@ -2,6 +2,8 @@ package counting
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,6 +24,11 @@ func registerAPI() {
 	api.HandleFunc("api/counting/events", handleEvents)
 	api.HandleFunc("api/counting/debug", handleDebug)
 	api.HandleFunc("api/counting/yolo-status", handleYoloStatus)
+	api.HandleFunc("api/counting/collect", handleCollect)
+	api.HandleFunc("api/counting/train", handleTrain)
+	api.HandleFunc("api/counting/dataset-images", handleDatasetImages)
+	api.HandleFunc("api/counting/dataset-image", handleDatasetImage)
+	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -343,4 +350,138 @@ func handleYoloStatus(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(resp.Body).Decode(&health)
 	health["connected"] = true
 	writeJSON(w, health)
+}
+
+// POST /api/counting/collect?camera=id&frames=N
+func handleCollect(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Query().Get("camera")
+	frames := r.URL.Query().Get("frames")
+	if frames == "" {
+		frames = "50"
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	url := fmt.Sprintf("%s/collect/%s?frames=%s", yoloURL, id, frames)
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Post(url, "application/json", nil)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+// POST /api/counting/train
+func handleTrain(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(yoloURL+"/train", "application/json", r.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+// GET /api/counting/dataset-images
+func handleDatasetImages(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	proxyGet(w, yoloURL+"/dataset/images")
+}
+
+// GET /api/counting/dataset-image?file=name.jpg
+func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	f := r.URL.Query().Get("file")
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	proxyGetRaw(w, yoloURL+"/dataset/image/"+f)
+}
+
+// POST /api/counting/dataset-label
+func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(yoloURL+"/dataset/label", "application/json", r.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+func proxyGet(w http.ResponseWriter, url string) {
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	// If url doesn't start with http, prepend yoloURL
+	if !strings.HasPrefix(url, "http") {
+		url = yoloURL + url
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+func proxyGetRaw(w http.ResponseWriter, url string) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	defer resp.Body.Close()
+	ct := resp.Header.Get("Content-Type")
+	if ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	io.Copy(w, resp.Body)
 }
