@@ -21,6 +21,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/summary", handleSummary)
 	api.HandleFunc("api/counting/events", handleEvents)
 	api.HandleFunc("api/counting/debug", handleDebug)
+	api.HandleFunc("api/counting/yolo-status", handleYoloStatus)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -319,4 +320,27 @@ func newCameraID(streamName string) string {
 		base = "cam"
 	}
 	return "c_" + base
+}
+
+// GET /api/counting/yolo-status
+// Proxies a health check to the Python YOLO service and returns its response.
+func handleYoloStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(yoloURL + "/health")
+	if err != nil {
+		writeJSON(w, map[string]any{"connected": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	var health map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&health)
+	health["connected"] = true
+	writeJSON(w, health)
 }

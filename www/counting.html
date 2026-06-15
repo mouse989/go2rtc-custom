@@ -207,7 +207,7 @@
     <button class="tab-btn active" onclick="showTab('live',this)">Thực time</button>
     <button class="tab-btn" onclick="showTab('log',this)">Nhật ký sự kiện</button>
     <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
-    <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra MOG2</button>
+    <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra YOLO</button>
     <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
   </div>
 
@@ -287,15 +287,18 @@
         </select>
         <span id="debugStatus" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
+      <div id="yoloSvcStatus" style="padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:.78rem;background:var(--surface2)">Đang kiểm tra dịch vụ YOLO…</div>
       <div class="debug-box">
         <div id="debugImgWrap" style="text-align:center">
-          <div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh phân tích MOG2</div>
+          <div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh YOLO</div>
         </div>
         <div class="debug-legend" id="debugLegend" style="display:none">
-          <span><span class="legend-dot" style="background:#dc3030"></span>Mask nền động (vùng có xe)</span>
+          <span><span class="legend-dot" style="background:#00e600"></span>Ô tô (car)</span>
+          <span><span class="legend-dot" style="background:#ff00ff"></span>Xe máy (motorcycle)</span>
+          <span><span class="legend-dot" style="background:#00dcdc"></span>Xe buýt (bus)</span>
+          <span><span class="legend-dot" style="background:#ff8c00"></span>Xe tải (truck)</span>
           <span><span class="legend-dot" style="background:#00e600"></span>Đường đếm ngang H (↑↓)</span>
           <span><span class="legend-dot" style="background:#00dcdc"></span>Đường đếm dọc V (←→)</span>
-          <span><span class="legend-dot" style="background:#ffdc00"></span>Tâm xe đang theo dõi</span>
         </div>
       </div>
     </div>
@@ -304,31 +307,32 @@
   <!-- ══════════════ SETTINGS ══════════════ -->
   <div id="tab-settings" class="tab-content" style="display:none">
     <div class="section">
-      <div class="sub-title">Thông số toàn cục MOG2</div>
+      <div class="sub-title">Thông số YOLO &amp; xử lý</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px">
+        <div class="form-row" style="grid-column:1/-1">
+          <label>URL dịch vụ YOLO (Python)</label>
+          <input type="text" id="sYoloUrl" placeholder="http://localhost:8765" style="font-family:monospace">
+        </div>
+        <div class="form-row">
+          <label>Ngưỡng tin cậy YOLO (conf)</label>
+          <input type="number" id="sYoloConf" step="0.05" min="0.1" max="0.9">
+        </div>
+        <div class="form-row">
+          <label>Model YOLO</label>
+          <select id="sYoloModel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="yolo11n.pt">yolo11n.pt — Nhanh nhất (Nano)</option>
+            <option value="yolo11s.pt">yolo11s.pt — Nhỏ (Small)</option>
+            <option value="yolo11m.pt">yolo11m.pt — Trung bình (Medium)</option>
+            <option value="yolo12n.pt">yolo12n.pt — YOLO12 Nano (mới nhất)</option>
+          </select>
+        </div>
         <div class="form-row">
           <label>FPS xử lý mặc định</label>
           <input type="number" id="sFps" step="0.5" min="0.2" max="10">
         </div>
         <div class="form-row">
-          <label>Ngưỡng phát hiện (Threshold)</label>
-          <input type="number" id="sThresh" step="1" min="5" max="100">
-        </div>
-        <div class="form-row">
-          <label>Tốc độ học nền (LearningRate)</label>
-          <input type="number" id="sLr" step="0.001" min="0.001" max="0.1">
-        </div>
-        <div class="form-row">
           <label>Chiều rộng frame xử lý (px)</label>
           <input type="number" id="sFw" step="32" min="160" max="640">
-        </div>
-        <div class="form-row">
-          <label>Diện tích blob nhỏ nhất (px²)</label>
-          <input type="number" id="sBlobMin" step="50" min="50">
-        </div>
-        <div class="form-row">
-          <label>Diện tích blob lớn nhất (px²)</label>
-          <input type="number" id="sBlobMax" step="1000" min="1000">
         </div>
         <div class="form-row">
           <label>Lưu dữ liệu (ngày)</label>
@@ -473,6 +477,7 @@ const TABS  = ['live','log','history','debug','settings'];
 // Init
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
+  await initApp('counting');
   document.getElementById('histDate').value = today();
   await loadConfig();
   await poll();
@@ -502,7 +507,7 @@ function showTab(name, btn) {
   if (btn) btn.classList.add('active');
   if (name === 'history') loadHistory();
   if (name === 'log')     loadEvents();
-  if (name === 'debug')   openDebugTab();
+  if (name === 'debug')   { openDebugTab(); checkYoloService(); }
   if (name !== 'debug')   stopDebugRefresh();
 }
 
@@ -525,12 +530,11 @@ async function apiFetch(path, opts={}) {
 async function loadConfig() {
   try {
     cfg = await apiFetch('/api/counting/config');
+    document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
+    document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
+    document.getElementById('sYoloModel').value = cfg.yoloModel      ?? 'yolo11n.pt';
     document.getElementById('sFps').value      = cfg.defaultFps      ?? 2.5;
-    document.getElementById('sThresh').value   = cfg.threshold       ?? 28;
-    document.getElementById('sLr').value       = cfg.learningRate    ?? 0.005;
     document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
-    document.getElementById('sBlobMin').value  = cfg.blobMinArea     ?? 200;
-    document.getElementById('sBlobMax').value  = cfg.blobMaxArea     ?? 30000;
     document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
   } catch(e) { console.error('loadConfig', e); }
 }
@@ -538,12 +542,11 @@ async function loadConfig() {
 async function saveSettings() {
   const newCfg = {
     ...cfg,
+    yoloUrl:      document.getElementById('sYoloUrl').value.trim() || 'http://localhost:8765',
+    yoloConf:     parseFloat(document.getElementById('sYoloConf').value),
+    yoloModel:    document.getElementById('sYoloModel').value,
     defaultFps:   parseFloat(document.getElementById('sFps').value),
-    threshold:    parseFloat(document.getElementById('sThresh').value),
-    learningRate: parseFloat(document.getElementById('sLr').value),
     frameWidth:   parseInt(document.getElementById('sFw').value),
-    blobMinArea:  parseInt(document.getElementById('sBlobMin').value),
-    blobMaxArea:  parseInt(document.getElementById('sBlobMax').value),
     storage: { ...cfg.storage, retentionDays: parseInt(document.getElementById('sRetention').value) }
   };
   try {
@@ -769,7 +772,7 @@ function openDebugCam() {
   const id = document.getElementById('debugCamSel').value;
   if (!id) {
     document.getElementById('debugImgWrap').innerHTML =
-      '<div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh phân tích MOG2</div>';
+      '<div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh YOLO</div>';
     document.getElementById('debugLegend').style.display = 'none';
     return;
   }
@@ -780,6 +783,27 @@ function openDebugCam() {
 
 function stopDebugRefresh() {
   if (debugTimer) { clearInterval(debugTimer); debugTimer = null; }
+}
+
+async function checkYoloService() {
+  const el = document.getElementById('yoloSvcStatus');
+  if (!el) return;
+  try {
+    const r = await apiFetch('/api/counting/yolo-status');
+    if (r.connected) {
+      el.style.background = 'rgba(0,200,100,.15)';
+      el.style.color = '#0c0';
+      el.textContent = `✓ Dịch vụ YOLO đang chạy — model: ${r.model||'?'}, cameras: ${r.cameras??'?'}`;
+    } else {
+      el.style.background = 'rgba(220,50,50,.15)';
+      el.style.color = '#f66';
+      el.textContent = `✗ Dịch vụ YOLO không kết nối được: ${r.error||'unknown'}`;
+    }
+  } catch(e) {
+    el.style.background = 'rgba(220,50,50,.15)';
+    el.style.color = '#f66';
+    el.textContent = `✗ Không thể kiểm tra dịch vụ YOLO: ${e.message}`;
+  }
 }
 
 function refreshDebugFrame(id) {
@@ -794,7 +818,7 @@ function refreshDebugFrame(id) {
   img.onload = () => { document.getElementById('debugImgWrap').innerHTML = ''; document.getElementById('debugImgWrap').appendChild(img); };
   img.onerror = () => {
     document.getElementById('debugImgWrap').innerHTML =
-      `<div style="padding:30px;color:#d97706;font-size:.82rem;text-align:center">Chưa có frame — camera chưa nhận được snapshot từ disk.<br>Đảm bảo thư mục <code>snapshots/</code> có file .jpg cho stream này.</div>`;
+      `<div style="padding:30px;color:#d97706;font-size:.82rem;text-align:center">Chưa có frame — YOLO chưa xử lý frame nào.<br>Kiểm tra dịch vụ Python YOLO đã chạy và camera đang hoạt động.</div>`;
   };
   img.src = url;
 }
