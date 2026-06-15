@@ -200,6 +200,7 @@
     <button class="btn btn-green btn-sm" onclick="startAll()">▶ Bắt đầu tất cả</button>
     <button class="btn btn-ghost btn-sm" onclick="stopAll()">⏹ Dừng tất cả</button>
     <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Thêm camera</button>
+    <a href="/annotate.html" class="btn btn-ghost btn-sm" style="text-decoration:none">🏷 Gán nhãn &amp; Train</a>
   </div>
 
   <!-- ── Tabs ── -->
@@ -219,14 +220,14 @@
         <div class="chart-title">Lưu lượng theo giờ — hôm nay</div>
         <div class="chart-bars" id="hourChart"></div>
       </div>
-      <div class="sub-title">Danh sách Camera</div>
+      <div class="sub-title">Danh sách Camera — thống kê hôm nay theo hướng &amp; loại xe</div>
       <div style="overflow-x:auto">
         <table class="tbl">
           <thead>
             <tr>
-              <th>Camera</th><th>Stream</th><th>Tier</th>
-              <th>Trạng thái</th><th>Frames</th>
-              <th>Frame cuối</th><th>Hướng &amp; Tổng</th><th>Thao tác</th>
+              <th>Camera</th><th>Trạng thái</th><th>Tier</th>
+              <th style="min-width:260px">Thống kê hôm nay (hướng × loại xe)</th>
+              <th>Frames</th><th>Frame cuối</th><th>Thao tác</th>
             </tr>
           </thead>
           <tbody id="camBody"></tbody>
@@ -470,9 +471,14 @@ let logTimer   = null;
 let debugTimer = null;
 let logFrozen  = false;
 let dragTarget = null; // 'H' or 'V'
+let todayMatrix = {}; // camId → {dir → {type → count}}
 
 const today = () => new Date().toISOString().slice(0,10);
 const TABS  = ['live','log','history','debug','settings'];
+const VEHICLE_TYPES = ['car','motorcycle','bus','truck'];
+const TYPE_ICON = {car:'🚗',motorcycle:'🏍',bus:'🚌',truck:'🚛'};
+const DIR_LABEL = {down:'↓',up:'↑',right:'→',left:'←'};
+const DIR_TITLE = {down:'Từ trên xuống',up:'Từ dưới lên',right:'Trái qua phải',left:'Phải qua trái'};
 
 // ════════════════════════════════════════════════════════
 // Init
@@ -481,9 +487,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initApp('counting');
   document.getElementById('histDate').value = today();
   await loadConfig();
+  await loadTodayMatrix();
   await poll();
   await loadTodaySummary();
   pollTimer = setInterval(async () => { await poll(); await loadTodaySummary(); }, 5000);
+  setInterval(loadTodayMatrix, 30000);
   logTimer  = setInterval(loadEvents, 3000);
 
   const canvas = document.getElementById('previewCanvas');
@@ -582,13 +590,20 @@ async function poll() {
 // ════════════════════════════════════════════════════════
 function renderCards() {
   const total   = statuses.reduce((s,c) => s+(c.total||0), 0);
+  const car     = statuses.reduce((s,c) => s+(c.totalCar||0), 0);
+  const moto    = statuses.reduce((s,c) => s+(c.totalMotorcycle||0), 0);
+  const bus     = statuses.reduce((s,c) => s+(c.totalBus||0), 0);
+  const truck   = statuses.reduce((s,c) => s+(c.totalTruck||0), 0);
   const running = statuses.filter(c=>c.running).length;
   const errors  = statuses.filter(c=>c.lastErr).length;
   document.getElementById('cards').innerHTML = `
     <div class="card"><div class="num">${total.toLocaleString()}</div><div class="lbl">Tổng lượt hôm nay</div></div>
-    <div class="card"><div class="num">${statuses.length}</div><div class="lbl">Camera cấu hình</div></div>
-    <div class="card"><div class="num" style="color:#16a34a">${running}</div><div class="lbl">Đang chạy</div></div>
-    <div class="card"><div class="num" style="color:#dc2626">${errors}</div><div class="lbl">Có lỗi</div></div>
+    <div class="card"><div class="num" style="color:#16a34a">${car.toLocaleString()}</div><div class="lbl">🚗 Ô tô</div></div>
+    <div class="card"><div class="num" style="color:#a855f7">${moto.toLocaleString()}</div><div class="lbl">🏍 Xe máy</div></div>
+    <div class="card"><div class="num" style="color:#0891b2">${bus.toLocaleString()}</div><div class="lbl">🚌 Xe buýt</div></div>
+    <div class="card"><div class="num" style="color:#f97316">${truck.toLocaleString()}</div><div class="lbl">🚛 Xe tải</div></div>
+    <div class="card"><div class="num" style="color:#16a34a">${running}</div><div class="lbl">Camera đang chạy</div></div>
+    ${errors ? `<div class="card"><div class="num" style="color:#dc2626">${errors}</div><div class="lbl">Có lỗi</div></div>` : ''}
   `;
 }
 
@@ -598,41 +613,81 @@ function renderCards() {
 function renderCamTable() {
   const body = document.getElementById('camBody');
   if (!statuses.length) {
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-secondary)">
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-secondary)">
       Chưa có camera. Nhấn <strong>+ Thêm camera</strong> để bắt đầu.</td></tr>`;
     return;
   }
   const now = Math.floor(Date.now()/1000);
   body.innerHTML = statuses.map(c => {
-    const dotCls  = c.running ? (c.lastErr ? 'dot-err' : 'dot-on') : 'dot-off';
-    const stLbl   = c.running
+    const dotCls = c.running ? (c.lastErr ? 'dot-err' : 'dot-on') : 'dot-off';
+    const stLbl  = c.running
       ? (c.lastErr
-          ? `<span style="color:#dc2626;font-size:.75rem" title="${esc(c.lastErr)}">✗ Lỗi</span>`
-          : `<span style="color:#16a34a;font-size:.75rem">● Đang chạy</span>`)
-      : `<span style="color:#9ca3af;font-size:.75rem">○ Dừng</span>`;
+          ? `<span style="color:#dc2626;font-size:.73rem" title="${esc(c.lastErr)}">✗ Lỗi</span>`
+          : `<span style="color:#16a34a;font-size:.73rem">● Đang chạy</span>`)
+      : `<span style="color:#9ca3af;font-size:.73rem">○ Dừng</span>`;
     const lastFrame = c.lastFrameAt
       ? agoStr(now - c.lastFrameAt)
-      : (c.running ? '<span style="color:#d97706;font-size:.75rem">Chờ snapshot…</span>' : '—');
-    const dirParts = [];
-    if (c.totalDown)  dirParts.push(`<span class="dir-b" title="Từ trên xuống">↓${c.totalDown}</span>`);
-    if (c.totalUp)    dirParts.push(`<span class="dir-b" title="Từ dưới lên">↑${c.totalUp}</span>`);
-    if (c.totalRight) dirParts.push(`<span class="dir-b" title="Trái qua phải">→${c.totalRight}</span>`);
-    if (c.totalLeft)  dirParts.push(`<span class="dir-b" title="Phải qua trái">←${c.totalLeft}</span>`);
-    const dirStr = dirParts.length ? dirParts.join(' ') : '';
+      : (c.running ? '<span style="color:#d97706;font-size:.73rem">Chờ…</span>' : '—');
+
+    // Build direction×type matrix from todayMatrix
+    const mx = todayMatrix[c.id] || {};
+    const DIRS_ACTIVE = ['down','up','right','left'].filter(d => {
+      // show dir if camera has it enabled (from live stats) OR has events today
+      if (d==='down'  && c.totalDown)  return true;
+      if (d==='up'    && c.totalUp)    return true;
+      if (d==='right' && c.totalRight) return true;
+      if (d==='left'  && c.totalLeft)  return true;
+      return mx[d] && VEHICLE_TYPES.some(t => (mx[d][t]||0)>0);
+    });
+
+    let statsHtml = '';
+    if (DIRS_ACTIVE.length) {
+      // Header row with type icons
+      statsHtml = `<table style="border-collapse:collapse;font-size:.72rem;width:100%">
+        <tr style="color:var(--text-secondary)">
+          <td style="padding:1px 5px 1px 0;font-weight:600">Hướng</td>
+          ${VEHICLE_TYPES.map(t=>`<td style="padding:1px 5px;text-align:right">${TYPE_ICON[t]}</td>`).join('')}
+          <td style="padding:1px 0 1px 5px;text-align:right;font-weight:600">Σ</td>
+        </tr>`;
+      DIRS_ACTIVE.forEach(d => {
+        const typeVals = VEHICLE_TYPES.map(t => mx[d]?.[t] || 0);
+        const rowTotal = typeVals.reduce((a,b)=>a+b,0);
+        // live directional total from status (more up-to-date)
+        const liveTotal = d==='down'?c.totalDown:d==='up'?c.totalUp:d==='right'?c.totalRight:c.totalLeft;
+        const displayTotal = liveTotal || rowTotal;
+        statsHtml += `<tr>
+          <td style="padding:1px 5px 1px 0;color:var(--accent);font-weight:600" title="${DIR_TITLE[d]}">${DIR_LABEL[d]}</td>
+          ${typeVals.map(v=>`<td style="padding:1px 5px;text-align:right;color:var(--text-secondary)">${v||'—'}</td>`).join('')}
+          <td style="padding:1px 0 1px 5px;text-align:right;font-weight:700">${displayTotal}</td>
+        </tr>`;
+      });
+      // Total row
+      const colTotals = VEHICLE_TYPES.map(t => DIRS_ACTIVE.reduce((s,d) => s+(mx[d]?.[t]||0),0));
+      statsHtml += `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:2px 5px 1px 0;font-weight:600;font-size:.7rem">Tổng</td>
+        ${colTotals.map(v=>`<td style="padding:2px 5px;text-align:right;font-weight:700">${v||0}</td>`).join('')}
+        <td style="padding:2px 0 1px 5px;text-align:right;font-weight:700;color:var(--accent)">${(c.total||0).toLocaleString()}</td>
+      </tr></table>`;
+    } else {
+      statsHtml = `<span style="color:var(--text-secondary);font-size:.73rem">${c.running?'Đang chờ dữ liệu…':'Chưa chạy'}</span>`;
+    }
+
     return `<tr>
-      <td><span class="dot ${dotCls}"></span>${esc(c.name||c.id)}</td>
-      <td><code style="font-size:.73rem">${esc(c.streamName)}</code></td>
-      <td><span class="tier-b t${c.tier||1}" title="T1=FPS đầy đủ T2=½FPS T3=¼FPS">T${c.tier||1}</span></td>
+      <td>
+        <span class="dot ${dotCls}"></span><strong style="font-size:.82rem">${esc(c.name||c.id)}</strong>
+        <br><code style="font-size:.68rem;color:var(--text-secondary)">${esc(c.streamName)}</code>
+      </td>
       <td>${stLbl}</td>
-      <td>${(c.framesProcessed||0).toLocaleString()}</td>
+      <td><span class="tier-b t${c.tier||1}" title="T1=FPS đầy đủ T2=½FPS T3=¼FPS">T${c.tier||1}</span></td>
+      <td>${statsHtml}</td>
+      <td style="font-size:.75rem">${(c.framesProcessed||0).toLocaleString()}</td>
       <td>${lastFrame}</td>
-      <td>${dirStr}<br><strong style="font-size:.85rem">${(c.total||0).toLocaleString()}</strong> tổng</td>
       <td style="white-space:nowrap">
         ${c.running
           ? `<button class="btn btn-ghost btn-sm" onclick="stopCam('${c.id}')">⏹</button>`
           : `<button class="btn btn-green btn-sm" onclick="startCam('${c.id}')">▶</button>`}
         <button class="btn btn-ghost btn-sm" onclick="editCam('${c.id}')">✎</button>
-        <button class="btn btn-ghost btn-sm" onclick="openDebugFor('${c.id}')" title="Xem MOG2">🔬</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDebugFor('${c.id}')" title="Xem YOLO debug">🔬</button>
         <button class="btn btn-danger btn-sm" onclick="delCam('${c.id}')">✕</button>
       </td>
     </tr>`;
@@ -672,6 +727,24 @@ function renderBarChart(elemId, summaries, curHour=-1) {
 }
 
 // ════════════════════════════════════════════════════════
+// Today's direction×type matrix (from events)
+// ════════════════════════════════════════════════════════
+async function loadTodayMatrix() {
+  try {
+    const events = await apiFetch('/api/counting/data?date='+today());
+    const m = {};
+    (events||[]).forEach(ev => {
+      if (!ev.dir || !ev.vehicleClass) return;
+      if (!m[ev.cameraId]) m[ev.cameraId] = {};
+      if (!m[ev.cameraId][ev.dir]) m[ev.cameraId][ev.dir] = {};
+      m[ev.cameraId][ev.dir][ev.vehicleClass] = (m[ev.cameraId][ev.dir][ev.vehicleClass]||0) + (ev.count||1);
+    });
+    todayMatrix = m;
+    renderCamTable();
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════════════════════
 // Event log
 // ════════════════════════════════════════════════════════
 let lastLogTs = 0;
@@ -692,11 +765,12 @@ async function loadEvents() {
     newEvs.forEach(ev => {
       const row = document.createElement('div');
       row.className = 'log-row';
-      const dirArrow = ev.dir ? `<span class="log-dir" title="${ev.dir}">${DIR_ARROW[ev.dir]||''}</span>` : '';
+      const dirArrow = ev.dir ? `<span class="log-dir" title="${DIR_TITLE[ev.dir]||ev.dir}">${DIR_LABEL[ev.dir]||ev.dir}</span>` : '';
+      const typeIcon = ev.vehicleClass ? `<span class="log-dir" title="${ev.vehicleClass}">${TYPE_ICON[ev.vehicleClass]||'🚗'}</span>` : '';
       row.innerHTML = `
         <span class="log-ts">${fmtTime(ev.ts)}</span>
         <span class="log-cam">${esc(ev.name||ev.cameraId)}</span>
-        ${dirArrow}
+        ${dirArrow}${typeIcon}
         <span class="log-cnt">+${ev.count}</span>
         <span class="log-total">Σ${ev.total}</span>
       `;
