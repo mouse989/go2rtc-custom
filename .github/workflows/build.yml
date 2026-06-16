@@ -203,17 +203,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install CUDA-enabled PyTorch
-        run: pip install torch --index-url https://download.pytorch.org/whl/cu121
+        run: pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121
 
       - name: Install ultralytics, opencv, web stack, PyInstaller
-        run: pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+        run: pip install --no-cache-dir ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
 
       - name: Build yolo_counter
         run: pyinstaller --onefile --name yolo_counter yolo_counter/counter.py
