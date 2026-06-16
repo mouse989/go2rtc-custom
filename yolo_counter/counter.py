@@ -14,6 +14,7 @@ import argparse
 import io
 import logging
 import math
+import sys
 import threading
 import time
 from collections import deque
@@ -612,7 +613,7 @@ def dataset_image(filename: str):
 @app.post("/dataset/yaml")
 def generate_dataset_yaml():
     """Auto-generate dataset.yaml from labeled images in dataset/labels/."""
-    import os, sys
+    import os
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     raw_dir = os.path.join(base, "dataset", "raw")
     label_dir = os.path.join(base, "dataset", "labels")
