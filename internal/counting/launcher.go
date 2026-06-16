@@ -7,8 +7,31 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 )
+
+var (
+	yoloProcMu     sync.Mutex
+	yoloProc       *os.Process
+	yoloRestarting bool
+)
+
+// restartYolo kills the currently-running yolo_counter subprocess, if any.
+// supervisedYolo's loop notices the exit, re-reads config (picking up any
+// new --model), and relaunches it — this is how a model change made in the
+// UI takes effect without restarting the whole go2rtc binary.
+func restartYolo() bool {
+	yoloProcMu.Lock()
+	proc := yoloProc
+	yoloRestarting = true
+	yoloProcMu.Unlock()
+	if proc == nil {
+		return false
+	}
+	_ = proc.Kill()
+	return true
+}
 
 // autoLaunchYolo finds yolo_counter[.exe] next to the running binary and
 // starts it as a supervised subprocess. Restarts on crash with exponential backoff.
@@ -48,14 +71,37 @@ func supervisedYolo(yoloPath string) {
 		cmd.Dir = filepath.Dir(yoloPath)
 
 		log.Info().Strs("args", args).Msg("[counting] starting yolo_counter subprocess")
-		if err := cmd.Run(); err != nil {
+		if err := cmd.Start(); err != nil {
+			log.Warn().Err(err).Msg("[counting] failed to start yolo_counter")
+			time.Sleep(backoff)
+			if backoff < 60*time.Second {
+				backoff *= 2
+			}
+			continue
+		}
+		yoloProcMu.Lock()
+		yoloProc = cmd.Process
+		yoloProcMu.Unlock()
+
+		err := cmd.Wait()
+
+		yoloProcMu.Lock()
+		yoloProc = nil
+		deliberate := yoloRestarting
+		yoloRestarting = false
+		yoloProcMu.Unlock()
+
+		if deliberate {
+			log.Info().Msg("[counting] yolo_counter restarted (config change)")
+			backoff = 3 * time.Second // reconnect quickly, this wasn't a crash
+		} else if err != nil {
 			log.Warn().Err(err).Dur("retry", backoff).
 				Msg("[counting] yolo_counter exited unexpectedly, restarting")
 		} else {
 			log.Info().Msg("[counting] yolo_counter stopped cleanly")
 		}
 		time.Sleep(backoff)
-		if backoff < 60*time.Second {
+		if !deliberate && backoff < 60*time.Second {
 			backoff *= 2
 		}
 	}

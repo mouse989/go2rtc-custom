@@ -621,11 +621,20 @@ def _training_reader(proc, base_dir):
 
         # Locate the most recently modified best.pt under runs/detect/*/weights/
         import glob
+        import shutil
         candidates = glob.glob(os.path.join(base_dir, "runs", "detect", "*", "weights", "best.pt"))
         if candidates:
             best = max(candidates, key=os.path.getmtime)
+            # Copy into models/ with a stable, friendly name so it shows up
+            # immediately in the model picker (counting.html reads this dir
+            # via GET /models) without the user having to hunt through
+            # runs/detect/<exp>/weights/.
+            models_dir = os.path.join(base_dir, "models")
+            os.makedirs(models_dir, exist_ok=True)
+            dest = os.path.join(models_dir, f"trained_{time.strftime('%Y%m%d_%H%M%S')}.pt")
+            shutil.copy2(best, dest)
             with _training_lock:
-                _training_state["model"] = best
+                _training_state["model"] = dest
 
 
 class TrainRequest(BaseModel):
@@ -682,6 +691,23 @@ def start_training(req: TrainRequest):
 def training_status():
     with _training_lock:
         return dict(_training_state)
+
+
+@app.get("/models")
+def list_models():
+    """List custom-trained weight files available under models/, alongside
+    the YOLO pretrained base names. Used by counting.html to populate the
+    live-counting model picker with anything produced by /train."""
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    models_dir = os.path.join(base, "models")
+    custom = []
+    if os.path.isdir(models_dir):
+        custom = sorted(
+            (f for f in os.listdir(models_dir) if f.lower().endswith(".pt")),
+            key=lambda f: os.path.getmtime(os.path.join(models_dir, f)),
+            reverse=True,
+        )
+    return {"custom": [f"models/{f}" for f in custom], "dir": models_dir}
 
 
 @app.get("/dataset/images")
