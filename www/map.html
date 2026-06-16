@@ -23,6 +23,10 @@ body.sb-collapsed           { --map-left:0; }
   left:var(--map-left);
   z-index:0;
   transition:left var(--transition);
+  /* Own compositing layer, so it never gets squashed with an animating
+     sibling (e.g. #resultsPanel's transform transition), which is what
+     was causing a black mis-painted band inside the canvas. */
+  transform:translateZ(0);
 }
 
 /* ── Floating toolbar (top-right) ──────────────────────────── */
@@ -76,6 +80,12 @@ body.sb-collapsed           { --map-left:0; }
   background:var(--surface); border-top:1px solid var(--border);
   transform:translateY(100%); transition:transform .3s ease, left var(--transition);
   display:flex; flex-direction:column; max-height:45vh;
+  /* Force this panel onto its own GPU compositing layer ahead of time.
+     Without this, animating `transform` on a sibling of the WebGL map
+     canvas can make Chrome "squash" the two into one shared layer and
+     mis-paint part of the canvas (a black band) for the duration the
+     panel is shown. */
+  will-change: transform;
 }
 #resultsPanel.show { transform:translateY(0); }
 
@@ -744,6 +754,30 @@ async function initMap(apiKey) {
   map.addControl(new vietmapgl.NavigationControl({ showCompass:false }), 'top-left');
   map.addControl(new vietmapgl.ScaleControl({ unit:'metric' }), 'bottom-right');
   map.addControl(new vietmapgl.AttributionControl({ compact:true }), 'bottom-right');
+
+  // Keep the WebGL canvas's internal drawing buffer in sync with the
+  // container's actual CSS size. Without this, any layout change that
+  // doesn't go through the sidebar-toggle resize shim (e.g. opening the
+  // results panel) can leave the canvas buffer stale, rendering a blank/
+  // black band where the GL renderer never repainted while HTML markers
+  // (rendered independently of the canvas) keep showing in the correct,
+  // up-to-date position.
+  let _resizeRAF = null;
+  const mapResizeObserver = new ResizeObserver(() => {
+    if (_resizeRAF) return;
+    _resizeRAF = requestAnimationFrame(() => {
+      _resizeRAF = null;
+      map.resize();
+    });
+  });
+  mapResizeObserver.observe(document.getElementById('map'));
+
+  // Safety net: force a fresh GL repaint once the results panel's
+  // transform transition finishes, in case the canvas still ends up
+  // with a stale/mis-painted region from the layer-squashing issue.
+  document.getElementById('resultsPanel').addEventListener('transitionend', (e) => {
+    if (e.propertyName === 'transform') map.triggerRepaint();
+  });
 
   // Initial load + future style switches all go through rebuildMapLayers
   map.on('style.load', rebuildMapLayers);
