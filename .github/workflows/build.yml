@@ -167,3 +167,59 @@ jobs:
         with:
           name: yolo_counter_linux64
           path: dist/yolo_counter
+
+  build-yolo-win64-gpu:
+    name: Build yolo_counter.exe (Windows x64, NVIDIA GPU)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install CUDA-enabled PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+      - name: Install ultralytics, opencv, web stack, PyInstaller
+        run: pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+
+      - name: Build yolo_counter.exe
+        run: pyinstaller --onefile --name yolo_counter yolo_counter/counter.py
+
+      - name: Upload yolo_counter_win64_gpu
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolo_counter_win64_gpu
+          path: dist\yolo_counter.exe
+
+  build-yolo-linux64-gpu:
+    name: Build yolo_counter (Linux x64, NVIDIA GPU)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install CUDA-enabled PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+      - name: Install ultralytics, opencv, web stack, PyInstaller
+        run: pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+
+      - name: Build yolo_counter
+        run: pyinstaller --onefile --name yolo_counter yolo_counter/counter.py
+
+      - name: Upload yolo_counter_linux64_gpu
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolo_counter_linux64_gpu
+          path: dist/yolo_counter
