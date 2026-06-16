@@ -198,10 +198,12 @@
         </div>
         <button class="btn btn-primary" id="btnTrain" style="width:100%;font-size:0.8rem;">🚀 Bắt đầu</button>
         <div class="status-msg" id="trainMsg"></div>
-        <pre id="trainLog" style="display:none;max-height:140px;overflow-y:auto;font-size:0.68rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px;margin-top:6px;white-space:pre-wrap;"></pre>
       </div>
     </div>
   </div>
+
+  <!-- Training log: full-width bar so long ultralytics output lines are readable -->
+  <pre id="trainLog" style="display:none;flex-shrink:0;max-height:260px;overflow:auto;font-size:0.78rem;line-height:1.45;background:var(--bg);border-top:1px solid var(--border);padding:8px 16px;margin:0;white-space:pre-wrap;word-break:break-word;"></pre>
 </main>
 
 <script>
@@ -498,7 +500,7 @@ document.getElementById('btnCollect').addEventListener('click', async () => {
   try {
     const d = await apiFetch(`/api/counting/collect?camera=${encodeURIComponent(camId)}&frames=${frames}`, { method: 'POST' });
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = `✓ Thu thập ${d.collected ?? 0} ảnh vào dataset/raw/`;
+    msg.textContent = `✓ Thu thập ${d.collected ?? 0} ảnh vào dataset/images/`;
     await loadImages();
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
