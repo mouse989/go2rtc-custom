@@ -524,21 +524,27 @@ def debug_camera(cam_id: str):
 
 
 @app.post("/collect/{cam_id}")
-def collect_frames(cam_id: str, frames: int = 50):
-    """Capture N frames from a running camera and save to dataset/raw/"""
+def collect_frames(cam_id: str, frames: int = 50, stream: str = "", interval: float = 5.0):
+    """Capture N frames (one every `interval` seconds) and save to dataset/raw/.
+
+    Works even if the camera isn't actively registered in the counting
+    pipeline: if `stream` is not provided, falls back to the registered
+    camera's streamName.
+    """
     import os
-    with _cameras_lock:
-        state = _cameras.get(cam_id)
-    if state is None:
-        raise HTTPException(404, "camera not found")
+    stream_name = stream
+    if not stream_name:
+        with _cameras_lock:
+            state = _cameras.get(cam_id)
+        if state is None:
+            raise HTTPException(404, "camera not found (pass ?stream=<streamName> to collect without registering)")
+        stream_name = state.config.streamName
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable), "dataset", "raw")
     os.makedirs(out_dir, exist_ok=True)
 
-    # Grab frames from RTSP
     from urllib.parse import quote
-    import threading
-    rtsp_url = f"{_args.rtsp_base}/{quote(state.config.streamName, safe='')}"
+    rtsp_url = f"{_args.rtsp_base}/{quote(stream_name, safe='')}"
     collected = []
     cap = cv2.VideoCapture(rtsp_url)
     if not cap.isOpened():
@@ -546,15 +552,18 @@ def collect_frames(cam_id: str, frames: int = 50):
 
     try:
         count = 0
-        attempts = 0
-        while count < frames and attempts < frames * 3:
+        last_save = 0.0
+        deadline = time.time() + frames * interval + 30  # safety timeout
+        while count < frames and time.time() < deadline:
             ret, frame = cap.read()
-            attempts += 1
             if not ret:
+                time.sleep(0.05)
                 continue
-            if attempts % 3 != 0:  # skip 2/3 frames to get variety
+            now = time.time()
+            if now - last_save < interval:
                 continue
-            fname = f"{int(time.time()*1000)}_{cam_id}_{count:04d}.jpg"
+            last_save = now
+            fname = f"{int(now*1000)}_{cam_id}_{count:04d}.jpg"
             fpath = os.path.join(out_dir, fname)
             cv2.imwrite(fpath, frame)
             collected.append(fname)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -367,20 +368,49 @@ func handleCollect(w http.ResponseWriter, r *http.Request) {
 	if frames == "" {
 		frames = "50"
 	}
+
+	var streamName string
+	for _, cam := range getConfig().Cameras {
+		if cam.ID == id {
+			streamName = cam.StreamName
+			break
+		}
+	}
+
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
 	}
 	url := fmt.Sprintf("%s/collect/%s?frames=%s", yoloURL, id, frames)
-	client := &http.Client{Timeout: 120 * time.Second}
+	if streamName != "" {
+		url += "&stream=" + neturl.QueryEscape(streamName)
+	}
+	client := &http.Client{Timeout: 600 * time.Second}
 	resp, err := client.Post(url, "application/json", nil)
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
 	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	if resp.StatusCode >= 400 {
+		var detail struct {
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(body, &detail)
+		msg := detail.Detail
+		if msg == "" {
+			msg = string(body)
+		}
+		writeJSON(w, map[string]any{"error": msg})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	io.Copy(w, resp.Body)
+	w.Write(body)
 }
 
 // POST /api/counting/train
