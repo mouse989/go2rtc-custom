@@ -588,23 +588,28 @@ _training_state = {
 
 
 def _training_reader(proc, base_dir):
-    for line in proc.stdout:
+    try:
+        for line in proc.stdout:
+            with _training_lock:
+                _training_state["log"].append(line.rstrip())
+                _training_state["log"] = _training_state["log"][-200:]
+    except Exception as e:
         with _training_lock:
-            _training_state["log"].append(line.rstrip())
-            _training_state["log"] = _training_state["log"][-200:]
-    proc.wait()
-    with _training_lock:
-        _training_state["running"] = False
-        _training_state["returncode"] = proc.returncode
-        _training_state["finished_at"] = time.time()
+            _training_state["log"].append(f"[reader error] {e}")
+    finally:
+        proc.wait()
+        with _training_lock:
+            _training_state["running"] = False
+            _training_state["returncode"] = proc.returncode
+            _training_state["finished_at"] = time.time()
 
-    # Locate the most recently modified best.pt under runs/detect/*/weights/
-    import glob
-    candidates = glob.glob(os.path.join(base_dir, "runs", "detect", "*", "weights", "best.pt"))
-    if candidates:
-        best = max(candidates, key=os.path.getmtime)
-        with _training_lock:
-            _training_state["model"] = best
+        # Locate the most recently modified best.pt under runs/detect/*/weights/
+        import glob
+        candidates = glob.glob(os.path.join(base_dir, "runs", "detect", "*", "weights", "best.pt"))
+        if candidates:
+            best = max(candidates, key=os.path.getmtime)
+            with _training_lock:
+                _training_state["model"] = best
 
 
 class TrainRequest(BaseModel):
@@ -639,7 +644,10 @@ def start_training(req: TrainRequest):
         cmd = [sys.executable, "--train-job", json.dumps(job)]
     else:
         cmd = [sys.executable, os.path.abspath(__file__), "--train-job", json.dumps(job)]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=base_dir)
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=base_dir,
+        text=True, encoding="utf-8", errors="replace",
+    )
 
     with _training_lock:
         _training_state["running"] = True
