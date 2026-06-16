@@ -32,6 +32,8 @@ func registerAPI() {
 	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
 	api.HandleFunc("api/counting/dataset-yaml", handleDatasetYaml)
 	api.HandleFunc("api/counting/train-status", handleTrainStatus)
+	api.HandleFunc("api/counting/models", handleModels)
+	api.HandleFunc("api/counting/yolo-restart", handleYoloRestart)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -499,6 +501,34 @@ func handleTrainStatus(w http.ResponseWriter, r *http.Request) {
 		yoloURL = "http://localhost:8765"
 	}
 	proxyGet(w, yoloURL+"/train/status")
+}
+
+// GET /api/counting/models — pretrained base names already shown in counting.html
+// plus any custom weights found under yolo_counter's models/ dir (populated by
+// training, see /train in counter.py).
+func handleModels(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	proxyGet(w, yoloURL+"/models")
+}
+
+// POST /api/counting/yolo-restart — restarts the yolo_counter subprocess so
+// a newly-saved config (e.g. a different --model) takes effect immediately.
+func handleYoloRestart(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	ok := restartYolo()
+	writeJSON(w, map[string]any{"ok": ok, "restarted": ok})
 }
 
 // POST /api/counting/dataset-yaml

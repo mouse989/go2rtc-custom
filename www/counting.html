@@ -324,13 +324,20 @@
         </div>
         <div class="form-row">
           <label>Model YOLO</label>
-          <select id="sYoloModel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
-            <option value="yolo26n.pt">yolo26n.pt — YOLO26 Nano (mới nhất, nhanh nhất)</option>
-            <option value="yolo26s.pt">yolo26s.pt — YOLO26 Small</option>
-            <option value="yolo26m.pt">yolo26m.pt — YOLO26 Medium</option>
-            <option value="yolo11n.pt">yolo11n.pt — YOLO11 Nano</option>
-            <option value="yolo11s.pt">yolo11s.pt — YOLO11 Small</option>
-          </select>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="sYoloModel" style="flex:1;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+              <optgroup label="Pretrained" id="sYoloModelPretrained">
+                <option value="yolo26n.pt">yolo26n.pt — YOLO26 Nano (mới nhất, nhanh nhất)</option>
+                <option value="yolo26s.pt">yolo26s.pt — YOLO26 Small</option>
+                <option value="yolo26m.pt">yolo26m.pt — YOLO26 Medium</option>
+                <option value="yolo11n.pt">yolo11n.pt — YOLO11 Nano</option>
+                <option value="yolo11s.pt">yolo11s.pt — YOLO11 Small</option>
+              </optgroup>
+              <optgroup label="Đã huấn luyện" id="sYoloModelCustom"></optgroup>
+            </select>
+            <button class="btn btn-sm" id="btnYoloRestart" type="button" title="Khởi động lại dịch vụ YOLO để áp dụng model mới">↻ Áp dụng</button>
+          </div>
+          <div id="yoloRestartMsg" style="font-size:.78rem;color:var(--text-muted);min-height:1.1em;"></div>
         </div>
         <div class="form-row">
           <label>FPS xử lý mặc định</label>
@@ -492,6 +499,7 @@ const DIR_TITLE = {down:'Từ trên xuống',up:'Từ dưới lên',right:'Trái
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp('counting');
   document.getElementById('histDate').value = today();
+  document.getElementById('btnYoloRestart').addEventListener('click', applyYoloModel);
   await loadConfig();
   await loadTodayMatrix();
   await poll();
@@ -542,8 +550,23 @@ async function apiFetch(path, opts={}) {
 // ════════════════════════════════════════════════════════
 // Config
 // ════════════════════════════════════════════════════════
+async function loadCustomModels() {
+  const grp = document.getElementById('sYoloModelCustom');
+  grp.innerHTML = '';
+  try {
+    const r = await apiFetch('/api/counting/models');
+    for (const path of r.custom || []) {
+      const opt = document.createElement('option');
+      opt.value = path;
+      opt.textContent = path;
+      grp.appendChild(opt);
+    }
+  } catch(e) { console.error('loadCustomModels', e); }
+}
+
 async function loadConfig() {
   try {
+    await loadCustomModels();
     cfg = await apiFetch('/api/counting/config');
     document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
     document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
@@ -552,6 +575,19 @@ async function loadConfig() {
     document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
     document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
   } catch(e) { console.error('loadConfig', e); }
+}
+
+async function applyYoloModel() {
+  const msg = document.getElementById('yoloRestartMsg');
+  msg.textContent = 'Đang lưu & khởi động lại...';
+  try {
+    await saveSettings();
+    const r = await apiFetch('/api/counting/yolo-restart', {method:'POST'});
+    msg.textContent = r.restarted ? '✓ Đã áp dụng model mới' : 'Dịch vụ YOLO chưa chạy, sẽ tự khởi động';
+  } catch(e) {
+    msg.textContent = '✗ '+e.message;
+  }
+  setTimeout(() => { msg.textContent=''; }, 4000);
 }
 
 async function saveSettings() {
