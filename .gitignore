@@ -23,3 +23,6 @@ node_modules
 package-lock.json
 CLAUDE.md
 /go2rtc-custom.exe
+
+__pycache__/
+*.pyc
