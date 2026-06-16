@@ -237,10 +237,13 @@ func (w *CameraWorker) pollEvents() {
 	}
 
 	c := getConfig()
+	// Events arrive newest-first from Python. Snapshot prevTs before the loop so
+	// ALL events newer than prevTs are accepted (not just the first/newest one).
+	prevTs := w.lastEventTs
 
 	for _, ev := range events {
 		ts := int64(ev.Ts)
-		if ts <= w.lastEventTs {
+		if ts <= prevTs {
 			continue
 		}
 		if ts > w.lastEventTs {

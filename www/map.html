@@ -226,9 +226,9 @@ body.sb-collapsed           { --map-left:0; }
 /* ── VietMap attribution tweak ─────────────────────────────── */
 .mapboxgl-ctrl-attrib { font-size:.62rem !important; }
 
-/* .main on map page: pass clicks through except topbar */
-.main { pointer-events:none; }
-.topbar { pointer-events:all; }
+/* .main on map page: pass clicks through except topbar; transparent so map shows through */
+.main { pointer-events:none; background:transparent; }
+.topbar { pointer-events:all; background:var(--surface); }
 
 /* ── No-key overlay ─────────────────────────────────────────── */
 #mapNoKey {
