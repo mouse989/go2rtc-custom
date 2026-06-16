@@ -198,6 +198,7 @@
         </div>
         <button class="btn btn-primary" id="btnTrain" style="width:100%;font-size:0.8rem;">🚀 Bắt đầu</button>
         <div class="status-msg" id="trainMsg"></div>
+        <pre id="trainLog" style="display:none;max-height:140px;overflow-y:auto;font-size:0.68rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px;margin-top:6px;white-space:pre-wrap;"></pre>
       </div>
     </div>
   </div>
@@ -245,10 +246,12 @@ document.getElementById('sidebarToggle')?.addEventListener('click', () => {
 });
 
 // ── load image list ──
+let labeledSet = new Set();
 async function loadImages() {
   try {
     const d = await apiFetch('/api/counting/dataset-images');
     images = d.images || [];
+    labeledSet = new Set(d.labeled || []);
     document.getElementById('imgCount').textContent = images.length;
     renderImageList();
     if (images.length > 0) loadImage(0);
@@ -262,8 +265,8 @@ function renderImageList() {
   list.innerHTML = '';
   images.forEach((name, i) => {
     const el = document.createElement('div');
-    el.className = 'img-item' + (i === currentIdx ? ' active' : '');
-    el.textContent = name;
+    el.className = 'img-item' + (i === currentIdx ? ' active' : '') + (labeledSet.has(name) ? ' labeled' : '');
+    el.textContent = (labeledSet.has(name) ? '✓ ' : '') + name;
     el.title = name;
     el.addEventListener('click', () => loadImage(i));
     list.appendChild(el);
@@ -281,25 +284,40 @@ async function loadImage(idx) {
   document.getElementById('imgName').textContent = fname;
   document.getElementById('imgIdx').textContent = `${idx+1} / ${images.length}`;
 
-  const img = new Image();
-  img.onload = () => {
-    currentImg = img;
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    redraw();
-  };
-  img.src = `/api/counting/dataset-image?file=${encodeURIComponent(fname)}`;
+  await new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      currentImg = img;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      resolve();
+    };
+    img.onerror = resolve;
+    img.src = `/api/counting/dataset-image?file=${encodeURIComponent(fname)}`;
+  });
 
-  // Try loading existing labels
+  // Try loading existing labels (needs image dimensions, so after image loads)
   await loadLabels(fname);
 }
 
 async function loadLabels(fname) {
-  // Labels are served as text from the Python side; we don't have a direct endpoint.
-  // We'll skip pre-loading (labels are write-only via this UI for now).
-  // Future: add GET /dataset/label endpoint.
   boxes = [];
+  try {
+    const d = await apiFetch(`/api/counting/dataset-label?file=${encodeURIComponent(fname)}`);
+    const w = currentImg ? currentImg.naturalWidth : canvas.width;
+    const h = currentImg ? currentImg.naturalHeight : canvas.height;
+    boxes = (d.boxes || []).map(b => ({
+      cls_id: b.cls_id,
+      x1: Math.round((b.x_center - b.width / 2) * w),
+      y1: Math.round((b.y_center - b.height / 2) * h),
+      x2: Math.round((b.x_center + b.width / 2) * w),
+      y2: Math.round((b.y_center + b.height / 2) * h),
+    }));
+  } catch (e) {
+    boxes = [];
+  }
   renderBoxList();
+  redraw();
 }
 
 // ── draw ──
@@ -443,9 +461,8 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     });
     if (d.ok) {
       msg.textContent = `Đã lưu ${d.boxes} hộp`;
-      // Mark as labeled in list
-      const items = document.querySelectorAll('.img-item');
-      if (items[currentIdx]) items[currentIdx].classList.add('labeled');
+      labeledSet.add(fname);
+      renderImageList();
     } else {
       msg.textContent = 'Lỗi: ' + JSON.stringify(d);
     }
@@ -505,15 +522,61 @@ document.getElementById('btnTrain').addEventListener('click', async () => {
       body: JSON.stringify({ model, epochs }),
     });
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = d.message || '✓ Training bắt đầu (xem log trong console)';
+    msg.textContent = d.message || '✓ Training bắt đầu';
+    startTrainPolling();
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
   }
 });
 
+// ── training status polling ──
+let trainPollTimer = null;
+function startTrainPolling() {
+  if (trainPollTimer) return;
+  trainPollTimer = setInterval(pollTrainStatus, 3000);
+  pollTrainStatus();
+}
+
+async function pollTrainStatus() {
+  const msg = document.getElementById('trainMsg');
+  const logEl = document.getElementById('trainLog');
+  try {
+    const st = await apiFetch('/api/counting/train-status');
+    logEl.style.display = 'block';
+    logEl.textContent = (st.log || []).join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
+    if (st.running) {
+      msg.textContent = `⏳ Đang huấn luyện (PID ${st.pid})...`;
+    } else if (st.pid) {
+      clearInterval(trainPollTimer);
+      trainPollTimer = null;
+      if (st.returncode === 0) {
+        msg.textContent = st.model
+          ? `✓ Huấn luyện hoàn tất. Model lưu tại: ${st.model}`
+          : '✓ Huấn luyện hoàn tất.';
+      } else {
+        msg.textContent = `✗ Huấn luyện dừng (mã lỗi ${st.returncode}). Xem log bên dưới.`;
+      }
+    }
+  } catch (e) {
+    // service may be unreachable momentarily; keep polling
+  }
+}
+
 function setStatus(msg) {
   document.getElementById('statusMsg').textContent = msg;
 }
+
+// Resume polling if training was already running when the page loads/reloads
+(async () => {
+  try {
+    const st = await apiFetch('/api/counting/train-status');
+    if (st.running) {
+      document.getElementById('trainMsg').textContent = `⏳ Đang huấn luyện (PID ${st.pid})...`;
+      startTrainPolling();
+    }
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>
