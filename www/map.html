@@ -1028,6 +1028,17 @@ function clearSearch() {
   buildSidebar();
   document.getElementById('resultsPanel').classList.remove('show');
   closeAllOverlays();
+  forceMapResize();
+}
+
+// Force the GL canvas to recompute its drawing buffer / viewport. Used
+// around the search toggle, which is when the canvas was observed to
+// render a black band — calling this regardless of the exact internal
+// cause re-syncs the canvas to the container and repaints it.
+function forceMapResize() {
+  if (!map) return;
+  map.resize();
+  setTimeout(() => map.resize(), 320); // after the panel's .3s CSS transition ends
 }
 
 document.getElementById('btnCloseResults').addEventListener('click', clearSearch);
@@ -1059,6 +1070,7 @@ function showResultsPanel(ids, km) {
       panel.appendChild(card);
     });
   document.getElementById('resultsPanel').classList.add('show');
+  forceMapResize();
 }
 
 // ── Overlay position helpers ──────────────────────────────────
@@ -1250,6 +1262,7 @@ document.getElementById('btnSearch').addEventListener('click', function() {
     document.getElementById('resultsCams').innerHTML = '';
     document.getElementById('resultsTitle').textContent = '🖱 Click map to search…';
     document.getElementById('resultsPanel').classList.add('show');
+    forceMapResize();
   } else {
     clearSearch();
   }
