@@ -574,6 +574,38 @@ def collect_frames(cam_id: str, frames: int = 50, stream: str = "", interval: fl
     return {"collected": len(collected), "dir": out_dir, "files": collected}
 
 
+_training_lock = threading.Lock()
+_training_state = {
+    "running": False,
+    "pid": None,
+    "returncode": None,
+    "log": [],       # last lines of training output
+    "model": None,   # path to best.pt once training finishes
+    "started_at": None,
+    "finished_at": None,
+}
+
+
+def _training_reader(proc, base_dir):
+    for line in proc.stdout:
+        with _training_lock:
+            _training_state["log"].append(line.rstrip())
+            _training_state["log"] = _training_state["log"][-200:]
+    proc.wait()
+    with _training_lock:
+        _training_state["running"] = False
+        _training_state["returncode"] = proc.returncode
+        _training_state["finished_at"] = time.time()
+
+    # Locate the most recently modified best.pt under runs/detect/*/weights/
+    import glob
+    candidates = glob.glob(os.path.join(base_dir, "runs", "detect", "*", "weights", "best.pt"))
+    if candidates:
+        best = max(candidates, key=os.path.getmtime)
+        with _training_lock:
+            _training_state["model"] = best
+
+
 @app.post("/train")
 def start_training(
     model: str = "yolo11n.pt",
@@ -583,28 +615,56 @@ def start_training(
 ):
     """Start YOLO fine-tuning in background. Dataset must be at dataset/ dir."""
     import subprocess, sys, os
-    dataset_yaml = os.path.join(
-        os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__)),
-        "dataset", "dataset.yaml"
-    )
+    with _training_lock:
+        if _training_state["running"]:
+            raise HTTPException(409, f"Training already running (PID {_training_state['pid']})")
+
+    base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    dataset_yaml = os.path.join(base_dir, "dataset", "dataset.yaml")
     if not os.path.exists(dataset_yaml):
         raise HTTPException(400, f"dataset.yaml not found at {dataset_yaml}. Prepare dataset first.")
 
     cmd = [sys.executable, "-c",
         f"from ultralytics import YOLO; YOLO('{model}').train(data='{dataset_yaml}', epochs={epochs}, imgsz={imgsz}, batch={batch})"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=base_dir)
+
+    with _training_lock:
+        _training_state["running"] = True
+        _training_state["pid"] = proc.pid
+        _training_state["returncode"] = None
+        _training_state["log"] = []
+        _training_state["model"] = None
+        _training_state["started_at"] = time.time()
+        _training_state["finished_at"] = None
+
+    threading.Thread(target=_training_reader, args=(proc, base_dir), daemon=True).start()
     return {"ok": True, "pid": proc.pid, "message": f"Training started (PID {proc.pid})"}
+
+
+@app.get("/train/status")
+def training_status():
+    with _training_lock:
+        return dict(_training_state)
 
 
 @app.get("/dataset/images")
 def dataset_images():
-    import os, glob
+    import os
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     raw_dir = os.path.join(base, "dataset", "raw")
+    label_dir = os.path.join(base, "dataset", "labels")
     if not os.path.isdir(raw_dir):
         return {"images": [], "dir": raw_dir}
     files = sorted([f for f in os.listdir(raw_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-    return {"images": files, "dir": raw_dir, "count": len(files)}
+    labeled = set()
+    if os.path.isdir(label_dir):
+        labeled = {os.path.splitext(f)[0] for f in os.listdir(label_dir) if f.endswith(".txt")}
+    return {
+        "images": files,
+        "labeled": [f for f in files if os.path.splitext(f)[0] in labeled],
+        "dir": raw_dir,
+        "count": len(files),
+    }
 
 
 @app.get("/dataset/image/{filename}")
@@ -655,6 +715,32 @@ def generate_dataset_yaml():
         f.write(yaml_content)
 
     return {"ok": True, "yaml": yaml_path, "labeled": len(labeled), "images": labeled}
+
+
+@app.get("/dataset/label/{filename}")
+def dataset_label_get(filename: str):
+    """Return previously saved YOLO-format boxes for an image, if any."""
+    import os
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    stem = os.path.splitext(filename)[0]
+    label_path = os.path.join(base, "dataset", "labels", stem + ".txt")
+    if not os.path.isfile(label_path):
+        return {"boxes": []}
+    boxes = []
+    with open(label_path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) != 5:
+                continue
+            cls_id, xc, yc, bw, bh = parts
+            boxes.append({
+                "cls_id": int(cls_id),
+                "x_center": float(xc),
+                "y_center": float(yc),
+                "width": float(bw),
+                "height": float(bh),
+            })
+    return {"boxes": boxes}
 
 
 @app.post("/dataset/label")

@@ -31,6 +31,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/dataset-image", handleDatasetImage)
 	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
 	api.HandleFunc("api/counting/dataset-yaml", handleDatasetYaml)
+	api.HandleFunc("api/counting/train-status", handleTrainStatus)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -462,7 +463,8 @@ func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	proxyGetRaw(w, yoloURL+"/dataset/image/"+f)
 }
 
-// POST /api/counting/dataset-label
+// GET /api/counting/dataset-label?file=name.jpg (load existing boxes)
+// POST /api/counting/dataset-label (save boxes)
 func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -470,6 +472,11 @@ func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
+	}
+	if r.Method == http.MethodGet {
+		f := r.URL.Query().Get("file")
+		proxyGet(w, yoloURL+"/dataset/label/"+neturl.PathEscape(f))
+		return
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Post(yoloURL+"/dataset/label", "application/json", r.Body)
@@ -480,6 +487,18 @@ func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
 	io.Copy(w, resp.Body)
+}
+
+// GET /api/counting/train-status
+func handleTrainStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	proxyGet(w, yoloURL+"/train/status")
 }
 
 // POST /api/counting/dataset-yaml
