@@ -12,8 +12,10 @@ Each camera gets a dedicated background thread that:
 
 import argparse
 import io
+import json
 import logging
 import math
+import os
 import sys
 import threading
 import time
@@ -531,7 +533,6 @@ def collect_frames(cam_id: str, frames: int = 50, stream: str = "", interval: fl
     pipeline: if `stream` is not provided, falls back to the registered
     camera's streamName.
     """
-    import os
     stream_name = stream
     if not stream_name:
         with _cameras_lock:
@@ -606,15 +607,17 @@ def _training_reader(proc, base_dir):
             _training_state["model"] = best
 
 
+class TrainRequest(BaseModel):
+    model: str = "yolo11n.pt"
+    epochs: int = 50
+    imgsz: int = 640
+    batch: int = 8
+
+
 @app.post("/train")
-def start_training(
-    model: str = "yolo11n.pt",
-    epochs: int = 50,
-    imgsz: int = 640,
-    batch: int = 8,
-):
+def start_training(req: TrainRequest):
     """Start YOLO fine-tuning in background. Dataset must be at dataset/ dir."""
-    import subprocess, sys, os
+    import subprocess
     with _training_lock:
         if _training_state["running"]:
             raise HTTPException(409, f"Training already running (PID {_training_state['pid']})")
@@ -624,8 +627,18 @@ def start_training(
     if not os.path.exists(dataset_yaml):
         raise HTTPException(400, f"dataset.yaml not found at {dataset_yaml}. Prepare dataset first.")
 
-    cmd = [sys.executable, "-c",
-        f"from ultralytics import YOLO; YOLO('{model}').train(data='{dataset_yaml}', epochs={epochs}, imgsz={imgsz}, batch={batch})"]
+    job = {
+        "model": req.model, "data": dataset_yaml,
+        "epochs": req.epochs, "imgsz": req.imgsz, "batch": req.batch,
+    }
+    # When frozen (PyInstaller), sys.executable is this same bundled
+    # executable, not a real `python` binary, so `-c <code>` doesn't work
+    # (it gets parsed by our own argparse). Use a dedicated --train-job
+    # flag instead, which works identically for frozen and plain-script runs.
+    if getattr(sys, 'frozen', False):
+        cmd = [sys.executable, "--train-job", json.dumps(job)]
+    else:
+        cmd = [sys.executable, os.path.abspath(__file__), "--train-job", json.dumps(job)]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=base_dir)
 
     with _training_lock:
@@ -649,7 +662,6 @@ def training_status():
 
 @app.get("/dataset/images")
 def dataset_images():
-    import os
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     raw_dir = os.path.join(base, "dataset", "raw")
     label_dir = os.path.join(base, "dataset", "labels")
@@ -669,7 +681,6 @@ def dataset_images():
 
 @app.get("/dataset/image/{filename}")
 def dataset_image(filename: str):
-    import os
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, "dataset", "raw", filename)
     if not os.path.isfile(path):
@@ -682,7 +693,6 @@ def dataset_image(filename: str):
 @app.post("/dataset/yaml")
 def generate_dataset_yaml():
     """Auto-generate dataset.yaml from labeled images in dataset/labels/."""
-    import os
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     raw_dir = os.path.join(base, "dataset", "raw")
     label_dir = os.path.join(base, "dataset", "labels")
@@ -720,7 +730,6 @@ def generate_dataset_yaml():
 @app.get("/dataset/label/{filename}")
 def dataset_label_get(filename: str):
     """Return previously saved YOLO-format boxes for an image, if any."""
-    import os
     base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
     stem = os.path.splitext(filename)[0]
     label_path = os.path.join(base, "dataset", "labels", stem + ".txt")
@@ -746,7 +755,6 @@ def dataset_label_get(filename: str):
 @app.post("/dataset/label")
 async def dataset_label(request: Request):
     """Save YOLO format label for an image."""
-    import os
     body = await request.json()
     filename = body.get("filename", "")
     boxes = body.get("boxes", [])  # [{cls_id, x_center, y_center, width, height}] normalized
@@ -771,11 +779,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conf", type=float, default=0.35, help="Detection confidence threshold")
     parser.add_argument("--rtsp-base", default="rtsp://localhost:8554",
                         help="go2rtc RTSP base URL (stream appended as /<name>)")
+    parser.add_argument("--train-job", default=None,
+                        help="Internal: run a single training job (JSON-encoded) and exit, instead of starting the server")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     _args = parse_args()
+
+    if _args.train_job:
+        job = json.loads(_args.train_job)
+        from ultralytics import YOLO
+        YOLO(job["model"]).train(
+            data=job["data"], epochs=job["epochs"], imgsz=job["imgsz"], batch=job["batch"],
+        )
+        sys.exit(0)
 
     logger.info(f"Loading YOLO model: {_args.model}")
     from ultralytics import YOLO
