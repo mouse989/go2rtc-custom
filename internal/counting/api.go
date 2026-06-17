@@ -92,6 +92,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		mgr.stopAll()
 		mgr.startAll()
 	}
+	go mgr.syncYoloToWorkers()
 	writeJSON(w, getConfig())
 }
 
@@ -179,9 +180,20 @@ func handleCameras(w http.ResponseWriter, r *http.Request) {
 			cam.Tier = 1
 		}
 		cfgMu.Lock()
-		cfg.Cameras = append(cfg.Cameras, cam)
+		upserted := false
+		for i, c := range cfg.Cameras {
+			if c.ID == cam.ID {
+				cfg.Cameras[i] = cam
+				upserted = true
+				break
+			}
+		}
+		if !upserted {
+			cfg.Cameras = append(cfg.Cameras, cam)
+		}
 		cfgMu.Unlock()
 		_ = saveConfig()
+		mgr.stopCamera(cam.ID)
 		if cam.Enabled && cfg.Running {
 			mgr.startCamera(cam)
 		}

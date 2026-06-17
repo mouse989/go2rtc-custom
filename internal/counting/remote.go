@@ -47,6 +47,7 @@ func (m *Manager) runRemoteCamera(ctx context.Context, e *remoteEntry) {
 		break
 	}
 	log.Info().Str("cam", e.cam.ID).Str("worker", e.cam.WorkerID).Msg("[counting] remote camera registered")
+	go remoteSyncYoloConfig(e.cam.WorkerID)
 
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
@@ -86,10 +87,11 @@ func remotePushCamera(cam CameraConfig) error {
 			cam.RTSPBase = base
 		}
 	}
+	workerID := cam.WorkerID
+	cam.WorkerID = "" // Remote must process this camera locally, not re-delegate
 
 	body, _ := json.Marshal(cam)
-	// Use PUT so it's idempotent — works for both create and update.
-	resp, err := workers.RequestWorker(cam.WorkerID, http.MethodPost, "/api/counting/cameras", bytes.NewReader(body), "application/json")
+	resp, err := workers.RequestWorker(workerID, http.MethodPost, "/api/counting/cameras", bytes.NewReader(body), "application/json")
 	if err != nil {
 		return err
 	}
@@ -100,11 +102,54 @@ func remotePushCamera(cam CameraConfig) error {
 	}
 	// Also trigger start for this camera in case remote counting is enabled but
 	// the camera wasn't yet active (e.g. remote restarted with counting=false).
-	startResp, err2 := workers.RequestWorker(cam.WorkerID, http.MethodPost, "/api/counting/start?id="+cam.ID, nil, "")
+	startResp, err2 := workers.RequestWorker(workerID, http.MethodPost, "/api/counting/start?id="+cam.ID, nil, "")
 	if err2 == nil {
 		startResp.Body.Close()
 	}
 	return nil
+}
+
+// remoteSyncYoloConfig pushes YOLO analysis settings (model, conf, frameWidth)
+// from server 1 to a remote worker and restarts its yolo_counter if needed.
+func remoteSyncYoloConfig(workerID string) {
+	resp, err := workers.RequestWorker(workerID, http.MethodGet, "/api/counting/config", nil, "")
+	if err != nil {
+		log.Warn().Err(err).Str("worker", workerID).Msg("[counting] sync yolo config: get")
+		return
+	}
+	defer resp.Body.Close()
+
+	var remoteCfg Config
+	if err := json.NewDecoder(resp.Body).Decode(&remoteCfg); err != nil {
+		log.Warn().Err(err).Str("worker", workerID).Msg("[counting] sync yolo config: decode")
+		return
+	}
+
+	local := getConfig()
+	if remoteCfg.YoloModel == local.YoloModel && remoteCfg.YoloConf == local.YoloConf && remoteCfg.FrameWidth == local.FrameWidth {
+		return // already in sync
+	}
+
+	remoteCfg.YoloModel = local.YoloModel
+	remoteCfg.YoloConf = local.YoloConf
+	remoteCfg.FrameWidth = local.FrameWidth
+
+	body, _ := json.Marshal(remoteCfg)
+	resp2, err := workers.RequestWorker(workerID, http.MethodPut, "/api/counting/config", bytes.NewReader(body), "application/json")
+	if err != nil {
+		log.Warn().Err(err).Str("worker", workerID).Msg("[counting] sync yolo config: put")
+		return
+	}
+	resp2.Body.Close()
+
+	// Restart yolo_counter on the worker so it loads the new model.
+	resp3, err := workers.RequestWorker(workerID, http.MethodPost, "/api/counting/yolo-restart", nil, "")
+	if err != nil {
+		log.Warn().Err(err).Str("worker", workerID).Msg("[counting] sync yolo config: restart")
+	} else {
+		resp3.Body.Close()
+		log.Info().Str("worker", workerID).Str("model", local.YoloModel).Msg("[counting] synced yolo config to worker")
+	}
 }
 
 // remoteDeleteCamera removes a camera from its remote worker.

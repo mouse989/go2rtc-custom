@@ -175,6 +175,19 @@ func (m *Manager) getTotal(id string) int {
 	return 0
 }
 
+// syncYoloToWorkers pushes YOLO config (model, conf, frameWidth) to all active remote workers.
+func (m *Manager) syncYoloToWorkers() {
+	m.mu.Lock()
+	seen := make(map[string]bool)
+	for _, e := range m.remotes {
+		seen[e.cam.WorkerID] = true
+	}
+	m.mu.Unlock()
+	for workerID := range seen {
+		go remoteSyncYoloConfig(workerID)
+	}
+}
+
 // runCleanup periodically deletes old data files.
 func (m *Manager) runCleanup() {
 	ticker := time.NewTicker(24 * time.Hour)
