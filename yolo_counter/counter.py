@@ -372,7 +372,7 @@ class CameraState:
         with self.events_lock:
             self.events.append(event)
 
-        logger.info(f"[{self.config.id}] crossing {direction} total={self.total}")
+        logger.info(f"[{self.config.id}] crossing {direction} class={vehicle_class} total={self.total}")
 
     def _save_debug_jpeg(self, frame: np.ndarray, boxes_info: List[dict],
                           tracks: List[Track], fw: int, fh: int):
@@ -491,7 +491,18 @@ def add_camera(cam_id: str, cam_cfg: CameraConfig):
         state = CameraState(config=cam_cfg)
         _cameras[cam_id] = state
     state.start()
-    logger.info(f"Registered camera {cam_id} (stream={cam_cfg.streamName})")
+    dirs = []
+    if cam_cfg.lineHPos > 0:
+        if cam_cfg.countDown: dirs.append("down")
+        if cam_cfg.countUp:   dirs.append("up")
+    if cam_cfg.lineVPos > 0:
+        if cam_cfg.countRight: dirs.append("right")
+        if cam_cfg.countLeft:  dirs.append("left")
+    logger.info(
+        f"Registered camera {cam_id} (stream={cam_cfg.streamName}) "
+        f"lineH={cam_cfg.lineHPos:.2f} lineV={cam_cfg.lineVPos:.2f} "
+        f"directions={dirs or ['NONE - no crossings will be counted']}"
+    )
     return {"ok": True, "id": cam_id}
 
 
