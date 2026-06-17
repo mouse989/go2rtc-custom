@@ -229,6 +229,7 @@
         <table class="tbl">
           <thead>
             <tr>
+              <th style="width:24px" title="Kéo để sắp xếp thứ tự"></th>
               <th>Camera</th><th>Trạng thái</th><th>Tier</th>
               <th style="min-width:260px">Thống kê hôm nay (hướng × loại xe)</th>
               <th>Frames</th><th>Frame cuối</th><th>Thao tác</th>
@@ -652,15 +653,63 @@ function renderCards() {
 // ════════════════════════════════════════════════════════
 // Camera table
 // ════════════════════════════════════════════════════════
+function orderedStatuses() {
+  const order = cfg.cameraOrder || [];
+  if (!order.length) return statuses;
+  const idx = Object.fromEntries(order.map((id, i) => [id, i]));
+  return [...statuses].sort((a, b) => {
+    const ia = idx[a.id] ?? order.length;
+    const ib = idx[b.id] ?? order.length;
+    return ia - ib;
+  });
+}
+
+async function saveCameraOrder(ids) {
+  try {
+    cfg = await apiFetch('/api/counting/config', {
+      method: 'PUT',
+      body: JSON.stringify({...cfg, cameraOrder: ids}),
+    });
+  } catch(e) { console.error('saveCameraOrder', e); }
+}
+
+function initDragSort() {
+  const body = document.getElementById('camBody');
+  let dragSrc = null;
+  body.querySelectorAll('tr[data-id]').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      dragSrc = row;
+      e.dataTransfer.effectAllowed = 'move';
+      row.style.opacity = '0.45';
+    });
+    row.addEventListener('dragend', () => { row.style.opacity = ''; dragSrc = null; });
+    row.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+    row.addEventListener('dragenter', e => { e.preventDefault(); row.style.outline = '2px solid var(--accent)'; });
+    row.addEventListener('dragleave', () => { row.style.outline = ''; });
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      row.style.outline = '';
+      if (!dragSrc || dragSrc === row) return;
+      const rows = [...body.querySelectorAll('tr[data-id]')];
+      const srcIdx = rows.indexOf(dragSrc);
+      const dstIdx = rows.indexOf(row);
+      rows.splice(srcIdx, 1);
+      rows.splice(dstIdx, 0, dragSrc);
+      rows.forEach(r => body.appendChild(r));
+      await saveCameraOrder(rows.map(r => r.dataset.id));
+    });
+  });
+}
+
 function renderCamTable() {
   const body = document.getElementById('camBody');
   if (!statuses.length) {
-    body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-secondary)">
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-secondary)">
       Chưa có camera. Nhấn <strong>+ Thêm camera</strong> để bắt đầu.</td></tr>`;
     return;
   }
   const now = Math.floor(Date.now()/1000);
-  body.innerHTML = statuses.map(c => {
+  body.innerHTML = orderedStatuses().map(c => {
     const dotCls = c.running ? (c.lastErr ? 'dot-err' : 'dot-on') : 'dot-off';
     const stLbl  = c.running
       ? (c.lastErr
@@ -714,7 +763,8 @@ function renderCamTable() {
       statsHtml = `<span style="color:var(--text-secondary);font-size:.73rem">${c.running?'Đang chờ dữ liệu…':'Chưa chạy'}</span>`;
     }
 
-    return `<tr>
+    return `<tr draggable="true" data-id="${c.id}">
+      <td style="cursor:grab;text-align:center;color:var(--text-secondary);user-select:none" title="Kéo để đổi thứ tự">⠿</td>
       <td>
         <span class="dot ${dotCls}"></span><strong style="font-size:.82rem">${esc(c.name||c.id)}</strong>
         <br><code style="font-size:.68rem;color:var(--text-secondary)">${esc(c.streamName)}</code>
@@ -734,6 +784,7 @@ function renderCamTable() {
       </td>
     </tr>`;
   }).join('');
+  initDragSort();
 }
 
 function agoStr(sec) {
