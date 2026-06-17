@@ -26,7 +26,8 @@ type CameraStatus struct {
 	StartedAt       int64  `json:"startedAt"`   // unix seconds
 	LastErr         string `json:"lastErr,omitempty"`
 	Tier            int    `json:"tier"`
-	WorkerID        string `json:"workerId,omitempty"` // set if camera is handled by a remote worker
+	WorkerID        string                    `json:"workerId,omitempty"` // set if camera is handled by a remote worker
+	DirTypeCounts   map[string]map[string]int `json:"dirTypeCounts,omitempty"` // live direction×type breakdown from yolo_counter
 }
 
 // Manager owns and supervises all camera workers.
@@ -149,6 +150,7 @@ func (m *Manager) statuses() []CameraStatus {
 			st.TotalMotorcycle = e.worker.totalMotorcycle
 			st.TotalBus = e.worker.totalBus
 			st.TotalTruck = e.worker.totalTruck
+			st.DirTypeCounts = e.worker.dirTypeCounts
 			st.FramesProcessed = e.worker.framesProcessed
 			st.LastFrameAt = e.worker.lastFrameAt
 			st.StartedAt = e.worker.startedAt

@@ -782,20 +782,34 @@ function renderCamTable() {
       ? agoStr(now - c.lastFrameAt)
       : (c.running ? '<span style="color:#d97706;font-size:.73rem">Chờ…</span>' : '—');
 
-    // Build direction×type matrix from todayMatrix
+    // Build direction×type matrix.
+    // Primary: live dirTypeCounts from yolo_counter status (real-time, no storage needed).
+    // Fallback: todayMatrix from daily file storage (persistent across restarts).
+    const liveDTC = c.dirTypeCounts || {};
     const mx = todayMatrix[c.id] || {};
+
+    // Merge: for each direction, prefer live data if it has more total crossings.
+    const mergedDTC = {};
+    const allDirs = new Set([...Object.keys(liveDTC), ...Object.keys(mx)]);
+    allDirs.forEach(d => {
+      const liveSum = VEHICLE_TYPES.reduce((s,t) => s+(liveDTC[d]?.[t]||0), 0);
+      const fileSum = VEHICLE_TYPES.reduce((s,t) => s+(mx[d]?.[t]||0), 0);
+      mergedDTC[d] = liveSum >= fileSum ? (liveDTC[d] || {}) : (mx[d] || {});
+    });
+
     const DIRS_ACTIVE = ['down','up','right','left'].filter(d => {
-      // show dir if camera has it enabled (from live stats) OR has events today
       if (d==='down'  && c.totalDown)  return true;
       if (d==='up'    && c.totalUp)    return true;
       if (d==='right' && c.totalRight) return true;
       if (d==='left'  && c.totalLeft)  return true;
-      return mx[d] && VEHICLE_TYPES.some(t => (mx[d][t]||0)>0);
+      return mergedDTC[d] && VEHICLE_TYPES.some(t => (mergedDTC[d][t]||0)>0);
     });
+
+    // Live type totals as ultimate fallback for Tổng row.
+    const liveTypeTotal = {car: c.totalCar||0, motorcycle: c.totalMotorcycle||0, bus: c.totalBus||0, truck: c.totalTruck||0};
 
     let statsHtml = '';
     if (DIRS_ACTIVE.length) {
-      // Header row with type icons
       statsHtml = `<table style="border-collapse:collapse;font-size:.72rem;width:100%">
         <tr style="color:var(--text-secondary)">
           <td style="padding:1px 5px 1px 0;font-weight:600">Hướng</td>
@@ -803,9 +817,8 @@ function renderCamTable() {
           <td style="padding:1px 0 1px 5px;text-align:right;font-weight:600">Σ</td>
         </tr>`;
       DIRS_ACTIVE.forEach(d => {
-        const typeVals = VEHICLE_TYPES.map(t => mx[d]?.[t] || 0);
+        const typeVals = VEHICLE_TYPES.map(t => mergedDTC[d]?.[t] || 0);
         const rowTotal = typeVals.reduce((a,b)=>a+b,0);
-        // live directional total from status (more up-to-date)
         const liveTotal = d==='down'?c.totalDown:d==='up'?c.totalUp:d==='right'?c.totalRight:c.totalLeft;
         const displayTotal = liveTotal || rowTotal;
         statsHtml += `<tr>
@@ -814,8 +827,11 @@ function renderCamTable() {
           <td style="padding:1px 0 1px 5px;text-align:right;font-weight:700">${displayTotal}</td>
         </tr>`;
       });
-      // Total row
-      const colTotals = VEHICLE_TYPES.map(t => DIRS_ACTIVE.reduce((s,d) => s+(mx[d]?.[t]||0),0));
+      // Tổng row: merged file data, with live type totals as fallback when file has nothing.
+      const colTotals = VEHICLE_TYPES.map(t => {
+        const fromMerged = DIRS_ACTIVE.reduce((s,d) => s+(mergedDTC[d]?.[t]||0), 0);
+        return fromMerged || liveTypeTotal[t];
+      });
       statsHtml += `<tr style="border-top:1px solid var(--border)">
         <td style="padding:2px 5px 1px 0;font-weight:600;font-size:.7rem">Tổng</td>
         ${colTotals.map(v=>`<td style="padding:2px 5px;text-align:right;font-weight:700">${v||0}</td>`).join('')}
