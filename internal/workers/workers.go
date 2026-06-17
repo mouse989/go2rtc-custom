@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,6 +25,7 @@ type Worker struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Enabled  bool   `json:"enabled"`
+	RTSPBase string `json:"rtspBase,omitempty"` // RTSP URL that yolo_counter on this worker should pull from, e.g. "rtsp://server1-ip:8554"
 }
 
 // WorkerStatus is the runtime status of a worker (cached, not persisted).
@@ -166,6 +169,25 @@ func getStatus(id string) *WorkerStatus {
 
 func setStatus(s *WorkerStatus) {
 	statusCache.Store(s.ID, s)
+}
+
+// RequestWorker makes an authenticated HTTP request to a named worker.
+// Used by the counting package to push/pull camera config from remote workers.
+func RequestWorker(id, method, path string, body io.Reader, contentType string) (*http.Response, error) {
+	wk := getWorkerByID(id)
+	if wk == nil {
+		return nil, fmt.Errorf("worker not found: %s", id)
+	}
+	return workerRequest(wk, method, path, body, contentType)
+}
+
+// GetWorkerRTSPBase returns the configured RTSP base URL for the named worker.
+func GetWorkerRTSPBase(id string) string {
+	wk := getWorkerByID(id)
+	if wk == nil {
+		return ""
+	}
+	return wk.RTSPBase
 }
 
 func allStatuses() []*WorkerStatus {

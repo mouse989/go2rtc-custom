@@ -118,6 +118,7 @@ func (w *CameraWorker) registerCamera() error {
 		"tier":       w.cam.Tier,
 		"frameWidth": fw,
 		"yoloConf":   conf,
+		"rtspBase":   w.cam.RTSPBase,
 	}
 
 	data, _ := json.Marshal(body)

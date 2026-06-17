@@ -166,6 +166,7 @@ class CameraConfig(BaseModel):
     tier: int = 1
     frameWidth: int = 320
     yoloConf: float = 0.35
+    rtspBase: str = ""  # override global --rtsp-base; used when stream lives on another server
 
 
 @dataclass
@@ -223,7 +224,8 @@ class CameraState:
 
     def _run(self):
         from urllib.parse import quote
-        rtsp_url = f"{_args.rtsp_base}/{quote(self.config.streamName, safe='')}"
+        base = self.config.rtspBase.rstrip('/') if self.config.rtspBase else _args.rtsp_base
+        rtsp_url = f"{base}/{quote(self.config.streamName, safe='')}"
         logger.info(f"[{self.config.id}] starting RTSP: {rtsp_url}")
 
         cap = None

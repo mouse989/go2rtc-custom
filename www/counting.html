@@ -337,6 +337,10 @@
       <div class="form-row"><label>URL</label><input type="text" id="wUrl" placeholder="http://192.168.1.100:1984"></div>
       <div class="form-row"><label>Username</label><input type="text" id="wUser" placeholder="admin" autocomplete="off"></div>
       <div class="form-row"><label>Password</label><input type="password" id="wPass" placeholder="(giữ nguyên nếu không đổi)" autocomplete="off"></div>
+      <div class="form-row">
+        <label title="URL RTSP Server 1 mà yolo_counter trên máy chủ này sẽ kéo luồng camera. Ví dụ: rtsp://192.168.1.1:8554">RTSP Base (luồng từ Server 1)</label>
+        <input type="text" id="wRtspBase" placeholder="rtsp://192.168.1.1:8554 (để trống nếu máy chủ tự kéo)">
+      </div>
       <div class="form-row" style="flex-direction:row;align-items:center;gap:8px">
         <input type="checkbox" id="wEnabled" checked style="width:auto">
         <label for="wEnabled" style="margin:0">Bật (tự động sync)</label>
@@ -494,6 +498,15 @@
           </select>
         </div>
       </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>Máy chủ phân tích</label>
+        <select id="mWorkerID">
+          <option value="">Nội bộ (local yolo_counter)</option>
+        </select>
+        <div id="mWorkerRTSPNote" style="display:none;margin-top:4px;font-size:0.74rem;color:var(--text-secondary)">
+          ⚠️ Đảm bảo máy chủ này có cấu hình <b>RTSP Base</b> để kéo luồng từ Server 1.
+        </div>
+      </div>
       <div style="padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:10px">
         <label class="dir-check" style="font-size:0.84rem;font-weight:600;">
           <input type="checkbox" id="mEnabled" checked style="width:auto"> Bật camera (tự động đếm khi hệ thống chạy)
@@ -518,6 +531,7 @@
 let cfg        = {};
 let statuses   = [];
 let allStreams  = [];
+let workerList = []; // cached list of configured workers for name lookup
 let editId     = null;
 let pollTimer  = null;
 let logTimer   = null;
@@ -606,9 +620,16 @@ async function loadCustomModels() {
   } catch(e) { console.error('loadCustomModels', e); }
 }
 
+function workerNameById(id) {
+  const w = workerList.find(w => w.id === id);
+  return w ? w.name : id;
+}
+
 async function loadConfig() {
   try {
     await loadCustomModels();
+    // Load worker list for name lookup in camera table.
+    try { workerList = await apiFetch('/api/workers') || []; } catch(_) { workerList = []; }
     cfg = await apiFetch('/api/counting/config');
     document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
     document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
@@ -809,6 +830,7 @@ function renderCamTable() {
       <td>
         <span class="dot ${dotCls}"></span><strong style="font-size:.82rem">${esc(c.name||c.id)}</strong>
         <br><code style="font-size:.68rem;color:var(--text-secondary)">${esc(c.streamName)}</code>
+        ${c.workerId ? `<br><span style="font-size:.67rem;color:#7c3aed">⚡ ${esc(workerNameById(c.workerId))}</span>` : ''}
       </td>
       <td>${stLbl}</td>
       <td><span class="tier-b t${c.tier||1}" title="T1=FPS đầy đủ T2=½FPS T3=¼FPS">T${c.tier||1}</span></td>
@@ -1094,7 +1116,7 @@ function getSelectedStream() {
   return r ? r.value : null;
 }
 
-function goStep2() {
+async function goStep2() {
   const stream = getSelectedStream();
   if (!stream) {
     document.getElementById('mErr').textContent = 'Vui lòng chọn một stream.';
@@ -1116,6 +1138,7 @@ function goStep2() {
   document.getElementById('mFps').value  = '0';
   document.getElementById('mTier').value = '1';
   document.getElementById('mEnabled').checked = true;
+  await populateWorkerDropdown('');
   showStep(2);
   refreshPreview();
 }
@@ -1294,6 +1317,7 @@ async function saveCamera() {
     fps:        parseFloat(document.getElementById('mFps').value),
     tier:       parseInt(document.getElementById('mTier').value),
     enabled:    document.getElementById('mEnabled').checked,
+    workerId:   document.getElementById('mWorkerID').value || '',
   };
   try {
     if (editId) {
@@ -1334,6 +1358,7 @@ async function editCam(id) {
   document.getElementById('mFps').value   = cam.fps ?? 0;
   document.getElementById('mTier').value  = cam.tier ?? 1;
   document.getElementById('mEnabled').checked = cam.enabled !== false;
+  await populateWorkerDropdown(cam.workerId || '');
   document.getElementById('mErr').textContent  = '';
   document.getElementById('mErr2').textContent = '';
   document.getElementById('s2Stream').textContent = cam.streamName;
@@ -1344,6 +1369,25 @@ async function editCam(id) {
 
 function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
 function overlayClick(e) { if (e.target===document.getElementById('modalOverlay')) closeModal(); }
+
+async function populateWorkerDropdown(selectedId) {
+  const sel = document.getElementById('mWorkerID');
+  sel.innerHTML = '<option value="">Nội bộ (local yolo_counter)</option>';
+  const note = document.getElementById('mWorkerRTSPNote');
+  try {
+    const workers = await apiFetch('/api/workers');
+    (workers || []).filter(w => w.enabled).forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = w.name + ' (' + w.url + ')';
+      if (w.id === selectedId) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(_) { /* workers not configured */ }
+  const showNote = sel.value !== '';
+  note.style.display = showNote ? '' : 'none';
+  sel.onchange = () => { note.style.display = sel.value ? '' : 'none'; };
+}
 
 // ════════════════════════════════════════════════════════
 // Util
@@ -1509,6 +1553,7 @@ function openWorkerModal(id) {
       document.getElementById('wUrl').value = w.url;
       document.getElementById('wUser').value = w.username || '';
       document.getElementById('wPass').value = '';
+      document.getElementById('wRtspBase').value = w.rtspBase || '';
       document.getElementById('wEnabled').checked = w.enabled;
     });
   } else {
@@ -1517,6 +1562,7 @@ function openWorkerModal(id) {
     document.getElementById('wUrl').value = '';
     document.getElementById('wUser').value = '';
     document.getElementById('wPass').value = '';
+    document.getElementById('wRtspBase').value = '';
     document.getElementById('wEnabled').checked = true;
   }
   document.getElementById('workerModal').style.display = 'flex';
@@ -1532,6 +1578,7 @@ async function saveWorker() {
     url: document.getElementById('wUrl').value.trim().replace(/\/$/, ''),
     username: document.getElementById('wUser').value.trim(),
     password: document.getElementById('wPass').value,
+    rtspBase: document.getElementById('wRtspBase').value.trim().replace(/\/$/, ''),
     enabled: document.getElementById('wEnabled').checked,
   };
   if (!body.name || !body.url) {
