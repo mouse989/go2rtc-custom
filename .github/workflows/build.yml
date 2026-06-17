@@ -150,7 +150,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system libs
-        run: apt-get update -y && apt-get install -y libglib2.0-0 libgl1
+        run: apt-get update -y && apt-get install -y libglib2.0-0 libgl1 binutils
 
       - name: Install CPU-only PyTorch (lighter build)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -205,7 +205,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system libs
-        run: apt-get update -y && apt-get install -y libglib2.0-0 libgl1
+        run: apt-get update -y && apt-get install -y libglib2.0-0 libgl1 binutils
 
       - name: Install CUDA-enabled PyTorch
         run: pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121
