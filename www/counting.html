@@ -213,6 +213,7 @@
     <button class="tab-btn" onclick="showTab('log',this)">Nhật ký sự kiện</button>
     <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
     <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra YOLO</button>
+    <button class="tab-btn" onclick="showTab('workers',this)">Máy chủ phân tích</button>
     <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
   </div>
 
@@ -307,6 +308,44 @@
           <span><span class="legend-dot" style="background:#00dcdc"></span>Đường đếm dọc V (←→)</span>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ WORKERS ══════════════ -->
+  <div id="tab-workers" class="tab-content" style="display:none">
+    <div class="section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="sub-title" style="margin:0">Máy chủ phân tích từ xa</div>
+        <button class="btn btn-primary btn-sm" onclick="openWorkerModal(null)">+ Thêm máy chủ</button>
+      </div>
+
+      <!-- Worker list -->
+      <div id="workerList"></div>
+
+      <!-- Models on Server 1 -->
+      <div class="sub-title" style="margin-top:20px">Models (.pt) trên máy chủ này</div>
+      <div id="localModelsList" style="font-size:.8rem;color:var(--text-muted)">Đang tải...</div>
+    </div>
+  </div>
+
+  <!-- Worker modal -->
+  <div id="workerModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeWorkerModal()">
+    <div class="modal-box" style="max-width:440px">
+      <h3 id="workerModalTitle">Thêm máy chủ phân tích</h3>
+      <input type="hidden" id="wId">
+      <div class="form-row"><label>Tên hiển thị</label><input type="text" id="wName" placeholder="Server 2 - Ubuntu GPU"></div>
+      <div class="form-row"><label>URL</label><input type="text" id="wUrl" placeholder="http://192.168.1.100:1984"></div>
+      <div class="form-row"><label>Username</label><input type="text" id="wUser" placeholder="admin" autocomplete="off"></div>
+      <div class="form-row"><label>Password</label><input type="password" id="wPass" placeholder="(giữ nguyên nếu không đổi)" autocomplete="off"></div>
+      <div class="form-row" style="flex-direction:row;align-items:center;gap:8px">
+        <input type="checkbox" id="wEnabled" checked style="width:auto">
+        <label for="wEnabled" style="margin:0">Bật (tự động sync)</label>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-ghost btn-sm" onclick="closeWorkerModal()">Huỷ</button>
+        <button class="btn btn-primary btn-sm" onclick="saveWorker()">Lưu</button>
+      </div>
+      <div id="wMsg" style="font-size:.78rem;min-height:1.2em;margin-top:6px"></div>
     </div>
   </div>
 
@@ -488,7 +527,7 @@ let dragTarget = null; // 'H' or 'V'
 let todayMatrix = {}; // camId → {dir → {type → count}}
 
 const today = () => new Date().toISOString().slice(0,10);
-const TABS  = ['live','log','history','debug','settings'];
+const TABS  = ['live','log','history','debug','workers','settings'];
 const VEHICLE_TYPES = ['car','motorcycle','bus','truck'];
 const TYPE_ICON = {car:'🚗',motorcycle:'🏍',bus:'🚌',truck:'🚛'};
 const DIR_LABEL = {down:'↓',up:'↑',right:'→',left:'←'};
@@ -533,6 +572,7 @@ function showTab(name, btn) {
   if (name === 'log')     loadEvents();
   if (name === 'debug')   { openDebugTab(); checkYoloService(); }
   if (name !== 'debug')   stopDebugRefresh();
+  if (name === 'workers') loadWorkersTab();
 }
 
 // ════════════════════════════════════════════════════════
@@ -1309,6 +1349,200 @@ function overlayClick(e) { if (e.target===document.getElementById('modalOverlay'
 // ════════════════════════════════════════════════════════
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ════════════════════════════════════════════════════════
+// Workers tab
+// ════════════════════════════════════════════════════════
+async function loadWorkersTab() {
+  await Promise.all([loadWorkerList(), loadLocalModels()]);
+}
+
+async function loadWorkerList() {
+  const el = document.getElementById('workerList');
+  try {
+    const [workers, statuses] = await Promise.all([
+      apiFetch('/api/workers'),
+      apiFetch('/api/workers/status'),
+    ]);
+    const stMap = Object.fromEntries((statuses||[]).map(s => [s.id, s]));
+    if (!workers.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);font-size:.82rem;padding:8px 0">Chưa có máy chủ nào. Thêm máy chủ để bắt đầu.</div>';
+      return;
+    }
+    el.innerHTML = workers.map(w => {
+      const st = stMap[w.id] || {};
+      const onlineDot = st.online === true ? '🟢' : st.online === false ? '🔴' : '⚪';
+      const lastSync = st.lastSync ? new Date(st.lastSync).toLocaleString('vi-VN') : '—';
+      const lastCheck = st.lastCheck ? new Date(st.lastCheck).toLocaleString('vi-VN') : '—';
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">
+          <div>
+            <strong>${esc(w.name)}</strong>
+            <span style="font-size:.75rem;color:var(--text-muted);margin-left:8px">${esc(w.url)}</span>
+            ${!w.enabled ? '<span style="font-size:.72rem;color:#d97706;margin-left:6px">(tắt)</span>' : ''}
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="syncWorker('${w.id}')" title="Đồng bộ dữ liệu ngay">↻ Sync</button>
+            <button class="btn btn-ghost btn-sm" onclick="openWorkerModels('${w.id}','${esc(w.name)}')" title="Quản lý models">📦 Models</button>
+            <button class="btn btn-ghost btn-sm" onclick="openWorkerModal('${w.id}')">✎</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteWorker('${w.id}')">✕</button>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:.76rem;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:12px">
+          <span>${onlineDot} ${st.online === true ? 'Online' : st.online === false ? 'Offline' : 'Chưa kiểm tra'}</span>
+          ${st.online ? `<span>Camera: <strong>${st.cameras||0}</strong> | Đang chạy: <strong>${st.running?'Có':'Không'}</strong></span>` : ''}
+          ${st.yoloModel ? `<span>Model: <strong>${esc(st.yoloModel)}</strong></span>` : ''}
+          <span>Kiểm tra lần cuối: ${lastCheck}</span>
+          <span>Sync lần cuối: ${lastSync}</span>
+          ${st.error ? `<span style="color:#dc2626">Lỗi: ${esc(st.error)}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="color:#dc2626;font-size:.82rem">${esc(e.message)}</div>`;
+  }
+}
+
+async function loadLocalModels() {
+  const el = document.getElementById('localModelsList');
+  try {
+    const r = await apiFetch('/api/counting/models');
+    const models = r.custom || [];
+    if (!models.length) {
+      el.innerHTML = '<span style="color:var(--text-muted)">Chưa có model đã huấn luyện.</span>';
+      return;
+    }
+    el.innerHTML = models.map(m => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <code style="font-size:.78rem;flex:1">${esc(m)}</code>
+        <button class="btn btn-ghost btn-sm" onclick="pushModelToWorker('${esc(m)}')">Gửi lên worker →</button>
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = `<span style="color:#dc2626">${esc(e.message)}</span>`;
+  }
+}
+
+async function syncWorker(id) {
+  try {
+    await apiFetch('/api/workers/sync?id='+id, {method:'POST'});
+    const el = document.getElementById('workerList');
+    const msg = document.createElement('div');
+    msg.style.cssText = 'font-size:.75rem;color:#16a34a;padding:2px 0';
+    msg.textContent = 'Đã bắt đầu sync...';
+    el.prepend(msg);
+    setTimeout(() => msg.remove(), 3000);
+  } catch(e) { alert('Lỗi sync: '+e.message); }
+}
+
+async function deleteWorker(id) {
+  if (!confirm('Xoá máy chủ này?')) return;
+  try {
+    await apiFetch('/api/workers?id='+id, {method:'DELETE'});
+    await loadWorkerList();
+  } catch(e) { alert('Lỗi: '+e.message); }
+}
+
+async function openWorkerModels(workerId, workerName) {
+  let workerModels = [];
+  try {
+    const r = await apiFetch('/api/workers/models?id='+workerId);
+    workerModels = r.custom || [];
+  } catch(e) { workerModels = []; }
+  const list = workerModels.length
+    ? workerModels.map(m => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <code style="font-size:.78rem;flex:1">${esc(m)}</code>
+        <button class="btn btn-ghost btn-sm" onclick="pullModel('${workerId}','${esc(m)}')">← Tải về đây</button>
+      </div>`).join('')
+    : '<span style="color:var(--text-muted);font-size:.8rem">Chưa có model trên máy chủ này.</span>';
+  const html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:8px">
+    <strong style="font-size:.82rem">Models trên ${esc(workerName)}</strong>
+    <div style="margin-top:8px">${list}</div>
+  </div>`;
+  const el = document.getElementById('workerList');
+  const existing = document.getElementById('workerModelsPanel');
+  if (existing) existing.remove();
+  const panel = document.createElement('div');
+  panel.id = 'workerModelsPanel';
+  panel.innerHTML = html;
+  el.after(panel);
+}
+
+async function pullModel(workerId, model) {
+  try {
+    const r = await apiFetch(`/api/workers/models/pull?id=${workerId}&model=${encodeURIComponent(model)}`, {method:'POST'});
+    alert('Đã tải về: '+r.saved);
+    await loadLocalModels();
+  } catch(e) { alert('Lỗi tải model: '+e.message); }
+}
+
+async function pushModelToWorker(model) {
+  const workers = await apiFetch('/api/workers');
+  if (!workers.length) { alert('Chưa có máy chủ nào.'); return; }
+  const names = workers.map((w,i) => `${i+1}. ${w.name}`).join('\n');
+  const idx = prompt(`Gửi model "${model}" lên máy chủ nào?\n${names}\n\nNhập số:`);
+  if (!idx) return;
+  const w = workers[parseInt(idx)-1];
+  if (!w) { alert('Số không hợp lệ.'); return; }
+  try {
+    await apiFetch(`/api/workers/models/push?id=${w.id}&model=${encodeURIComponent(model)}`, {method:'POST'});
+    alert(`Đã gửi "${model}" lên ${w.name}`);
+  } catch(e) { alert('Lỗi gửi model: '+e.message); }
+}
+
+// Worker modal
+let _editingWorkerId = null;
+function openWorkerModal(id) {
+  _editingWorkerId = id;
+  document.getElementById('workerModalTitle').textContent = id ? 'Chỉnh sửa máy chủ' : 'Thêm máy chủ phân tích';
+  document.getElementById('wMsg').textContent = '';
+  if (id) {
+    apiFetch('/api/workers').then(list => {
+      const w = list.find(x => x.id === id);
+      if (!w) return;
+      document.getElementById('wId').value = w.id;
+      document.getElementById('wName').value = w.name;
+      document.getElementById('wUrl').value = w.url;
+      document.getElementById('wUser').value = w.username || '';
+      document.getElementById('wPass').value = '';
+      document.getElementById('wEnabled').checked = w.enabled;
+    });
+  } else {
+    document.getElementById('wId').value = '';
+    document.getElementById('wName').value = '';
+    document.getElementById('wUrl').value = '';
+    document.getElementById('wUser').value = '';
+    document.getElementById('wPass').value = '';
+    document.getElementById('wEnabled').checked = true;
+  }
+  document.getElementById('workerModal').style.display = 'flex';
+}
+function closeWorkerModal() {
+  document.getElementById('workerModal').style.display = 'none';
+}
+async function saveWorker() {
+  const id = document.getElementById('wId').value;
+  const body = {
+    id: id || undefined,
+    name: document.getElementById('wName').value.trim(),
+    url: document.getElementById('wUrl').value.trim().replace(/\/$/, ''),
+    username: document.getElementById('wUser').value.trim(),
+    password: document.getElementById('wPass').value,
+    enabled: document.getElementById('wEnabled').checked,
+  };
+  if (!body.name || !body.url) {
+    document.getElementById('wMsg').textContent = 'Tên và URL là bắt buộc.';
+    return;
+  }
+  try {
+    const method = id ? 'PUT' : 'POST';
+    if (id) body.id = id;
+    await apiFetch('/api/workers', {method, body: JSON.stringify(body)});
+    closeWorkerModal();
+    await loadWorkerList();
+  } catch(e) {
+    document.getElementById('wMsg').textContent = '✗ '+e.message;
+  }
 }
 </script>
 </body>

@@ -4,8 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	neturl "net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +38,10 @@ func registerAPI() {
 	api.HandleFunc("api/counting/train-status", handleTrainStatus)
 	api.HandleFunc("api/counting/models", handleModels)
 	api.HandleFunc("api/counting/yolo-restart", handleYoloRestart)
+	// Worker-side endpoints (called by Server 1 workers module)
+	api.HandleFunc("api/counting/export", handleExport)
+	api.HandleFunc("api/counting/models/download", handleModelsDownload)
+	api.HandleFunc("api/counting/models/upload", handleModelsUpload)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -588,4 +596,114 @@ func proxyGetRaw(w http.ResponseWriter, url string) {
 		w.Header().Set("Content-Type", ct)
 	}
 	io.Copy(w, resp.Body)
+}
+
+// ── Worker-side endpoints (called by Hub / Server 1) ────────────────────────
+
+// GET /api/counting/export?date=YYYY-MM-DD
+// Returns all counting events for the given date as a JSON array.
+// Used by Hub to pull data from this worker.
+func handleExport(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		http.Error(w, "date required (YYYY-MM-DD)", http.StatusBadRequest)
+		return
+	}
+	events, err := mgr.store.getEvents(date)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, []CountEvent{})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if events == nil {
+		events = []CountEvent{}
+	}
+	writeJSON(w, events)
+}
+
+// GET /api/counting/models/download?file=models/trained_xxx.pt
+// Serves a model weight file for download by the Hub.
+func handleModelsDownload(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		http.Error(w, "file required", http.StatusBadRequest)
+		return
+	}
+	// Resolve relative to yolo_counter dir (same as models/ logic in launcher)
+	base := filepath.Dir(yoloExePath())
+	fullPath := filepath.Join(base, filepath.FromSlash(file))
+	// Security: must stay within base dir
+	if !strings.HasPrefix(fullPath, base) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(fullPath)}))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, fullPath)
+}
+
+// POST /api/counting/models/upload
+// Accepts a multipart file upload (field "model") and saves it into models/.
+func handleModelsUpload(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseMultipartForm(512 << 20); err != nil { // 512 MB
+		http.Error(w, "parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	f, fh, err := r.FormFile("model")
+	if err != nil {
+		http.Error(w, "field 'model' required: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer f.Close()
+	base := filepath.Dir(yoloExePath())
+	modelsDir := filepath.Join(base, "models")
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		http.Error(w, "mkdir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dest := filepath.Join(modelsDir, filepath.Base(fh.Filename))
+	out, err := os.Create(dest)
+	if err != nil {
+		http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, f); err != nil {
+		http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"saved": "models/" + filepath.Base(fh.Filename)})
+}
+
+// yoloExePath returns the path to the yolo_counter executable (or best guess).
+func yoloExePath() string {
+	exeName := "yolo_counter"
+	if runtime.GOOS == "windows" {
+		exeName += ".exe"
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return exeName
+	}
+	return filepath.Join(filepath.Dir(self), exeName)
 }

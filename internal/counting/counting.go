@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/workers"
 	"github.com/rs/zerolog"
 )
 
@@ -97,6 +99,28 @@ func Init() {
 	mgr = newManager()
 	registerAPI()
 	autoLaunchYolo() // auto-launch if yolo_counter.exe exists next to binary
+
+	// Register event importer so the workers module can push remote events
+	// into this server's counting store without a circular import.
+	workers.SetEventImporter(func(workerID, workerName string, raw json.RawMessage) error {
+		var evs []CountEvent
+		if err := json.Unmarshal(raw, &evs); err != nil {
+			return err
+		}
+		for i := range evs {
+			// Prefix cameraID and name so they don't collide with local cameras.
+			if !strings.HasPrefix(evs[i].CameraID, workerID+":") {
+				evs[i].CameraID = workerID + ":" + evs[i].CameraID
+			}
+			if evs[i].Name != "" && !strings.HasPrefix(evs[i].Name, "["+workerName+"]") {
+				evs[i].Name = "[" + workerName + "] " + evs[i].Name
+			}
+		}
+		for _, ev := range evs {
+			_ = mgr.store.append(ev)
+		}
+		return nil
+	})
 
 	if cfg.Running {
 		mgr.startAll()
