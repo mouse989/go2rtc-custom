@@ -75,6 +75,30 @@ func updateRoute(r *Route) error {
 	return fmt.Errorf("route %q not found", r.ID)
 }
 
+func reorderRoutes(ids []string) error {
+	rstore.mu.Lock()
+	defer rstore.mu.Unlock()
+	idx := make(map[string]*Route, len(rstore.routes))
+	for _, r := range rstore.routes {
+		idx[r.ID] = r
+	}
+	seen := make(map[string]bool)
+	ordered := make([]*Route, 0, len(rstore.routes))
+	for _, id := range ids {
+		if r, ok := idx[id]; ok && !seen[id] {
+			ordered = append(ordered, r)
+			seen[id] = true
+		}
+	}
+	for _, r := range rstore.routes {
+		if !seen[r.ID] {
+			ordered = append(ordered, r)
+		}
+	}
+	rstore.routes = ordered
+	return rstore.saveLocked()
+}
+
 func deleteRoute(id string) error {
 	rstore.mu.Lock()
 	defer rstore.mu.Unlock()
