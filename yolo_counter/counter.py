@@ -45,7 +45,28 @@ logger = logging.getLogger("yolo_counter")
 _args: argparse.Namespace = None  # type: ignore
 _model = None  # ultralytics YOLO model
 
-VEHICLE_CLASSES = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
+# COCO pretrained class IDs for the 4 vehicle types we track.
+# Custom-trained models have different IDs (0,1,2,3) but same names;
+# use _active_class_map() at runtime so both work correctly.
+_COCO_VEHICLE_CLASSES = {2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
+VEHICLE_CLASSES = _COCO_VEHICLE_CLASSES          # kept for backward compat
+_VEHICLE_NAMES   = {"car", "motorcycle", "bus", "truck"}
+
+def _active_class_map() -> dict:
+    """Return {cls_id: vehicle_name} for the currently loaded model.
+
+    Inspects model.names so custom-trained models (where cls 0='car' etc.)
+    work exactly like pretrained COCO models — detection is by name, not
+    by hardcoded COCO class ID.
+    """
+    if _model is None:
+        return _COCO_VEHICLE_CLASSES
+    mapping = {
+        int(cid): name.lower()
+        for cid, name in _model.names.items()
+        if name.lower() in _VEHICLE_NAMES
+    }
+    return mapping if mapping else _COCO_VEHICLE_CLASSES
 
 # Box colours per class (BGR for cv2)
 CLASS_COLORS_BGR = {
@@ -268,16 +289,17 @@ class CameraState:
         detections: List[tuple] = []   # (cx, cy)
         boxes_info: List[dict] = []    # for debug drawing
 
+        class_map = _active_class_map()
         for result in results:
             for box in result.boxes:
                 cls_id = int(box.cls[0])
-                if cls_id not in VEHICLE_CLASSES:
+                if cls_id not in class_map:
                     continue
                 x1, y1, x2, y2 = map(float, box.xyxy[0])
                 conf = float(box.conf[0])
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
-                cls_name = VEHICLE_CLASSES[cls_id]
+                cls_name = class_map[cls_id]
                 detections.append((cx, cy, cls_name))
                 boxes_info.append({
                     "x1": x1, "y1": y1, "x2": x2, "y2": y2,
@@ -851,6 +873,8 @@ if __name__ == "__main__":
     # Warm up
     dummy = np.zeros((320, 320, 3), dtype=np.uint8)
     _model(dummy, conf=_args.conf, verbose=False)
+    class_map = _active_class_map()
+    logger.info(f"Model loaded. Vehicle class map: {class_map}")
     logger.info("Model loaded and warmed up")
 
     logger.info(f"Starting server on port {_args.port}")
