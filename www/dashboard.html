@@ -531,10 +531,9 @@ function renderTTIChart(routes, todayLogs, histLogs) {
   const currentSlot = slotOfTs(now.toISOString());
   const nowMinPct  = ((now.getHours()*60 + now.getMinutes()) / (24*60) * 100).toFixed(2);
 
-  // Sort routes by latest TTI desc
-  const sorted = [...routes].sort((a,b) => (b.latestTTI||0) - (a.latestTTI||0));
+  const isAdmin = (getUser()||{}).role === 'admin';
 
-  body.innerHTML = sorted.map(r => {
+  body.innerHTML = routes.map(r => {
     const todaySlots = buildSlots(todayLogs, r.id);
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
@@ -545,9 +544,14 @@ function renderTTIChart(routes, todayLogs, histLogs) {
       ? `<span style="font-size:.64rem;color:var(--text-muted)">${escH(_histDate)}${!hasHistData ? ' (không có dữ liệu)' : ''}</span>`
       : '';
 
-    return `<div class="tti-chart-row">
+    const dragAttr   = isAdmin ? `draggable="true" data-id="${escH(r.id)}"` : '';
+    const dragHandle = isAdmin
+      ? `<span style="cursor:grab;color:var(--text-muted);flex-shrink:0;margin-right:.15rem" title="Kéo để đổi thứ tự">⠿</span>`
+      : '';
+
+    return `<div class="tti-chart-row" ${dragAttr}>
       <div class="tti-row-label">
-        <span class="tti-rname" title="${escH(r.name)}">${escH(r.name)}</span>
+        <div style="display:flex;align-items:center">${dragHandle}<span class="tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
       </div>
       <div class="tti-row-bars">
         <div class="tti-bar tti-bar-today">${todayBar}</div>
@@ -559,6 +563,8 @@ function renderTTIChart(routes, todayLogs, histLogs) {
       </div>
     </div>`;
   }).join('');
+
+  if (isAdmin) initTTIDragSort();
 
   // Axis
   const marks = [0,6,12,18].map(h => {
@@ -589,6 +595,42 @@ function renderSlotBar(slots, currentSlot, isHistory) {
     const tipAttr = tip ? ` data-tip="${escH(tip)}"` : '';
     return `<div class="tti-slot" style="flex:1;background:${bg}"${tipAttr}></div>`;
   }).join('');
+}
+
+// ── TTI drag-to-reorder ───────────────────────────────────────────────────
+async function saveRouteOrder(ids) {
+  try {
+    await apiFetch('/api/traveltime/routes/order', {method:'PUT', body:JSON.stringify(ids)});
+  } catch(e) { console.error('saveRouteOrder', e); }
+}
+
+function initTTIDragSort() {
+  const wrap = document.getElementById('ttiChartBody');
+  if (!wrap) return;
+  let dragSrc = null;
+  wrap.querySelectorAll('.tti-chart-row[data-id]').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      dragSrc = row;
+      e.dataTransfer.effectAllowed = 'move';
+      row.style.opacity = '0.45';
+    });
+    row.addEventListener('dragend', () => { row.style.opacity = ''; dragSrc = null; });
+    row.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+    row.addEventListener('dragenter', e => { e.preventDefault(); row.style.outline = '2px solid var(--accent)'; });
+    row.addEventListener('dragleave', () => { row.style.outline = ''; });
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      row.style.outline = '';
+      if (!dragSrc || dragSrc === row) return;
+      const rows = [...wrap.querySelectorAll('.tti-chart-row[data-id]')];
+      const srcIdx = rows.indexOf(dragSrc);
+      const dstIdx = rows.indexOf(row);
+      rows.splice(srcIdx, 1);
+      rows.splice(dstIdx, 0, dragSrc);
+      rows.forEach(r => wrap.appendChild(r));
+      await saveRouteOrder(rows.map(r => r.dataset.id));
+    });
+  });
 }
 
 // ── Top routes table ──────────────────────────────────────────────────────

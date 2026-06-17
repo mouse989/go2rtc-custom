@@ -32,6 +32,7 @@ type Config struct {
 	YoloModel    string         `json:"yoloModel"`    // YOLO model filename, default "yolo26n.pt"
 	Cameras      []CameraConfig `json:"cameras"`
 	Storage      StorageConfig  `json:"storage"`
+	CameraOrder  []string       `json:"cameraOrder"` // ordered camera IDs for dashboard display
 }
 
 // CameraConfig defines per-camera counting settings.

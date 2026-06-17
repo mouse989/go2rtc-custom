@@ -12,6 +12,7 @@ import (
 func registerHandlers() {
 	http.HandleFunc("/api/traveltime/config", handleConfig)
 	http.HandleFunc("/api/traveltime/routes", handleRoutes)
+	http.HandleFunc("/api/traveltime/routes/order", handleRoutesOrder)
 	http.HandleFunc("/api/traveltime/status", handleStatus)
 	http.HandleFunc("/api/traveltime/scheduler/start", handleSchedulerStart)
 	http.HandleFunc("/api/traveltime/scheduler/stop", handleSchedulerStop)
@@ -163,6 +164,27 @@ func handleRoutes(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// PUT /api/traveltime/routes/order — reorder routes in persistent storage.
+func handleRoutesOrder(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := reorderRoutes(ids); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── Scheduler ────────────────────────────────────────────────────────────────
