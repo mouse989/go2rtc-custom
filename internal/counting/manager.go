@@ -67,13 +67,17 @@ func (m *Manager) startAll() {
 	go m.runCleanup()
 }
 
-// stopAll stops all running workers.
+// stopAll stops all running workers (local and remote).
 func (m *Manager) stopAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, e := range m.workers {
 		e.cancel()
 		delete(m.workers, id)
+	}
+	for id, e := range m.remotes {
+		e.cancel()
+		delete(m.remotes, id)
 	}
 }
 

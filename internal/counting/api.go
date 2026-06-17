@@ -1,6 +1,7 @@
 package counting
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/workers"
 )
 
 func registerAPI() {
@@ -317,6 +319,7 @@ func handleEvents(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/counting/debug?camera=id
 // Returns an annotated JPEG showing the MOG2 mask, blobs, tracks, and counting lines.
+// For remote cameras, proxies the request to the remote worker.
 func handleDebug(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -328,7 +331,27 @@ func handleDebug(w http.ResponseWriter, r *http.Request) {
 	}
 	mgr.mu.Lock()
 	e, ok := mgr.workers[id]
+	re, isRemote := mgr.remotes[id]
 	mgr.mu.Unlock()
+
+	if isRemote {
+		resp, err := workers.RequestWorker(re.cam.WorkerID, http.MethodGet, "/api/counting/debug?camera="+id, nil, "")
+		if err != nil {
+			http.Error(w, "remote debug unavailable: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			http.Error(w, strings.TrimSpace(string(b)), resp.StatusCode)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "no-cache, no-store")
+		_, _ = io.Copy(w, resp.Body)
+		return
+	}
+
 	if !ok {
 		http.Error(w, "camera not running", http.StatusNotFound)
 		return
@@ -378,6 +401,7 @@ func handleYoloStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/counting/collect?camera=id&frames=N
+// For remote cameras, proxies the collect request to the remote worker.
 func handleCollect(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -390,6 +414,24 @@ func handleCollect(w http.ResponseWriter, r *http.Request) {
 	frames := r.URL.Query().Get("frames")
 	if frames == "" {
 		frames = "50"
+	}
+
+	// Proxy to remote worker if camera is remote.
+	mgr.mu.Lock()
+	re, isRemote := mgr.remotes[id]
+	mgr.mu.Unlock()
+	if isRemote {
+		path := fmt.Sprintf("/api/counting/collect?camera=%s&frames=%s", id, frames)
+		resp, err := workers.RequestWorker(re.cam.WorkerID, http.MethodPost, path, nil, "")
+		if err != nil {
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+		return
 	}
 
 	var streamName string
@@ -436,13 +478,18 @@ func handleCollect(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-// POST /api/counting/train
+// POST /api/counting/train?worker=id
 func handleTrain(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		body, _ := io.ReadAll(r.Body)
+		proxyToWorker(w, wid, http.MethodPost, "/api/counting/train", bytes.NewReader(body), "application/json")
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -460,9 +507,13 @@ func handleTrain(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-// GET /api/counting/dataset-images
+// GET /api/counting/dataset-images?worker=id
 func handleDatasetImages(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodGet, "/api/counting/dataset-images", nil, "")
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -472,12 +523,16 @@ func handleDatasetImages(w http.ResponseWriter, r *http.Request) {
 	proxyGet(w, yoloURL+"/dataset/images")
 }
 
-// GET /api/counting/dataset-image?file=name.jpg
+// GET /api/counting/dataset-image?file=name.jpg&worker=id
 func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
 	f := r.URL.Query().Get("file")
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodGet, "/api/counting/dataset-image?file="+neturl.QueryEscape(f), nil, "")
+		return
+	}
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
@@ -485,10 +540,20 @@ func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	proxyGetRaw(w, yoloURL+"/dataset/image/"+f)
 }
 
-// GET /api/counting/dataset-label?file=name.jpg (load existing boxes)
-// POST /api/counting/dataset-label (save boxes)
+// GET /api/counting/dataset-label?file=name.jpg&worker=id (load existing boxes)
+// POST /api/counting/dataset-label?worker=id (save boxes)
 func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		if r.Method == http.MethodGet {
+			f := r.URL.Query().Get("file")
+			proxyToWorker(w, wid, http.MethodGet, "/api/counting/dataset-label?file="+neturl.QueryEscape(f), nil, "")
+		} else {
+			body, _ := io.ReadAll(r.Body)
+			proxyToWorker(w, wid, http.MethodPost, "/api/counting/dataset-label", bytes.NewReader(body), "application/json")
+		}
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -511,9 +576,13 @@ func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-// GET /api/counting/train-status
+// GET /api/counting/train-status?worker=id
 func handleTrainStatus(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodGet, "/api/counting/train-status", nil, "")
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -551,13 +620,17 @@ func handleYoloRestart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": ok, "restarted": ok})
 }
 
-// POST /api/counting/dataset-yaml
+// POST /api/counting/dataset-yaml?worker=id
 func handleDatasetYaml(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodPost, "/api/counting/dataset-yaml", nil, "")
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -573,6 +646,23 @@ func handleDatasetYaml(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
 	io.Copy(w, resp.Body)
+}
+
+// proxyToWorker forwards a request to a remote worker and copies the response back.
+func proxyToWorker(w http.ResponseWriter, workerID, method, path string, body io.Reader, contentType string) {
+	resp, err := workers.RequestWorker(workerID, method, path, body, contentType)
+	if err != nil {
+		http.Error(w, "worker unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "application/json"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func proxyGet(w http.ResponseWriter, url string) {

@@ -238,6 +238,8 @@ let selectedCls = 0;
 let drawing = false;
 let dragStart = null;
 let dragCurrent = null;
+let _activeWorker = ''; // worker ID for remote camera dataset; '' = local
+let _trainWorker  = ''; // worker ID at the time training was started
 
 const canvas = document.getElementById('annCanvas');
 const ctx = canvas.getContext('2d');
@@ -251,12 +253,14 @@ document.getElementById('sidebarToggle')?.addEventListener('click', () => {
 let labeledSet = new Set();
 async function loadImages() {
   try {
-    const d = await apiFetch('/api/counting/dataset-images');
+    const suffix = _activeWorker ? '?worker=' + encodeURIComponent(_activeWorker) : '';
+    const d = await apiFetch('/api/counting/dataset-images' + suffix);
     images = d.images || [];
     labeledSet = new Set(d.labeled || []);
     document.getElementById('imgCount').textContent = images.length;
     renderImageList();
     if (images.length > 0) loadImage(0);
+    else { boxes = []; redraw && redraw(); }
   } catch (e) {
     setStatus('Lỗi tải danh sách ảnh: ' + e.message);
   }
@@ -295,7 +299,8 @@ async function loadImage(idx) {
       resolve();
     };
     img.onerror = resolve;
-    img.src = `/api/counting/dataset-image?file=${encodeURIComponent(fname)}`;
+    const wParam = _activeWorker ? '&worker=' + encodeURIComponent(_activeWorker) : '';
+    img.src = `/api/counting/dataset-image?file=${encodeURIComponent(fname)}${wParam}`;
   });
 
   // Try loading existing labels (needs image dimensions, so after image loads)
@@ -305,7 +310,8 @@ async function loadImage(idx) {
 async function loadLabels(fname) {
   boxes = [];
   try {
-    const d = await apiFetch(`/api/counting/dataset-label?file=${encodeURIComponent(fname)}`);
+    const wParam = _activeWorker ? '&worker=' + encodeURIComponent(_activeWorker) : '';
+    const d = await apiFetch(`/api/counting/dataset-label?file=${encodeURIComponent(fname)}${wParam}`);
     const w = currentImg ? currentImg.naturalWidth : canvas.width;
     const h = currentImg ? currentImg.naturalHeight : canvas.height;
     boxes = (d.boxes || []).map(b => ({
@@ -457,7 +463,8 @@ document.getElementById('btnSave').addEventListener('click', async () => {
   const msg = document.getElementById('saveMsg');
   msg.textContent = 'Đang lưu...';
   try {
-    const d = await apiFetch('/api/counting/dataset-label', {
+    const wParam = _activeWorker ? '?worker=' + encodeURIComponent(_activeWorker) : '';
+    const d = await apiFetch('/api/counting/dataset-label' + wParam, {
       method: 'POST',
       body: JSON.stringify({ filename: fname, boxes: normalized }),
     });
@@ -482,7 +489,9 @@ async function loadCameras() {
     (cams || []).forEach(cam => {
       const opt = document.createElement('option');
       opt.value = cam.id || cam.ID;
-      opt.textContent = (cam.name || cam.id) + ' (' + (cam.streamName || '') + ')';
+      opt.dataset.workerId = cam.workerId || '';
+      const remoteTag = cam.workerId ? ' [remote]' : '';
+      opt.textContent = (cam.name || cam.id) + remoteTag;
       sel.appendChild(opt);
     });
   } catch (e) {
@@ -490,17 +499,32 @@ async function loadCameras() {
   }
 }
 
+// When camera selection changes, switch the active worker and reload dataset images.
+document.getElementById('collectCam').addEventListener('change', function() {
+  const opt = this.options[this.selectedIndex];
+  const newWorker = opt?.dataset?.workerId || '';
+  if (newWorker !== _activeWorker) {
+    _activeWorker = newWorker;
+    loadImages();
+  }
+});
+
 // ── collect frames ──
 document.getElementById('btnCollect').addEventListener('click', async () => {
-  const camId = document.getElementById('collectCam').value;
+  const sel = document.getElementById('collectCam');
+  const camId = sel.value;
   const frames = document.getElementById('collectFrames').value || '50';
   if (!camId) { document.getElementById('collectMsg').textContent = 'Chọn camera trước'; return; }
+  // Ensure active worker matches selected camera
+  const opt = sel.options[sel.selectedIndex];
+  _activeWorker = opt?.dataset?.workerId || '';
   const msg = document.getElementById('collectMsg');
-  msg.textContent = `Đang thu thập (~${frames * 5}s)...`;
+  const workerNote = _activeWorker ? ' (máy chủ từ xa)' : '';
+  msg.textContent = `Đang thu thập${workerNote} (~${frames * 5}s)...`;
   try {
     const d = await apiFetch(`/api/counting/collect?camera=${encodeURIComponent(camId)}&frames=${frames}`, { method: 'POST' });
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = `✓ Thu thập ${d.collected ?? 0} ảnh vào dataset/images/`;
+    msg.textContent = `✓ Thu thập ${d.collected ?? 0} ảnh${workerNote} vào dataset/images/`;
     await loadImages();
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
@@ -512,19 +536,22 @@ document.getElementById('btnTrain').addEventListener('click', async () => {
   const model = document.getElementById('trainModel').value;
   const epochs = parseInt(document.getElementById('trainEpochs').value) || 50;
   const msg = document.getElementById('trainMsg');
-  msg.textContent = 'Đang tạo dataset.yaml...';
+  _trainWorker = _activeWorker; // capture which worker's data we're training on
+  const wParam = _trainWorker ? '?worker=' + encodeURIComponent(_trainWorker) : '';
+  const workerNote = _trainWorker ? ' (máy chủ từ xa)' : '';
+  msg.textContent = 'Đang tạo dataset.yaml' + workerNote + '...';
   try {
     // Step 1: auto-generate dataset.yaml
-    const yaml = await apiFetch('/api/counting/dataset-yaml', { method: 'POST' });
+    const yaml = await apiFetch('/api/counting/dataset-yaml' + wParam, { method: 'POST' });
     if (yaml.error) { msg.textContent = 'Lỗi tạo yaml: ' + yaml.error; return; }
-    msg.textContent = `✓ dataset.yaml (${yaml.labeled} ảnh đã gán nhãn). Đang khởi động train...`;
+    msg.textContent = `✓ dataset.yaml (${yaml.labeled} ảnh đã gán nhãn)${workerNote}. Đang khởi động train...`;
     // Step 2: start training
-    const d = await apiFetch('/api/counting/train', {
+    const d = await apiFetch('/api/counting/train' + wParam, {
       method: 'POST',
       body: JSON.stringify({ model, epochs }),
     });
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = d.message || '✓ Training bắt đầu';
+    msg.textContent = d.message || '✓ Training bắt đầu' + workerNote;
     startTrainPolling();
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
@@ -543,7 +570,8 @@ async function pollTrainStatus() {
   const msg = document.getElementById('trainMsg');
   const logEl = document.getElementById('trainLog');
   try {
-    const st = await apiFetch('/api/counting/train-status');
+    const wParam = _trainWorker ? '?worker=' + encodeURIComponent(_trainWorker) : '';
+    const st = await apiFetch('/api/counting/train-status' + wParam);
     logEl.style.display = 'block';
     logEl.textContent = (st.log || []).join('\n');
     logEl.scrollTop = logEl.scrollHeight;
