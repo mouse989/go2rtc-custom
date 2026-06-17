@@ -120,8 +120,8 @@ func main() {
 		// Traffic monitoring, travel time, vehicle counting & dashboard
 		{"", traffic.Init},
 		{"", traveltime.Init},
-		{"", counting.Init},
 		{"", workers.Init},
+		{"", counting.Init},
 		{"", dashboard.Init},
 		// Helper modules
 		{"debug", debug.Init},
