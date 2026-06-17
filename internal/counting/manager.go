@@ -26,12 +26,15 @@ type CameraStatus struct {
 	StartedAt       int64  `json:"startedAt"`   // unix seconds
 	LastErr         string `json:"lastErr,omitempty"`
 	Tier            int    `json:"tier"`
+	WorkerID        string                    `json:"workerId,omitempty"` // set if camera is handled by a remote worker
+	DirTypeCounts   map[string]map[string]int `json:"dirTypeCounts,omitempty"` // live direction×type breakdown from yolo_counter
 }
 
 // Manager owns and supervises all camera workers.
 type Manager struct {
 	mu      sync.Mutex
-	workers map[string]*workerEntry
+	workers map[string]*workerEntry  // local cameras
+	remotes map[string]*remoteEntry  // cameras delegated to a remote worker
 	store   *dailyStore
 }
 
@@ -43,6 +46,7 @@ type workerEntry struct {
 func newManager() *Manager {
 	return &Manager{
 		workers: make(map[string]*workerEntry),
+		remotes: make(map[string]*remoteEntry),
 		store:   newDailyStore(),
 	}
 }
@@ -55,8 +59,9 @@ func (m *Manager) startAll() {
 			m.startCamera(cam)
 		}
 	}
-	if len(m.workers) > 0 {
-		log.Info().Int("cameras", len(m.workers)).Msg("[counting] started")
+	total := len(m.workers) + len(m.remotes)
+	if total > 0 {
+		log.Info().Int("cameras", total).Msg("[counting] started")
 	}
 	// Start retention cleanup goroutine
 	go m.runCleanup()
@@ -77,9 +82,19 @@ func (m *Manager) startCamera(cam CameraConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.workers[cam.ID]; ok {
-		return // already running
+		return // already running locally
+	}
+	if _, ok := m.remotes[cam.ID]; ok {
+		return // already running on remote worker
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	if cam.WorkerID != "" {
+		e := &remoteEntry{cam: cam, cancel: cancel}
+		e.status = CameraStatus{ID: cam.ID, Name: cam.Name, Stream: cam.StreamName, Tier: cam.Tier, WorkerID: cam.WorkerID}
+		m.remotes[cam.ID] = e
+		go m.runRemoteCamera(ctx, e)
+		return
+	}
 	w := newCameraWorker(cam, m.store)
 	m.workers[cam.ID] = &workerEntry{worker: w, cancel: cancel}
 	go w.run(ctx)
@@ -93,13 +108,20 @@ func (m *Manager) stopCamera(id string) {
 		e.cancel()
 		delete(m.workers, id)
 	}
+	if e, ok := m.remotes[id]; ok {
+		e.cancel()
+		delete(m.remotes, id)
+	}
 }
 
-// isRunning reports whether a camera worker is active.
+// isRunning reports whether a camera worker is active (local or remote).
 func (m *Manager) isRunning(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	_, ok := m.workers[id]
+	if _, ok := m.workers[id]; ok {
+		return true
+	}
+	_, ok := m.remotes[id]
 	return ok
 }
 
@@ -111,10 +133,11 @@ func (m *Manager) statuses() []CameraStatus {
 	out := make([]CameraStatus, 0, len(c.Cameras))
 	for _, cam := range c.Cameras {
 		st := CameraStatus{
-			ID:     cam.ID,
-			Name:   cam.Name,
-			Stream: cam.StreamName,
-			Tier:   cam.Tier,
+			ID:       cam.ID,
+			Name:     cam.Name,
+			Stream:   cam.StreamName,
+			Tier:     cam.Tier,
+			WorkerID: cam.WorkerID,
 		}
 		if e, ok := m.workers[cam.ID]; ok {
 			st.Running = true
@@ -127,10 +150,15 @@ func (m *Manager) statuses() []CameraStatus {
 			st.TotalMotorcycle = e.worker.totalMotorcycle
 			st.TotalBus = e.worker.totalBus
 			st.TotalTruck = e.worker.totalTruck
+			st.DirTypeCounts = e.worker.dirTypeCounts
 			st.FramesProcessed = e.worker.framesProcessed
 			st.LastFrameAt = e.worker.lastFrameAt
 			st.StartedAt = e.worker.startedAt
 			st.LastErr = e.worker.lastErr
+		} else if re, ok := m.remotes[cam.ID]; ok {
+			re.mu.Lock()
+			st = re.status
+			re.mu.Unlock()
 		}
 		out = append(out, st)
 	}

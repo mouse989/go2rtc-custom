@@ -21,6 +21,7 @@ type CameraWorker struct {
 	totalDown, totalUp, totalRight, totalLeft int
 	total                                     int
 	totalCar, totalMotorcycle, totalBus, totalTruck int
+	dirTypeCounts                             map[string]map[string]int // live direction×type breakdown
 	framesProcessed                           int
 	lastFrameAt                               int64 // unix seconds
 	lastErr                                   string
@@ -118,6 +119,7 @@ func (w *CameraWorker) registerCamera() error {
 		"tier":       w.cam.Tier,
 		"frameWidth": fw,
 		"yoloConf":   conf,
+		"rtspBase":   w.cam.RTSPBase,
 	}
 
 	data, _ := json.Marshal(body)
@@ -150,19 +152,20 @@ func (w *CameraWorker) unregisterCamera() {
 
 // yoloStatus is the shape returned by GET /cameras on the Python service.
 type yoloStatus struct {
-	Total           int     `json:"total"`
-	TotalDown       int     `json:"totalDown"`
-	TotalUp         int     `json:"totalUp"`
-	TotalRight      int     `json:"totalRight"`
-	TotalLeft       int     `json:"totalLeft"`
-	TotalCar        int     `json:"totalCar"`
-	TotalMotorcycle int     `json:"totalMotorcycle"`
-	TotalBus        int     `json:"totalBus"`
-	TotalTruck      int     `json:"totalTruck"`
-	FramesProcessed int     `json:"framesProcessed"`
-	LastFrameAt     float64 `json:"lastFrameAt"`
-	LastErr         string  `json:"lastErr"`
-	Running         bool    `json:"running"`
+	Total           int                         `json:"total"`
+	TotalDown       int                         `json:"totalDown"`
+	TotalUp         int                         `json:"totalUp"`
+	TotalRight      int                         `json:"totalRight"`
+	TotalLeft       int                         `json:"totalLeft"`
+	TotalCar        int                         `json:"totalCar"`
+	TotalMotorcycle int                         `json:"totalMotorcycle"`
+	TotalBus        int                         `json:"totalBus"`
+	TotalTruck      int                         `json:"totalTruck"`
+	DirTypeCounts   map[string]map[string]int   `json:"dirTypeCounts"`
+	FramesProcessed int                         `json:"framesProcessed"`
+	LastFrameAt     float64                     `json:"lastFrameAt"`
+	LastErr         string                      `json:"lastErr"`
+	Running         bool                        `json:"running"`
 }
 
 // syncStats fetches live stats from the YOLO service and updates the worker.
@@ -200,6 +203,7 @@ func (w *CameraWorker) syncStats() {
 	w.totalMotorcycle = st.TotalMotorcycle
 	w.totalBus = st.TotalBus
 	w.totalTruck = st.TotalTruck
+	w.dirTypeCounts = st.DirTypeCounts
 	w.framesProcessed = st.FramesProcessed
 	w.lastFrameAt = int64(st.LastFrameAt)
 	if st.LastErr != "" {

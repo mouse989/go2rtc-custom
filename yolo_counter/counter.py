@@ -166,6 +166,7 @@ class CameraConfig(BaseModel):
     tier: int = 1
     frameWidth: int = 320
     yoloConf: float = 0.35
+    rtspBase: str = ""  # override global --rtsp-base; used when stream lives on another server
 
 
 @dataclass
@@ -184,6 +185,8 @@ class CameraState:
     totalBus: int = 0
     totalTruck: int = 0
     framesProcessed: int = 0
+    # per-direction per-type breakdown: {"down": {"motorcycle": 3, ...}, ...}
+    dirTypeCounts: dict = field(default_factory=dict)
     lastFrameAt: float = 0.0
     startedAt: float = field(default_factory=time.time)
     lastErr: str = ""
@@ -223,7 +226,8 @@ class CameraState:
 
     def _run(self):
         from urllib.parse import quote
-        rtsp_url = f"{_args.rtsp_base}/{quote(self.config.streamName, safe='')}"
+        base = self.config.rtspBase.rstrip('/') if self.config.rtspBase else _args.rtsp_base
+        rtsp_url = f"{base}/{quote(self.config.streamName, safe='')}"
         logger.info(f"[{self.config.id}] starting RTSP: {rtsp_url}")
 
         cap = None
@@ -360,6 +364,10 @@ class CameraState:
         elif vehicle_class == "truck":
             self.totalTruck += 1
 
+        if vehicle_class in _VEHICLE_NAMES:
+            dir_map = self.dirTypeCounts.setdefault(direction, {})
+            dir_map[vehicle_class] = dir_map.get(vehicle_class, 0) + 1
+
         event = {
             "ts": ts,
             "cameraId": self.config.id,
@@ -450,6 +458,7 @@ class CameraState:
             "totalMotorcycle": self.totalMotorcycle,
             "totalBus": self.totalBus,
             "totalTruck": self.totalTruck,
+            "dirTypeCounts": dict(self.dirTypeCounts),
             "framesProcessed": self.framesProcessed,
             "lastFrameAt": self.lastFrameAt,
             "startedAt": self.startedAt,

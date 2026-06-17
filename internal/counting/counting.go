@@ -54,7 +54,9 @@ type CameraConfig struct {
 	//   1 = full FPS (high-traffic road)
 	//   2 = half FPS (medium traffic)
 	//   3 = quarter FPS (low traffic / backup)
-	Tier int `json:"tier"`
+	Tier     int    `json:"tier"`
+	WorkerID string `json:"workerId,omitempty"` // remote worker ID; empty = process locally
+	RTSPBase string `json:"rtspBase,omitempty"` // RTSP URL override sent to yolo_counter on the worker
 }
 
 // StorageConfig holds data retention settings.
