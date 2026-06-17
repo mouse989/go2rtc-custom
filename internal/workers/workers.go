@@ -116,6 +116,7 @@ func updateWorker(w *Worker) error {
 	for i, existing := range workers {
 		if existing.ID == w.ID {
 			workers[i] = w
+			tokenCache.Delete(w.ID) // evict cached token on credential change
 			return saveWorkers()
 		}
 	}
@@ -129,6 +130,7 @@ func deleteWorker(id string) error {
 		if w.ID == id {
 			workers = append(workers[:i], workers[i+1:]...)
 			statusCache.Delete(id)
+			tokenCache.Delete(id)
 			return saveWorkers()
 		}
 	}

@@ -2,7 +2,6 @@ package workers
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,11 +10,54 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/auth"
 )
+
+// tokenCache holds cached JWT tokens keyed by worker ID.
+var tokenCache sync.Map
+
+func workerLogin(wk *Worker) (string, error) {
+	payload, _ := json.Marshal(map[string]string{"username": wk.Username, "password": wk.Password})
+	req, err := http.NewRequest(http.MethodPost, wk.URL+"/api/auth/login", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := workerHTTPClient(wk).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("login request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("login failed %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode login response: %w", err)
+	}
+	if result.Token == "" {
+		return "", fmt.Errorf("empty token from worker")
+	}
+	tokenCache.Store(wk.ID, result.Token)
+	return result.Token, nil
+}
+
+func workerToken(wk *Worker) (string, error) {
+	if wk.Username == "" && wk.Password == "" {
+		return "", nil
+	}
+	if v, ok := tokenCache.Load(wk.ID); ok {
+		return v.(string), nil
+	}
+	return workerLogin(wk)
+}
 
 func registerAPI() {
 	api.HandleFunc("api/workers", handleWorkers)
@@ -314,19 +356,57 @@ func workerHTTPClient(_ *Worker) *http.Client {
 }
 
 func workerRequest(wk *Worker, method, path string, body io.Reader, contentType string) (*http.Response, error) {
-	url := wk.URL + path
-	req, err := http.NewRequest(method, url, body)
+	return workerRequestWithToken(wk, method, path, body, contentType, true)
+}
+
+func workerRequestWithToken(wk *Worker, method, path string, body io.Reader, contentType string, retry bool) (*http.Response, error) {
+	// Buffer body so we can resend on 401 retry.
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	token, err := workerToken(wk)
+	if err != nil {
+		log.Warn().Err(err).Str("worker", wk.ID).Msg("[workers] could not get token, trying unauthenticated")
+	}
+
+	var bodyReader io.Reader
+	if bodyBytes != nil {
+		bodyReader = bytes.NewReader(bodyBytes)
+	}
+	req, err := http.NewRequest(method, wk.URL+path, bodyReader)
 	if err != nil {
 		return nil, err
 	}
-	if wk.Username != "" || wk.Password != "" {
-		creds := base64.StdEncoding.EncodeToString([]byte(wk.Username + ":" + wk.Password))
-		req.Header.Set("Authorization", "Basic "+creds)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	return workerHTTPClient(wk).Do(req)
+
+	resp, err := workerHTTPClient(wk).Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// On 401, evict cached token and retry once with fresh login.
+	if resp.StatusCode == http.StatusUnauthorized && retry && (wk.Username != "" || wk.Password != "") {
+		resp.Body.Close()
+		tokenCache.Delete(wk.ID)
+		_, loginErr := workerLogin(wk)
+		if loginErr != nil {
+			return nil, fmt.Errorf("re-login after 401: %w", loginErr)
+		}
+		return workerRequestWithToken(wk, method, path, bytes.NewReader(bodyBytes), contentType, false)
+	}
+
+	return resp, nil
 }
 
 // POST /api/workers/train?id=X
