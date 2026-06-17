@@ -27,17 +27,19 @@ type Worker struct {
 
 // WorkerStatus is the runtime status of a worker (cached, not persisted).
 type WorkerStatus struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Enabled   bool   `json:"enabled"`
-	Online    bool   `json:"online"`
-	Error     string `json:"error,omitempty"`
-	LastCheck string `json:"lastCheck"`          // RFC3339
-	LastSync  string `json:"lastSync,omitempty"` // RFC3339
-	Cameras   int    `json:"cameras,omitempty"`
-	Running   bool   `json:"running,omitempty"`
-	YoloModel string `json:"yoloModel,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	Enabled      bool   `json:"enabled"`
+	Online       bool   `json:"online"`
+	Error        string `json:"error,omitempty"`
+	LastCheck    string `json:"lastCheck"`
+	LastSync     string `json:"lastSync,omitempty"`
+	Cameras      int    `json:"cameras,omitempty"`
+	Running      bool   `json:"running,omitempty"`
+	YoloModel    string `json:"yoloModel,omitempty"`
+	Training     bool   `json:"training,omitempty"`
+	TrainedModel string `json:"trainedModel,omitempty"` // last auto-pulled model
 }
 
 var (

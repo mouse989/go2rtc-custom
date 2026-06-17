@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -83,25 +85,99 @@ func checkWorker(wk *Worker) {
 		yoloModel = cfgData.YoloModel
 	}
 
-	// Retrieve any previous sync time.
+	// Retrieve previous state for carry-over fields.
+	prev := getStatus(wk.ID)
 	lastSync := ""
-	if prev := getStatus(wk.ID); prev != nil {
+	trainedModel := ""
+	wasTraining := false
+	if prev != nil {
 		lastSync = prev.LastSync
+		trainedModel = prev.TrainedModel
+		wasTraining = prev.Training
+	}
+
+	// Poll training status.
+	training := false
+	var trainFinishedModel string
+	trainResp, err2 := workerRequest(wk, http.MethodGet, "/api/counting/train-status", nil, "")
+	if err2 == nil {
+		defer trainResp.Body.Close()
+		trainBody, _ := io.ReadAll(trainResp.Body)
+		var ts struct {
+			Running    bool   `json:"running"`
+			ReturnCode *int   `json:"returncode"`
+			Model      string `json:"model"`
+		}
+		if json.Unmarshal(trainBody, &ts) == nil {
+			training = ts.Running
+			// Detect: was training before, now finished successfully.
+			if wasTraining && !ts.Running && ts.ReturnCode != nil && *ts.ReturnCode == 0 && ts.Model != "" {
+				trainFinishedModel = ts.Model
+			}
+		}
 	}
 
 	s := &WorkerStatus{
-		ID:        wk.ID,
-		Name:      wk.Name,
-		URL:       wk.URL,
-		Enabled:   wk.Enabled,
-		Online:    true,
-		LastCheck: now,
-		LastSync:  lastSync,
-		Cameras:   len(statusData.Cameras),
-		Running:   statusData.Running,
-		YoloModel: yoloModel,
+		ID:           wk.ID,
+		Name:         wk.Name,
+		URL:          wk.URL,
+		Enabled:      wk.Enabled,
+		Online:       true,
+		LastCheck:    now,
+		LastSync:     lastSync,
+		Cameras:      len(statusData.Cameras),
+		Running:      statusData.Running,
+		YoloModel:    yoloModel,
+		Training:     training,
+		TrainedModel: trainedModel,
 	}
 	setStatus(s)
+
+	// Auto-pull trained model when training just finished.
+	if trainFinishedModel != "" {
+		go autoPullModel(wk, trainFinishedModel)
+	}
+}
+
+func autoPullModel(wk *Worker, modelPath string) {
+	log.Info().Str("worker", wk.ID).Str("model", modelPath).Msg("[workers] training finished, auto-pulling model")
+	pulled, err := pullModelFile(wk, modelPath)
+	if err != nil {
+		log.Error().Err(err).Str("worker", wk.ID).Msg("[workers] auto-pull model failed")
+		return
+	}
+	log.Info().Str("saved", pulled).Str("worker", wk.ID).Msg("[workers] model pulled from worker")
+	if s := getStatus(wk.ID); s != nil {
+		s.TrainedModel = pulled
+		setStatus(s)
+	}
+}
+
+// pullModelFile downloads modelPath from the worker and saves to local models/ dir.
+// Returns the relative path of the saved file.
+func pullModelFile(wk *Worker, modelPath string) (string, error) {
+	resp, err := workerRequest(wk, http.MethodGet, "/api/counting/models/download?file="+modelPath, nil, "")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("worker returned HTTP %d", resp.StatusCode)
+	}
+	modelsDir := filepath.Join(filepath.Dir(storeFile), "models")
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		return "", err
+	}
+	fname := filepath.Base(modelPath)
+	dest := filepath.Join(modelsDir, fname)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(dest, data, 0644); err != nil {
+		return "", err
+	}
+	return filepath.Join("models", fname), nil
 }
 
 func buildOfflineStatus(wk *Worker, errMsg, now string) *WorkerStatus {

@@ -24,6 +24,8 @@ func registerAPI() {
 	api.HandleFunc("api/workers/models", handleWorkersModels)
 	api.HandleFunc("api/workers/models/pull", handleWorkersModelsPull)
 	api.HandleFunc("api/workers/models/push", handleWorkersModelsPush)
+	api.HandleFunc("api/workers/train", handleWorkersTrain)
+	api.HandleFunc("api/workers/train/status", handleWorkersTrainStatus)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -325,4 +327,71 @@ func workerRequest(wk *Worker, method, path string, body io.Reader, contentType 
 		req.Header.Set("Content-Type", contentType)
 	}
 	return workerHTTPClient(wk).Do(req)
+}
+
+// POST /api/workers/train?id=X
+// Proxies a training request (JSON body) to the worker's POST /api/counting/train.
+func handleWorkersTrain(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	wk := getWorkerByID(id)
+	if wk == nil {
+		http.Error(w, "worker not found", http.StatusNotFound)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := workerRequest(wk, http.MethodPost, "/api/counting/train", bytes.NewReader(body), "application/json")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// GET /api/workers/train/status?id=X
+// Proxies to the worker's GET /api/counting/train-status.
+func handleWorkersTrainStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	wk := getWorkerByID(id)
+	if wk == nil {
+		http.Error(w, "worker not found", http.StatusNotFound)
+		return
+	}
+	resp, err := workerRequest(wk, http.MethodGet, "/api/counting/train-status", nil, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
