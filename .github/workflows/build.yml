@@ -198,7 +198,7 @@ jobs:
 
   build-yolo-linux64-gpu:
     name: Build yolo_counter (Linux x64, NVIDIA GPU)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
