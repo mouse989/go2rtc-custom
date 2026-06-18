@@ -566,6 +566,34 @@ class CameraState:
             cv2.putText(dbg, ln.name or f"L{i+1}", (mid_x + 3, mid_y - 4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
 
+            # Count badge — shows per-direction totals near the line endpoint
+            badge_lines = []
+            if ln.nameA:
+                ca = sum(self.dirTypeCounts.get(ln.nameA, {}).values())
+                badge_lines.append(f"{ln.nameA}: {ca}")
+            if ln.nameB:
+                cb = sum(self.dirTypeCounts.get(ln.nameB, {}).values())
+                badge_lines.append(f"{ln.nameB}: {cb}")
+            if not badge_lines:
+                badge_lines = [f"Total: {self.total}"]
+
+            _font = cv2.FONT_HERSHEY_SIMPLEX
+            _fsc  = max(0.38, fw / 900)
+            _th   = 1
+            _pad  = 4
+            _sizes = [cv2.getTextSize(t, _font, _fsc, _th)[0] for t in badge_lines]
+            bw = max(s[0] for s in _sizes) + _pad * 2
+            bh = sum(s[1] + _pad for s in _sizes) + _pad
+            bx = min(max(x2 + 6, 0), fw - bw - 2)
+            by = min(max(y2 - bh // 2, 0), fh - bh - 2)
+            cv2.rectangle(dbg, (bx - 1, by - 1), (bx + bw + 1, by + bh + 1), color, 1)
+            cv2.rectangle(dbg, (bx, by), (bx + bw, by + bh), (15, 15, 15), -1)
+            _ty = by + _pad + _sizes[0][1]
+            for _t, _sz in zip(badge_lines, _sizes):
+                cv2.putText(dbg, _t, (bx + _pad, _ty), _font, _fsc,
+                            (255, 255, 255), _th, cv2.LINE_AA)
+                _ty += _sz[1] + _pad
+
         # Status overlay at bottom
         effective_fps = self._effective_fps()
         overlay = (f"Total: {self.total} | FPS: {effective_fps:.1f} | "
