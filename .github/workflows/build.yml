@@ -2,11 +2,13 @@ name: Build and Push
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'master'
-    tags:
-      - 'v*'
+    # Builds are now done locally using scripts/ — trigger this workflow
+    # manually only when you need CI-built artifacts.
+    # Local build scripts:
+    #   go2rtc binaries : scripts/build.sh (Linux/Mac) or scripts/build.cmd (Windows)
+    #   yolo_counter    : scripts/build_yolo_linux.sh (Linux)
+    #                     scripts/build_yolo_win.bat  (Windows CPU)
+    #                     scripts/build_yolo_win_gpu.bat (Windows GPU)
 
 jobs:
   build-binaries:
