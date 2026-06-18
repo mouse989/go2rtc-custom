@@ -11,6 +11,7 @@ Each camera gets a dedicated background thread that:
 """
 
 import argparse
+import asyncio
 import io
 import json
 import logging
@@ -27,7 +28,7 @@ import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -270,6 +271,10 @@ class CameraState:
     debug_jpeg: bytes = b""
     debug_lock: threading.Lock = field(default_factory=threading.Lock)
 
+    # SSE overlay data — latest frame detections for browser canvas overlay
+    sse_data: dict = field(default_factory=dict)
+    sse_lock: threading.Lock = field(default_factory=threading.Lock)
+
     # events
     events: deque = field(default_factory=lambda: deque(maxlen=500))
     events_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -396,6 +401,29 @@ class CameraState:
         self.lastFrameAt = time.time()
 
         self._save_debug_jpeg(resized, boxes_info, tracks, fw, fh)
+        self._update_sse_data(tracks, fw, fh)
+
+    def _update_sse_data(self, tracks: list, fw: int, fh: int):
+        """Store latest frame detection data for SSE browser overlay."""
+        data = {
+            "fw": fw,
+            "fh": fh,
+            "ts": time.time(),
+            "tracks": [
+                {
+                    "id": tr.id,
+                    "x1": tr.x1, "y1": tr.y1, "x2": tr.x2, "y2": tr.y2,
+                    "cx": tr.cx, "cy": tr.cy,
+                    "cls": tr.vehicle_class,
+                    "trail": list(tr.position_history),
+                }
+                for tr in tracks if tr.missed == 0
+            ],
+            "counts": {k: dict(v) for k, v in self.dirTypeCounts.items()},
+            "total": self.total,
+        }
+        with self.sse_lock:
+            self.sse_data = data
 
     def _effective_lines(self, fw: int, fh: int) -> List[CountLineConfig]:
         """Return the list of counting lines to use, in pixel coordinates.
@@ -765,6 +793,76 @@ def debug_camera(cam_id: str):
         raise HTTPException(status_code=404, detail="no debug frame yet")
     return Response(content=data, media_type="image/jpeg",
                     headers={"Cache-Control": "no-cache, no-store"})
+
+
+@app.get("/stream/{cam_id}")
+async def stream_camera(cam_id: str):
+    """MJPEG stream of annotated debug frames for the given camera."""
+    with _cameras_lock:
+        state = _cameras.get(cam_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="camera not found")
+
+    async def generate():
+        boundary = b"--frame\r\n"
+        last_jpeg = b""
+        while True:
+            with _cameras_lock:
+                alive = cam_id in _cameras
+            if not alive:
+                break
+            with state.debug_lock:
+                data = state.debug_jpeg
+            if data and data is not last_jpeg:
+                last_jpeg = data
+                header = (
+                    boundary +
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
+                )
+                yield header + data + b"\r\n"
+            await asyncio.sleep(0.05)  # poll at ~20 Hz; actual rate limited by YOLO fps
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-cache, no-store"},
+    )
+
+
+@app.get("/sse/{cam_id}")
+async def sse_camera(cam_id: str):
+    """Server-Sent Events stream of per-frame YOLO detection data (tracks, counts).
+
+    Browser connects once; each SSE message is a JSON object with bounding boxes,
+    track IDs, vehicle classes, trail history, and direction counts. The browser
+    draws these on a canvas overlay on top of the go2rtc native video stream.
+    """
+    with _cameras_lock:
+        state = _cameras.get(cam_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="camera not found")
+
+    async def generate():
+        last_ts = 0.0
+        while True:
+            with _cameras_lock:
+                alive = cam_id in _cameras
+            if not alive:
+                break
+            with state.sse_lock:
+                data = state.sse_data
+            ts = data.get("ts", 0.0) if data else 0.0
+            if ts != last_ts:
+                last_ts = ts
+                yield f"data: {json.dumps(data)}\n\n"
+            await asyncio.sleep(0.1)  # poll at 10 Hz; actual rate limited by YOLO fps
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 def _images_dir(base: str) -> str:

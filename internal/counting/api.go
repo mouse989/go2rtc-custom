@@ -30,6 +30,8 @@ func registerAPI() {
 	api.HandleFunc("api/counting/summary", handleSummary)
 	api.HandleFunc("api/counting/events", handleEvents)
 	api.HandleFunc("api/counting/debug", handleDebug)
+	api.HandleFunc("api/counting/stream", handleStream)
+	api.HandleFunc("api/counting/sse", handleSSE)
 	api.HandleFunc("api/counting/yolo-status", handleYoloStatus)
 	api.HandleFunc("api/counting/collect", handleCollect)
 	api.HandleFunc("api/counting/train", handleTrain)
@@ -362,6 +364,120 @@ func handleDebug(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "image/jpeg")
 	h.Set("Cache-Control", "no-cache, no-store")
 	_, _ = w.Write(frame)
+}
+
+// GET /api/counting/stream?camera=id
+// Proxies the MJPEG stream from the Python YOLO service for the given camera.
+// Uses a client with no timeout so the connection stays open as long as the browser is watching.
+func handleStream(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("camera")
+	if id == "" {
+		http.Error(w, "camera required", http.StatusBadRequest)
+		return
+	}
+
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+
+	streamURL := fmt.Sprintf("%s/stream/%s", yoloURL, neturl.PathEscape(id))
+	client := &http.Client{} // no timeout — stream runs indefinitely
+	resp, err := client.Get(streamURL)
+	if err != nil {
+		http.Error(w, "YOLO stream unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		http.Error(w, strings.TrimSpace(string(b)), resp.StatusCode)
+		return
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "multipart/x-mixed-replace; boundary=frame"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering if present
+
+	flusher, canFlush := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// GET /api/counting/sse?camera=id
+// Proxies the SSE stream of per-frame YOLO detection data from the Python service.
+// Each event is a JSON object with bounding boxes, track IDs, and direction counts.
+func handleSSE(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("camera")
+	if id == "" {
+		http.Error(w, "camera required", http.StatusBadRequest)
+		return
+	}
+
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+
+	sseURL := fmt.Sprintf("%s/sse/%s", yoloURL, neturl.PathEscape(id))
+	client := &http.Client{} // no timeout — SSE connection stays open
+	resp, err := client.Get(sseURL)
+	if err != nil {
+		http.Error(w, "YOLO SSE unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		http.Error(w, strings.TrimSpace(string(b)), resp.StatusCode)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, canFlush := w.(http.Flusher)
+	buf := make([]byte, 4*1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func newCameraID(streamName string) string {
