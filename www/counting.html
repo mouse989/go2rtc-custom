@@ -335,24 +335,53 @@
         <select id="debugCamSel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem" onchange="openDebugCam()">
           <option value="">— Chọn camera —</option>
         </select>
+        <!-- Mode toggle -->
+        <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0">
+          <button id="dbgBtnSync" onclick="setDebugMode('sync')"
+            style="padding:4px 10px;font-size:.78rem;border:none;cursor:pointer;background:var(--accent);color:#fff"
+            title="Hiển thị frame YOLO đã xử lý — bbox hoàn toàn đồng bộ với video, dùng để kiểm tra độ chính xác đếm">
+            🔬 YOLO Sync
+          </button>
+          <button id="dbgBtnLive" onclick="setDebugMode('live')"
+            style="padding:4px 10px;font-size:.78rem;border:none;cursor:pointer;background:var(--surface2);color:var(--text)"
+            title="Stream go2rtc tốc độ đầy đủ + bbox overlay từ SSE (bbox có thể lệch frame vì CPU xử lý chậm)">
+            📹 Live
+          </button>
+        </div>
         <span id="debugStatus" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
       <div id="yoloSvcStatus" style="padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:.78rem;background:var(--surface2)">Đang kiểm tra dịch vụ YOLO…</div>
+
+      <!-- Mode info banner -->
+      <div id="debugModeBanner" style="padding:6px 10px;margin-bottom:8px;border-radius:6px;font-size:.77rem;border:1px solid var(--border);background:var(--surface2)">
+        🔬 <b>YOLO Sync</b>: mỗi frame hiển thị là frame Python thực sự đã xử lý — bbox, track ID và đường đếm hoàn toàn khớp với hình ảnh. Dùng chế độ này để kiểm tra độ chính xác đếm.
+      </div>
+
       <div class="debug-box">
         <!-- Placeholder -->
         <div id="debugPlaceholder" style="padding:40px;text-align:center;color:var(--text-secondary);font-size:.85rem">
-          Chọn camera đang chạy để xem live stream + YOLO overlay
+          Chọn camera đang chạy để xem
         </div>
-        <!-- Live view: go2rtc video (full FPS) + YOLO detection canvas overlay -->
+
+        <!-- SYNC mode: Python annotated MJPEG — frame-perfect sync -->
+        <div id="debugSyncBox" style="display:none">
+          <img id="debugSyncImg" style="width:100%;border-radius:6px;border:1px solid var(--border);display:block" alt="">
+          <div id="debugSyncError" style="display:none;padding:20px;color:#d97706;font-size:.82rem;text-align:center">
+            Chưa có frame — YOLO chưa xử lý frame nào.<br>Kiểm tra dịch vụ Python YOLO đã chạy và camera đang hoạt động.
+          </div>
+        </div>
+
+        <!-- LIVE mode: go2rtc video (full FPS) + YOLO detection canvas overlay -->
         <div id="debugLiveBox" style="position:relative;line-height:0;display:none">
           <video-rtc id="debugVRTC" style="width:100%;display:block;border-radius:6px;overflow:hidden"></video-rtc>
           <canvas id="debugOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;border-radius:6px"></canvas>
         </div>
+
         <div class="debug-legend" id="debugLegend" style="display:none;margin-top:8px">
-          <span><span class="legend-dot" style="background:#00C800"></span>Ô tô (car)</span>
-          <span><span class="legend-dot" style="background:#C800C8"></span>Xe máy (motorcycle)</span>
-          <span><span class="legend-dot" style="background:#00C8C8"></span>Xe buýt (bus)</span>
-          <span><span class="legend-dot" style="background:#C88C00"></span>Xe tải (truck)</span>
+          <span><span class="legend-dot" style="background:#00C800"></span>Ô tô</span>
+          <span><span class="legend-dot" style="background:#C800C8"></span>Xe máy</span>
+          <span><span class="legend-dot" style="background:#00C8C8"></span>Xe buýt</span>
+          <span><span class="legend-dot" style="background:#C88C00"></span>Xe tải</span>
           <span><span class="legend-dot" style="background:#FF6600"></span>Đường đếm</span>
         </div>
       </div>
@@ -590,6 +619,7 @@ let debugTimer = null;
 let logFrozen  = false;
 
 // Live view state
+let _debugMode      = 'sync'; // 'sync' = Python annotated MJPEG | 'live' = go2rtc + SSE overlay
 let _debugSSE       = null;   // EventSource for YOLO SSE overlay
 let _debugAnimFrame = null;   // requestAnimationFrame handle for canvas loop
 let _debugOverlay   = null;   // latest SSE data payload
@@ -1199,12 +1229,29 @@ function openDebugTab() {
   }
 }
 
+function setDebugMode(mode) {
+  _debugMode = mode;
+  // Update toggle button styles
+  document.getElementById('dbgBtnSync').style.cssText =
+    `padding:4px 10px;font-size:.78rem;border:none;cursor:pointer;background:${mode==='sync'?'var(--accent)':'var(--surface2)'};color:${mode==='sync'?'#fff':'var(--text)'}`;
+  document.getElementById('dbgBtnLive').style.cssText =
+    `padding:4px 10px;font-size:.78rem;border:none;cursor:pointer;background:${mode==='live'?'var(--accent)':'var(--surface2)'};color:${mode==='live'?'#fff':'var(--text)'}`;
+  // Update info banner
+  const banner = document.getElementById('debugModeBanner');
+  if (mode === 'sync') {
+    banner.innerHTML = '🔬 <b>YOLO Sync</b>: mỗi frame hiển thị là frame Python thực sự đã xử lý — bbox, track ID và đường đếm hoàn toàn khớp với hình ảnh. Dùng để kiểm tra độ chính xác đếm.';
+  } else {
+    banner.innerHTML = '📹 <b>Live</b>: video từ go2rtc tốc độ đầy đủ + bbox overlay từ YOLO qua SSE. Do CPU xử lý chậm hơn camera, bbox có thể lệch 0.3–1s so với vị trí xe thực tế.';
+  }
+  // Restart with new mode if a camera is selected
+  if (document.getElementById('debugCamSel').value) openDebugCam();
+}
+
 function openDebugCam() {
   stopDebugRefresh();
   const id = document.getElementById('debugCamSel').value;
   if (!id) {
     document.getElementById('debugPlaceholder').style.display = '';
-    document.getElementById('debugLiveBox').style.display = 'none';
     document.getElementById('debugLegend').style.display = 'none';
     return;
   }
@@ -1216,36 +1263,67 @@ function openDebugCam() {
   _debugCamLines = _buildCamLines(cam);
   const token    = localStorage.getItem('go2rtc_token') || '';
 
-  // Wait for VideoRTC custom element to be defined (dynamic module import)
-  _vrtcReady.then(() => {
-    document.getElementById('debugPlaceholder').style.display = 'none';
-    document.getElementById('debugLiveBox').style.display = '';
-    document.getElementById('debugLegend').style.display = '';
+  document.getElementById('debugPlaceholder').style.display = 'none';
+  document.getElementById('debugLegend').style.display = '';
 
-    // Point go2rtc's video player at the camera stream (WebRTC→MSE→HLS fallback)
-    const vrtc = document.getElementById('debugVRTC');
-    vrtc.src = `/api/ws?src=${encodeURIComponent(cam.streamName)}&token=${token}`;
+  if (_debugMode === 'sync') {
+    // ── YOLO Sync mode ──────────────────────────────────────────────────
+    // Show Python annotated MJPEG — each frame is exactly the frame YOLO
+    // processed, so bboxes, track IDs and counting lines are frame-perfect.
+    document.getElementById('debugSyncBox').style.display = '';
+    document.getElementById('debugLiveBox').style.display = 'none';
 
-    // SSE for YOLO detection overlay data
-    const sseUrl = `/api/counting/sse?camera=${encodeURIComponent(id)}&token=${token}`;
-    _debugSSE = new EventSource(sseUrl);
-    _debugSSE.onmessage = e => {
-      try { _debugOverlay = JSON.parse(e.data); } catch(_) {}
-    };
-    _debugSSE.onerror = () => {
-      document.getElementById('debugStatus').textContent = 'SSE: mất kết nối YOLO service';
-    };
+    const img = document.getElementById('debugSyncImg');
+    const errEl = document.getElementById('debugSyncError');
+    const streamUrl = `/api/counting/stream?camera=${encodeURIComponent(id)}&token=${token}`;
+    img.style.display = '';
+    errEl.style.display = 'none';
+    img.onerror = () => { img.style.display = 'none'; errEl.style.display = ''; };
+    img.onload  = () => { img.style.display = ''; errEl.style.display = 'none'; };
+    img.src = streamUrl;
 
-    // Canvas animation loop
-    _drawOverlayLoop();
-
-    // Status text refresh
     debugTimer = setInterval(() => {
       const st = statuses.find(c => c.id === id);
       if (st) document.getElementById('debugStatus').textContent =
-        `Frames: ${st.framesProcessed||0}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}`;
+        `Frames: ${st.framesProcessed||0}  FPS YOLO: ${_yoloFps(st)}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}`;
     }, 2000);
-  });
+
+  } else {
+    // ── Live mode ────────────────────────────────────────────────────────
+    // go2rtc native stream (WebRTC→MSE→HLS) at full camera FPS.
+    // YOLO detections overlay via SSE — bbox positions lag behind video by
+    // the CPU inference time (~0.3–1s), so this is for monitoring, not accuracy.
+    document.getElementById('debugSyncBox').style.display = 'none';
+    document.getElementById('debugLiveBox').style.display = '';
+
+    _vrtcReady.then(() => {
+      const vrtc = document.getElementById('debugVRTC');
+      vrtc.src = `/api/ws?src=${encodeURIComponent(cam.streamName)}&token=${token}`;
+
+      const sseUrl = `/api/counting/sse?camera=${encodeURIComponent(id)}&token=${token}`;
+      _debugSSE = new EventSource(sseUrl);
+      _debugSSE.onmessage = e => { try { _debugOverlay = JSON.parse(e.data); } catch(_) {} };
+      _debugSSE.onerror   = () => {
+        document.getElementById('debugStatus').textContent = 'SSE: mất kết nối YOLO service';
+      };
+
+      _drawOverlayLoop();
+
+      debugTimer = setInterval(() => {
+        const st = statuses.find(c => c.id === id);
+        if (st) document.getElementById('debugStatus').textContent =
+          `Frames: ${st.framesProcessed||0}  FPS YOLO: ${_yoloFps(st)}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}`;
+      }, 2000);
+    });
+  }
+}
+
+function _yoloFps(st) {
+  // Rough FPS estimate from framesProcessed and startedAt
+  if (!st || !st.framesProcessed || !st.startedAt) return '?';
+  const elapsed = Date.now() / 1000 - st.startedAt;
+  if (elapsed < 1) return '?';
+  return (st.framesProcessed / elapsed).toFixed(1);
 }
 
 function stopDebugRefresh() {
@@ -1255,10 +1333,17 @@ function stopDebugRefresh() {
   _debugOverlay = null;
   _debugCamId   = null;
 
+  // Disconnect MJPEG stream
+  const syncImg = document.getElementById('debugSyncImg');
+  if (syncImg) syncImg.src = '';
+  document.getElementById('debugSyncBox').style.display = 'none';
+  document.getElementById('debugSyncError').style.display = 'none';
+
+  // Disconnect go2rtc VideoRTC stream
   const vrtc = document.getElementById('debugVRTC');
   if (vrtc && vrtc.src !== undefined) vrtc.src = '';
-
   document.getElementById('debugLiveBox').style.display = 'none';
+
   document.getElementById('debugPlaceholder').style.display = '';
   document.getElementById('debugLegend').style.display = 'none';
   document.getElementById('debugStatus').textContent = '';
