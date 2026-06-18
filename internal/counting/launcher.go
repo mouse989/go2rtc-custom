@@ -2,6 +2,7 @@ package counting
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func restartYolo() bool {
 	if proc == nil {
 		return false
 	}
-	_ = proc.Kill()
+	killYoloProc(proc) // kills entire process group on Unix
 	return true
 }
 
@@ -64,11 +65,18 @@ func supervisedYolo(yoloPath string) {
 	for {
 		c := getConfig()
 		args := yoloArgs(c)
+		port := yoloPort(c)
+
+		// Kill any stale process that is still holding our port.
+		// This covers PyInstaller bundles whose child processes survive the parent's
+		// death, and uvicorn workers that didn't receive the previous SIGKILL.
+		ensurePortFree(port)
 
 		cmd := exec.Command(yoloPath, args...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Dir = filepath.Dir(yoloPath)
+		setSysProcAttr(cmd) // platform-specific: assign own process group
 
 		log.Info().Strs("args", args).Msg("[counting] starting yolo_counter subprocess")
 		if err := cmd.Start(); err != nil {
@@ -93,7 +101,7 @@ func supervisedYolo(yoloPath string) {
 
 		if deliberate {
 			log.Info().Msg("[counting] yolo_counter restarted (config change)")
-			backoff = 3 * time.Second // reconnect quickly, this wasn't a crash
+			backoff = 3 * time.Second
 		} else if err != nil {
 			log.Warn().Err(err).Dur("retry", backoff).
 				Msg("[counting] yolo_counter exited unexpectedly, restarting")
@@ -107,13 +115,56 @@ func supervisedYolo(yoloPath string) {
 	}
 }
 
-func yoloArgs(c Config) []string {
-	port := "8765"
-	if c.YoloURL != "" {
-		if u, err := url.Parse(c.YoloURL); err == nil && u.Port() != "" {
-			port = u.Port()
+// ensurePortFree kills any process holding the target port and waits until the
+// port is actually free, up to 5 seconds.  It uses two strategies:
+//  1. `fuser -k -KILL <port>/tcp` (Linux) — sends SIGKILL via the kernel
+//  2. Polling with net.Dial until the bind would succeed
+func ensurePortFree(port string) {
+	addr := "127.0.0.1:" + port
+
+	// Quick check: is the port already free?
+	if isPortFree(addr) {
+		return
+	}
+
+	log.Warn().Str("port", port).Msg("[counting] port still in use before restart, killing stale process")
+
+	// Strategy 1: fuser -k (Linux/BSD)
+	if out, err := exec.Command("fuser", "-k", "-KILL", port+"/tcp").CombinedOutput(); err == nil {
+		log.Debug().Str("port", port).Str("out", string(out)).Msg("[counting] fuser killed stale process")
+	}
+
+	// Wait up to 5 s for the port to free up
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(300 * time.Millisecond)
+		if isPortFree(addr) {
+			log.Info().Str("port", port).Msg("[counting] port is now free")
+			return
 		}
 	}
+	log.Warn().Str("port", port).Msg("[counting] port still busy after 5s, starting anyway")
+}
+
+func isPortFree(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+	if err != nil {
+		return true // nothing listening → free
+	}
+	conn.Close()
+	return false
+}
+
+func yoloPort(c Config) string {
+	if c.YoloURL != "" {
+		if u, err := url.Parse(c.YoloURL); err == nil && u.Port() != "" {
+			return u.Port()
+		}
+	}
+	return "8765"
+}
+
+func yoloArgs(c Config) []string {
 	conf := "0.35"
 	if c.YoloConf > 0 {
 		conf = fmt.Sprintf("%.2f", c.YoloConf)
@@ -123,7 +174,7 @@ func yoloArgs(c Config) []string {
 		model = "yolo11n.pt"
 	}
 	return []string{
-		"--port", port,
+		"--port", yoloPort(c),
 		"--model", model,
 		"--conf", conf,
 		"--rtsp-base", "rtsp://localhost:8554",
