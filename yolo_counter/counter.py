@@ -90,8 +90,7 @@ class Track:
     crossed_h: bool = False
     crossed_v: bool = False
     vehicle_class: str = "unknown"
-    # For arbitrary lines: line_id → current side sign (+1/-1/0)
-    side_by_line: dict = field(default_factory=dict)
+    position_history: list = field(default_factory=list)  # [(cx,cy),...] oldest first, max 5 entries
     # Set of line IDs already triggered (one crossing event per track per line)
     crossed_lines: set = field(default_factory=set)
 
@@ -135,6 +134,9 @@ class Tracker:
                 tr.vehicle_class = cls_name
                 tr.missed = 0
                 unmatched_dets.remove(best_idx)
+                tr.position_history.append((tr.cx, tr.cy))
+                if len(tr.position_history) > 5:
+                    tr.position_history.pop(0)
 
         # Create new tracks for unmatched detections
         for idx in unmatched_dets:
@@ -144,6 +146,7 @@ class Tracker:
                 cx=cx, cy=cy,
                 prev_cx=cx, prev_cy=cy,
                 vehicle_class=cls_name,
+                position_history=[(cx, cy)],
             ))
             self._next_id += 1
 
@@ -156,6 +159,30 @@ class Tracker:
 # ---------------------------------------------------------------------------
 # Camera state
 # ---------------------------------------------------------------------------
+
+def _segments_intersect(p1: tuple, p2: tuple, p3: tuple, p4: tuple) -> bool:
+    """True if segment p1→p2 intersects segment p3→p4 (excluding endpoints)."""
+    d1x, d1y = p2[0] - p1[0], p2[1] - p1[1]
+    d2x, d2y = p4[0] - p3[0], p4[1] - p3[1]
+    denom = d1x * d2y - d1y * d2x
+    if abs(denom) < 1e-10:
+        return False
+    t = ((p3[0] - p1[0]) * d2y - (p3[1] - p1[1]) * d2x) / denom
+    u = ((p3[0] - p1[0]) * d1y - (p3[1] - p1[1]) * d1x) / denom
+    return 0.0 < t < 1.0 and 0.0 < u < 1.0
+
+
+def _crossing_angle_deg(old_pos: tuple, new_pos: tuple, ln_p1: tuple, ln_p2: tuple) -> float:
+    """Angle in degrees between trajectory vector and counting line vector (0–90)."""
+    dx_t = new_pos[0] - old_pos[0]
+    dy_t = new_pos[1] - old_pos[1]
+    dx_l = ln_p2[0] - ln_p1[0]
+    dy_l = ln_p2[1] - ln_p1[1]
+    cross = abs(dx_t * dy_l - dy_t * dx_l)
+    dot   = abs(dx_t * dx_l + dy_t * dy_l)
+    return math.degrees(math.atan2(cross, dot))
+
+
 class CountLineConfig(BaseModel):
     id: str = ""
     name: str = ""
@@ -316,6 +343,10 @@ class CameraState:
                 if cls_id not in class_map:
                     continue
                 x1, y1, x2, y2 = map(float, box.xyxy[0])
+                # Reject oversized detections (likely background false positives)
+                box_area_ratio = ((x2 - x1) * (y2 - y1)) / (fw * fh)
+                if box_area_ratio > 0.5:
+                    continue
                 conf = float(box.conf[0])
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
@@ -377,37 +408,53 @@ class CameraState:
         if not lines:
             return
 
+        MIN_ANGLE_DEG = 5.0
+
         for tr in tracks:
+            # Need at least 2 detection frames to form a trajectory vector
+            if len(tr.position_history) < 2:
+                continue
+
+            old_cx, old_cy = tr.position_history[0]  # oldest position in buffer
+            cur_cx, cur_cy = tr.cx, tr.cy
+
             for ln in lines:
                 if ln.id in tr.crossed_lines:
                     continue
 
-                # Line endpoints in pixel coords
                 px1, py1 = ln.x1 * fw, ln.y1 * fh
                 px2, py2 = ln.x2 * fw, ln.y2 * fh
 
-                # Cross product sign: positive = left of P1→P2, negative = right
+                # 1. Geometric segment intersection — trajectory must cross the line segment
+                if not _segments_intersect(
+                    (old_cx, old_cy), (cur_cx, cur_cy),
+                    (px1, py1), (px2, py2)
+                ):
+                    continue
+
+                # 2. Angle filter — reject trajectories nearly parallel to the line
+                angle = _crossing_angle_deg(
+                    (old_cx, old_cy), (cur_cx, cur_cy),
+                    (px1, py1), (px2, py2)
+                )
+                if angle < MIN_ANGLE_DEG:
+                    continue
+
+                # 3. Determine direction: which side did the track come FROM?
                 def _side(cx, cy):
                     v = (px2 - px1) * (cy - py1) - (py2 - py1) * (cx - px1)
-                    if v > 0:
-                        return 1
-                    if v < 0:
-                        return -1
-                    return 0
+                    return 1 if v > 0 else (-1 if v < 0 else 0)
 
-                cur_side = _side(tr.cx, tr.cy)
-                old_side = tr.side_by_line.get(ln.id, 0)
+                old_side = _side(old_cx, old_cy)
+                cur_side = _side(cur_cx, cur_cy)
+                if old_side == 0 or cur_side == 0:
+                    continue
 
-                if cur_side != 0:
-                    tr.side_by_line[ln.id] = cur_side
-
-                if old_side != 0 and cur_side != 0 and old_side != cur_side:
-                    # Crossed: determine nameA vs nameB
-                    # cur_side < 0 → moved from positive to negative → nameA
-                    direction = ln.nameA if cur_side < 0 else ln.nameB
-                    tr.crossed_lines.add(ln.id)
-                    if direction:
-                        self._emit_event(ts, direction, tr.vehicle_class)
+                # Moved positive→negative side = nameA; negative→positive = nameB
+                direction = ln.nameA if cur_side < 0 else ln.nameB
+                tr.crossed_lines.add(ln.id)
+                if direction:
+                    self._emit_event(ts, direction, tr.vehicle_class)
 
     def _emit_event(self, ts: float, direction: str, vehicle_class: str = "unknown"):
         self.total += 1
@@ -469,6 +516,22 @@ class CameraState:
             cv2.circle(dbg, (cx, cy), 5, cyan, -1)
             cv2.putText(dbg, str(tr.id), (cx + 6, cy - 4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, cyan, 1, cv2.LINE_AA)
+
+        # Draw trajectory trail
+        for tr in tracks:
+            if len(tr.position_history) >= 2:
+                for j in range(1, len(tr.position_history)):
+                    alpha = j / len(tr.position_history)
+                    c = int(180 * alpha)
+                    cv2.line(dbg,
+                             (int(tr.position_history[j-1][0]), int(tr.position_history[j-1][1])),
+                             (int(tr.position_history[j][0]),   int(tr.position_history[j][1])),
+                             (c, c, c), 1, cv2.LINE_AA)
+                # Arrow tip from second-to-last to last point
+                p1 = (int(tr.position_history[-2][0]), int(tr.position_history[-2][1]))
+                p2 = (int(tr.position_history[-1][0]), int(tr.position_history[-1][1]))
+                if p1 != p2:
+                    cv2.arrowedLine(dbg, p1, p2, (200, 200, 200), 1, tipLength=0.6)
 
         white = (255, 255, 255)
         line_colors = [

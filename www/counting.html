@@ -246,8 +246,16 @@
   <!-- ══════════════ LOG ══════════════ -->
   <div id="tab-log" class="tab-content" style="display:none">
     <div class="section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div class="sub-title" style="margin:0">Sự kiện đếm gần nhất (tự làm mới 3s)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="sub-title" style="margin:0">Nhật ký sự kiện (tự làm mới 3s)</div>
+          <select id="logCamFilter" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem" onchange="applyLogFilter()">
+            <option value="">Tất cả camera</option>
+          </select>
+          <select id="logDirFilter" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem" onchange="applyLogFilter()">
+            <option value="">Tất cả hướng</option>
+          </select>
+        </div>
         <button class="btn btn-ghost btn-sm" onclick="clearLogView()">✕ Xoá log</button>
       </div>
       <div class="log-wrap" id="logWrap">
@@ -920,12 +928,33 @@ function renderCamTable() {
       statsHtml = `<span style="color:var(--text-secondary);font-size:.73rem">${c.running?'Đang chờ dữ liệu…':'Chưa có dữ liệu hôm nay'}</span>`;
     }
 
+    // Build line config summary from cfg
+    const camCfg = (cfg.cameras||[]).find(cc=>cc.id===c.id);
+    const linesBadge = (() => {
+      if (!camCfg) return '';
+      const lines = camCfg.lines || [];
+      if (lines.length) {
+        const tags = lines.map((ln,li) => {
+          const col = LINE_COLORS[li % LINE_COLORS.length];
+          const dirs = [ln.nameA, ln.nameB].filter(Boolean).join('/');
+          return `<span style="font-size:.65rem;background:${col}22;color:${col};border:1px solid ${col}44;border-radius:3px;padding:0 4px;white-space:nowrap">${esc(ln.name||'L'+(li+1))}${dirs?' ('+esc(dirs)+')':''}</span>`;
+        }).join(' ');
+        return `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:2px">${tags}</div>`;
+      }
+      // Legacy H/V
+      const hv = [];
+      if (camCfg.lineHPos > 0) hv.push(`H:${(camCfg.lineHPos*100).toFixed(0)}%`);
+      if (camCfg.lineVPos > 0) hv.push(`V:${(camCfg.lineVPos*100).toFixed(0)}%`);
+      return hv.length ? `<div style="margin-top:2px;font-size:.65rem;color:var(--text-secondary)">${hv.join(' ')}</div>` : '';
+    })();
+
     return `<tr draggable="true" data-id="${c.id}">
       <td style="cursor:grab;text-align:center;color:var(--text-secondary);user-select:none" title="Kéo để đổi thứ tự">⠿</td>
       <td>
         <span class="dot ${dotCls}"></span><strong style="font-size:.82rem">${esc(c.name||c.id)}</strong>
         <br><code style="font-size:.68rem;color:var(--text-secondary)">${esc(c.streamName)}</code>
         ${c.workerId ? `<br><span style="font-size:.67rem;color:#7c3aed">⚡ ${esc(workerNameById(c.workerId))}</span>` : ''}
+        ${linesBadge}
       </td>
       <td>${stLbl}</td>
       <td><span class="tier-b t${c.tier||1}" title="T1=FPS đầy đủ T2=½FPS T3=¼FPS">T${c.tier||1}</span></td>
@@ -1019,11 +1048,11 @@ async function loadTodayMatrix() {
 // Event log
 // ════════════════════════════════════════════════════════
 let lastLogTs = 0;
-const DIR_ARROW = {down:'↓',up:'↑',right:'→',left:'←'};
+let allLogRows = []; // [{el, camId, dir}] — kept for filter
 
 async function loadEvents() {
   try {
-    const events = await apiFetch('/api/counting/events?limit=100');
+    const events = await apiFetch('/api/counting/events?limit=200');
     const wrap  = document.getElementById('logWrap');
     const empty = document.getElementById('logEmpty');
     if (!events.length) { empty.style.display = ''; return; }
@@ -1033,10 +1062,16 @@ async function loadEvents() {
     if (!newEvs.length) return;
     lastLogTs = newEvs[0].ts;
 
+    // Rebuild camera + direction filter dropdowns from known statuses
+    updateLogFilterOptions();
+
     newEvs.forEach(ev => {
       const row = document.createElement('div');
       row.className = 'log-row';
-      const dirArrow = ev.dir ? `<span class="log-dir" title="${esc(DIR_TITLE[ev.dir]||ev.dir)}">${esc(DIR_LABEL[ev.dir]||ev.dir)}</span>` : '';
+      row.dataset.camId = ev.cameraId || '';
+      row.dataset.dir   = ev.dir || '';
+      const dirLabel = ev.dir ? (DIR_LABEL[ev.dir] || ev.dir) : '';
+      const dirArrow = ev.dir ? `<span class="log-dir" style="color:var(--accent);font-weight:600" title="${esc(ev.dir)}">${esc(dirLabel)}</span>` : '';
       const typeIcon = ev.vehicleClass ? `<span class="log-dir" title="${ev.vehicleClass}">${TYPE_ICON[ev.vehicleClass]||'🚗'}</span>` : '';
       row.innerHTML = `
         <span class="log-ts">${fmtTime(ev.ts)}</span>
@@ -1045,10 +1080,42 @@ async function loadEvents() {
         <span class="log-cnt">+${ev.count}</span>
         <span class="log-total">Σ${ev.total}</span>
       `;
+      allLogRows.unshift({el: row, camId: ev.cameraId||'', dir: ev.dir||''});
       wrap.insertBefore(row, wrap.children[1] || null);
     });
-    while (wrap.children.length > 301) wrap.removeChild(wrap.lastChild);
+    // Cap memory
+    while (allLogRows.length > 500) {
+      const old = allLogRows.pop();
+      if (old.el.parentNode) old.el.parentNode.removeChild(old.el);
+    }
+    applyLogFilter();
   } catch(e) {}
+}
+
+function updateLogFilterOptions() {
+  const camSel = document.getElementById('logCamFilter');
+  const dirSel = document.getElementById('logDirFilter');
+  if (!camSel || !dirSel) return;
+  const curCam = camSel.value, curDir = dirSel.value;
+  const camIds = [...new Set(statuses.map(c => ({id:c.id, name:c.name||c.id})).map(c=>JSON.stringify(c)))].map(s=>JSON.parse(s));
+  const dirs   = [...new Set(allLogRows.map(r=>r.dir).filter(Boolean))];
+  camSel.innerHTML = '<option value="">Tất cả camera</option>' +
+    camIds.map(c=>`<option value="${esc(c.id)}" ${c.id===curCam?'selected':''}>${esc(c.name)}</option>`).join('');
+  dirSel.innerHTML = '<option value="">Tất cả hướng</option>' +
+    dirs.map(d=>`<option value="${esc(d)}" ${d===curDir?'selected':''}>${esc(DIR_LABEL[d]||d)}</option>`).join('');
+}
+
+function applyLogFilter() {
+  const camFilter = (document.getElementById('logCamFilter')?.value) || '';
+  const dirFilter = (document.getElementById('logDirFilter')?.value) || '';
+  let visible = 0;
+  allLogRows.forEach(r => {
+    const show = (!camFilter || r.camId === camFilter) && (!dirFilter || r.dir === dirFilter);
+    r.el.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const empty = document.getElementById('logEmpty');
+  if (empty) empty.style.display = visible === 0 ? '' : 'none';
 }
 
 function fmtTime(ts) {
@@ -1060,7 +1127,8 @@ function fmtTime(ts) {
 
 function clearLogView() {
   const wrap = document.getElementById('logWrap');
-  [...wrap.querySelectorAll('.log-row')].forEach(r => r.remove());
+  allLogRows.forEach(r => { if (r.el.parentNode) r.el.parentNode.removeChild(r.el); });
+  allLogRows = [];
   document.getElementById('logEmpty').style.display = '';
   lastLogTs = Math.floor(Date.now()/1000);
 }
@@ -1101,7 +1169,7 @@ function populateDebugSelect() {
 }
 
 function openDebugFor(camId) {
-  showTab('debug', document.querySelector('.tab-btn:nth-child(4)'));
+  showTab('debug', document.querySelector('.tab-btn:nth-child(5)'));
   document.getElementById('debugCamSel').value = camId;
   openDebugCam();
 }
@@ -1500,17 +1568,25 @@ function renderLinesList() {
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:.79rem;padding:4px 0">Chưa có đường đếm. Nhấn ✏ Vẽ đường mới.</div>';
     return;
   }
-  el.innerHTML = canvasLines.map((ln, i) => `
+  el.innerHTML = canvasLines.map((ln, i) => {
+    const color = LINE_COLORS[i % LINE_COLORS.length];
+    const dirTag = ln.nameA
+      ? `<span style="font-size:.71rem;background:${color}22;color:${color};border:1px solid ${color}44;border-radius:4px;padding:1px 5px;margin-left:4px">→ ${esc(ln.nameA)}</span>`
+      : '';
+    const dirTagB = ln.nameB
+      ? `<span style="font-size:.71rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:3px;color:var(--text-secondary)">← ${esc(ln.nameB)}</span>`
+      : '<span style="font-size:.71rem;color:var(--text-secondary);margin-left:4px">1 chiều</span>';
+    return `
     <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
-      <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${LINE_COLORS[i%LINE_COLORS.length]};flex-shrink:0"></span>
-      <div style="flex:1;min-width:0;font-size:.8rem">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0;font-size:.8rem;display:flex;align-items:center;flex-wrap:wrap;gap:2px">
         <strong>${esc(ln.name||'?')}</strong>
-        <span style="color:var(--text-secondary);margin-left:6px;font-size:.73rem">A:${esc(ln.nameA||'—')} / B:${esc(ln.nameB||'—')}</span>
+        ${dirTag}${dirTagB}
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="editLine(${i})" style="padding:1px 6px;font-size:.75rem">✎</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteLine(${i})" style="padding:1px 6px;font-size:.75rem">✕</button>
-    </div>
-  `).join('');
+      <button class="btn btn-ghost btn-sm" onclick="editLine(${i})" style="padding:1px 6px;font-size:.75rem" title="Sửa">✎</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteLine(${i})" style="padding:1px 6px;font-size:.75rem" title="Xoá">✕</button>
+    </div>`;
+  }).join('');
 }
 
 function editLine(i) {
@@ -1541,6 +1617,8 @@ function showLineForm() {
   document.getElementById('btnDrawLine').style.display = 'none';
   document.getElementById('btnCancelDraw').style.display = 'none';
   drawPreview();
+  setTimeout(() => document.getElementById('lineNamingForm').scrollIntoView({behavior:'smooth', block:'nearest'}), 50);
+  document.getElementById('lnNameA').focus();
 }
 
 function hideLineForm() {
