@@ -90,6 +90,10 @@ class Track:
     crossed_h: bool = False
     crossed_v: bool = False
     vehicle_class: str = "unknown"
+    # For arbitrary lines: line_id → current side sign (+1/-1/0)
+    side_by_line: dict = field(default_factory=dict)
+    # Set of line IDs already triggered (one crossing event per track per line)
+    crossed_lines: set = field(default_factory=set)
 
 
 class Tracker:
@@ -152,6 +156,17 @@ class Tracker:
 # ---------------------------------------------------------------------------
 # Camera state
 # ---------------------------------------------------------------------------
+class CountLineConfig(BaseModel):
+    id: str = ""
+    name: str = ""
+    x1: float = 0.0
+    y1: float = 0.0
+    x2: float = 1.0
+    y2: float = 0.0
+    nameA: str = "A"  # direction when crossing from positive cross-product side to negative
+    nameB: str = "B"  # opposite direction
+
+
 class CameraConfig(BaseModel):
     id: str
     name: str = ""
@@ -162,6 +177,7 @@ class CameraConfig(BaseModel):
     countUp: bool = False
     countRight: bool = False
     countLeft: bool = False
+    lines: List[CountLineConfig] = []  # arbitrary lines (if non-empty, overrides H/V legacy config)
     fps: float = 2.0
     tier: int = 1
     frameWidth: int = 320
@@ -319,30 +335,79 @@ class CameraState:
 
         self._save_debug_jpeg(resized, boxes_info, tracks, fw, fh)
 
-    def _check_crossings(self, tracks: List[Track], fw: int, fh: int):
+    def _effective_lines(self, fw: int, fh: int) -> List[CountLineConfig]:
+        """Return the list of counting lines to use, in pixel coordinates.
+
+        If camera has explicit lines configured, use those.
+        Otherwise auto-create lines from the legacy lineHPos/lineVPos config
+        so old cameras keep working without any change.
+        """
         cfg = self.config
+        if cfg.lines:
+            return cfg.lines
+
+        legacy = []
+        if cfg.lineHPos > 0:
+            # H line goes left→right; from math:
+            #   cross > 0 → below line (positive side)
+            #   crossing positive→negative (cur_side < 0) = going up
+            #   crossing negative→positive (cur_side > 0) = going down
+            legacy.append(CountLineConfig(
+                id="_h", name="H",
+                x1=0.0, y1=cfg.lineHPos, x2=1.0, y2=cfg.lineHPos,
+                nameA="up" if cfg.countUp else "",
+                nameB="down" if cfg.countDown else "",
+            ))
+        if cfg.lineVPos > 0:
+            # V line goes top→bottom; from math:
+            #   cross > 0 → left of line
+            #   crossing positive→negative (cur_side < 0) = going right
+            #   crossing negative→positive (cur_side > 0) = going left
+            legacy.append(CountLineConfig(
+                id="_v", name="V",
+                x1=cfg.lineVPos, y1=0.0, x2=cfg.lineVPos, y2=1.0,
+                nameA="right" if cfg.countRight else "",
+                nameB="left" if cfg.countLeft else "",
+            ))
+        return legacy
+
+    def _check_crossings(self, tracks: List[Track], fw: int, fh: int):
         ts = time.time()
+        lines = self._effective_lines(fw, fh)
+        if not lines:
+            return
 
         for tr in tracks:
-            # --- Horizontal line ---
-            if cfg.lineHPos > 0 and (cfg.countDown or cfg.countUp) and not tr.crossed_h:
-                line_y = cfg.lineHPos * fh
-                if cfg.countDown and tr.prev_cy < line_y and tr.cy >= line_y:
-                    tr.crossed_h = True
-                    self._emit_event(ts, "down", tr.vehicle_class)
-                elif cfg.countUp and tr.prev_cy > line_y and tr.cy <= line_y:
-                    tr.crossed_h = True
-                    self._emit_event(ts, "up", tr.vehicle_class)
+            for ln in lines:
+                if ln.id in tr.crossed_lines:
+                    continue
 
-            # --- Vertical line ---
-            if cfg.lineVPos > 0 and (cfg.countRight or cfg.countLeft) and not tr.crossed_v:
-                line_x = cfg.lineVPos * fw
-                if cfg.countRight and tr.prev_cx < line_x and tr.cx >= line_x:
-                    tr.crossed_v = True
-                    self._emit_event(ts, "right", tr.vehicle_class)
-                elif cfg.countLeft and tr.prev_cx > line_x and tr.cx <= line_x:
-                    tr.crossed_v = True
-                    self._emit_event(ts, "left", tr.vehicle_class)
+                # Line endpoints in pixel coords
+                px1, py1 = ln.x1 * fw, ln.y1 * fh
+                px2, py2 = ln.x2 * fw, ln.y2 * fh
+
+                # Cross product sign: positive = left of P1→P2, negative = right
+                def _side(cx, cy):
+                    v = (px2 - px1) * (cy - py1) - (py2 - py1) * (cx - px1)
+                    if v > 0:
+                        return 1
+                    if v < 0:
+                        return -1
+                    return 0
+
+                cur_side = _side(tr.cx, tr.cy)
+                old_side = tr.side_by_line.get(ln.id, 0)
+
+                if cur_side != 0:
+                    tr.side_by_line[ln.id] = cur_side
+
+                if old_side != 0 and cur_side != 0 and old_side != cur_side:
+                    # Crossed: determine nameA vs nameB
+                    # cur_side < 0 → moved from positive to negative → nameA
+                    direction = ln.nameA if cur_side < 0 else ln.nameB
+                    tr.crossed_lines.add(ln.id)
+                    if direction:
+                        self._emit_event(ts, direction, tr.vehicle_class)
 
     def _emit_event(self, ts: float, direction: str, vehicle_class: str = "unknown"):
         self.total += 1
@@ -405,32 +470,38 @@ class CameraState:
             cv2.putText(dbg, str(tr.id), (cx + 6, cy - 4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, cyan, 1, cv2.LINE_AA)
 
-        cfg = self.config
-        green = (0, 200, 0)
-        cyan_line = (200, 200, 0)
         white = (255, 255, 255)
+        line_colors = [
+            (0, 200, 0), (200, 200, 0), (0, 140, 200),
+            (200, 0, 200), (0, 200, 200), (200, 100, 0),
+        ]
 
-        # Horizontal line
-        if cfg.lineHPos > 0:
-            line_y = int(cfg.lineHPos * fh)
-            cv2.line(dbg, (0, line_y), (fw - 1, line_y), green, 2)
-            if cfg.countDown:
-                cv2.putText(dbg, "v", (fw // 4, line_y - 4),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, white, 2, cv2.LINE_AA)
-            if cfg.countUp:
-                cv2.putText(dbg, "^", (fw * 3 // 4, line_y - 4),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, white, 2, cv2.LINE_AA)
+        for i, ln in enumerate(self._effective_lines(fw, fh)):
+            color = line_colors[i % len(line_colors)]
+            x1 = int(ln.x1 * fw)
+            y1 = int(ln.y1 * fh)
+            x2 = int(ln.x2 * fw)
+            y2 = int(ln.y2 * fh)
+            cv2.line(dbg, (x1, y1), (x2, y2), color, 2)
 
-        # Vertical line
-        if cfg.lineVPos > 0:
-            line_x = int(cfg.lineVPos * fw)
-            cv2.line(dbg, (line_x, 0), (line_x, fh - 1), cyan_line, 2)
-            if cfg.countRight:
-                cv2.putText(dbg, ">", (line_x + 4, fh // 4),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, white, 2, cv2.LINE_AA)
-            if cfg.countLeft:
-                cv2.putText(dbg, "<", (line_x + 4, fh * 3 // 4),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, white, 2, cv2.LINE_AA)
+            # Draw direction arrow (nameA direction: perpendicular, right of P1→P2)
+            dx, dy = x2 - x1, y2 - y1
+            length = math.sqrt(dx * dx + dy * dy)
+            if length > 0:
+                # Unit perpendicular pointing to the right of P1→P2 (= negative cross-product side)
+                nx, ny = dy / length, -dx / length
+                mx, my = (x1 + x2) // 2, (y1 + y2) // 2
+                arrow_len = max(15, fw // 20)
+                ax, ay = int(mx + nx * arrow_len), int(my + ny * arrow_len)
+                cv2.arrowedLine(dbg, (mx, my), (ax, ay), white, 1, tipLength=0.4)
+                if ln.nameA:
+                    cv2.putText(dbg, ln.nameA, (ax + 3, ay + 3),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+
+            # Line name near midpoint
+            mid_x, mid_y = (x1 + x2) // 2, (y1 + y2) // 2
+            cv2.putText(dbg, ln.name or f"L{i+1}", (mid_x + 3, mid_y - 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
 
         # Status overlay at bottom
         effective_fps = self._effective_fps()
@@ -500,18 +571,22 @@ def add_camera(cam_id: str, cam_cfg: CameraConfig):
         state = CameraState(config=cam_cfg)
         _cameras[cam_id] = state
     state.start()
-    dirs = []
-    if cam_cfg.lineHPos > 0:
-        if cam_cfg.countDown: dirs.append("down")
-        if cam_cfg.countUp:   dirs.append("up")
-    if cam_cfg.lineVPos > 0:
-        if cam_cfg.countRight: dirs.append("right")
-        if cam_cfg.countLeft:  dirs.append("left")
-    logger.info(
-        f"Registered camera {cam_id} (stream={cam_cfg.streamName}) "
-        f"lineH={cam_cfg.lineHPos:.2f} lineV={cam_cfg.lineVPos:.2f} "
-        f"directions={dirs or ['NONE - no crossings will be counted']}"
-    )
+    if cam_cfg.lines:
+        line_info = ", ".join(f"{ln.name}({ln.nameA}/{ln.nameB})" for ln in cam_cfg.lines)
+        logger.info(f"Registered camera {cam_id} (stream={cam_cfg.streamName}) lines=[{line_info}]")
+    else:
+        dirs = []
+        if cam_cfg.lineHPos > 0:
+            if cam_cfg.countDown: dirs.append("down")
+            if cam_cfg.countUp:   dirs.append("up")
+        if cam_cfg.lineVPos > 0:
+            if cam_cfg.countRight: dirs.append("right")
+            if cam_cfg.countLeft:  dirs.append("left")
+        logger.info(
+            f"Registered camera {cam_id} (stream={cam_cfg.streamName}) "
+            f"lineH={cam_cfg.lineHPos:.2f} lineV={cam_cfg.lineVPos:.2f} "
+            f"directions={dirs or ['NONE - no crossings will be counted']}"
+        )
     return {"ok": True, "id": cam_id}
 
 

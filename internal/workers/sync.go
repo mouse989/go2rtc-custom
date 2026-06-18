@@ -63,13 +63,22 @@ func checkWorker(wk *Worker) {
 	var statusData struct {
 		Running bool `json:"running"`
 		Cameras []struct {
-			ID string `json:"id"`
+			ID      string `json:"id"`
+			Running bool   `json:"running"`
 		} `json:"cameras"`
 	}
 	if err := json.Unmarshal(body, &statusData); err != nil {
 		s := buildOfflineStatus(wk, "parse status: "+err.Error(), now)
 		setStatus(s)
 		return
+	}
+	// Derive actual running state: global flag OR any individual camera running.
+	anyRunning := statusData.Running
+	for _, c := range statusData.Cameras {
+		if c.Running {
+			anyRunning = true
+			break
+		}
 	}
 
 	// GET /api/counting/config → yoloModel
@@ -126,7 +135,7 @@ func checkWorker(wk *Worker) {
 		LastCheck:    now,
 		LastSync:     lastSync,
 		Cameras:      len(statusData.Cameras),
-		Running:      statusData.Running,
+		Running:      anyRunning,
 		YoloModel:    yoloModel,
 		Training:     training,
 		TrainedModel: trainedModel,
