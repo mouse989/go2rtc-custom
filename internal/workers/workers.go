@@ -56,10 +56,10 @@ var statusCache sync.Map
 
 // SetEventImporter registers the function workers will call to import remote events.
 // This is called during startup by the counting package to avoid a circular import.
-var eventImporter func(workerID, workerName string, events json.RawMessage) error
+var eventImporter func(workerID, workerName, date string, events json.RawMessage) error
 
 // SetEventImporter registers the callback used to import events fetched from workers.
-func SetEventImporter(fn func(workerID, workerName string, events json.RawMessage) error) {
+func SetEventImporter(fn func(workerID, workerName, date string, events json.RawMessage) error) {
 	eventImporter = fn
 }
 

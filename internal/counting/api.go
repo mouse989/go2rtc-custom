@@ -253,6 +253,8 @@ func handleCameras(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/counting/data?date=YYYY-MM-DD&camera=id
+// Returns a list of available dates when date param is omitted.
+// Returns []Slot5 (5-minute aggregates) when date is given.
 func handleData(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -264,22 +266,15 @@ func handleData(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, dates)
 		return
 	}
-	events, err := mgr.store.getEvents(date)
+	slots, err := mgr.store.getSlots(date, q.Get("camera"))
 	if err != nil {
-		writeJSON(w, []CountEvent{})
+		writeJSON(w, []*Slot5{})
 		return
 	}
-	camID := q.Get("camera")
-	if camID != "" {
-		filtered := events[:0]
-		for _, ev := range events {
-			if ev.CameraID == camID {
-				filtered = append(filtered, ev)
-			}
-		}
-		events = filtered
+	if slots == nil {
+		slots = []*Slot5{}
 	}
-	writeJSON(w, events)
+	writeJSON(w, slots)
 }
 
 // GET /api/counting/summary?date=YYYY-MM-DD
@@ -703,7 +698,7 @@ func proxyGetRaw(w http.ResponseWriter, url string) {
 // ── Worker-side endpoints (called by Hub / Server 1) ────────────────────────
 
 // GET /api/counting/export?date=YYYY-MM-DD
-// Returns all counting events for the given date as a JSON array.
+// Returns 5-minute slot aggregates for the given date as a JSON array.
 // Used by Hub to pull data from this worker.
 func handleExport(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
@@ -714,19 +709,19 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "date required (YYYY-MM-DD)", http.StatusBadRequest)
 		return
 	}
-	events, err := mgr.store.getEvents(date)
+	slots, err := mgr.store.getSlots(date, "")
 	if err != nil {
 		if os.IsNotExist(err) {
-			writeJSON(w, []CountEvent{})
+			writeJSON(w, []*Slot5{})
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if events == nil {
-		events = []CountEvent{}
+	if slots == nil {
+		slots = []*Slot5{}
 	}
-	writeJSON(w, events)
+	writeJSON(w, slots)
 }
 
 // GET /api/counting/models/download?file=models/trained_xxx.pt

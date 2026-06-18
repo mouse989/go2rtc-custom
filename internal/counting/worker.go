@@ -265,7 +265,7 @@ func (w *CameraWorker) pollEvents() {
 		}
 		evRing.add(ce)
 		if c.Storage.Enabled {
-			_ = w.store.append(ce)
+			w.store.addEvent(ce)
 		}
 	}
 }
