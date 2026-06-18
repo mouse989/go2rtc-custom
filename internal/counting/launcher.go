@@ -116,9 +116,8 @@ func supervisedYolo(yoloPath string) {
 }
 
 // ensurePortFree kills any process holding the target port and waits until the
-// port is actually free, up to 5 seconds.  It uses two strategies:
-//  1. `fuser -k -KILL <port>/tcp` (Linux) — sends SIGKILL via the kernel
-//  2. Polling with net.Dial until the bind would succeed
+// port is actually free (up to 5 seconds). The actual kill mechanism is
+// platform-specific (see launcher_unix.go / launcher_windows.go).
 func ensurePortFree(port string) {
 	addr := "127.0.0.1:" + port
 
@@ -129,10 +128,7 @@ func ensurePortFree(port string) {
 
 	log.Warn().Str("port", port).Msg("[counting] port still in use before restart, killing stale process")
 
-	// Strategy 1: fuser -k (Linux/BSD)
-	if out, err := exec.Command("fuser", "-k", "-KILL", port+"/tcp").CombinedOutput(); err == nil {
-		log.Debug().Str("port", port).Str("out", string(out)).Msg("[counting] fuser killed stale process")
-	}
+	killStaleOnPort(port) // platform-specific implementation
 
 	// Wait up to 5 s for the port to free up
 	deadline := time.Now().Add(5 * time.Second)

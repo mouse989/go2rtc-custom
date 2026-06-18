@@ -25,3 +25,11 @@ func killYoloProc(proc *os.Process) {
 	_ = syscall.Kill(-proc.Pid, syscall.SIGKILL)
 	_ = proc.Kill()
 }
+
+// killStaleOnPort uses fuser to forcibly kill any process holding the port.
+func killStaleOnPort(port string) {
+	out, err := exec.Command("fuser", "-k", "-KILL", port+"/tcp").CombinedOutput()
+	if err == nil {
+		log.Debug().Str("port", port).Str("out", string(out)).Msg("[counting] fuser killed stale process")
+	}
+}
