@@ -461,6 +461,18 @@
           <div id="yoloRestartMsg" style="font-size:.78rem;color:var(--text-muted);min-height:1.1em;"></div>
         </div>
         <div class="form-row">
+          <label title="Thiết bị chạy YOLO. 'auto' = dùng GPU nếu có, ngược lại dùng CPU. Nhập '0' hoặc 'cuda:0' để ép dùng GPU đầu tiên.">
+            Thiết bị inference (Device)
+          </label>
+          <select id="sYoloDevice" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="auto">auto — GPU nếu có, ngược lại CPU</option>
+            <option value="cpu">cpu — Chỉ dùng CPU</option>
+            <option value="cuda:0">cuda:0 — GPU #0 (ép buộc)</option>
+            <option value="cuda:1">cuda:1 — GPU #1</option>
+            <option value="0">0 — GPU index 0</option>
+          </select>
+        </div>
+        <div class="form-row">
           <label>FPS xử lý mặc định</label>
           <input type="number" id="sFps" step="0.5" min="0.2" max="10">
         </div>
@@ -731,9 +743,10 @@ async function loadConfig() {
     // Load worker list for name lookup in camera table.
     try { workerList = await apiFetch('/api/workers') || []; } catch(_) { workerList = []; }
     cfg = await apiFetch('/api/counting/config');
-    document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
-    document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
-    document.getElementById('sYoloModel').value = cfg.yoloModel      ?? 'yolo26n.pt';
+    document.getElementById('sYoloUrl').value    = cfg.yoloUrl    ?? 'http://localhost:8765';
+    document.getElementById('sYoloConf').value   = cfg.yoloConf   ?? 0.35;
+    document.getElementById('sYoloModel').value  = cfg.yoloModel  ?? 'yolo26n.pt';
+    document.getElementById('sYoloDevice').value = cfg.yoloDevice ?? 'auto';
     document.getElementById('sFps').value      = cfg.defaultFps      ?? 2.5;
     document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
     document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
@@ -759,6 +772,7 @@ async function saveSettings() {
     yoloUrl:      document.getElementById('sYoloUrl').value.trim() || 'http://localhost:8765',
     yoloConf:     parseFloat(document.getElementById('sYoloConf').value),
     yoloModel:    document.getElementById('sYoloModel').value,
+    yoloDevice:   document.getElementById('sYoloDevice').value,
     defaultFps:   parseFloat(document.getElementById('sFps').value),
     frameWidth:   parseInt(document.getElementById('sFw').value),
     storage: { ...cfg.storage, retentionDays: parseInt(document.getElementById('sRetention').value) }

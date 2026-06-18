@@ -173,10 +173,14 @@ func yoloArgs(c Config) []string {
 	if model == "" {
 		model = "yolo11n.pt"
 	}
-	return []string{
+	args := []string{
 		"--port", yoloPort(c),
 		"--model", model,
 		"--conf", conf,
 		"--rtsp-base", "rtsp://localhost:8554",
 	}
+	if d := c.YoloDevice; d != "" && d != "auto" {
+		args = append(args, "--device", d)
+	}
+	return args
 }
