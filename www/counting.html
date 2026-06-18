@@ -246,8 +246,16 @@
   <!-- ══════════════ LOG ══════════════ -->
   <div id="tab-log" class="tab-content" style="display:none">
     <div class="section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div class="sub-title" style="margin:0">Sự kiện đếm gần nhất (tự làm mới 3s)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="sub-title" style="margin:0">Nhật ký sự kiện (tự làm mới 3s)</div>
+          <select id="logCamFilter" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem" onchange="applyLogFilter()">
+            <option value="">Tất cả camera</option>
+          </select>
+          <select id="logDirFilter" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem" onchange="applyLogFilter()">
+            <option value="">Tất cả hướng</option>
+          </select>
+        </div>
         <button class="btn btn-ghost btn-sm" onclick="clearLogView()">✕ Xoá log</button>
       </div>
       <div class="log-wrap" id="logWrap">
@@ -295,6 +303,7 @@
         </select>
         <input type="date" id="detailDate" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
         <button class="btn btn-primary btn-sm" onclick="loadDetailTab()">Xem</button>
+        <button class="btn btn-ghost btn-sm" id="btnExportCSV" onclick="exportDetailCSV()" style="display:none">⬇ Xuất CSV</button>
         <span id="detailInfo" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
       <div style="overflow-x:auto">
@@ -920,12 +929,33 @@ function renderCamTable() {
       statsHtml = `<span style="color:var(--text-secondary);font-size:.73rem">${c.running?'Đang chờ dữ liệu…':'Chưa có dữ liệu hôm nay'}</span>`;
     }
 
+    // Build line config summary from cfg
+    const camCfg = (cfg.cameras||[]).find(cc=>cc.id===c.id);
+    const linesBadge = (() => {
+      if (!camCfg) return '';
+      const lines = camCfg.lines || [];
+      if (lines.length) {
+        const tags = lines.map((ln,li) => {
+          const col = LINE_COLORS[li % LINE_COLORS.length];
+          const dirs = [ln.nameA, ln.nameB].filter(Boolean).join('/');
+          return `<span style="font-size:.65rem;background:${col}22;color:${col};border:1px solid ${col}44;border-radius:3px;padding:0 4px;white-space:nowrap">${esc(ln.name||'L'+(li+1))}${dirs?' ('+esc(dirs)+')':''}</span>`;
+        }).join(' ');
+        return `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:2px">${tags}</div>`;
+      }
+      // Legacy H/V
+      const hv = [];
+      if (camCfg.lineHPos > 0) hv.push(`H:${(camCfg.lineHPos*100).toFixed(0)}%`);
+      if (camCfg.lineVPos > 0) hv.push(`V:${(camCfg.lineVPos*100).toFixed(0)}%`);
+      return hv.length ? `<div style="margin-top:2px;font-size:.65rem;color:var(--text-secondary)">${hv.join(' ')}</div>` : '';
+    })();
+
     return `<tr draggable="true" data-id="${c.id}">
       <td style="cursor:grab;text-align:center;color:var(--text-secondary);user-select:none" title="Kéo để đổi thứ tự">⠿</td>
       <td>
         <span class="dot ${dotCls}"></span><strong style="font-size:.82rem">${esc(c.name||c.id)}</strong>
         <br><code style="font-size:.68rem;color:var(--text-secondary)">${esc(c.streamName)}</code>
         ${c.workerId ? `<br><span style="font-size:.67rem;color:#7c3aed">⚡ ${esc(workerNameById(c.workerId))}</span>` : ''}
+        ${linesBadge}
       </td>
       <td>${stLbl}</td>
       <td><span class="tier-b t${c.tier||1}" title="T1=FPS đầy đủ T2=½FPS T3=¼FPS">T${c.tier||1}</span></td>
@@ -1019,11 +1049,11 @@ async function loadTodayMatrix() {
 // Event log
 // ════════════════════════════════════════════════════════
 let lastLogTs = 0;
-const DIR_ARROW = {down:'↓',up:'↑',right:'→',left:'←'};
+let allLogRows = []; // [{el, camId, dir}] — kept for filter
 
 async function loadEvents() {
   try {
-    const events = await apiFetch('/api/counting/events?limit=100');
+    const events = await apiFetch('/api/counting/events?limit=200');
     const wrap  = document.getElementById('logWrap');
     const empty = document.getElementById('logEmpty');
     if (!events.length) { empty.style.display = ''; return; }
@@ -1033,10 +1063,16 @@ async function loadEvents() {
     if (!newEvs.length) return;
     lastLogTs = newEvs[0].ts;
 
+    // Rebuild camera + direction filter dropdowns from known statuses
+    updateLogFilterOptions();
+
     newEvs.forEach(ev => {
       const row = document.createElement('div');
       row.className = 'log-row';
-      const dirArrow = ev.dir ? `<span class="log-dir" title="${esc(DIR_TITLE[ev.dir]||ev.dir)}">${esc(DIR_LABEL[ev.dir]||ev.dir)}</span>` : '';
+      row.dataset.camId = ev.cameraId || '';
+      row.dataset.dir   = ev.dir || '';
+      const dirLabel = ev.dir ? (DIR_LABEL[ev.dir] || ev.dir) : '';
+      const dirArrow = ev.dir ? `<span class="log-dir" style="color:var(--accent);font-weight:600" title="${esc(ev.dir)}">${esc(dirLabel)}</span>` : '';
       const typeIcon = ev.vehicleClass ? `<span class="log-dir" title="${ev.vehicleClass}">${TYPE_ICON[ev.vehicleClass]||'🚗'}</span>` : '';
       row.innerHTML = `
         <span class="log-ts">${fmtTime(ev.ts)}</span>
@@ -1045,10 +1081,42 @@ async function loadEvents() {
         <span class="log-cnt">+${ev.count}</span>
         <span class="log-total">Σ${ev.total}</span>
       `;
+      allLogRows.unshift({el: row, camId: ev.cameraId||'', dir: ev.dir||''});
       wrap.insertBefore(row, wrap.children[1] || null);
     });
-    while (wrap.children.length > 301) wrap.removeChild(wrap.lastChild);
+    // Cap memory
+    while (allLogRows.length > 500) {
+      const old = allLogRows.pop();
+      if (old.el.parentNode) old.el.parentNode.removeChild(old.el);
+    }
+    applyLogFilter();
   } catch(e) {}
+}
+
+function updateLogFilterOptions() {
+  const camSel = document.getElementById('logCamFilter');
+  const dirSel = document.getElementById('logDirFilter');
+  if (!camSel || !dirSel) return;
+  const curCam = camSel.value, curDir = dirSel.value;
+  const camIds = [...new Set(statuses.map(c => ({id:c.id, name:c.name||c.id})).map(c=>JSON.stringify(c)))].map(s=>JSON.parse(s));
+  const dirs   = [...new Set(allLogRows.map(r=>r.dir).filter(Boolean))];
+  camSel.innerHTML = '<option value="">Tất cả camera</option>' +
+    camIds.map(c=>`<option value="${esc(c.id)}" ${c.id===curCam?'selected':''}>${esc(c.name)}</option>`).join('');
+  dirSel.innerHTML = '<option value="">Tất cả hướng</option>' +
+    dirs.map(d=>`<option value="${esc(d)}" ${d===curDir?'selected':''}>${esc(DIR_LABEL[d]||d)}</option>`).join('');
+}
+
+function applyLogFilter() {
+  const camFilter = (document.getElementById('logCamFilter')?.value) || '';
+  const dirFilter = (document.getElementById('logDirFilter')?.value) || '';
+  let visible = 0;
+  allLogRows.forEach(r => {
+    const show = (!camFilter || r.camId === camFilter) && (!dirFilter || r.dir === dirFilter);
+    r.el.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const empty = document.getElementById('logEmpty');
+  if (empty) empty.style.display = visible === 0 ? '' : 'none';
 }
 
 function fmtTime(ts) {
@@ -1060,7 +1128,8 @@ function fmtTime(ts) {
 
 function clearLogView() {
   const wrap = document.getElementById('logWrap');
-  [...wrap.querySelectorAll('.log-row')].forEach(r => r.remove());
+  allLogRows.forEach(r => { if (r.el.parentNode) r.el.parentNode.removeChild(r.el); });
+  allLogRows = [];
   document.getElementById('logEmpty').style.display = '';
   lastLogTs = Math.floor(Date.now()/1000);
 }
@@ -1101,7 +1170,7 @@ function populateDebugSelect() {
 }
 
 function openDebugFor(camId) {
-  showTab('debug', document.querySelector('.tab-btn:nth-child(4)'));
+  showTab('debug', document.querySelector('.tab-btn:nth-child(5)'));
   document.getElementById('debugCamSel').value = camId;
   openDebugCam();
 }
@@ -1500,17 +1569,25 @@ function renderLinesList() {
     el.innerHTML = '<div style="color:var(--text-secondary);font-size:.79rem;padding:4px 0">Chưa có đường đếm. Nhấn ✏ Vẽ đường mới.</div>';
     return;
   }
-  el.innerHTML = canvasLines.map((ln, i) => `
+  el.innerHTML = canvasLines.map((ln, i) => {
+    const color = LINE_COLORS[i % LINE_COLORS.length];
+    const dirTag = ln.nameA
+      ? `<span style="font-size:.71rem;background:${color}22;color:${color};border:1px solid ${color}44;border-radius:4px;padding:1px 5px;margin-left:4px">→ ${esc(ln.nameA)}</span>`
+      : '';
+    const dirTagB = ln.nameB
+      ? `<span style="font-size:.71rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:3px;color:var(--text-secondary)">← ${esc(ln.nameB)}</span>`
+      : '<span style="font-size:.71rem;color:var(--text-secondary);margin-left:4px">1 chiều</span>';
+    return `
     <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
-      <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${LINE_COLORS[i%LINE_COLORS.length]};flex-shrink:0"></span>
-      <div style="flex:1;min-width:0;font-size:.8rem">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0;font-size:.8rem;display:flex;align-items:center;flex-wrap:wrap;gap:2px">
         <strong>${esc(ln.name||'?')}</strong>
-        <span style="color:var(--text-secondary);margin-left:6px;font-size:.73rem">A:${esc(ln.nameA||'—')} / B:${esc(ln.nameB||'—')}</span>
+        ${dirTag}${dirTagB}
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="editLine(${i})" style="padding:1px 6px;font-size:.75rem">✎</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteLine(${i})" style="padding:1px 6px;font-size:.75rem">✕</button>
-    </div>
-  `).join('');
+      <button class="btn btn-ghost btn-sm" onclick="editLine(${i})" style="padding:1px 6px;font-size:.75rem" title="Sửa">✎</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteLine(${i})" style="padding:1px 6px;font-size:.75rem" title="Xoá">✕</button>
+    </div>`;
+  }).join('');
 }
 
 function editLine(i) {
@@ -1541,6 +1618,8 @@ function showLineForm() {
   document.getElementById('btnDrawLine').style.display = 'none';
   document.getElementById('btnCancelDraw').style.display = 'none';
   drawPreview();
+  setTimeout(() => document.getElementById('lineNamingForm').scrollIntoView({behavior:'smooth', block:'nearest'}), 50);
+  document.getElementById('lnNameA').focus();
 }
 
 function hideLineForm() {
@@ -2048,16 +2127,22 @@ function openDetailTab() {
   if (!dateEl.value) dateEl.value = today();
 }
 
+// Cache for CSV export
+let _detailExportData = null; // {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, dirHours}
+
 async function loadDetailTab() {
   const camId = document.getElementById('detailCamSel').value;
   const date  = document.getElementById('detailDate').value || today();
   const info  = document.getElementById('detailInfo');
   const body  = document.getElementById('detailBody');
   const foot  = document.getElementById('detailFoot');
+  const btnExp = document.getElementById('btnExportCSV');
 
   info.textContent = 'Đang tải…';
   body.innerHTML = '';
   foot.innerHTML = '';
+  btnExp.style.display = 'none';
+  _detailExportData = null;
 
   let url = '/api/counting/data?date=' + date;
   if (camId) url += '&camera=' + encodeURIComponent(camId);
@@ -2065,29 +2150,32 @@ async function loadDetailTab() {
   try {
     const slots = await apiFetch(url);
 
-    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, n (raw total)}
-    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0}));
+    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, n, dirs:{dirName:count}}
+    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0, dirs:{}}));
     let grandCar=0, grandMoto=0, grandBus=0, grandTruck=0, grandN=0;
+    const allDirs = new Set();
 
     (slots||[]).forEach(sl => {
       const h = parseInt((sl.t||'00:00').split(':')[0], 10);
       if (h < 0 || h > 23) return;
       hours[h].n += sl.n || 0;
-      for (const types of Object.values(sl.dt || {})) {
-        hours[h].car         += types.car         || 0;
-        hours[h].motorcycle  += types.motorcycle  || 0;
-        hours[h].bus         += types.bus         || 0;
-        hours[h].truck       += types.truck       || 0;
+      for (const [dir, types] of Object.entries(sl.dt || {})) {
+        allDirs.add(dir);
+        const dirSum = Object.values(types).reduce((a,b)=>a+b,0);
+        hours[h].dirs[dir] = (hours[h].dirs[dir]||0) + dirSum;
+        hours[h].car        += types.car        || 0;
+        hours[h].motorcycle += types.motorcycle || 0;
+        hours[h].bus        += types.bus        || 0;
+        hours[h].truck      += types.truck      || 0;
       }
     });
 
     const curH = new Date().getHours();
-    const camLabel = camId ? (cfg.cameras||[]).find(c=>c.id===camId)?.name || camId : 'tất cả camera';
+    const camLabel = camId ? (cfg.cameras||[]).find(c=>c.id===camId)?.name || camId : 'Tất cả camera';
     info.textContent = `${camLabel} — ${date} — ${(slots||[]).length} ô 5 phút`;
 
     body.innerHTML = hours.map((h, i) => {
       const classified = h.car + h.motorcycle + h.bus + h.truck;
-      // Use the raw N total (includes unclassified); fall back to DT sum if N=0.
       const rowTotal = h.n || classified;
       grandCar   += h.car;
       grandMoto  += h.motorcycle;
@@ -2098,10 +2186,10 @@ async function loadDetailTab() {
       const rowStyle = isCur ? 'background:var(--surface2);font-weight:600' : '';
       return `<tr style="${rowStyle}">
         <td>${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
-        <td style="text-align:right">${h.car      || '—'}</td>
+        <td style="text-align:right">${h.car       || '—'}</td>
         <td style="text-align:right">${h.motorcycle|| '—'}</td>
-        <td style="text-align:right">${h.bus       || '—'}</td>
-        <td style="text-align:right">${h.truck     || '—'}</td>
+        <td style="text-align:right">${h.bus        || '—'}</td>
+        <td style="text-align:right">${h.truck      || '—'}</td>
         <td style="text-align:right;font-weight:700;color:var(--accent)">${rowTotal || '—'}</td>
       </tr>`;
     }).join('');
@@ -2114,10 +2202,67 @@ async function loadDetailTab() {
       <td style="text-align:right">${grandTruck.toLocaleString()}</td>
       <td style="text-align:right;color:var(--accent)">${grandN.toLocaleString()}</td>
     </tr>`;
+
+    // Cache for export
+    _detailExportData = {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, allDirs:[...allDirs]};
+    btnExp.style.display = '';
   } catch(e) {
     info.textContent = '';
     body.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr>`;
   }
+}
+
+function exportDetailCSV() {
+  if (!_detailExportData) return;
+  const {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, allDirs} = _detailExportData;
+
+  const hasDirs = allDirs.length > 0;
+  const dirCols = allDirs.map(d => DIR_LABEL[d] || d);
+
+  // Build header
+  const baseHdr = ['Giờ', 'Ô tô', 'Xe máy', 'Xe buýt', 'Xe tải', 'Tổng'];
+  const dirHdr  = hasDirs ? allDirs.map(d => `Hướng: ${DIR_LABEL[d]||d}`) : [];
+  const header  = [...baseHdr, ...dirHdr];
+
+  const rows = [
+    [`Camera: ${camLabel}`],
+    [`Ngày: ${date}`],
+    [],
+    header,
+  ];
+
+  hours.forEach((h, i) => {
+    const classified = h.car + h.motorcycle + h.bus + h.truck;
+    const rowTotal = h.n || classified;
+    const base = [
+      `${String(i).padStart(2,'0')}:00`,
+      h.car || 0,
+      h.motorcycle || 0,
+      h.bus || 0,
+      h.truck || 0,
+      rowTotal || 0,
+    ];
+    const dirs = hasDirs ? allDirs.map(d => h.dirs[d] || 0) : [];
+    rows.push([...base, ...dirs]);
+  });
+
+  // Grand total row
+  rows.push([]);
+  rows.push(['Tổng ngày', grandCar, grandMoto, grandBus, grandTruck, grandN,
+    ...(hasDirs ? allDirs.map(d => hours.reduce((s,h)=>s+(h.dirs[d]||0),0)) : [])]);
+
+  const csv = rows.map(r => r.map(v => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(',')).join('\r\n');
+
+  const bom = '﻿'; // UTF-8 BOM for Excel
+  const blob = new Blob([bom + csv], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `luuluong_${camLabel.replace(/[^a-z0-9]/gi,'_')}_${date}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 </script>
 </body>
