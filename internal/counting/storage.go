@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -302,9 +303,11 @@ func (s *dailyStore) getSlots(date, camID string) ([]*Slot5, error) {
 	if camID == "" {
 		return all, nil
 	}
+	// Match exact cam ID or worker-prefixed variant (e.g. "workerID:camID").
+	suffix := ":" + camID
 	filtered := all[:0]
 	for _, sl := range all {
-		if sl.Cam == camID {
+		if sl.Cam == camID || strings.HasSuffix(sl.Cam, suffix) {
 			filtered = append(filtered, sl)
 		}
 	}

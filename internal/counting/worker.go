@@ -37,10 +37,11 @@ type CameraWorker struct {
 
 func newCameraWorker(cam CameraConfig, store *dailyStore) *CameraWorker {
 	return &CameraWorker{
-		cam:       cam,
-		store:     store,
-		client:    &http.Client{Timeout: 5 * time.Second},
-		startedAt: time.Now().Unix(),
+		cam:         cam,
+		store:       store,
+		client:      &http.Client{Timeout: 5 * time.Second},
+		startedAt:   time.Now().Unix(),
+		lastEventTs: time.Now().Unix(), // skip events that predate this session
 	}
 }
 

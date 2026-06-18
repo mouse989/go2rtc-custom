@@ -969,10 +969,14 @@ async function loadTodayMatrix() {
     const tot = {}; // camId → {total,down,up,right,left,car,motorcycle,bus,truck}
     (slots||[]).forEach(sl => {
       if (!sl.cam) return;
+      // Remote slots are stored with "workerID:camID" prefix; alias to unprefixed
+      // so the camera table (which uses cfg cam IDs) can find file-based fallback data.
+      const localId = sl.cam.includes(':') ? sl.cam.split(':').pop() : sl.cam;
+      const keys = localId !== sl.cam ? [sl.cam, localId] : [sl.cam];
+      // Build matrix under the original key only (avoid duplicate DT accumulation).
       if (!tot[sl.cam]) tot[sl.cam] = {total:0,down:0,up:0,right:0,left:0,car:0,motorcycle:0,bus:0,truck:0};
       const t = tot[sl.cam];
       t.total += sl.n || 0;
-      // Accumulate direction×type from DT map.
       for (const [dir, types] of Object.entries(sl.dt || {})) {
         for (const [vt, cnt] of Object.entries(types)) {
           t[dir] = (t[dir] || 0) + cnt;
@@ -981,6 +985,11 @@ async function loadTodayMatrix() {
           if (!m[sl.cam][dir]) m[sl.cam][dir] = {};
           m[sl.cam][dir][vt] = (m[sl.cam][dir][vt] || 0) + cnt;
         }
+      }
+      // Alias unprefixed key → same object so camera table lookup works.
+      if (localId !== sl.cam) {
+        tot[localId] = tot[sl.cam];
+        m[localId]   = m[sl.cam];
       }
     });
     todayMatrix = m;
@@ -1827,14 +1836,14 @@ async function loadDetailTab() {
   try {
     const slots = await apiFetch(url);
 
-    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, total}
-    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, total:0}));
-    let grandCar=0, grandMoto=0, grandBus=0, grandTruck=0, grandTotal=0;
+    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, n (raw total)}
+    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0}));
+    let grandCar=0, grandMoto=0, grandBus=0, grandTruck=0, grandN=0;
 
     (slots||[]).forEach(sl => {
       const h = parseInt((sl.t||'00:00').split(':')[0], 10);
       if (h < 0 || h > 23) return;
-      hours[h].total += sl.n || 0;
+      hours[h].n += sl.n || 0;
       for (const types of Object.values(sl.dt || {})) {
         hours[h].car         += types.car         || 0;
         hours[h].motorcycle  += types.motorcycle  || 0;
@@ -1848,21 +1857,23 @@ async function loadDetailTab() {
     info.textContent = `${camLabel} — ${date} — ${(slots||[]).length} ô 5 phút`;
 
     body.innerHTML = hours.map((h, i) => {
+      const classified = h.car + h.motorcycle + h.bus + h.truck;
+      // Use the raw N total (includes unclassified); fall back to DT sum if N=0.
+      const rowTotal = h.n || classified;
       grandCar   += h.car;
       grandMoto  += h.motorcycle;
       grandBus   += h.bus;
       grandTruck += h.truck;
-      grandTotal += h.total;
+      grandN     += rowTotal;
       const isCur = (i === curH && date === today());
       const rowStyle = isCur ? 'background:var(--surface2);font-weight:600' : '';
-      const total = h.total || (h.car + h.motorcycle + h.bus + h.truck);
       return `<tr style="${rowStyle}">
         <td>${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
         <td style="text-align:right">${h.car      || '—'}</td>
         <td style="text-align:right">${h.motorcycle|| '—'}</td>
         <td style="text-align:right">${h.bus       || '—'}</td>
         <td style="text-align:right">${h.truck     || '—'}</td>
-        <td style="text-align:right;font-weight:700;color:var(--accent)">${total || '—'}</td>
+        <td style="text-align:right;font-weight:700;color:var(--accent)">${rowTotal || '—'}</td>
       </tr>`;
     }).join('');
 
@@ -1872,7 +1883,7 @@ async function loadDetailTab() {
       <td style="text-align:right">${grandMoto.toLocaleString()}</td>
       <td style="text-align:right">${grandBus.toLocaleString()}</td>
       <td style="text-align:right">${grandTruck.toLocaleString()}</td>
-      <td style="text-align:right;color:var(--accent)">${grandTotal.toLocaleString()}</td>
+      <td style="text-align:right;color:var(--accent)">${grandN.toLocaleString()}</td>
     </tr>`;
   } catch(e) {
     info.textContent = '';

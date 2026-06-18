@@ -19,11 +19,19 @@ echo "=== Building yolo_counter for Linux ==="
 echo "Repo: $REPO_ROOT"
 echo "Python: $(python3 --version 2>&1)"
 
-# Auto-detect NVIDIA GPU
+# Auto-detect NVIDIA GPU and validate CUDA version (need >= 12.1 for cu121 wheels).
 GPU=0
 if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null 2>&1; then
-    GPU=1
-    echo "GPU: NVIDIA detected → CUDA build"
+    CUDA_VER=$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | awk '{print $NF}')
+    CUDA_MAJ=$(echo "${CUDA_VER:-0.0}" | cut -d. -f1)
+    CUDA_MIN=$(echo "${CUDA_VER:-0.0}" | cut -d. -f2)
+    if [ "${CUDA_MAJ:-0}" -gt 12 ] || { [ "${CUDA_MAJ:-0}" -eq 12 ] && [ "${CUDA_MIN:-0}" -ge 1 ]; }; then
+        GPU=1
+        echo "GPU: NVIDIA detected, CUDA $CUDA_VER → CUDA build"
+    else
+        echo "GPU: NVIDIA detected but CUDA $CUDA_VER < 12.1 → falling back to CPU build"
+        echo "     To enable GPU, update your driver: https://www.nvidia.com/Download/index.aspx"
+    fi
 else
     echo "GPU: none detected → CPU-only build"
 fi
