@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -41,7 +42,7 @@ func newCameraWorker(cam CameraConfig, store *dailyStore) *CameraWorker {
 		store:       store,
 		client:      &http.Client{Timeout: 5 * time.Second},
 		startedAt:   time.Now().Unix(),
-		lastEventTs: time.Now().Unix(), // skip events that predate this session
+		lastEventTs: 0, // Python creates fresh CameraState on each add_camera; start from 0
 	}
 }
 
@@ -229,7 +230,7 @@ type yoloEvent struct {
 // pollEvents fetches new events from the YOLO service since the last seen timestamp.
 func (w *CameraWorker) pollEvents() {
 	url := fmt.Sprintf("%s/events?camera=%s&since=%d&limit=50",
-		w.yoloBaseURL(), w.cam.ID, w.lastEventTs)
+		w.yoloBaseURL(), url.QueryEscape(w.cam.ID), w.lastEventTs)
 
 	resp, err := w.client.Get(url)
 	if err != nil {

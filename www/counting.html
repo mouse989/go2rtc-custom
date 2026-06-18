@@ -489,6 +489,36 @@
           <span id="drawHint" style="font-size:.74rem;color:var(--text-secondary)"></span>
         </div>
         <div id="linesList" style="margin-top:8px"></div>
+        <!-- Inline line naming / editing form -->
+        <div id="lineNamingForm" style="display:none;margin-top:8px;background:var(--surface2);border:1px solid var(--accent);border-radius:8px;padding:12px">
+          <div style="font-size:.83rem;font-weight:700;margin-bottom:10px;color:var(--accent)">✎ Cấu hình đường đếm</div>
+          <div class="form-row" style="margin-bottom:8px">
+            <label>Tên đường</label>
+            <input type="text" id="lnName" placeholder="Ví dụ: Đường chính">
+          </div>
+          <div style="font-size:.78rem;color:var(--text-secondary);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:6px">
+            💡 Mũi tên trắng trên ảnh chỉ hướng đếm. Nhấn <strong>Đổi chiều</strong> nếu mũi tên sai hướng.
+          </div>
+          <div class="form-row" style="margin-bottom:8px">
+            <label>Tên hướng đếm (chiều mũi tên →)</label>
+            <input type="text" id="lnNameA" placeholder="Ví dụ: Ra, Vào, Hướng Bắc…" oninput="drawPreview()">
+          </div>
+          <div style="margin-bottom:8px">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="flipArrow()">⇄ Đổi chiều mũi tên</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:.82rem">
+            <input type="checkbox" id="lnBothWays" style="width:auto" onchange="toggleBothWays()">
+            <label for="lnBothWays" style="margin:0;cursor:pointer">Đếm cả 2 chiều (đường hai chiều)</label>
+          </div>
+          <div id="lnNameBRow" class="form-row" style="display:none;margin-bottom:8px">
+            <label>Tên hướng ngược lại</label>
+            <input type="text" id="lnNameB" placeholder="Ví dụ: Vào, Ra…">
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="cancelLineNaming()">Huỷ</button>
+            <button class="btn btn-primary btn-sm" type="button" onclick="confirmLine()">✓ Xác nhận</button>
+          </div>
+        </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
@@ -551,6 +581,9 @@ let todayTotals = {}; // camId → {total, dirs:{dirName:count}, car, motorcycle
 let canvasLines = []; // [{id, name, x1, y1, x2, y2, nameA, nameB}]
 let drawMode   = false;
 let drawP1     = null; // {x, y} normalized, set after first click
+let pendingLine = null;      // {x1,y1,x2,y2} — line just drawn, awaiting naming
+let pendingFlipped = false;  // arrow is on left side instead of right
+let editingLineIndex = -1;   // ≥0 when editing canvasLines[i] via inline form
 const LINE_COLORS = ['#00e600','#00dcdc','#e6a000','#e600e6','#e60000','#0080ff'];
 
 const today = () => new Date().toISOString().slice(0,10);
@@ -1211,6 +1244,9 @@ async function goStep2() {
   document.getElementById('mEnabled').checked = true;
   canvasLines = [];
   drawMode = false; drawP1 = null; hoverPoint = null;
+  pendingLine = null; pendingFlipped = false; editingLineIndex = -1;
+  document.getElementById('lineNamingForm').style.display = 'none';
+  document.getElementById('btnDrawLine').style.display = '';
   renderLinesList();
   await populateWorkerDropdown('');
   showStep(2);
@@ -1338,6 +1374,49 @@ function drawPreview() {
     ctx.restore();
   });
 
+  // Draw pending line (awaiting naming confirmation)
+  if (pendingLine) {
+    const ln = pendingLine;
+    const color = LINE_COLORS[canvasLines.length % LINE_COLORS.length];
+    const x1 = ln.x1*W, y1 = ln.y1*H, x2 = ln.x2*W, y2 = ln.y2*H;
+    const lw = Math.max(2, W/160);
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.setLineDash([8,4]); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 3;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    ctx.setLineDash([]); ctx.shadowBlur = 0;
+    [[x1,y1],[x2,y2]].forEach(([px,py]) => {
+      ctx.beginPath(); ctx.arc(px,py,4,0,Math.PI*2); ctx.fillStyle=color; ctx.fill();
+    });
+    const dx = x2-x1, dy = y2-y1, plen = Math.sqrt(dx*dx+dy*dy);
+    if (plen > 0) {
+      let nx = dy/plen, ny = -dx/plen;
+      if (pendingFlipped) { nx=-nx; ny=-ny; }
+      const pmx = (x1+x2)/2, pmy = (y1+y2)/2;
+      const aLen = Math.max(22, W/18);
+      const ax = pmx + nx*aLen, ay = pmy + ny*aLen;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(pmx,pmy); ctx.lineTo(ax,ay); ctx.stroke();
+      const ang = Math.atan2(ay-pmy, ax-pmx), as = 9;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.moveTo(ax,ay);
+      ctx.lineTo(ax-as*Math.cos(ang-0.5), ay-as*Math.sin(ang-0.5));
+      ctx.lineTo(ax-as*Math.cos(ang+0.5), ay-as*Math.sin(ang+0.5));
+      ctx.closePath(); ctx.fill();
+      const lnNameA = document.getElementById('lnNameA')?.value || '';
+      if (lnNameA) {
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(10, W/28)}px sans-serif`;
+        ctx.textAlign = nx >= 0 ? 'left' : 'right';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 3;
+        ctx.fillText(lnNameA, ax + nx*8, ay);
+        ctx.shadowBlur = 0;
+      }
+    }
+    ctx.restore();
+  }
+
   // Preview line while drawing (P1 set, hover tracking P2)
   if (drawMode && drawP1) {
     const px = drawP1.x*W, py = drawP1.y*H;
@@ -1373,30 +1452,19 @@ function handleCanvasClick(e) {
     drawPreview();
     return;
   }
-  // Complete the line
+  // P2 set — enter naming mode
   const p1 = drawP1;
   drawP1 = null;
   hoverPoint = null;
   drawMode = false;
-  document.getElementById('btnDrawLine').style.display = '';
   document.getElementById('btnCancelDraw').style.display = 'none';
   document.getElementById('drawHint').textContent = '';
-  document.getElementById('previewCanvas').style.cursor = 'crosshair';
+  document.getElementById('previewCanvas').style.cursor = 'default';
 
-  const defName = `Đường ${canvasLines.length+1}`;
-  const name  = prompt('Tên đường đếm:', defName) ?? defName;
-  const nameA = prompt(`Hướng A (mũi tên → khi nhìn từ điểm đầu đến điểm cuối, phía bên phải):`, 'Vào') ?? 'Vào';
-  const nameB = prompt(`Hướng B (ngược lại với hướng A):`, 'Ra') ?? 'Ra';
-
-  canvasLines.push({
-    id: `line_${Date.now()}`,
-    name: name || defName,
-    nameA: nameA || '',
-    nameB: nameB || '',
-    x1: p1.x, y1: p1.y,
-    x2: pt.x, y2: pt.y,
-  });
-  renderLinesList();
+  pendingLine = {x1: p1.x, y1: p1.y, x2: pt.x, y2: pt.y};
+  pendingFlipped = false;
+  editingLineIndex = -1;
+  showLineForm();
   drawPreview();
 }
 
@@ -1446,13 +1514,85 @@ function renderLinesList() {
 }
 
 function editLine(i) {
-  const ln = canvasLines[i];
-  const name  = prompt('Tên đường:', ln.name);
-  if (name  !== null) ln.name  = name;
-  const nameA = prompt('Hướng A (mũi tên bên phải khi nhìn P1→P2):', ln.nameA);
-  if (nameA !== null) ln.nameA = nameA;
-  const nameB = prompt('Hướng B (ngược lại):', ln.nameB);
-  if (nameB !== null) ln.nameB = nameB;
+  pendingLine = null;
+  pendingFlipped = false;
+  editingLineIndex = i;
+  showLineForm();
+}
+
+function showLineForm() {
+  if (editingLineIndex >= 0) {
+    const ln = canvasLines[editingLineIndex];
+    document.getElementById('lnName').value  = ln.name  || '';
+    document.getElementById('lnNameA').value = ln.nameA || '';
+    const hasB = !!(ln.nameB);
+    document.getElementById('lnBothWays').checked = hasB;
+    document.getElementById('lnNameB').value = ln.nameB || '';
+    document.getElementById('lnNameBRow').style.display = hasB ? '' : 'none';
+  } else {
+    const defName = `Đường ${canvasLines.length+1}`;
+    document.getElementById('lnName').value  = defName;
+    document.getElementById('lnNameA').value = 'Vào';
+    document.getElementById('lnBothWays').checked = false;
+    document.getElementById('lnNameB').value = 'Ra';
+    document.getElementById('lnNameBRow').style.display = 'none';
+  }
+  document.getElementById('lineNamingForm').style.display = '';
+  document.getElementById('btnDrawLine').style.display = 'none';
+  document.getElementById('btnCancelDraw').style.display = 'none';
+  drawPreview();
+}
+
+function hideLineForm() {
+  pendingLine = null;
+  pendingFlipped = false;
+  editingLineIndex = -1;
+  document.getElementById('lineNamingForm').style.display = 'none';
+  document.getElementById('btnDrawLine').style.display = '';
+  document.getElementById('btnCancelDraw').style.display = 'none';
+}
+
+function flipArrow() {
+  pendingFlipped = !pendingFlipped;
+  // Swap nameA/nameB field values so the label follows the arrow
+  const a = document.getElementById('lnNameA');
+  const b = document.getElementById('lnNameB');
+  [a.value, b.value] = [b.value, a.value];
+  drawPreview();
+}
+
+function toggleBothWays() {
+  document.getElementById('lnNameBRow').style.display =
+    document.getElementById('lnBothWays').checked ? '' : 'none';
+}
+
+function cancelLineNaming() {
+  hideLineForm();
+  drawPreview();
+}
+
+function confirmLine() {
+  const defName = `Đường ${canvasLines.length+1}`;
+  const name  = document.getElementById('lnName').value.trim()  || defName;
+  const nameA = document.getElementById('lnNameA').value.trim();
+  const nameB = document.getElementById('lnBothWays').checked
+    ? document.getElementById('lnNameB').value.trim() : '';
+
+  if (editingLineIndex >= 0) {
+    const ln = canvasLines[editingLineIndex];
+    ln.name  = name;
+    ln.nameA = nameA;
+    ln.nameB = nameB;
+    if (pendingFlipped) {
+      [ln.x1, ln.y1, ln.x2, ln.y2] = [ln.x2, ln.y2, ln.x1, ln.y1];
+    }
+  } else if (pendingLine) {
+    let {x1, y1, x2, y2} = pendingLine;
+    if (pendingFlipped) { [x1, y1, x2, y2] = [x2, y2, x1, y1]; }
+    canvasLines.push({id:`line_${Date.now()}`, name, nameA, nameB, x1, y1, x2, y2});
+  }
+
+  hideLineForm();
   renderLinesList();
   drawPreview();
 }
@@ -1536,6 +1676,9 @@ async function editCam(id) {
     }
   }
   drawMode = false; drawP1 = null; hoverPoint = null;
+  pendingLine = null; pendingFlipped = false; editingLineIndex = -1;
+  document.getElementById('lineNamingForm').style.display = 'none';
+  document.getElementById('btnDrawLine').style.display = '';
   renderLinesList();
 
   await populateWorkerDropdown(cam.workerId || '');
@@ -1550,6 +1693,7 @@ async function editCam(id) {
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   drawMode = false; drawP1 = null; hoverPoint = null;
+  hideLineForm();
 }
 function overlayClick(e) { if (e.target===document.getElementById('modalOverlay')) closeModal(); }
 
