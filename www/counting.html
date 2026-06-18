@@ -212,6 +212,7 @@
     <button class="tab-btn active" onclick="showTab('live',this)">Realtime</button>
     <button class="tab-btn" onclick="showTab('log',this)">Nhật ký sự kiện</button>
     <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
+    <button class="tab-btn" onclick="showTab('detail',this)">📊 Chi tiết lưu lượng</button>
     <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra YOLO</button>
     <button class="tab-btn" onclick="showTab('workers',this)">Máy chủ phân tích</button>
     <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
@@ -279,6 +280,39 @@
             </tr>
           </thead>
           <tbody id="histBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ DETAIL ══════════════ -->
+  <div id="tab-detail" class="tab-content" style="display:none">
+    <div class="section">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <label style="font-size:.82rem;font-weight:600">Camera:</label>
+        <select id="detailCamSel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+          <option value="">— Tất cả —</option>
+        </select>
+        <input type="date" id="detailDate" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+        <button class="btn btn-primary btn-sm" onclick="loadDetailTab()">Xem</button>
+        <span id="detailInfo" style="font-size:.78rem;color:var(--text-secondary)"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl" id="detailTable">
+          <thead>
+            <tr>
+              <th>Giờ</th>
+              <th style="text-align:right">🚗 Ô tô</th>
+              <th style="text-align:right">🏍 Xe máy</th>
+              <th style="text-align:right">🚌 Xe buýt</th>
+              <th style="text-align:right">🚛 Xe tải</th>
+              <th style="text-align:right;color:var(--accent)">Tổng</th>
+            </tr>
+          </thead>
+          <tbody id="detailBody">
+            <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-secondary)">Chọn camera và ngày rồi nhấn Xem</td></tr>
+          </tbody>
+          <tfoot id="detailFoot"></tfoot>
         </table>
       </div>
     </div>
@@ -542,7 +576,7 @@ let todayMatrix = {}; // camId → {dir → {type → count}}  (only classified 
 let todayTotals = {}; // camId → {total,down,up,right,left,car,motorcycle,bus,truck}  (all events)
 
 const today = () => new Date().toISOString().slice(0,10);
-const TABS  = ['live','log','history','debug','workers','settings'];
+const TABS  = ['live','log','history','detail','debug','workers','settings'];
 const VEHICLE_TYPES = ['car','motorcycle','bus','truck'];
 const TYPE_ICON = {car:'🚗',motorcycle:'🏍',bus:'🚌',truck:'🚛'};
 const DIR_LABEL = {down:'↓',up:'↑',right:'→',left:'←'};
@@ -554,6 +588,7 @@ const DIR_TITLE = {down:'Từ trên xuống',up:'Từ dưới lên',right:'Trái
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp('counting');
   document.getElementById('histDate').value = today();
+  document.getElementById('detailDate').value = today();
   document.getElementById('btnYoloRestart').addEventListener('click', applyYoloModel);
   await loadConfig();
   await loadTodayMatrix();
@@ -584,6 +619,7 @@ function showTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   if (name === 'history') loadHistory();
+  if (name === 'detail')  openDetailTab();
   if (name === 'log')     loadEvents();
   if (name === 'debug')   { openDebugTab(); checkYoloService(); }
   if (name !== 'debug')   stopDebugRefresh();
@@ -928,22 +964,24 @@ function renderBarChart(elemId, summaries, curHour=-1) {
 // ════════════════════════════════════════════════════════
 async function loadTodayMatrix() {
   try {
-    const events = await apiFetch('/api/counting/data?date='+today());
-    const m = {};   // direction×type breakdown (classified events only)
-    const tot = {}; // per-camera totals summed from all events
-    (events||[]).forEach(ev => {
-      const cnt = ev.count || 1;
-      // Accumulate totals for every event (with or without vehicleClass).
-      if (!tot[ev.cameraId]) tot[ev.cameraId] = {total:0,down:0,up:0,right:0,left:0,car:0,motorcycle:0,bus:0,truck:0};
-      const t = tot[ev.cameraId];
-      t.total += cnt;
-      if (ev.dir) t[ev.dir] = (t[ev.dir]||0) + cnt;
-      if (ev.vehicleClass) t[ev.vehicleClass] = (t[ev.vehicleClass]||0) + cnt;
-      // Direction×type matrix (only classified events).
-      if (!ev.dir || !ev.vehicleClass) return;
-      if (!m[ev.cameraId]) m[ev.cameraId] = {};
-      if (!m[ev.cameraId][ev.dir]) m[ev.cameraId][ev.dir] = {};
-      m[ev.cameraId][ev.dir][ev.vehicleClass] = (m[ev.cameraId][ev.dir][ev.vehicleClass]||0) + cnt;
+    const slots = await apiFetch('/api/counting/data?date='+today());
+    const m = {};   // camId → dir → vehicleClass → count (classified only)
+    const tot = {}; // camId → {total,down,up,right,left,car,motorcycle,bus,truck}
+    (slots||[]).forEach(sl => {
+      if (!sl.cam) return;
+      if (!tot[sl.cam]) tot[sl.cam] = {total:0,down:0,up:0,right:0,left:0,car:0,motorcycle:0,bus:0,truck:0};
+      const t = tot[sl.cam];
+      t.total += sl.n || 0;
+      // Accumulate direction×type from DT map.
+      for (const [dir, types] of Object.entries(sl.dt || {})) {
+        for (const [vt, cnt] of Object.entries(types)) {
+          t[dir] = (t[dir] || 0) + cnt;
+          t[vt]  = (t[vt]  || 0) + cnt;
+          if (!m[sl.cam]) m[sl.cam] = {};
+          if (!m[sl.cam][dir]) m[sl.cam][dir] = {};
+          m[sl.cam][dir][vt] = (m[sl.cam][dir][vt] || 0) + cnt;
+        }
+      }
     });
     todayMatrix = m;
     todayTotals = tot;
@@ -1754,6 +1792,92 @@ function startTrainPoll(workerId) {
 }
 function stopTrainPoll() {
   if (_trainPollTimer) { clearInterval(_trainPollTimer); _trainPollTimer = null; }
+}
+
+// ════════════════════════════════════════════════════════
+// Chi tiết lưu lượng — hourly breakdown by vehicle type
+// ════════════════════════════════════════════════════════
+function openDetailTab() {
+  // Populate camera selector from known statuses + cfg cameras.
+  const sel = document.getElementById('detailCamSel');
+  const cur = sel.value;
+  const cams = cfg.cameras || [];
+  sel.innerHTML = '<option value="">— Tất cả camera —</option>' +
+    cams.map(c => `<option value="${esc(c.id)}">${esc(c.name||c.id)}</option>`).join('');
+  if (cur) sel.value = cur;
+  // Default date to today if not set.
+  const dateEl = document.getElementById('detailDate');
+  if (!dateEl.value) dateEl.value = today();
+}
+
+async function loadDetailTab() {
+  const camId = document.getElementById('detailCamSel').value;
+  const date  = document.getElementById('detailDate').value || today();
+  const info  = document.getElementById('detailInfo');
+  const body  = document.getElementById('detailBody');
+  const foot  = document.getElementById('detailFoot');
+
+  info.textContent = 'Đang tải…';
+  body.innerHTML = '';
+  foot.innerHTML = '';
+
+  let url = '/api/counting/data?date=' + date;
+  if (camId) url += '&camera=' + encodeURIComponent(camId);
+
+  try {
+    const slots = await apiFetch(url);
+
+    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, total}
+    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, total:0}));
+    let grandCar=0, grandMoto=0, grandBus=0, grandTruck=0, grandTotal=0;
+
+    (slots||[]).forEach(sl => {
+      const h = parseInt((sl.t||'00:00').split(':')[0], 10);
+      if (h < 0 || h > 23) return;
+      hours[h].total += sl.n || 0;
+      for (const types of Object.values(sl.dt || {})) {
+        hours[h].car         += types.car         || 0;
+        hours[h].motorcycle  += types.motorcycle  || 0;
+        hours[h].bus         += types.bus         || 0;
+        hours[h].truck       += types.truck       || 0;
+      }
+    });
+
+    const curH = new Date().getHours();
+    const camLabel = camId ? (cfg.cameras||[]).find(c=>c.id===camId)?.name || camId : 'tất cả camera';
+    info.textContent = `${camLabel} — ${date} — ${(slots||[]).length} ô 5 phút`;
+
+    body.innerHTML = hours.map((h, i) => {
+      grandCar   += h.car;
+      grandMoto  += h.motorcycle;
+      grandBus   += h.bus;
+      grandTruck += h.truck;
+      grandTotal += h.total;
+      const isCur = (i === curH && date === today());
+      const rowStyle = isCur ? 'background:var(--surface2);font-weight:600' : '';
+      const total = h.total || (h.car + h.motorcycle + h.bus + h.truck);
+      return `<tr style="${rowStyle}">
+        <td>${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
+        <td style="text-align:right">${h.car      || '—'}</td>
+        <td style="text-align:right">${h.motorcycle|| '—'}</td>
+        <td style="text-align:right">${h.bus       || '—'}</td>
+        <td style="text-align:right">${h.truck     || '—'}</td>
+        <td style="text-align:right;font-weight:700;color:var(--accent)">${total || '—'}</td>
+      </tr>`;
+    }).join('');
+
+    foot.innerHTML = `<tr style="border-top:2px solid var(--border);font-weight:700">
+      <td>Tổng ngày</td>
+      <td style="text-align:right">${grandCar.toLocaleString()}</td>
+      <td style="text-align:right">${grandMoto.toLocaleString()}</td>
+      <td style="text-align:right">${grandBus.toLocaleString()}</td>
+      <td style="text-align:right">${grandTruck.toLocaleString()}</td>
+      <td style="text-align:right;color:var(--accent)">${grandTotal.toLocaleString()}</td>
+    </tr>`;
+  } catch(e) {
+    info.textContent = '';
+    body.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr>`;
+  }
 }
 </script>
 </body>

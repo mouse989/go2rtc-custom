@@ -102,24 +102,23 @@ func Init() {
 	registerAPI()
 	autoLaunchYolo() // auto-launch if yolo_counter.exe exists next to binary
 
-	// Register event importer so the workers module can push remote events
+	// Register event importer so the workers module can push remote slots
 	// into this server's counting store without a circular import.
-	workers.SetEventImporter(func(workerID, workerName string, raw json.RawMessage) error {
-		var evs []CountEvent
-		if err := json.Unmarshal(raw, &evs); err != nil {
+	workers.SetEventImporter(func(workerID, workerName, date string, raw json.RawMessage) error {
+		var slots []*Slot5
+		if err := json.Unmarshal(raw, &slots); err != nil {
 			return err
 		}
-		for i := range evs {
-			// Prefix cameraID and name so they don't collide with local cameras.
-			if !strings.HasPrefix(evs[i].CameraID, workerID+":") {
-				evs[i].CameraID = workerID + ":" + evs[i].CameraID
+		prefix := "[" + workerName + "] "
+		for _, sl := range slots {
+			// Prefix cam ID and name to avoid collisions with local cameras.
+			if !strings.HasPrefix(sl.Cam, workerID+":") {
+				sl.Cam = workerID + ":" + sl.Cam
 			}
-			if evs[i].Name != "" && !strings.HasPrefix(evs[i].Name, "["+workerName+"]") {
-				evs[i].Name = "[" + workerName + "] " + evs[i].Name
+			if sl.Name != "" && !strings.HasPrefix(sl.Name, prefix) {
+				sl.Name = prefix + sl.Name
 			}
-		}
-		for _, ev := range evs {
-			_ = mgr.store.append(ev)
+			mgr.store.addSlot(date, sl)
 		}
 		return nil
 	})

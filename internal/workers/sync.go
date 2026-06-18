@@ -299,5 +299,5 @@ func fetchAndImportDate(wk *Worker, date string) error {
 		return nil
 	}
 
-	return eventImporter(wk.ID, wk.Name, json.RawMessage(raw))
+	return eventImporter(wk.ID, wk.Name, date, json.RawMessage(raw))
 }
