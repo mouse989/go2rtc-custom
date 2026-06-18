@@ -327,10 +327,10 @@
     </div>
   </div>
 
-  <!-- ══════════════ DEBUG MOG2 ══════════════ -->
+  <!-- ══════════════ LIVE VIEW ══════════════ -->
   <div id="tab-debug" class="tab-content" style="display:none">
     <div class="section">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
         <label style="font-size:.82rem;font-weight:600">Camera:</label>
         <select id="debugCamSel" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem" onchange="openDebugCam()">
           <option value="">— Chọn camera —</option>
@@ -339,16 +339,21 @@
       </div>
       <div id="yoloSvcStatus" style="padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:.78rem;background:var(--surface2)">Đang kiểm tra dịch vụ YOLO…</div>
       <div class="debug-box">
-        <div id="debugImgWrap" style="text-align:center">
-          <div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh YOLO</div>
+        <!-- Placeholder -->
+        <div id="debugPlaceholder" style="padding:40px;text-align:center;color:var(--text-secondary);font-size:.85rem">
+          Chọn camera đang chạy để xem live stream + YOLO overlay
         </div>
-        <div class="debug-legend" id="debugLegend" style="display:none">
-          <span><span class="legend-dot" style="background:#00e600"></span>Ô tô (car)</span>
-          <span><span class="legend-dot" style="background:#ff00ff"></span>Xe máy (motorcycle)</span>
-          <span><span class="legend-dot" style="background:#00dcdc"></span>Xe buýt (bus)</span>
-          <span><span class="legend-dot" style="background:#ff8c00"></span>Xe tải (truck)</span>
-          <span><span class="legend-dot" style="background:#00e600"></span>Đường đếm ngang H (↑↓)</span>
-          <span><span class="legend-dot" style="background:#00dcdc"></span>Đường đếm dọc V (←→)</span>
+        <!-- Live view: go2rtc video (full FPS) + YOLO detection canvas overlay -->
+        <div id="debugLiveBox" style="position:relative;line-height:0;display:none">
+          <video-rtc id="debugVRTC" style="width:100%;display:block;border-radius:6px;overflow:hidden"></video-rtc>
+          <canvas id="debugOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;border-radius:6px"></canvas>
+        </div>
+        <div class="debug-legend" id="debugLegend" style="display:none;margin-top:8px">
+          <span><span class="legend-dot" style="background:#00C800"></span>Ô tô (car)</span>
+          <span><span class="legend-dot" style="background:#C800C8"></span>Xe máy (motorcycle)</span>
+          <span><span class="legend-dot" style="background:#00C8C8"></span>Xe buýt (bus)</span>
+          <span><span class="legend-dot" style="background:#C88C00"></span>Xe tải (truck)</span>
+          <span><span class="legend-dot" style="background:#FF6600"></span>Đường đếm</span>
         </div>
       </div>
     </div>
@@ -583,6 +588,18 @@ let pollTimer  = null;
 let logTimer   = null;
 let debugTimer = null;
 let logFrozen  = false;
+
+// Live view state
+let _debugSSE       = null;   // EventSource for YOLO SSE overlay
+let _debugAnimFrame = null;   // requestAnimationFrame handle for canvas loop
+let _debugOverlay   = null;   // latest SSE data payload
+let _debugCamLines  = [];     // counting lines for current camera
+let _debugCamId     = null;   // current camera ID
+
+// Dynamically import go2rtc's VideoRTC web component (WebRTC→MSE→HLS fallback)
+const _vrtcReady = import('/video-rtc.js').then(m => {
+  if (!customElements.get('video-rtc')) customElements.define('video-rtc', m.VideoRTC);
+}).catch(() => {});
 let todayMatrix = {}; // camId → {dir → {type → count}}  (only classified events)
 let todayTotals = {}; // camId → {total, dirs:{dirName:count}, car, motorcycle, bus, truck}
 
@@ -1185,45 +1202,167 @@ function openDebugTab() {
 function openDebugCam() {
   stopDebugRefresh();
   const id = document.getElementById('debugCamSel').value;
-  const wrap = document.getElementById('debugImgWrap');
   if (!id) {
-    wrap.innerHTML = '<div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh YOLO</div>';
+    document.getElementById('debugPlaceholder').style.display = '';
+    document.getElementById('debugLiveBox').style.display = 'none';
     document.getElementById('debugLegend').style.display = 'none';
     return;
   }
-  document.getElementById('debugLegend').style.display = '';
 
-  const token = localStorage.getItem('go2rtc_token') || '';
-  const streamUrl = `/api/counting/stream?camera=${encodeURIComponent(id)}&token=${token}`;
+  const cam = (cfg.cameras || []).find(c => c.id === id);
+  if (!cam) return;
 
-  // Use a persistent <img> pointed at the MJPEG stream endpoint — browser
-  // keeps the connection open and displays each frame as it arrives.
-  let img = wrap.querySelector('img.mjpeg-stream');
-  if (!img) {
-    wrap.innerHTML = '';
-    img = document.createElement('img');
-    img.className = 'mjpeg-stream';
-    img.style.cssText = 'max-width:100%;border-radius:6px;border:1px solid var(--border)';
-    img.onerror = () => {
-      wrap.innerHTML = '<div style="padding:30px;color:#d97706;font-size:.82rem;text-align:center">Chưa có frame — YOLO chưa xử lý frame nào.<br>Kiểm tra dịch vụ Python YOLO đã chạy và camera đang hoạt động.</div>';
+  _debugCamId    = id;
+  _debugCamLines = _buildCamLines(cam);
+  const token    = localStorage.getItem('go2rtc_token') || '';
+
+  // Wait for VideoRTC custom element to be defined (dynamic module import)
+  _vrtcReady.then(() => {
+    document.getElementById('debugPlaceholder').style.display = 'none';
+    document.getElementById('debugLiveBox').style.display = '';
+    document.getElementById('debugLegend').style.display = '';
+
+    // Point go2rtc's video player at the camera stream (WebRTC→MSE→HLS fallback)
+    const vrtc = document.getElementById('debugVRTC');
+    vrtc.src = `/api/ws?src=${encodeURIComponent(cam.streamName)}&token=${token}`;
+
+    // SSE for YOLO detection overlay data
+    const sseUrl = `/api/counting/sse?camera=${encodeURIComponent(id)}&token=${token}`;
+    _debugSSE = new EventSource(sseUrl);
+    _debugSSE.onmessage = e => {
+      try { _debugOverlay = JSON.parse(e.data); } catch(_) {}
     };
-    wrap.appendChild(img);
-  }
-  img.src = streamUrl;
+    _debugSSE.onerror = () => {
+      document.getElementById('debugStatus').textContent = 'SSE: mất kết nối YOLO service';
+    };
 
-  // Keep the status line updated every 2s (stats only, no JPEG polling)
-  debugTimer = setInterval(() => {
-    const st = statuses.find(c => c.id === id);
-    const info = st ? `Frames: ${st.framesProcessed||0}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}` : '';
-    document.getElementById('debugStatus').textContent = info;
-  }, 2000);
+    // Canvas animation loop
+    _drawOverlayLoop();
+
+    // Status text refresh
+    debugTimer = setInterval(() => {
+      const st = statuses.find(c => c.id === id);
+      if (st) document.getElementById('debugStatus').textContent =
+        `Frames: ${st.framesProcessed||0}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}`;
+    }, 2000);
+  });
 }
 
 function stopDebugRefresh() {
-  if (debugTimer) { clearInterval(debugTimer); debugTimer = null; }
-  // Disconnect the MJPEG stream by clearing the src
-  const img = document.querySelector('#debugImgWrap img.mjpeg-stream');
-  if (img) img.src = '';
+  if (_debugSSE)       { _debugSSE.close(); _debugSSE = null; }
+  if (_debugAnimFrame) { cancelAnimationFrame(_debugAnimFrame); _debugAnimFrame = null; }
+  if (debugTimer)      { clearInterval(debugTimer); debugTimer = null; }
+  _debugOverlay = null;
+  _debugCamId   = null;
+
+  const vrtc = document.getElementById('debugVRTC');
+  if (vrtc && vrtc.src !== undefined) vrtc.src = '';
+
+  document.getElementById('debugLiveBox').style.display = 'none';
+  document.getElementById('debugPlaceholder').style.display = '';
+  document.getElementById('debugLegend').style.display = 'none';
+  document.getElementById('debugStatus').textContent = '';
+}
+
+// Build normalized counting lines array from camera config (legacy + multi-line)
+function _buildCamLines(cam) {
+  if (cam.lines && cam.lines.length > 0) return cam.lines;
+  const lines = [];
+  if (cam.lineHPos > 0) lines.push({
+    id: '_h', x1: 0, y1: cam.lineHPos, x2: 1, y2: cam.lineHPos,
+    nameA: cam.countUp   ? 'Lên'    : '',
+    nameB: cam.countDown ? 'Xuống'  : '',
+  });
+  if (cam.lineVPos > 0) lines.push({
+    id: '_v', x1: cam.lineVPos, y1: 0, x2: cam.lineVPos, y2: 1,
+    nameA: cam.countLeft  ? 'Trái' : '',
+    nameB: cam.countRight ? 'Phải' : '',
+  });
+  return lines;
+}
+
+const _TRACK_COLORS = { car:'#00C800', motorcycle:'#C800C8', bus:'#00C8C8', truck:'#C88C00' };
+
+function _drawOverlayLoop() {
+  const canvas = document.getElementById('debugOverlay');
+  const vrtc   = document.getElementById('debugVRTC');
+  if (!canvas || !vrtc) return;
+
+  // Match canvas pixel dimensions to displayed element size
+  const W = vrtc.offsetWidth  || 640;
+  const H = vrtc.offsetHeight || 360;
+  if (canvas.width !== W)  canvas.width  = W;
+  if (canvas.height !== H) canvas.height = H;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const d = _debugOverlay;
+  if (d && d.fw > 0 && d.fh > 0) {
+    const sx = W / d.fw;
+    const sy = H / d.fh;
+
+    // ── Counting lines ──
+    ctx.lineWidth = 2;
+    for (const ln of _debugCamLines) {
+      const lx1 = ln.x1 * W, ly1 = ln.y1 * H;
+      const lx2 = ln.x2 * W, ly2 = ln.y2 * H;
+      ctx.strokeStyle = '#FF6600';
+      ctx.beginPath(); ctx.moveTo(lx1, ly1); ctx.lineTo(lx2, ly2); ctx.stroke();
+      ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#FF6600';
+      if (ln.nameA) ctx.fillText(ln.nameA, lx1 + 4, ly1 - 5);
+      if (ln.nameB) ctx.fillText(ln.nameB, lx2 + 4, ly2 + 14);
+    }
+
+    // ── Tracks (bboxes + labels + trails) ──
+    for (const tr of (d.tracks || [])) {
+      const col  = _TRACK_COLORS[tr.cls] || '#888888';
+      const bx   = tr.x1 * sx, by  = tr.y1 * sy;
+      const bw   = (tr.x2 - tr.x1) * sx;
+      const bh   = (tr.y2 - tr.y1) * sy;
+
+      // Bounding box
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      // Label with background
+      const label = `#${tr.id} ${tr.cls}`;
+      ctx.font = '11px monospace';
+      const lw = ctx.measureText(label).width + 6;
+      ctx.fillStyle = col + 'CC';
+      ctx.fillRect(bx, by - 16, lw, 15);
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, bx + 3, by - 4);
+
+      // Trajectory trail
+      const trail = tr.trail || [];
+      if (trail.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(trail[0][0] * sx, trail[0][1] * sy);
+        for (let i = 1; i < trail.length; i++)
+          ctx.lineTo(trail[i][0] * sx, trail[i][1] * sy);
+        ctx.strokeStyle = col + '99'; ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+
+    // ── Count badge (top-right corner) ──
+    const counts = d.counts || {};
+    const lines2 = [`Tổng: ${d.total}`];
+    for (const [dir, types] of Object.entries(counts)) {
+      const s = Object.values(types).reduce((a, b) => a + b, 0);
+      if (s > 0) lines2.push(`${dir}: ${s}`);
+    }
+    ctx.font = 'bold 12px monospace';
+    const bw2 = Math.max(...lines2.map(p => ctx.measureText(p).width)) + 14;
+    const bh2 = lines2.length * 16 + 8;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(W - bw2 - 4, 4, bw2, bh2);
+    ctx.fillStyle = '#fff';
+    lines2.forEach((p, i) => ctx.fillText(p, W - bw2, 4 + 16 + i * 16));
+  }
+
+  _debugAnimFrame = requestAnimationFrame(_drawOverlayLoop);
 }
 
 async function checkYoloService() {
