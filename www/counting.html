@@ -476,46 +476,19 @@
         <input type="text" id="mName" placeholder="Ví dụ: Ngã tư Lê Lợi">
       </div>
 
-      <!-- Canvas preview -->
+      <!-- Canvas + multi-line editor -->
       <div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <label style="font-size:.78rem;font-weight:600;color:var(--text-secondary)">Xem trước (kéo để đặt đường đếm)</label>
+          <label style="font-size:.78rem;font-weight:600;color:var(--text-secondary)" id="canvasHint">Nhấp trên ảnh để vẽ đường đếm</label>
           <button class="btn btn-ghost btn-sm" onclick="refreshPreview()">↺ Refresh</button>
         </div>
-        <canvas id="previewCanvas" style="max-height:200px;object-fit:contain"></canvas>
-      </div>
-
-      <!-- Line H (horizontal) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <label class="dir-check">
-          <input type="checkbox" id="mHEnable" onchange="drawPreview()"> Đường ngang (H)
-        </label>
-        <span style="font-size:.78rem;color:var(--text-secondary)">Vị trí Y:</span>
-        <input type="range" id="mHPos" min="0.05" max="0.95" step="0.01" value="0.50"
-          style="flex:1" oninput="syncSlider('H');drawPreview()">
-        <span id="mHPosVal" style="font-size:.78rem;min-width:34px;text-align:right">0.50</span>
-      </div>
-      <!-- Line V (vertical) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-        <label class="dir-check">
-          <input type="checkbox" id="mVEnable" onchange="drawPreview()"> Đường dọc (V)
-        </label>
-        <span style="font-size:.78rem;color:var(--text-secondary)">Vị trí X:</span>
-        <input type="range" id="mVPos" min="0.05" max="0.95" step="0.01" value="0.50"
-          style="flex:1" oninput="syncSlider('V');drawPreview()">
-        <span id="mVPosVal" style="font-size:.78rem;min-width:34px;text-align:right">0.50</span>
-      </div>
-
-      <!-- Direction checkboxes -->
-      <div class="form-row">
-        <label>Hướng đếm</label>
-        <div class="form-row dir-row">
-          <label class="dir-check"><input type="checkbox" id="mDown"> ↓ Trên xuống</label>
-          <label class="dir-check"><input type="checkbox" id="mUp"> ↑ Dưới lên</label>
-          <label class="dir-check"><input type="checkbox" id="mRight"> → Trái qua phải</label>
-          <label class="dir-check"><input type="checkbox" id="mLeft"> ← Phải qua trái</label>
+        <canvas id="previewCanvas" style="max-height:220px;object-fit:contain;cursor:crosshair;border-radius:4px;border:1px solid var(--border)"></canvas>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" id="btnDrawLine" onclick="startDrawingLine()">✏ Vẽ đường mới</button>
+          <button class="btn btn-danger btn-sm" id="btnCancelDraw" onclick="cancelDrawingLine()" style="display:none">✕ Huỷ vẽ</button>
+          <span id="drawHint" style="font-size:.74rem;color:var(--text-secondary)"></span>
         </div>
-        <div style="font-size:.73rem;color:var(--text-secondary);margin-top:4px">H-line: đếm ↑↓ | V-line: đếm ←→</div>
+        <div id="linesList" style="margin-top:8px"></div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
@@ -571,9 +544,14 @@ let pollTimer  = null;
 let logTimer   = null;
 let debugTimer = null;
 let logFrozen  = false;
-let dragTarget = null; // 'H' or 'V'
 let todayMatrix = {}; // camId → {dir → {type → count}}  (only classified events)
-let todayTotals = {}; // camId → {total,down,up,right,left,car,motorcycle,bus,truck}  (all events)
+let todayTotals = {}; // camId → {total, dirs:{dirName:count}, car, motorcycle, bus, truck}
+
+// Multi-line canvas editor state
+let canvasLines = []; // [{id, name, x1, y1, x2, y2, nameA, nameB}]
+let drawMode   = false;
+let drawP1     = null; // {x, y} normalized, set after first click
+const LINE_COLORS = ['#00e600','#00dcdc','#e6a000','#e600e6','#e60000','#0080ff'];
 
 const today = () => new Date().toISOString().slice(0,10);
 const TABS  = ['live','log','history','detail','debug','workers','settings'];
@@ -599,13 +577,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   logTimer  = setInterval(loadEvents, 3000);
 
   const canvas = document.getElementById('previewCanvas');
-  canvas.addEventListener('mousedown', e => { dragTarget = pickDragTarget(e); startDrag(e); });
-  canvas.addEventListener('mousemove', e => { if (dragTarget) dodrag(e); });
-  canvas.addEventListener('mouseup',   () => { dragTarget = null; });
-  canvas.addEventListener('mouseleave',() => { dragTarget = null; });
-  canvas.addEventListener('touchstart', e => { dragTarget = pickDragTarget(e.touches[0]); startDrag(e.touches[0]); }, {passive:true});
-  canvas.addEventListener('touchmove',  e => { if(dragTarget) dodrag(e.touches[0]); }, {passive:true});
-  canvas.addEventListener('touchend',   () => { dragTarget = null; });
+  canvas.addEventListener('click',     handleCanvasClick);
+  canvas.addEventListener('mousemove', handleCanvasHover);
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); handleCanvasClick(e.touches[0]); }, {passive:false});
 });
 
 // ════════════════════════════════════════════════════════
@@ -844,11 +818,20 @@ function renderCamTable() {
 
     // Direction totals: live value when running; file value when stopped.
     const dirLiveOrFile = d => {
-      const live = d==='down'?c.totalDown:d==='up'?c.totalUp:d==='right'?c.totalRight:c.totalLeft;
-      return live || (ft?.[d] || 0);
+      // Fixed legacy directions have dedicated fields on the live status
+      const fixedLive = d==='down'?c.totalDown:d==='up'?c.totalUp:d==='right'?c.totalRight:d==='left'?c.totalLeft:0;
+      if (fixedLive) return fixedLive;
+      // For any direction (including custom names), try DT sum from live data
+      const liveSum = VEHICLE_TYPES.reduce((s,t) => s+(liveDTC[d]?.[t]||0), 0);
+      if (liveSum) return liveSum;
+      // File fallback
+      return (ft?.dirs?.[d] || ft?.[d] || 0);
     };
 
-    const DIRS_ACTIVE = ['down','up','right','left'].filter(d => {
+    // Collect all directions with any data (live or file, fixed or custom)
+    const allDirSet = new Set([...Object.keys(liveDTC), ...Object.keys(mx)]);
+    ['down','up','right','left'].forEach(d => { if (dirLiveOrFile(d)) allDirSet.add(d); });
+    const DIRS_ACTIVE = [...allDirSet].filter(d => {
       if (dirLiveOrFile(d)) return true;
       return mergedDTC[d] && VEHICLE_TYPES.some(t => (mergedDTC[d][t]||0)>0);
     });
@@ -877,8 +860,10 @@ function renderCamTable() {
           const typeVals = VEHICLE_TYPES.map(t => mergedDTC[d]?.[t] || 0);
           const rowTotal = typeVals.reduce((a,b)=>a+b,0);
           const displayTotal = dirLiveOrFile(d) || rowTotal;
+          const dLabel = DIR_LABEL[d] || d;
+          const dTitle = DIR_TITLE[d] || d;
           statsHtml += `<tr>
-            <td style="padding:1px 5px 1px 0;color:var(--accent);font-weight:600" title="${DIR_TITLE[d]}">${DIR_LABEL[d]}</td>
+            <td style="padding:1px 5px 1px 0;color:var(--accent);font-weight:600" title="${esc(dTitle)}">${esc(dLabel)}</td>
             ${typeVals.map(v=>`<td style="padding:1px 5px;text-align:right;color:var(--text-secondary)">${v||'—'}</td>`).join('')}
             <td style="padding:1px 0 1px 5px;text-align:right;font-weight:700">${displayTotal}</td>
           </tr>`;
@@ -966,27 +951,26 @@ async function loadTodayMatrix() {
   try {
     const slots = await apiFetch('/api/counting/data?date='+today());
     const m = {};   // camId → dir → vehicleClass → count (classified only)
-    const tot = {}; // camId → {total,down,up,right,left,car,motorcycle,bus,truck}
+    const tot = {}; // camId → {total, dirs:{dirName:count}, car, motorcycle, bus, truck}
     (slots||[]).forEach(sl => {
       if (!sl.cam) return;
-      // Remote slots are stored with "workerID:camID" prefix; alias to unprefixed
-      // so the camera table (which uses cfg cam IDs) can find file-based fallback data.
       const localId = sl.cam.includes(':') ? sl.cam.split(':').pop() : sl.cam;
-      const keys = localId !== sl.cam ? [sl.cam, localId] : [sl.cam];
-      // Build matrix under the original key only (avoid duplicate DT accumulation).
-      if (!tot[sl.cam]) tot[sl.cam] = {total:0,down:0,up:0,right:0,left:0,car:0,motorcycle:0,bus:0,truck:0};
+      if (!tot[sl.cam]) tot[sl.cam] = {total:0, dirs:{}, car:0, motorcycle:0, bus:0, truck:0};
       const t = tot[sl.cam];
       t.total += sl.n || 0;
       for (const [dir, types] of Object.entries(sl.dt || {})) {
         for (const [vt, cnt] of Object.entries(types)) {
-          t[dir] = (t[dir] || 0) + cnt;
-          t[vt]  = (t[vt]  || 0) + cnt;
+          t.dirs[dir] = (t.dirs[dir] || 0) + cnt;
+          // Also maintain legacy fixed-name fields for backward compat
+          if (dir === 'down' || dir === 'up' || dir === 'right' || dir === 'left') {
+            t[dir] = (t[dir] || 0) + cnt;
+          }
+          t[vt] = (t[vt] || 0) + cnt;
           if (!m[sl.cam]) m[sl.cam] = {};
           if (!m[sl.cam][dir]) m[sl.cam][dir] = {};
           m[sl.cam][dir][vt] = (m[sl.cam][dir][vt] || 0) + cnt;
         }
       }
-      // Alias unprefixed key → same object so camera table lookup works.
       if (localId !== sl.cam) {
         tot[localId] = tot[sl.cam];
         m[localId]   = m[sl.cam];
@@ -1019,7 +1003,7 @@ async function loadEvents() {
     newEvs.forEach(ev => {
       const row = document.createElement('div');
       row.className = 'log-row';
-      const dirArrow = ev.dir ? `<span class="log-dir" title="${DIR_TITLE[ev.dir]||ev.dir}">${DIR_LABEL[ev.dir]||ev.dir}</span>` : '';
+      const dirArrow = ev.dir ? `<span class="log-dir" title="${esc(DIR_TITLE[ev.dir]||ev.dir)}">${esc(DIR_LABEL[ev.dir]||ev.dir)}</span>` : '';
       const typeIcon = ev.vehicleClass ? `<span class="log-dir" title="${ev.vehicleClass}">${TYPE_ICON[ev.vehicleClass]||'🚗'}</span>` : '';
       row.innerHTML = `
         <span class="log-ts">${fmtTime(ev.ts)}</span>
@@ -1222,20 +1206,12 @@ async function goStep2() {
   }
   document.getElementById('mErr').textContent = '';
   document.getElementById('s2Stream').textContent = stream;
-  // Defaults
-  document.getElementById('mHEnable').checked = true;
-  document.getElementById('mHPos').value = '0.50';
-  document.getElementById('mHPosVal').textContent = '0.50';
-  document.getElementById('mVEnable').checked = false;
-  document.getElementById('mVPos').value = '0.50';
-  document.getElementById('mVPosVal').textContent = '0.50';
-  document.getElementById('mDown').checked = true;
-  document.getElementById('mUp').checked   = true;
-  document.getElementById('mRight').checked= false;
-  document.getElementById('mLeft').checked = false;
   document.getElementById('mFps').value  = '0';
   document.getElementById('mTier').value = '1';
   document.getElementById('mEnabled').checked = true;
+  canvasLines = [];
+  drawMode = false; drawP1 = null; hoverPoint = null;
+  renderLinesList();
   await populateWorkerDropdown('');
   showStep(2);
   refreshPreview();
@@ -1248,21 +1224,15 @@ function showStep(n) {
 }
 
 // ════════════════════════════════════════════════════════
-// Modal — Step 2: Canvas preview
+// Modal — Step 2: Multi-line canvas editor
 // ════════════════════════════════════════════════════════
 let previewImg = null;
-
-function syncSlider(axis) {
-  const val = parseFloat(document.getElementById('m'+axis+'Pos').value).toFixed(2);
-  document.getElementById('m'+axis+'PosVal').textContent = val;
-}
+let hoverPoint = null; // normalized {x,y} for preview during drawing
 
 async function refreshPreview() {
   const stream = document.getElementById('s2Stream').textContent;
   if (!stream) return;
   const token = localStorage.getItem('go2rtc_token')||'';
-  const url = `/api/proxy/frame?name=${encodeURIComponent(stream)}&token=${token}&_=${Date.now()}`;
-  // Try proxy endpoint first (snapshot-based), then fall back to frame.jpeg
   const urls = [
     `/api/proxy/frame?name=${encodeURIComponent(stream)}&token=${token}&_=${Date.now()}`,
     `/api/frame.jpeg?src=${encodeURIComponent(stream)}&width=480&_=${Date.now()}&token=${token}`
@@ -1289,7 +1259,7 @@ async function refreshPreview() {
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Không lấy được snapshot — snapshot sẽ có sau khi hệ thống chạy', 160, 90);
+    ctx.fillText('Không lấy được snapshot — sẽ có sau khi hệ thống chạy', 160, 90);
     previewImg = null;
   }
   drawPreview();
@@ -1310,87 +1280,186 @@ function drawPreview() {
   }
 
   const W = canvas.width, H = canvas.height;
-  const lw = Math.max(2, W/160);
 
-  // Horizontal line (green)
-  if (document.getElementById('mHEnable').checked) {
-    const pos = parseFloat(document.getElementById('mHPos').value);
-    const y = H * pos;
+  // Draw each configured line
+  canvasLines.forEach((ln, i) => {
+    const color = LINE_COLORS[i % LINE_COLORS.length];
+    const x1 = ln.x1*W, y1 = ln.y1*H, x2 = ln.x2*W, y2 = ln.y2*H;
+    const lw  = Math.max(2, W/160);
+
     ctx.save();
-    ctx.strokeStyle = '#00e600';
+    ctx.strokeStyle = color;
     ctx.lineWidth   = lw;
-    ctx.setLineDash([10,5]);
-    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.setLineDash([8,4]);
+    ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 3;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.setLineDash([]); ctx.shadowBlur = 0;
+
+    // Endpoint dots
+    [x1,y1,x2,y2].forEach((_, k, a) => {
+      if (k%2) { ctx.beginPath(); ctx.arc(a[k-1],a[k],4,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); }
+    });
+
+    // Direction arrow (nameA direction = right side of P1→P2)
+    const dx = x2-x1, dy = y2-y1, len = Math.sqrt(dx*dx+dy*dy);
+    if (len > 0) {
+      const nx = dy/len, ny = -dx/len; // perpendicular right of P1→P2
+      const mx = (x1+x2)/2, my = (y1+y2)/2;
+      const aLen = Math.max(16, W/22);
+      const ax = mx + nx*aLen, ay = my + ny*aLen;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(ax, ay); ctx.stroke();
+      // Arrowhead
+      const ang = Math.atan2(ay-my, ax-mx), as = 7;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax-as*Math.cos(ang-0.5), ay-as*Math.sin(ang-0.5));
+      ctx.lineTo(ax-as*Math.cos(ang+0.5), ay-as*Math.sin(ang+0.5));
+      ctx.closePath(); ctx.fill();
+      // nameA label
+      if (ln.nameA) {
+        ctx.fillStyle = color;
+        ctx.font = `${Math.max(9,W/36)}px sans-serif`;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(ln.nameA, ax + nx*6, ay + ny*6);
+      }
+    }
+
+    // Line name
+    const lname = ln.name || `L${i+1}`;
+    ctx.fillStyle = color;
+    ctx.font = `bold ${Math.max(11,W/30)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 4;
+    ctx.fillText(lname, (x1+x2)/2, (y1+y2)/2 - 5);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = '#00e600';
-    ctx.font = `bold ${Math.max(11,W/28)}px sans-serif`;
-    ctx.textAlign = 'center';
-    if (document.getElementById('mDown').checked) ctx.fillText('↓', W*0.15, y-4);
-    if (document.getElementById('mUp').checked)   ctx.fillText('↑', W*0.85, y+14);
+
+    ctx.restore();
+  });
+
+  // Preview line while drawing (P1 set, hover tracking P2)
+  if (drawMode && drawP1) {
+    const px = drawP1.x*W, py = drawP1.y*H;
+    ctx.save();
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    if (hoverPoint) {
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 2;
+      ctx.setLineDash([6,4]);
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(hoverPoint.x*W, hoverPoint.y*H); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.restore();
   }
-
-  // Vertical line (cyan)
-  if (document.getElementById('mVEnable').checked) {
-    const pos = parseFloat(document.getElementById('mVPos').value);
-    const x = W * pos;
-    ctx.save();
-    ctx.strokeStyle = '#00dcdc';
-    ctx.lineWidth   = lw;
-    ctx.setLineDash([10,5]);
-    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#00dcdc';
-    ctx.font = `bold ${Math.max(11,W/28)}px sans-serif`;
-    ctx.textAlign = 'center';
-    if (document.getElementById('mRight').checked) ctx.fillText('→', x+14, H*0.15);
-    if (document.getElementById('mLeft').checked)  ctx.fillText('←', x-14, H*0.85);
-    ctx.restore();
-  }
 }
 
-// Pick which line to drag based on proximity to existing lines
-function pickDragTarget(e) {
+// Canvas interaction: click-to-draw
+function _canvasNorm(e) {
   const canvas = document.getElementById('previewCanvas');
-  const rect   = canvas.getBoundingClientRect();
-  const relY   = (e.clientY - rect.top) / rect.height;
-  const relX   = (e.clientX - rect.left) / rect.width;
-  const hEnabled = document.getElementById('mHEnable').checked;
-  const vEnabled = document.getElementById('mVEnable').checked;
-  if (hEnabled && vEnabled) {
-    const hPos = parseFloat(document.getElementById('mHPos').value);
-    const vPos = parseFloat(document.getElementById('mVPos').value);
-    const dH = Math.abs(relY - hPos);
-    const dV = Math.abs(relX - vPos);
-    return dH < dV ? 'H' : 'V';
-  }
-  if (hEnabled) return 'H';
-  if (vEnabled) return 'V';
-  return 'H'; // fallback: enable H and drag
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(1, (e.clientX-rect.left)/rect.width)),
+    y: Math.max(0, Math.min(1, (e.clientY-rect.top)/rect.height)),
+  };
 }
 
-function startDrag(e) {
-  if (!dragTarget) return;
-  if (!document.getElementById('m'+dragTarget+'Enable').checked) {
-    document.getElementById('m'+dragTarget+'Enable').checked = true;
+function handleCanvasClick(e) {
+  if (!drawMode) return;
+  const pt = _canvasNorm(e);
+  if (!drawP1) {
+    drawP1 = pt;
+    document.getElementById('drawHint').textContent = 'Nhấp điểm cuối để hoàn thành đường';
+    drawPreview();
+    return;
   }
-  dodrag(e);
+  // Complete the line
+  const p1 = drawP1;
+  drawP1 = null;
+  hoverPoint = null;
+  drawMode = false;
+  document.getElementById('btnDrawLine').style.display = '';
+  document.getElementById('btnCancelDraw').style.display = 'none';
+  document.getElementById('drawHint').textContent = '';
+  document.getElementById('previewCanvas').style.cursor = 'crosshair';
+
+  const defName = `Đường ${canvasLines.length+1}`;
+  const name  = prompt('Tên đường đếm:', defName) ?? defName;
+  const nameA = prompt(`Hướng A (mũi tên → khi nhìn từ điểm đầu đến điểm cuối, phía bên phải):`, 'Vào') ?? 'Vào';
+  const nameB = prompt(`Hướng B (ngược lại với hướng A):`, 'Ra') ?? 'Ra';
+
+  canvasLines.push({
+    id: `line_${Date.now()}`,
+    name: name || defName,
+    nameA: nameA || '',
+    nameB: nameB || '',
+    x1: p1.x, y1: p1.y,
+    x2: pt.x, y2: pt.y,
+  });
+  renderLinesList();
+  drawPreview();
 }
 
-function dodrag(e) {
-  const canvas = document.getElementById('previewCanvas');
-  const rect   = canvas.getBoundingClientRect();
-  if (dragTarget === 'H') {
-    const pos = Math.max(0.05, Math.min(0.95, (e.clientY - rect.top) / rect.height));
-    document.getElementById('mHPos').value = pos.toFixed(2);
-    document.getElementById('mHPosVal').textContent = pos.toFixed(2);
-  } else {
-    const pos = Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width));
-    document.getElementById('mVPos').value = pos.toFixed(2);
-    document.getElementById('mVPosVal').textContent = pos.toFixed(2);
+function handleCanvasHover(e) {
+  if (!drawMode || !drawP1) return;
+  hoverPoint = _canvasNorm(e);
+  drawPreview();
+}
+
+function startDrawingLine() {
+  drawMode = true;
+  drawP1   = null;
+  hoverPoint = null;
+  document.getElementById('btnDrawLine').style.display = 'none';
+  document.getElementById('btnCancelDraw').style.display = '';
+  document.getElementById('drawHint').textContent = 'Nhấp điểm đầu trên ảnh';
+  document.getElementById('previewCanvas').style.cursor = 'crosshair';
+}
+
+function cancelDrawingLine() {
+  drawMode = false;
+  drawP1   = null;
+  hoverPoint = null;
+  document.getElementById('btnDrawLine').style.display = '';
+  document.getElementById('btnCancelDraw').style.display = 'none';
+  document.getElementById('drawHint').textContent = '';
+  drawPreview();
+}
+
+function renderLinesList() {
+  const el = document.getElementById('linesList');
+  if (!canvasLines.length) {
+    el.innerHTML = '<div style="color:var(--text-secondary);font-size:.79rem;padding:4px 0">Chưa có đường đếm. Nhấn ✏ Vẽ đường mới.</div>';
+    return;
   }
+  el.innerHTML = canvasLines.map((ln, i) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${LINE_COLORS[i%LINE_COLORS.length]};flex-shrink:0"></span>
+      <div style="flex:1;min-width:0;font-size:.8rem">
+        <strong>${esc(ln.name||'?')}</strong>
+        <span style="color:var(--text-secondary);margin-left:6px;font-size:.73rem">A:${esc(ln.nameA||'—')} / B:${esc(ln.nameB||'—')}</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="editLine(${i})" style="padding:1px 6px;font-size:.75rem">✎</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteLine(${i})" style="padding:1px 6px;font-size:.75rem">✕</button>
+    </div>
+  `).join('');
+}
+
+function editLine(i) {
+  const ln = canvasLines[i];
+  const name  = prompt('Tên đường:', ln.name);
+  if (name  !== null) ln.name  = name;
+  const nameA = prompt('Hướng A (mũi tên bên phải khi nhìn P1→P2):', ln.nameA);
+  if (nameA !== null) ln.nameA = nameA;
+  const nameB = prompt('Hướng B (ngược lại):', ln.nameB);
+  if (nameB !== null) ln.nameB = nameB;
+  renderLinesList();
+  drawPreview();
+}
+
+function deleteLine(i) {
+  canvasLines.splice(i, 1);
+  renderLinesList();
   drawPreview();
 }
 
@@ -1400,18 +1469,18 @@ function dodrag(e) {
 async function saveCamera() {
   const stream = document.getElementById('s2Stream').textContent;
   const name   = document.getElementById('mName').value.trim() || stream;
-  const hEnabled = document.getElementById('mHEnable').checked;
-  const vEnabled = document.getElementById('mVEnable').checked;
   const cam = {
     id:         editId || '',
     name,
     streamName: stream,
-    lineHPos:   hEnabled ? parseFloat(document.getElementById('mHPos').value) : 0,
-    lineVPos:   vEnabled ? parseFloat(document.getElementById('mVPos').value) : 0,
-    countDown:  document.getElementById('mDown').checked,
-    countUp:    document.getElementById('mUp').checked,
-    countRight: document.getElementById('mRight').checked,
-    countLeft:  document.getElementById('mLeft').checked,
+    lines:      canvasLines.map(l => ({...l})),
+    // Clear legacy H/V fields when using new lines system
+    lineHPos:   0,
+    lineVPos:   0,
+    countDown:  false,
+    countUp:    false,
+    countRight: false,
+    countLeft:  false,
     fps:        parseFloat(document.getElementById('mFps').value),
     tier:       parseInt(document.getElementById('mTier').value),
     enabled:    document.getElementById('mEnabled').checked,
@@ -1438,24 +1507,37 @@ async function editCam(id) {
   editId = id;
   document.getElementById('mTitle').textContent = 'Sửa Camera: '+esc(cam.name||cam.id);
   document.getElementById('mName').value  = cam.name||'';
-  // Line H
-  const hPos = cam.lineHPos ?? 0.5;
-  document.getElementById('mHEnable').checked = hPos > 0;
-  document.getElementById('mHPos').value  = hPos > 0 ? hPos : 0.5;
-  document.getElementById('mHPosVal').textContent = (hPos > 0 ? hPos : 0.5).toFixed(2);
-  // Line V
-  const vPos = cam.lineVPos ?? 0;
-  document.getElementById('mVEnable').checked = vPos > 0;
-  document.getElementById('mVPos').value  = vPos > 0 ? vPos : 0.5;
-  document.getElementById('mVPosVal').textContent = (vPos > 0 ? vPos : 0.5).toFixed(2);
-  // Directions
-  document.getElementById('mDown').checked  = cam.countDown  !== false && (cam.countDown || !cam.countUp && !cam.countRight && !cam.countLeft);
-  document.getElementById('mUp').checked    = cam.countUp   || false;
-  document.getElementById('mRight').checked = cam.countRight || false;
-  document.getElementById('mLeft').checked  = cam.countLeft  || false;
   document.getElementById('mFps').value   = cam.fps ?? 0;
   document.getElementById('mTier').value  = cam.tier ?? 1;
   document.getElementById('mEnabled').checked = cam.enabled !== false;
+
+  // Load lines: use explicit lines or auto-convert legacy H/V config
+  if (cam.lines && cam.lines.length > 0) {
+    canvasLines = cam.lines.map(l => ({...l}));
+  } else {
+    canvasLines = [];
+    const hPos = cam.lineHPos ?? 0;
+    const vPos = cam.lineVPos ?? 0;
+    if (hPos > 0) {
+      canvasLines.push({
+        id: '_h', name: 'H',
+        x1: 0, y1: hPos, x2: 1, y2: hPos,
+        nameA: cam.countUp    ? 'up'    : '',
+        nameB: cam.countDown  ? 'down'  : '',
+      });
+    }
+    if (vPos > 0) {
+      canvasLines.push({
+        id: '_v', name: 'V',
+        x1: vPos, y1: 0, x2: vPos, y2: 1,
+        nameA: cam.countRight ? 'right' : '',
+        nameB: cam.countLeft  ? 'left'  : '',
+      });
+    }
+  }
+  drawMode = false; drawP1 = null; hoverPoint = null;
+  renderLinesList();
+
   await populateWorkerDropdown(cam.workerId || '');
   document.getElementById('mErr').textContent  = '';
   document.getElementById('mErr2').textContent = '';
@@ -1465,7 +1547,10 @@ async function editCam(id) {
   refreshPreview();
 }
 
-function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  drawMode = false; drawP1 = null; hoverPoint = null;
+}
 function overlayClick(e) { if (e.target===document.getElementById('modalOverlay')) closeModal(); }
 
 async function populateWorkerDropdown(selectedId) {

@@ -37,18 +37,34 @@ type Config struct {
 	CameraOrder  []string       `json:"cameraOrder"` // ordered camera IDs for dashboard display
 }
 
+// CountLine defines an arbitrary counting line at any angle.
+// Coordinates are normalized (0..1) relative to frame width/height.
+// NameA is emitted when a track crosses from the left side to the right side
+// of the P1→P2 direction vector; NameB is the opposite direction.
+type CountLine struct {
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	X1    float64 `json:"x1"`
+	Y1    float64 `json:"y1"`
+	X2    float64 `json:"x2"`
+	Y2    float64 `json:"y2"`
+	NameA string  `json:"nameA"`
+	NameB string  `json:"nameB"`
+}
+
 // CameraConfig defines per-camera counting settings.
 type CameraConfig struct {
 	ID         string  `json:"id"`
 	StreamName string  `json:"streamName"` // go2rtc stream name
 	Name       string  `json:"name"`       // display name
 	FPS        float64 `json:"fps"`        // 0 = use Config.DefaultFPS; tier applies multiplier
-	LineHPos   float64 `json:"lineHPos"`   // horizontal line Y position 0.01-0.99 (0=disabled)
-	LineVPos   float64 `json:"lineVPos"`   // vertical line X position 0.01-0.99 (0=disabled)
-	CountDown  bool    `json:"countDown"`  // count objects crossing H-line top→bottom
-	CountUp    bool    `json:"countUp"`    // count objects crossing H-line bottom→top
-	CountRight bool    `json:"countRight"` // count objects crossing V-line left→right
-	CountLeft  bool    `json:"countLeft"`  // count objects crossing V-line right→left
+	LineHPos   float64 `json:"lineHPos"`   // horizontal line Y position 0.01-0.99 (0=disabled) — legacy
+	LineVPos   float64 `json:"lineVPos"`   // vertical line X position 0.01-0.99 (0=disabled) — legacy
+	CountDown  bool    `json:"countDown"`  // legacy H-line direction
+	CountUp    bool    `json:"countUp"`    // legacy H-line direction
+	CountRight bool    `json:"countRight"` // legacy V-line direction
+	CountLeft  bool    `json:"countLeft"`  // legacy V-line direction
+	Lines      []CountLine `json:"lines,omitempty"` // arbitrary counting lines (takes precedence over legacy H/V)
 	Enabled    bool    `json:"enabled"`
 	// Tier controls processing FPS relative to camera FPS setting:
 	//   1 = full FPS (high-traffic road)

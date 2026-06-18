@@ -116,6 +116,7 @@ func (w *CameraWorker) registerCamera() error {
 		"countUp":    w.cam.CountUp,
 		"countRight": w.cam.CountRight,
 		"countLeft":  w.cam.CountLeft,
+		"lines":      w.cam.Lines,
 		"fps":        fps,
 		"tier":       w.cam.Tier,
 		"frameWidth": fw,
