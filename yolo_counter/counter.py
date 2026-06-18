@@ -86,6 +86,10 @@ class Track:
     cy: float
     prev_cx: float
     prev_cy: float
+    x1: float = 0.0    # bounding box — used for IOU matching
+    y1: float = 0.0
+    x2: float = 0.0
+    y2: float = 0.0
     missed: int = 0
     crossed_h: bool = False
     crossed_v: bool = False
@@ -95,10 +99,29 @@ class Track:
     crossed_lines: set = field(default_factory=set)
 
 
-class Tracker:
-    """Greedy nearest-centroid multi-object tracker."""
+def _iou(b1: tuple, b2: tuple) -> float:
+    """Intersection-over-Union for two (x1,y1,x2,y2) boxes."""
+    xi1, yi1 = max(b1[0], b2[0]), max(b1[1], b2[1])
+    xi2, yi2 = min(b1[2], b2[2]), min(b1[3], b2[3])
+    inter = max(0.0, xi2 - xi1) * max(0.0, yi2 - yi1)
+    if inter == 0.0:
+        return 0.0
+    a1 = (b1[2] - b1[0]) * (b1[3] - b1[1])
+    a2 = (b2[2] - b2[0]) * (b2[3] - b2[1])
+    union = a1 + a2 - inter
+    return inter / union if union > 0 else 0.0
 
-    MAX_DIST = 80.0
+
+class Tracker:
+    """IOU + centroid combined multi-object tracker.
+
+    Primary matching signal is bounding-box IOU (robust when vehicles
+    cross or overlap). Centroid distance is a secondary fallback for
+    small/distant objects where IOU is naturally low.
+    """
+
+    IOU_MIN  = 0.15   # minimum IOU for a valid match
+    DIST_MAX = 80.0   # centroid fallback threshold (pixels)
     MAX_MISSED = 5
 
     def __init__(self):
@@ -107,10 +130,9 @@ class Tracker:
 
     def update(self, detections: List[tuple]) -> List[Track]:
         """
-        detections: list of (cx, cy, cls_name) tuples
-        Returns the current list of active tracks (including newly created ones).
+        detections: list of (cx, cy, cls_name, x1, y1, x2, y2) tuples
+        Returns the current list of active tracks.
         """
-        # Mark all as missed; we'll clear the flag for matched ones
         for tr in self._tracks:
             tr.missed += 1
 
@@ -119,32 +141,42 @@ class Tracker:
         for tr in self._tracks:
             if not unmatched_dets:
                 break
-            best_idx = None
-            best_dist = self.MAX_DIST
+            tr_box = (tr.x1, tr.y1, tr.x2, tr.y2)
+            best_idx, best_score = None, -1.0
             for idx in unmatched_dets:
-                cx, cy, _cls = detections[idx]
+                cx, cy, _cls, dx1, dy1, dx2, dy2 = detections[idx]
+                iou = _iou(tr_box, (dx1, dy1, dx2, dy2))
                 dist = math.hypot(cx - tr.cx, cy - tr.cy)
-                if dist < best_dist:
-                    best_dist = dist
+                dist_score = max(0.0, 1.0 - dist / self.DIST_MAX)
+                # IOU is the primary signal (scaled 2×); centroid is fallback
+                score = iou * 2.0 + dist_score
+                # Reject pairs where BOTH signals are below threshold
+                if iou < self.IOU_MIN and dist > self.DIST_MAX:
+                    continue
+                if score > best_score:
+                    best_score = score
                     best_idx = idx
+
             if best_idx is not None:
-                cx, cy, cls_name = detections[best_idx]
+                cx, cy, cls_name, dx1, dy1, dx2, dy2 = detections[best_idx]
                 tr.prev_cx, tr.prev_cy = tr.cx, tr.cy
                 tr.cx, tr.cy = cx, cy
+                tr.x1, tr.y1, tr.x2, tr.y2 = dx1, dy1, dx2, dy2
                 tr.vehicle_class = cls_name
                 tr.missed = 0
                 unmatched_dets.remove(best_idx)
-                tr.position_history.append((tr.cx, tr.cy))
+                tr.position_history.append((cx, cy))
                 if len(tr.position_history) > 5:
                     tr.position_history.pop(0)
 
         # Create new tracks for unmatched detections
         for idx in unmatched_dets:
-            cx, cy, cls_name = detections[idx]
+            cx, cy, cls_name, dx1, dy1, dx2, dy2 = detections[idx]
             self._tracks.append(Track(
                 id=self._next_id,
                 cx=cx, cy=cy,
                 prev_cx=cx, prev_cy=cy,
+                x1=dx1, y1=dy1, x2=dx2, y2=dy2,
                 vehicle_class=cls_name,
                 position_history=[(cx, cy)],
             ))
@@ -152,7 +184,6 @@ class Tracker:
 
         # Prune stale tracks
         self._tracks = [tr for tr in self._tracks if tr.missed <= self.MAX_MISSED]
-
         return list(self._tracks)
 
 
@@ -351,7 +382,7 @@ class CameraState:
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
                 cls_name = class_map[cls_id]
-                detections.append((cx, cy, cls_name))
+                detections.append((cx, cy, cls_name, x1, y1, x2, y2))
                 boxes_info.append({
                     "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                     "cx": cx, "cy": cy,
@@ -509,13 +540,16 @@ class CameraState:
             cv2.putText(dbg, label, (x1, label_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_bgr, 1, cv2.LINE_AA)
 
-        # Draw track centroids
+        # Draw track bounding boxes with ID labels
         cyan = (200, 200, 0)
         for tr in tracks:
-            cx, cy = int(tr.cx), int(tr.cy)
-            cv2.circle(dbg, (cx, cy), 5, cyan, -1)
-            cv2.putText(dbg, str(tr.id), (cx + 6, cy - 4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, cyan, 1, cv2.LINE_AA)
+            tx1, ty1, tx2, ty2 = int(tr.x1), int(tr.y1), int(tr.x2), int(tr.y2)
+            cv2.rectangle(dbg, (tx1, ty1), (tx2, ty2), cyan, 1)
+            label_y = max(ty1 - 3, 8)
+            cv2.putText(dbg, f"#{tr.id}", (tx1, label_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, cyan, 1, cv2.LINE_AA)
+            # Centroid dot
+            cv2.circle(dbg, (int(tr.cx), int(tr.cy)), 3, cyan, -1)
 
         # Draw trajectory trail
         for tr in tracks:
