@@ -1185,19 +1185,45 @@ function openDebugTab() {
 function openDebugCam() {
   stopDebugRefresh();
   const id = document.getElementById('debugCamSel').value;
+  const wrap = document.getElementById('debugImgWrap');
   if (!id) {
-    document.getElementById('debugImgWrap').innerHTML =
-      '<div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh YOLO</div>';
+    wrap.innerHTML = '<div style="padding:40px;color:var(--text-secondary);font-size:.85rem">Chọn camera đang chạy để xem ảnh YOLO</div>';
     document.getElementById('debugLegend').style.display = 'none';
     return;
   }
   document.getElementById('debugLegend').style.display = '';
-  refreshDebugFrame(id);
-  debugTimer = setInterval(() => refreshDebugFrame(id), 2000);
+
+  const token = localStorage.getItem('go2rtc_token') || '';
+  const streamUrl = `/api/counting/stream?camera=${encodeURIComponent(id)}&token=${token}`;
+
+  // Use a persistent <img> pointed at the MJPEG stream endpoint — browser
+  // keeps the connection open and displays each frame as it arrives.
+  let img = wrap.querySelector('img.mjpeg-stream');
+  if (!img) {
+    wrap.innerHTML = '';
+    img = document.createElement('img');
+    img.className = 'mjpeg-stream';
+    img.style.cssText = 'max-width:100%;border-radius:6px;border:1px solid var(--border)';
+    img.onerror = () => {
+      wrap.innerHTML = '<div style="padding:30px;color:#d97706;font-size:.82rem;text-align:center">Chưa có frame — YOLO chưa xử lý frame nào.<br>Kiểm tra dịch vụ Python YOLO đã chạy và camera đang hoạt động.</div>';
+    };
+    wrap.appendChild(img);
+  }
+  img.src = streamUrl;
+
+  // Keep the status line updated every 2s (stats only, no JPEG polling)
+  debugTimer = setInterval(() => {
+    const st = statuses.find(c => c.id === id);
+    const info = st ? `Frames: ${st.framesProcessed||0}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}` : '';
+    document.getElementById('debugStatus').textContent = info;
+  }, 2000);
 }
 
 function stopDebugRefresh() {
   if (debugTimer) { clearInterval(debugTimer); debugTimer = null; }
+  // Disconnect the MJPEG stream by clearing the src
+  const img = document.querySelector('#debugImgWrap img.mjpeg-stream');
+  if (img) img.src = '';
 }
 
 async function checkYoloService() {
@@ -1219,23 +1245,6 @@ async function checkYoloService() {
     el.style.color = '#f66';
     el.textContent = `✗ Không thể kiểm tra dịch vụ YOLO: ${e.message}`;
   }
-}
-
-function refreshDebugFrame(id) {
-  const token = localStorage.getItem('go2rtc_token')||'';
-  const url = `/api/counting/debug?camera=${encodeURIComponent(id)}&_=${Date.now()}&token=${token}`;
-  const st = statuses.find(c=>c.id===id);
-  const info = st ? `Frames: ${st.framesProcessed||0}${st.lastErr ? ' | Lỗi: '+esc(st.lastErr) : ''}` : '';
-  document.getElementById('debugStatus').textContent = info;
-
-  const img = new Image();
-  img.style.cssText = 'max-width:100%;border-radius:6px;border:1px solid var(--border)';
-  img.onload = () => { document.getElementById('debugImgWrap').innerHTML = ''; document.getElementById('debugImgWrap').appendChild(img); };
-  img.onerror = () => {
-    document.getElementById('debugImgWrap').innerHTML =
-      `<div style="padding:30px;color:#d97706;font-size:.82rem;text-align:center">Chưa có frame — YOLO chưa xử lý frame nào.<br>Kiểm tra dịch vụ Python YOLO đã chạy và camera đang hoạt động.</div>`;
-  };
-  img.src = url;
 }
 
 // ════════════════════════════════════════════════════════

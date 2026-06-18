@@ -11,6 +11,7 @@ Each camera gets a dedicated background thread that:
 """
 
 import argparse
+import asyncio
 import io
 import json
 import logging
@@ -27,7 +28,7 @@ import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -765,6 +766,41 @@ def debug_camera(cam_id: str):
         raise HTTPException(status_code=404, detail="no debug frame yet")
     return Response(content=data, media_type="image/jpeg",
                     headers={"Cache-Control": "no-cache, no-store"})
+
+
+@app.get("/stream/{cam_id}")
+async def stream_camera(cam_id: str):
+    """MJPEG stream of annotated debug frames for the given camera."""
+    with _cameras_lock:
+        state = _cameras.get(cam_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="camera not found")
+
+    async def generate():
+        boundary = b"--frame\r\n"
+        last_jpeg = b""
+        while True:
+            with _cameras_lock:
+                alive = cam_id in _cameras
+            if not alive:
+                break
+            with state.debug_lock:
+                data = state.debug_jpeg
+            if data and data is not last_jpeg:
+                last_jpeg = data
+                header = (
+                    boundary +
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
+                )
+                yield header + data + b"\r\n"
+            await asyncio.sleep(0.05)  # poll at ~20 Hz; actual rate limited by YOLO fps
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-cache, no-store"},
+    )
 
 
 def _images_dir(base: str) -> str:
