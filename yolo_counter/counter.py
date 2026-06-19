@@ -1180,32 +1180,69 @@ def parse_args() -> argparse.Namespace:
 def _resolve_device(device_arg: str) -> str:
     """Return the device string to pass to ultralytics YOLO.
 
-    Runs a CUDA availability check and logs clear diagnostic info so
-    users can see exactly why GPU is or is not being used.
+    Runs a CUDA availability check and logs detailed diagnostic info so
+    users can see exactly why GPU is or is not being used and how to fix it.
     """
+    import subprocess
     import torch
+
+    pt_ver  = torch.__version__
+    pt_cuda = torch.version.cuda  # None when CPU-only build
+
+    logger.info(f"[device] PyTorch {pt_ver}, CUDA build: {pt_cuda or 'None (CPU-only)'}")
+
+    # Run nvidia-smi to show what GPU the OS sees (independent of PyTorch)
+    try:
+        nv = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=8,
+        )
+        if nv.returncode == 0 and nv.stdout.strip():
+            for i, line in enumerate(nv.stdout.strip().splitlines()):
+                logger.info(f"[device] nvidia-smi GPU {i}: {line.strip()}")
+        else:
+            logger.warning("[device] nvidia-smi returned no GPU info")
+    except FileNotFoundError:
+        logger.warning("[device] nvidia-smi not found — NVIDIA driver may not be installed")
+    except Exception as exc:
+        logger.warning(f"[device] nvidia-smi error: {exc}")
 
     cuda_ok = False
     try:
         cuda_ok = torch.cuda.is_available()
+        gpu_count = torch.cuda.device_count()
+        logger.info(f"[device] torch.cuda.is_available()={cuda_ok}, device_count={gpu_count}")
     except Exception as exc:
         logger.warning(f"[device] torch.cuda check raised: {exc}")
 
     if not cuda_ok:
-        # Diagnose why CUDA isn't available
-        try:
-            drv_ver = torch.version.cuda or "?"
-        except Exception:
-            drv_ver = "?"
-        logger.warning(
-            f"[device] CUDA not available (torch CUDA build: {drv_ver}). "
-            "Running on CPU — inference will be slow (~2-3 fps). "
-            "To enable GPU, reinstall PyTorch matching your CUDA driver:\n"
-            "  CUDA 12.4 (driver 550.x):  pip install torch torchvision "
-            "--index-url https://download.pytorch.org/whl/cu124\n"
-            "  CUDA 12.1 (driver 525-535): pip install torch torchvision "
-            "--index-url https://download.pytorch.org/whl/cu121"
-        )
+        if pt_cuda is None:
+            # Most common Windows case: pip install ultralytics pulls CPU-only torch
+            logger.warning(
+                "[device] CPU-only PyTorch installed — no CUDA support compiled in.\n"
+                "  Fix: reinstall PyTorch with CUDA BEFORE installing other packages.\n"
+                "  1. Check your driver CUDA version:  nvidia-smi  (top-right corner)\n"
+                "  2. Install matching PyTorch (run in your venv/conda env):\n"
+                "       CUDA 12.8 (driver 570+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu128\n"
+                "       CUDA 12.4 (driver 550+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu124\n"
+                "       CUDA 12.1 (driver 525+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu121\n"
+                "       CUDA 11.8 (driver 450+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu118\n"
+                "  3. Then re-run: pip install -r requirements.txt"
+            )
+        else:
+            logger.warning(
+                f"[device] CUDA not available despite PyTorch built for CUDA {pt_cuda}.\n"
+                "  Possible causes:\n"
+                "    (a) NVIDIA driver too old for this PyTorch CUDA version (see pytorch.org for matrix)\n"
+                "    (b) CUDA_VISIBLE_DEVICES is set to '' or '-1'\n"
+                "    (c) GPU disabled in Device Manager or WSL without GPU passthrough\n"
+                "  Running on CPU — inference will be slow (~2-3 fps)."
+            )
 
     if device_arg == "auto":
         chosen = "cuda:0" if cuda_ok else "cpu"
@@ -1216,7 +1253,7 @@ def _resolve_device(device_arg: str) -> str:
         try:
             gpu_name = torch.cuda.get_device_name(0)
             gpu_mem  = torch.cuda.get_device_properties(0).total_memory // (1024**2)
-            logger.info(f"[device] Using GPU: {gpu_name} ({gpu_mem} MiB) → device={chosen}")
+            logger.info(f"[device] ✓ GPU active: {gpu_name} ({gpu_mem} MiB) → device={chosen}")
         except Exception:
             logger.info(f"[device] Using GPU device={chosen}")
     else:

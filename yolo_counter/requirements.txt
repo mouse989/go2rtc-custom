@@ -1,3 +1,22 @@
+# ── CPU-only (default) ──────────────────────────────────────────────────────
+# pip install -r requirements.txt
+#
+# ── GPU / CUDA (recommended for real-time counting) ─────────────────────────
+# First install PyTorch with CUDA matching your driver, THEN install this file:
+#
+#   nvidia-smi  →  look at "CUDA Version" in the top-right corner
+#
+#   CUDA 12.8  (driver 570+):
+#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   CUDA 12.4  (driver 550+):
+#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#   CUDA 12.1  (driver 525+):
+#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   CUDA 11.8  (driver 450+):
+#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+#
+#   Then: pip install -r requirements.txt
+# ────────────────────────────────────────────────────────────────────────────
 ultralytics>=8.3.0
 opencv-python>=4.8.0
 fastapi>=0.110.0
