@@ -45,6 +45,7 @@ logger = logging.getLogger("yolo_counter")
 # ---------------------------------------------------------------------------
 _args: argparse.Namespace = None  # type: ignore
 _model = None  # ultralytics YOLO model
+_device: str = "cpu"  # resolved at startup by _resolve_device()
 
 # COCO pretrained class IDs for the 4 vehicle types we track.
 # Custom-trained models have different IDs (0,1,2,3) but same names;
@@ -366,8 +367,8 @@ class CameraState:
 
         resized = cv2.resize(frame, (fw, fh))
 
-        # YOLO inference
-        results = _model(resized, conf=cfg.yoloConf, verbose=False)
+        # YOLO inference — _device is set at startup via --device / _resolve_device()
+        results = _model(resized, conf=cfg.yoloConf, verbose=False, device=_device)
 
         detections: List[tuple] = []   # (cx, cy)
         boxes_info: List[dict] = []    # for debug drawing
@@ -1169,9 +1170,96 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conf", type=float, default=0.35, help="Detection confidence threshold")
     parser.add_argument("--rtsp-base", default="rtsp://localhost:8554",
                         help="go2rtc RTSP base URL (stream appended as /<name>)")
+    parser.add_argument("--device", default="auto",
+                        help="Inference device: auto (GPU if available, else CPU) | cpu | cuda | 0 | 1 …")
     parser.add_argument("--train-job", default=None,
                         help="Internal: run a single training job (JSON-encoded) and exit, instead of starting the server")
     return parser.parse_args()
+
+
+def _resolve_device(device_arg: str) -> str:
+    """Return the device string to pass to ultralytics YOLO.
+
+    Runs a CUDA availability check and logs detailed diagnostic info so
+    users can see exactly why GPU is or is not being used and how to fix it.
+    """
+    import subprocess
+    import torch
+
+    pt_ver  = torch.__version__
+    pt_cuda = torch.version.cuda  # None when CPU-only build
+
+    logger.info(f"[device] PyTorch {pt_ver}, CUDA build: {pt_cuda or 'None (CPU-only)'}")
+
+    # Run nvidia-smi to show what GPU the OS sees (independent of PyTorch)
+    try:
+        nv = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=8,
+        )
+        if nv.returncode == 0 and nv.stdout.strip():
+            for i, line in enumerate(nv.stdout.strip().splitlines()):
+                logger.info(f"[device] nvidia-smi GPU {i}: {line.strip()}")
+        else:
+            logger.warning("[device] nvidia-smi returned no GPU info")
+    except FileNotFoundError:
+        logger.warning("[device] nvidia-smi not found — NVIDIA driver may not be installed")
+    except Exception as exc:
+        logger.warning(f"[device] nvidia-smi error: {exc}")
+
+    cuda_ok = False
+    try:
+        cuda_ok = torch.cuda.is_available()
+        gpu_count = torch.cuda.device_count()
+        logger.info(f"[device] torch.cuda.is_available()={cuda_ok}, device_count={gpu_count}")
+    except Exception as exc:
+        logger.warning(f"[device] torch.cuda check raised: {exc}")
+
+    if not cuda_ok:
+        if pt_cuda is None:
+            # Most common Windows case: pip install ultralytics pulls CPU-only torch
+            logger.warning(
+                "[device] CPU-only PyTorch installed — no CUDA support compiled in.\n"
+                "  Fix: reinstall PyTorch with CUDA BEFORE installing other packages.\n"
+                "  1. Check your driver CUDA version:  nvidia-smi  (top-right corner)\n"
+                "  2. Install matching PyTorch (run in your venv/conda env):\n"
+                "       CUDA 12.8 (driver 570+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu128\n"
+                "       CUDA 12.4 (driver 550+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu124\n"
+                "       CUDA 12.1 (driver 525+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu121\n"
+                "       CUDA 11.8 (driver 450+): pip install torch torchvision "
+                "--index-url https://download.pytorch.org/whl/cu118\n"
+                "  3. Then re-run: pip install -r requirements.txt"
+            )
+        else:
+            logger.warning(
+                f"[device] CUDA not available despite PyTorch built for CUDA {pt_cuda}.\n"
+                "  Possible causes:\n"
+                "    (a) NVIDIA driver too old for this PyTorch CUDA version (see pytorch.org for matrix)\n"
+                "    (b) CUDA_VISIBLE_DEVICES is set to '' or '-1'\n"
+                "    (c) GPU disabled in Device Manager or WSL without GPU passthrough\n"
+                "  Running on CPU — inference will be slow (~2-3 fps)."
+            )
+
+    if device_arg == "auto":
+        chosen = "cuda:0" if cuda_ok else "cpu"
+    else:
+        chosen = device_arg
+
+    if cuda_ok and chosen != "cpu":
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_mem  = torch.cuda.get_device_properties(0).total_memory // (1024**2)
+            logger.info(f"[device] ✓ GPU active: {gpu_name} ({gpu_mem} MiB) → device={chosen}")
+        except Exception:
+            logger.info(f"[device] Using GPU device={chosen}")
+    else:
+        logger.info(f"[device] Using CPU (device={chosen})")
+
+    return chosen
 
 
 if __name__ == "__main__":
@@ -1185,15 +1273,17 @@ if __name__ == "__main__":
         )
         sys.exit(0)
 
+    _device = _resolve_device(_args.device)
+
     logger.info(f"Loading YOLO model: {_args.model}")
     from ultralytics import YOLO
     _model = YOLO(_args.model)
-    # Warm up
+    # Warm up on the chosen device so the first real inference is fast
     dummy = np.zeros((320, 320, 3), dtype=np.uint8)
-    _model(dummy, conf=_args.conf, verbose=False)
+    _model(dummy, conf=_args.conf, verbose=False, device=_device)
     class_map = _active_class_map()
     logger.info(f"Model loaded. Vehicle class map: {class_map}")
-    logger.info("Model loaded and warmed up")
+    logger.info(f"Model loaded and warmed up on device={_device}")
 
     logger.info(f"Starting server on port {_args.port}")
     import logging as _logging

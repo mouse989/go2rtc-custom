@@ -32,6 +32,7 @@ type Config struct {
 	YoloURL      string         `json:"yoloUrl"`      // Python YOLO service URL, default "http://localhost:8765"
 	YoloConf     float64        `json:"yoloConf"`     // confidence threshold, default 0.35
 	YoloModel    string         `json:"yoloModel"`    // YOLO model filename, default "yolo26n.pt"
+	YoloDevice   string         `json:"yoloDevice"`   // inference device: "" / "auto" = GPU if available, "cpu", "cuda", "0", "1"
 	Cameras      []CameraConfig `json:"cameras"`
 	Storage      StorageConfig  `json:"storage"`
 	CameraOrder  []string       `json:"cameraOrder"` // ordered camera IDs for dashboard display

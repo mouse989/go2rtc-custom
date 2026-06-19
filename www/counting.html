@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Đếm Phương tiện</title>
   <link rel="stylesheet" href="app.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <style>
     /* ── Layout ── */
     .cnt-header {
@@ -306,23 +307,31 @@
         <button class="btn btn-ghost btn-sm" id="btnExportCSV" onclick="exportDetailCSV()" style="display:none">⬇ Xuất CSV</button>
         <span id="detailInfo" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
-      <div style="overflow-x:auto">
-        <table class="tbl" id="detailTable">
-          <thead>
-            <tr>
-              <th>Giờ</th>
-              <th style="text-align:right">🚗 Ô tô</th>
-              <th style="text-align:right">🏍 Xe máy</th>
-              <th style="text-align:right">🚌 Xe buýt</th>
-              <th style="text-align:right">🚛 Xe tải</th>
-              <th style="text-align:right;color:var(--accent)">Tổng</th>
-            </tr>
-          </thead>
-          <tbody id="detailBody">
-            <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-secondary)">Chọn camera và ngày rồi nhấn Xem</td></tr>
-          </tbody>
-          <tfoot id="detailFoot"></tfoot>
-        </table>
+      <!-- Table + Chart side by side -->
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+        <!-- Compact hourly table -->
+        <div style="overflow-x:auto;flex-shrink:0;min-width:220px;max-width:340px">
+          <table class="tbl" id="detailTable" style="font-size:0.77rem">
+            <thead>
+              <tr>
+                <th style="padding:4px 6px">Giờ</th>
+                <th style="text-align:right;padding:4px 5px" title="Ô tô">🚗</th>
+                <th style="text-align:right;padding:4px 5px" title="Xe máy">🏍</th>
+                <th style="text-align:right;padding:4px 5px" title="Xe buýt">🚌</th>
+                <th style="text-align:right;padding:4px 5px" title="Xe tải">🚛</th>
+                <th style="text-align:right;padding:4px 6px;color:var(--accent)" title="Tổng">∑</th>
+              </tr>
+            </thead>
+            <tbody id="detailBody">
+              <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-secondary)">Chọn camera và ngày rồi nhấn Xem</td></tr>
+            </tbody>
+            <tfoot id="detailFoot"></tfoot>
+          </table>
+        </div>
+        <!-- Line chart -->
+        <div style="flex:1;min-width:280px;height:320px;position:relative">
+          <canvas id="detailChart"></canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -459,6 +468,18 @@
             <button class="btn btn-sm" id="btnYoloRestart" type="button" title="Khởi động lại dịch vụ YOLO để áp dụng model mới">↻ Áp dụng</button>
           </div>
           <div id="yoloRestartMsg" style="font-size:.78rem;color:var(--text-muted);min-height:1.1em;"></div>
+        </div>
+        <div class="form-row">
+          <label title="Thiết bị chạy YOLO. 'auto' = dùng GPU nếu có, ngược lại dùng CPU. Nhập '0' hoặc 'cuda:0' để ép dùng GPU đầu tiên.">
+            Thiết bị inference (Device)
+          </label>
+          <select id="sYoloDevice" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
+            <option value="auto">auto — GPU nếu có, ngược lại CPU</option>
+            <option value="cpu">cpu — Chỉ dùng CPU</option>
+            <option value="cuda:0">cuda:0 — GPU #0 (ép buộc)</option>
+            <option value="cuda:1">cuda:1 — GPU #1</option>
+            <option value="0">0 — GPU index 0</option>
+          </select>
         </div>
         <div class="form-row">
           <label>FPS xử lý mặc định</label>
@@ -731,9 +752,10 @@ async function loadConfig() {
     // Load worker list for name lookup in camera table.
     try { workerList = await apiFetch('/api/workers') || []; } catch(_) { workerList = []; }
     cfg = await apiFetch('/api/counting/config');
-    document.getElementById('sYoloUrl').value  = cfg.yoloUrl         ?? 'http://localhost:8765';
-    document.getElementById('sYoloConf').value = cfg.yoloConf        ?? 0.35;
-    document.getElementById('sYoloModel').value = cfg.yoloModel      ?? 'yolo26n.pt';
+    document.getElementById('sYoloUrl').value    = cfg.yoloUrl    ?? 'http://localhost:8765';
+    document.getElementById('sYoloConf').value   = cfg.yoloConf   ?? 0.35;
+    document.getElementById('sYoloModel').value  = cfg.yoloModel  ?? 'yolo26n.pt';
+    document.getElementById('sYoloDevice').value = cfg.yoloDevice ?? 'auto';
     document.getElementById('sFps').value      = cfg.defaultFps      ?? 2.5;
     document.getElementById('sFw').value       = cfg.frameWidth      ?? 320;
     document.getElementById('sRetention').value= cfg.storage?.retentionDays ?? 30;
@@ -759,6 +781,7 @@ async function saveSettings() {
     yoloUrl:      document.getElementById('sYoloUrl').value.trim() || 'http://localhost:8765',
     yoloConf:     parseFloat(document.getElementById('sYoloConf').value),
     yoloModel:    document.getElementById('sYoloModel').value,
+    yoloDevice:   document.getElementById('sYoloDevice').value,
     defaultFps:   parseFloat(document.getElementById('sFps').value),
     frameWidth:   parseInt(document.getElementById('sFw').value),
     storage: { ...cfg.storage, retentionDays: parseInt(document.getElementById('sRetention').value) }
@@ -2362,6 +2385,92 @@ function openDetailTab() {
 
 // Cache for CSV export
 let _detailExportData = null; // {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, dirHours}
+let _detailChart = null;
+
+function renderDetailChart(hours, date) {
+  const canvas = document.getElementById('detailChart');
+  if (!canvas) return;
+  if (_detailChart) { _detailChart.destroy(); _detailChart = null; }
+
+  const labels = hours.map((_, i) => String(i).padStart(2,'0') + ':00');
+  const curH = new Date().getHours();
+  const isToday = (date === today());
+
+  // Hours that are still in the future today → null (skip on chart)
+  const nullFuture = (val, i) => (isToday && i > curH) ? null : val;
+
+  const datasets = [
+    {
+      label: '🚗 Ô tô',
+      data: hours.map((h,i) => nullFuture(h.car, i)),
+      borderColor: '#00C800', backgroundColor: '#00C82033',
+      tension: 0.35, pointRadius: 3, fill: false,
+    },
+    {
+      label: '🏍 Xe máy',
+      data: hours.map((h,i) => nullFuture(h.motorcycle, i)),
+      borderColor: '#C800C8', backgroundColor: '#C800C833',
+      tension: 0.35, pointRadius: 3, fill: false,
+    },
+    {
+      label: '🚌 Xe buýt',
+      data: hours.map((h,i) => nullFuture(h.bus, i)),
+      borderColor: '#00C8C8', backgroundColor: '#00C8C833',
+      tension: 0.35, pointRadius: 3, fill: false,
+    },
+    {
+      label: '🚛 Xe tải',
+      data: hours.map((h,i) => nullFuture(h.truck, i)),
+      borderColor: '#C88C00', backgroundColor: '#C88C0033',
+      tension: 0.35, pointRadius: 3, fill: false,
+    },
+    {
+      label: '∑ Tổng',
+      data: hours.map((h,i) => nullFuture(h.n || h.car+h.motorcycle+h.bus+h.truck, i)),
+      borderColor: '#2f81f7', backgroundColor: '#2f81f733',
+      tension: 0.35, pointRadius: 3, borderWidth: 2, fill: false,
+    },
+  ];
+
+  // Detect dark mode from CSS variable
+  const isDark = getComputedStyle(document.documentElement).getPropertyValue('--text').trim().startsWith('#f')
+    || getComputedStyle(document.documentElement).getPropertyValue('color-scheme').includes('dark');
+  const gridColor = 'rgba(128,128,128,0.18)';
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+
+  _detailChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: textColor, boxWidth: 12, padding: 10, font: { size: 11 } },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y ?? '—'}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: textColor, font: { size: 10 }, maxRotation: 0,
+            callback: (_, i) => (i % 3 === 0) ? labels[i] : '' },
+          grid: { color: gridColor },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: textColor, font: { size: 10 }, precision: 0 },
+          grid: { color: gridColor },
+        },
+      },
+    },
+  });
+}
 
 async function loadDetailTab() {
   const camId = document.getElementById('detailCamSel').value;
@@ -2417,28 +2526,30 @@ async function loadDetailTab() {
       grandN     += rowTotal;
       const isCur = (i === curH && date === today());
       const rowStyle = isCur ? 'background:var(--surface2);font-weight:600' : '';
+      const p = 'padding:3px 5px';
       return `<tr style="${rowStyle}">
-        <td>${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
-        <td style="text-align:right">${h.car       || '—'}</td>
-        <td style="text-align:right">${h.motorcycle|| '—'}</td>
-        <td style="text-align:right">${h.bus        || '—'}</td>
-        <td style="text-align:right">${h.truck      || '—'}</td>
-        <td style="text-align:right;font-weight:700;color:var(--accent)">${rowTotal || '—'}</td>
+        <td style="${p}">${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
+        <td style="${p};text-align:right">${h.car       || '—'}</td>
+        <td style="${p};text-align:right">${h.motorcycle|| '—'}</td>
+        <td style="${p};text-align:right">${h.bus        || '—'}</td>
+        <td style="${p};text-align:right">${h.truck      || '—'}</td>
+        <td style="${p};text-align:right;font-weight:700;color:var(--accent)">${rowTotal || '—'}</td>
       </tr>`;
     }).join('');
 
     foot.innerHTML = `<tr style="border-top:2px solid var(--border);font-weight:700">
-      <td>Tổng ngày</td>
-      <td style="text-align:right">${grandCar.toLocaleString()}</td>
-      <td style="text-align:right">${grandMoto.toLocaleString()}</td>
-      <td style="text-align:right">${grandBus.toLocaleString()}</td>
-      <td style="text-align:right">${grandTruck.toLocaleString()}</td>
-      <td style="text-align:right;color:var(--accent)">${grandN.toLocaleString()}</td>
+      <td style="padding:3px 6px">Tổng ngày</td>
+      <td style="padding:3px 5px;text-align:right">${grandCar.toLocaleString()}</td>
+      <td style="padding:3px 5px;text-align:right">${grandMoto.toLocaleString()}</td>
+      <td style="padding:3px 5px;text-align:right">${grandBus.toLocaleString()}</td>
+      <td style="padding:3px 5px;text-align:right">${grandTruck.toLocaleString()}</td>
+      <td style="padding:3px 6px;text-align:right;color:var(--accent)">${grandN.toLocaleString()}</td>
     </tr>`;
 
     // Cache for export
     _detailExportData = {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, allDirs:[...allDirs]};
     btnExp.style.display = '';
+    renderDetailChart(hours, date);
   } catch(e) {
     info.textContent = '';
     body.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr>`;
