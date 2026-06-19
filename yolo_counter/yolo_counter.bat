@@ -3,8 +3,7 @@
 :: yolo_counter.bat  --  Python wrapper for counter.py
 ::
 :: Place this file next to go2rtc.exe (same folder).
-:: Also place counter.py and the models/ folder there, OR update COUNTER_PY
-:: below to point to where counter.py lives.
+:: Also place counter.py and the models/ folder there, OR update COUNTER_PY.
 ::
 :: go2rtc will prefer yolo_counter.exe if it exists. If you want to use this
 :: batch file instead, remove or rename yolo_counter.exe.
@@ -13,11 +12,20 @@
 :: Path to counter.py  (default: same folder as this .bat file)
 set "COUNTER_PY=%~dp0counter.py"
 
-:: Python executable to use.
-:: Leave as "python" to use whatever is first on PATH.
-:: Or set an absolute path, e.g.:
+:: Python executable (leave as "python" or set absolute path for CUDA env):
 ::   set "PYTHON=C:\Program Files\Python312\python.exe"
 set "PYTHON=python"
 
+:: ── Default args used when go2rtc launches this file ─────────────────────────
+:: go2rtc passes its own args when it auto-launches this file, so these only
+:: apply when you run the .bat manually without arguments.
+set "DEFAULT_ARGS=--port 8765 --model models/trained_20260617_090601.pt --conf 0.35 --rtsp-base rtsp://localhost:8554"
+
 :: ── Run ───────────────────────────────────────────────────────────────────────
-"%PYTHON%" "%COUNTER_PY%" %*
+if "%~1"=="" (
+    :: No args from caller -- use defaults (manual run)
+    "%PYTHON%" "%COUNTER_PY%" %DEFAULT_ARGS%
+) else (
+    :: Args provided by go2rtc -- pass them through unchanged
+    "%PYTHON%" "%COUNTER_PY%" %*
+)

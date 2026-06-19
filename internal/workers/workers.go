@@ -190,6 +190,21 @@ func GetWorkerRTSPBase(id string) string {
 	return wk.RTSPBase
 }
 
+// GetEnabledWorkerIDs returns the IDs of all enabled workers.
+// Used by the counting package to push YOLO config to every worker,
+// not just those with currently-active cameras.
+func GetEnabledWorkerIDs() []string {
+	workersMu.RLock()
+	defer workersMu.RUnlock()
+	var ids []string
+	for _, w := range workers {
+		if w.Enabled {
+			ids = append(ids, w.ID)
+		}
+	}
+	return ids
+}
+
 func allStatuses() []*WorkerStatus {
 	list := listWorkers()
 	out := make([]*WorkerStatus, 0, len(list))

@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/AlexxIT/go2rtc/internal/workers"
 )
 
 // CameraStatus holds the live state of one camera worker.
@@ -179,14 +181,20 @@ func (m *Manager) getTotal(id string) int {
 	return 0
 }
 
-// syncYoloToWorkers pushes YOLO config (model, conf, frameWidth) to all active remote workers.
+// syncYoloToWorkers pushes YOLO config (model, conf, frameWidth) to all enabled
+// workers, not just those with currently-active cameras.
 func (m *Manager) syncYoloToWorkers() {
-	m.mu.Lock()
 	seen := make(map[string]bool)
+	// Active remote cameras
+	m.mu.Lock()
 	for _, e := range m.remotes {
 		seen[e.cam.WorkerID] = true
 	}
 	m.mu.Unlock()
+	// All enabled workers (even without running cameras)
+	for _, id := range workers.GetEnabledWorkerIDs() {
+		seen[id] = true
+	}
 	for workerID := range seen {
 		go remoteSyncYoloConfig(workerID)
 	}
