@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,30 +35,58 @@ func restartYolo() bool {
 	return true
 }
 
-// autoLaunchYolo finds yolo_counter[.exe] next to the running binary and
-// starts it as a supervised subprocess. Restarts on crash with exponential backoff.
-// If the file is not found, logs an info message and returns.
+// autoLaunchYolo finds yolo_counter[.exe/.bat/.cmd] next to the running binary
+// and starts it as a supervised subprocess. Restarts on crash with exponential backoff.
+// On Windows, .bat/.cmd files are launched via "cmd /c" so users can wrap a plain
+// "python counter.py" call without needing a PyInstaller bundle.
 func autoLaunchYolo() {
-	exeName := "yolo_counter"
-	if runtime.GOOS == "windows" {
-		exeName += ".exe"
-	}
-
-	selfPath, err := os.Executable()
-	if err != nil {
-		return
-	}
-	selfPath, _ = filepath.EvalSymlinks(selfPath)
-	yoloPath := filepath.Join(filepath.Dir(selfPath), exeName)
-
-	if _, err := os.Stat(yoloPath); os.IsNotExist(err) {
-		log.Info().Str("path", yoloPath).
+	yoloPath, found := findYoloPath()
+	if !found {
+		selfPath, _ := os.Executable()
+		selfPath, _ = filepath.EvalSymlinks(selfPath)
+		log.Info().Str("dir", filepath.Dir(selfPath)).
 			Msg("[counting] yolo_counter not found — place it next to go2rtc for auto-launch")
 		return
 	}
-
 	log.Info().Str("path", yoloPath).Msg("[counting] found yolo_counter, launching")
 	go supervisedYolo(yoloPath)
+}
+
+// findYoloPath searches for yolo_counter next to the running binary.
+// On Windows it tries .exe first, then .bat, then .cmd so a simple batch-file
+// wrapper (e.g. "python counter.py %*") can substitute for a PyInstaller bundle.
+func findYoloPath() (string, bool) {
+	selfPath, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	selfPath, _ = filepath.EvalSymlinks(selfPath)
+	dir := filepath.Dir(selfPath)
+
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		candidates = []string{"yolo_counter.exe", "yolo_counter.bat", "yolo_counter.cmd"}
+	} else {
+		candidates = []string{"yolo_counter"}
+	}
+	for _, name := range candidates {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// buildYoloCmd constructs the exec.Cmd for yoloPath.
+// On Windows, .bat and .cmd files must be run via "cmd /c" because they are
+// not directly executable by CreateProcess.
+func buildYoloCmd(yoloPath string, args []string) *exec.Cmd {
+	ext := strings.ToLower(filepath.Ext(yoloPath))
+	if runtime.GOOS == "windows" && (ext == ".bat" || ext == ".cmd") {
+		return exec.Command("cmd", append([]string{"/c", yoloPath}, args...)...)
+	}
+	return exec.Command(yoloPath, args...)
 }
 
 func supervisedYolo(yoloPath string) {
@@ -72,7 +101,7 @@ func supervisedYolo(yoloPath string) {
 		// death, and uvicorn workers that didn't receive the previous SIGKILL.
 		ensurePortFree(port)
 
-		cmd := exec.Command(yoloPath, args...)
+		cmd := buildYoloCmd(yoloPath, args)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Dir = filepath.Dir(yoloPath)
