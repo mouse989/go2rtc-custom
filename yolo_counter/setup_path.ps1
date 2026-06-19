@@ -1,85 +1,76 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Thêm thư mục Scripts của Python vào PATH của người dùng hiện tại.
-    Chạy một lần sau khi cài pip packages. Không cần quyền Administrator.
-
-.USAGE
-    Mở PowerShell, cd vào thư mục này rồi chạy:
-        powershell -ExecutionPolicy Bypass -File setup_path.ps1
-#>
+# Add Python Scripts directory to current user PATH (no Admin needed).
+# Usage:  powershell -ExecutionPolicy Bypass -File setup_path.ps1
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Write-Ok  ($msg) { Write-Host "[OK]  $msg" -ForegroundColor Green }
-function Write-Inf ($msg) { Write-Host "[--]  $msg" -ForegroundColor Cyan }
-function Write-Wrn ($msg) { Write-Host "[!!]  $msg" -ForegroundColor Yellow }
-function Write-Err ($msg) { Write-Host "[XX]  $msg" -ForegroundColor Red }
+function OK  ($m) { Write-Host "[OK]  $m" -ForegroundColor Green }
+function INF ($m) { Write-Host "[--]  $m" -ForegroundColor Cyan }
+function WRN ($m) { Write-Host "[!!]  $m" -ForegroundColor Yellow }
+function ERR ($m) { Write-Host "[XX]  $m" -ForegroundColor Red }
 
-Write-Inf "Tìm Python đang dùng..."
+INF "Detecting Python..."
 
-# 1. Tìm python.exe (ưu tiên `python`, thử cả `python3`)
+# 1. Find python.exe
 $pyExe = $null
 foreach ($cmd in @("python", "python3")) {
-    try {
-        $p = Get-Command $cmd -ErrorAction Stop
-        $pyExe = $p.Source
-        break
-    } catch { }
+    try { $pyExe = (Get-Command $cmd -ErrorAction Stop).Source; break } catch {}
 }
-
 if (-not $pyExe) {
-    Write-Err "Không tìm thấy python / python3 trong PATH."
-    Write-Err "Hãy cài Python từ https://www.python.org/downloads/ rồi chạy lại."
+    ERR "python / python3 not found in PATH."
+    ERR "Install Python from https://www.python.org/downloads/ then re-run."
+    Read-Host "Press Enter to exit"
     exit 1
 }
+INF "Python: $pyExe"
 
-Write-Inf "Python: $pyExe"
-
-# 2. Lấy thư mục Scripts của Python này
-$pyScripts = & $pyExe -c "import sysconfig; print(sysconfig.get_path('scripts'))" 2>&1
+# 2. Get Scripts directory for this Python
+$pyScripts = (& $pyExe -c "import sysconfig; print(sysconfig.get_path('scripts'))").Trim()
 if ($LASTEXITCODE -ne 0) {
-    Write-Err "Không lấy được đường dẫn Scripts từ Python: $pyScripts"
+    ERR "Cannot determine Scripts path."
+    Read-Host "Press Enter to exit"
     exit 1
 }
-$pyScripts = $pyScripts.Trim()
-Write-Inf "Scripts dir: $pyScripts"
+INF "Scripts dir: $pyScripts"
 
-# 3. Kiểm tra thư mục tồn tại
 if (-not (Test-Path $pyScripts)) {
-    Write-Wrn "Thư mục chưa tồn tại (sẽ tạo sau khi cài package): $pyScripts"
+    WRN "Directory does not exist yet (will be created when packages are installed)."
 }
 
-# 4. Đọc PATH hiện tại của user (không sửa PATH hệ thống, không cần Admin)
+# 3. Read current user PATH
 $scope   = [System.EnvironmentVariableTarget]::User
-$current = [Environment]::GetEnvironmentVariable("PATH", $scope) ?? ""
-
+$current = [Environment]::GetEnvironmentVariable("PATH", $scope)
+if (-not $current) { $current = "" }
 $paths = $current -split ";" | Where-Object { $_.Trim() -ne "" }
 
+# 4. Add Scripts dir
 if ($paths -contains $pyScripts) {
-    Write-Ok  "Đường dẫn đã có trong PATH, không cần thêm."
+    OK "Scripts dir already in PATH -- nothing to do."
 } else {
     $newPath = ($paths + $pyScripts) -join ";"
     [Environment]::SetEnvironmentVariable("PATH", $newPath, $scope)
-    Write-Ok  "Đã thêm vào PATH (User): $pyScripts"
+    OK "Added to user PATH: $pyScripts"
 }
 
-# 5. Thêm thư mục chứa python.exe nếu chưa có
+# 5. Add Python executable dir
 $pyDir = Split-Path $pyExe -Parent
-if ($paths -notcontains $pyDir) {
-    $current2 = [Environment]::GetEnvironmentVariable("PATH", $scope)
-    [Environment]::SetEnvironmentVariable("PATH", "$current2;$pyDir", $scope)
-    Write-Ok  "Đã thêm thư mục Python vào PATH: $pyDir"
+$paths2 = ([Environment]::GetEnvironmentVariable("PATH", $scope)) -split ";" | Where-Object { $_.Trim() -ne "" }
+if ($paths2 -notcontains $pyDir) {
+    [Environment]::SetEnvironmentVariable("PATH", ($paths2 + $pyDir -join ";"), $scope)
+    OK "Added Python dir to PATH: $pyDir"
 } else {
-    Write-Ok  "Thư mục Python đã có trong PATH."
+    OK "Python dir already in PATH."
 }
 
-# 6. Cập nhật PATH trong phiên PowerShell hiện tại (có hiệu lực ngay)
-$env:PATH = [Environment]::GetEnvironmentVariable("PATH", $scope) + ";" +
-            [Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::Machine)
+# 6. Refresh current session
+$machinePath = [Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::Machine)
+$userPath    = [Environment]::GetEnvironmentVariable("PATH", [System.EnvironmentVariableTarget]::User)
+$env:PATH    = "$userPath;$machinePath"
 
 Write-Host ""
-Write-Ok  "Xong! Mở Command Prompt / PowerShell mới để PATH có hiệu lực."
-Write-Inf "Kiểm tra: uvicorn --version"
-Write-Inf "Kiểm tra: yolo --version"
+OK "Done! Open a new Command Prompt or PowerShell for PATH to take effect."
+INF "Test: uvicorn --version"
+INF "Test: yolo --version"
+Write-Host ""
+Read-Host "Press Enter to exit"
