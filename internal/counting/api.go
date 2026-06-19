@@ -42,6 +42,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/train-status", handleTrainStatus)
 	api.HandleFunc("api/counting/models", handleModels)
 	api.HandleFunc("api/counting/yolo-restart", handleYoloRestart)
+	api.HandleFunc("api/counting/yolo-sync", handleYoloSyncWorker)
 	// Worker-side endpoints (called by Server 1 workers module)
 	api.HandleFunc("api/counting/export", handleExport)
 	api.HandleFunc("api/counting/models/download", handleModelsDownload)
@@ -729,6 +730,26 @@ func handleYoloRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	ok := restartYolo()
 	writeJSON(w, map[string]any{"ok": ok, "restarted": ok})
+}
+
+// POST /api/counting/yolo-sync?worker=<id> — immediately push YOLO config
+// (model, conf, frameWidth) from Server 1 to the specified worker and restart
+// its yolo_counter. Useful when a worker was offline during a config change.
+func handleYoloSyncWorker(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	workerID := r.URL.Query().Get("worker")
+	if workerID == "" {
+		http.Error(w, "worker param required", http.StatusBadRequest)
+		return
+	}
+	go remoteSyncYoloConfig(workerID)
+	writeJSON(w, map[string]any{"ok": true, "worker": workerID})
 }
 
 // POST /api/counting/dataset-yaml?worker=id

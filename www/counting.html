@@ -333,6 +333,13 @@
           <canvas id="detailChart"></canvas>
         </div>
       </div>
+      <!-- Direction breakdown table (shown only when direction data exists) -->
+      <div id="dirBreakdown" style="margin-top:16px;display:none">
+        <div style="font-size:.8rem;font-weight:600;margin-bottom:6px;color:var(--text-secondary)">Chi tiết theo hướng đếm</div>
+        <div style="overflow-x:auto">
+          <table class="tbl" id="dirBreakdownTable" style="font-size:0.77rem;min-width:320px"></table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2091,6 +2098,7 @@ async function loadWorkerList() {
           </div>
           <div style="display:flex;gap:6px">
             <button class="btn btn-ghost btn-sm" onclick="syncWorker('${w.id}')" title="Đồng bộ dữ liệu ngay">↻ Sync</button>
+            <button class="btn btn-ghost btn-sm" onclick="syncYoloConfig('${w.id}','${esc(w.name)}')" title="Push model/conf từ server này sang worker rồi restart yolo_counter">⚙ Config</button>
             <button class="btn btn-ghost btn-sm" onclick="openWorkerModels('${w.id}','${esc(w.name)}')" title="Quản lý models">📦 Models</button>
             <button class="btn btn-ghost btn-sm" onclick="openWorkerTrain('${w.id}','${esc(w.name)}')" title="Huấn luyện từ xa">🎓 Train</button>
             <button class="btn btn-ghost btn-sm" onclick="openWorkerModal('${w.id}')">✎</button>
@@ -2143,6 +2151,13 @@ async function syncWorker(id) {
     el.prepend(msg);
     setTimeout(() => msg.remove(), 3000);
   } catch(e) { alert('Lỗi sync: '+e.message); }
+}
+
+async function syncYoloConfig(workerId, workerName) {
+  try {
+    await apiFetch('/api/counting/yolo-sync?worker='+workerId, {method:'POST'});
+    alert('Da push YOLO config (model/conf) sang ' + workerName + ' va khoi dong lai yolo_counter.');
+  } catch(e) { alert('Loi sync config: '+e.message); }
 }
 
 async function deleteWorker(id) {
@@ -2472,6 +2487,54 @@ function renderDetailChart(hours, date) {
   });
 }
 
+function renderDirBreakdown(dirTotals, allDirs) {
+  const wrap = document.getElementById('dirBreakdown');
+  const tbl  = document.getElementById('dirBreakdownTable');
+  if (!wrap || !tbl) return;
+  const dirs = [...allDirs];
+  if (!dirs.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+
+  const p = 'padding:3px 6px';
+  const pr = p + ';text-align:right';
+  let html = `<thead><tr>
+    <th style="${p}">Hướng</th>
+    <th style="${pr}" title="Ô tô">🚗</th>
+    <th style="${pr}" title="Xe máy">🏍</th>
+    <th style="${pr}" title="Xe buýt">🚌</th>
+    <th style="${pr}" title="Xe tải">🚛</th>
+    <th style="${pr};color:var(--accent)" title="Tổng">∑</th>
+  </tr></thead><tbody>`;
+
+  let gc=0, gm=0, gb=0, gt=0, gn=0;
+  for (const dir of dirs) {
+    const d = dirTotals[dir] || {};
+    const label = DIR_LABEL[dir] || dir;
+    const c = d.car||0, m = d.motorcycle||0, b = d.bus||0, t = d.truck||0, n = d.n||0;
+    gc+=c; gm+=m; gb+=b; gt+=t; gn+=n;
+    html += `<tr>
+      <td style="${p};font-weight:500">${esc(label)}</td>
+      <td style="${pr};color:#00C800">${c||'—'}</td>
+      <td style="${pr};color:#C800C8">${m||'—'}</td>
+      <td style="${pr};color:#00C8C8">${b||'—'}</td>
+      <td style="${pr};color:#C88C00">${t||'—'}</td>
+      <td style="${pr};font-weight:700;color:var(--accent)">${n||'—'}</td>
+    </tr>`;
+  }
+  if (dirs.length > 1) {
+    html += `<tr style="border-top:2px solid var(--border);font-weight:700">
+      <td style="${p}">Tổng</td>
+      <td style="${pr}">${gc.toLocaleString()}</td>
+      <td style="${pr}">${gm.toLocaleString()}</td>
+      <td style="${pr}">${gb.toLocaleString()}</td>
+      <td style="${pr}">${gt.toLocaleString()}</td>
+      <td style="${pr};color:var(--accent)">${gn.toLocaleString()}</td>
+    </tr>`;
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
 async function loadDetailTab() {
   const camId = document.getElementById('detailCamSel').value;
   const date  = document.getElementById('detailDate').value || today();
@@ -2485,6 +2548,8 @@ async function loadDetailTab() {
   foot.innerHTML = '';
   btnExp.style.display = 'none';
   _detailExportData = null;
+  const dirWrap = document.getElementById('dirBreakdown');
+  if (dirWrap) dirWrap.style.display = 'none';
 
   let url = '/api/counting/data?date=' + date;
   if (camId) url += '&camera=' + encodeURIComponent(camId);
@@ -2492,9 +2557,11 @@ async function loadDetailTab() {
   try {
     const slots = await apiFetch(url);
 
-    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, n, dirs:{dirName:count}}
-    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0, dirs:{}}));
+    // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, n, dirTypes:{dir:{car,moto,bus,truck,n}}}
+    const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0, dirTypes:{}}));
     let grandCar=0, grandMoto=0, grandBus=0, grandTruck=0, grandN=0;
+    // dirTotals: per-direction totals across all hours {dir: {car, motorcycle, bus, truck, n}}
+    const dirTotals = {};
     const allDirs = new Set();
 
     (slots||[]).forEach(sl => {
@@ -2503,12 +2570,27 @@ async function loadDetailTab() {
       hours[h].n += sl.n || 0;
       for (const [dir, types] of Object.entries(sl.dt || {})) {
         allDirs.add(dir);
-        const dirSum = Object.values(types).reduce((a,b)=>a+b,0);
-        hours[h].dirs[dir] = (hours[h].dirs[dir]||0) + dirSum;
-        hours[h].car        += types.car        || 0;
-        hours[h].motorcycle += types.motorcycle || 0;
-        hours[h].bus        += types.bus        || 0;
-        hours[h].truck      += types.truck      || 0;
+        if (!hours[h].dirTypes[dir]) hours[h].dirTypes[dir] = {car:0, motorcycle:0, bus:0, truck:0, n:0};
+        if (!dirTotals[dir])         dirTotals[dir]         = {car:0, motorcycle:0, bus:0, truck:0, n:0};
+        const dc = types.car        || 0;
+        const dm = types.motorcycle || 0;
+        const db = types.bus        || 0;
+        const dt = types.truck      || 0;
+        const dn = dc + dm + db + dt;
+        hours[h].dirTypes[dir].car        += dc;
+        hours[h].dirTypes[dir].motorcycle += dm;
+        hours[h].dirTypes[dir].bus        += db;
+        hours[h].dirTypes[dir].truck      += dt;
+        hours[h].dirTypes[dir].n          += dn;
+        dirTotals[dir].car        += dc;
+        dirTotals[dir].motorcycle += dm;
+        dirTotals[dir].bus        += db;
+        dirTotals[dir].truck      += dt;
+        dirTotals[dir].n          += dn;
+        hours[h].car        += dc;
+        hours[h].motorcycle += dm;
+        hours[h].bus        += db;
+        hours[h].truck      += dt;
       }
     });
 
@@ -2547,9 +2629,10 @@ async function loadDetailTab() {
     </tr>`;
 
     // Cache for export
-    _detailExportData = {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, allDirs:[...allDirs]};
+    _detailExportData = {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, allDirs:[...allDirs], dirTotals};
     btnExp.style.display = '';
     renderDetailChart(hours, date);
+    renderDirBreakdown(dirTotals, allDirs);
   } catch(e) {
     info.textContent = '';
     body.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr>`;
