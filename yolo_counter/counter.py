@@ -122,9 +122,9 @@ class Tracker:
     small/distant objects where IOU is naturally low.
     """
 
-    IOU_MIN  = 0.15   # minimum IOU for a valid match
-    DIST_MAX = 80.0   # centroid fallback threshold (pixels)
-    MAX_MISSED = 5
+    IOU_MIN    = 0.20   # minimum IOU for a valid match (raised from 0.15 to reduce swaps)
+    DIST_MAX   = 55.0   # centroid fallback threshold px (lowered from 80 — tighter window)
+    MAX_MISSED = 4      # frames before a track is dropped (lowered from 5)
 
     def __init__(self):
         self._tracks: List[Track] = []
@@ -168,7 +168,7 @@ class Tracker:
                 tr.missed = 0
                 unmatched_dets.remove(best_idx)
                 tr.position_history.append((cx, cy))
-                if len(tr.position_history) > 5:
+                if len(tr.position_history) > 10:
                     tr.position_history.pop(0)
 
         # Create new tracks for unmatched detections

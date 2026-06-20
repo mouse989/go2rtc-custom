@@ -355,6 +355,24 @@ func workerHTTPClient(_ *Worker) *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
+// RequestWorkerStream makes an authenticated HTTP request to a named worker with
+// no timeout. Use this for long-lived MJPEG/SSE streams instead of RequestWorker.
+func RequestWorkerStream(id, method, path string) (*http.Response, error) {
+	wk := getWorkerByID(id)
+	if wk == nil {
+		return nil, fmt.Errorf("worker not found: %s", id)
+	}
+	token, _ := workerToken(wk)
+	req, err := http.NewRequest(method, wk.URL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return (&http.Client{}).Do(req) // no timeout — caller must close body
+}
+
 func workerRequest(wk *Worker, method, path string, body io.Reader, contentType string) (*http.Response, error) {
 	return workerRequestWithToken(wk, method, path, body, contentType, true)
 }
