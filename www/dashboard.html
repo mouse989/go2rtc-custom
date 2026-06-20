@@ -127,6 +127,32 @@
   .tti-row-label { width:90px; }
   .tti-axis-wrap { margin-left:calc(90px + .6rem); }
 }
+@media (max-width:768px) {
+  .db-bottom { grid-template-columns:1fr !important; }
+  .tti-row-label { width:70px !important; }
+  .tti-axis-wrap { margin-left:calc(70px + .4rem) !important; }
+  #dashMap { height:240px !important; }
+  .hist-ctrl { flex-direction:column; gap:.4rem; }
+  .db-kpi-mini .lbl { font-size:.75rem !important; }
+  .db-kpi-mini .sub { font-size:.73rem !important; }
+  .tti-axis-lbl { font-size:.7rem !important; }
+  .db-kpi-mini { min-width:calc(50% - .35rem) !important; }
+  .topbar-actions .btn { padding:6px 10px !important; }
+}
+@media (min-width:1280px) {
+  .db-kpi-mini .val { font-size:1.8rem; }
+  .db-kpi-mini .lbl { font-size:.72rem; }
+  .tti-bar-today { height:26px; }
+  .tti-bar-hist  { height:14px; }
+  .db-bottom { grid-template-columns:1fr 380px; }
+  .tti-axis-lbl { font-size:.68rem; }
+  .tti-row-label { width:150px; }
+  .tti-axis-wrap { margin-left:calc(150px + .6rem); }
+}
+@media (min-width:1600px) {
+  .db-bottom { grid-template-columns:1fr 440px; }
+  .db-kpi-mini .val { font-size:2.1rem; }
+}
 </style>
 </head>
 <body>

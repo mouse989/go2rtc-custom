@@ -37,8 +37,15 @@
 .lv.warn  { background:#92400e22; color:#fbbf24; }
 .lv.error, .lv.fatal, .lv.panic { background:#7f1d1d22; color:#f87171; }
 
-.log-scroll { max-height:calc(100vh - 210px); overflow-y:auto; }
+.log-scroll { max-height:calc(100vh - 210px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .log-empty { text-align:center; color:var(--text-muted); padding:2.5rem; font-size:.85rem; }
+@media (max-width:768px) {
+  .topbar { flex-wrap:wrap; height:auto !important; padding:8px 12px !important; gap:6px; }
+  .log-scroll { max-height:calc(100vh - 160px); overflow-x:auto; }
+  .log-time { width:90px !important; }
+  .log-level { width:48px !important; font-size:.73rem !important; }
+  .log-table th { font-size:.75rem !important; }
+}
 </style>
 </head>
 <body>

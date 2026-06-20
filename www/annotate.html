@@ -38,6 +38,29 @@
     .cnt-header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); flex-wrap:wrap; flex-shrink:0; }
     .cnt-header h2 { margin:0; font-size:1.0rem; flex:1; min-width:140px; }
     .status-msg { font-size:0.75rem; color:var(--text-secondary); padding:2px 0; min-height:1.1em; }
+    @media (max-width:768px) {
+      .ann-layout { flex-direction:column; height:auto; overflow:visible; }
+      .ann-left {
+        width:100% !important; height:auto; max-height:160px;
+        overflow-y:auto; border-right:none; border-bottom:1px solid var(--border);
+      }
+      .ann-right {
+        width:100% !important; height:auto; order:3;
+        border-left:none; border-top:1px solid var(--border);
+      }
+      .canvas-wrap { height:56vw; min-height:200px; overflow:auto; order:2; }
+      #annCanvas { max-width:100%; display:block; }
+      .img-item { padding:8px 10px; font-size:.8rem; min-height:36px; }
+      .box-row { padding:6px 8px; min-height:34px; }
+      .box-del { padding:4px 8px; min-height:30px; }
+      .cls-btn { padding:7px 10px; min-height:34px; }
+    }
+    @media (min-width:1280px) {
+      .ann-left { width:240px; }
+      .ann-right { width:260px; }
+      .img-item { font-size:.8rem; padding:7px 12px; }
+      .rp-title { font-size:.76rem; }
+    }
   </style>
 </head>
 <body>
