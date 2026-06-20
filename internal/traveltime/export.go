@@ -31,7 +31,7 @@ func GetLogsForDate(date string, limit int) ([]LogEntry, error) {
 
 // LatestSnapshot returns today's travel time data for the dashboard summary API.
 func LatestSnapshot() TravelTimeSnapshot {
-	entries, _ := getLogs("", 1000)
+	entries, _ := getLogs("", 0) // 0 = no limit: load all of today's entries
 
 	latestMap := map[string]LogEntry{}
 	for _, e := range entries {

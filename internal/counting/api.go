@@ -119,14 +119,20 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
-	c := getConfig()
 	if id != "" {
-		for _, cam := range c.Cameras {
+		// Start a single camera: mark it Enabled and ensure global running flag is on,
+		// then persist so the camera auto-resumes after a system restart.
+		cfgMu.Lock()
+		for i, cam := range cfg.Cameras {
 			if cam.ID == id {
-				mgr.startCamera(cam)
+				cfg.Cameras[i].Enabled = true
+				cfg.Running = true
+				mgr.startCamera(cfg.Cameras[i])
 				break
 			}
 		}
+		cfgMu.Unlock()
+		_ = saveConfig()
 	} else {
 		cfgMu.Lock()
 		cfg.Running = true
@@ -144,7 +150,17 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.URL.Query().Get("id")
 	if id != "" {
+		// Stop a single camera and clear its Enabled flag so it does NOT auto-resume.
 		mgr.stopCamera(id)
+		cfgMu.Lock()
+		for i := range cfg.Cameras {
+			if cfg.Cameras[i].ID == id {
+				cfg.Cameras[i].Enabled = false
+				break
+			}
+		}
+		cfgMu.Unlock()
+		_ = saveConfig()
 	} else {
 		cfgMu.Lock()
 		cfg.Running = false
@@ -367,47 +383,21 @@ func handleDebug(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(frame)
 }
 
-// GET /api/counting/stream?camera=id
-// Proxies the MJPEG stream from the Python YOLO service for the given camera.
-// Uses a client with no timeout so the connection stays open as long as the browser is watching.
-func handleStream(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
-		return
-	}
-	id := r.URL.Query().Get("camera")
-	if id == "" {
-		http.Error(w, "camera required", http.StatusBadRequest)
-		return
-	}
-
-	yoloURL := getConfig().YoloURL
-	if yoloURL == "" {
-		yoloURL = "http://localhost:8765"
-	}
-
-	streamURL := fmt.Sprintf("%s/stream/%s", yoloURL, neturl.PathEscape(id))
-	client := &http.Client{} // no timeout — stream runs indefinitely
-	resp, err := client.Get(streamURL)
-	if err != nil {
-		http.Error(w, "YOLO stream unavailable: "+err.Error(), http.StatusBadGateway)
-		return
-	}
+// pipeStream copies a no-timeout HTTP response body back to the client as MJPEG/SSE.
+func pipeStream(w http.ResponseWriter, resp *http.Response, defaultCT string) {
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		http.Error(w, strings.TrimSpace(string(b)), resp.StatusCode)
 		return
 	}
-
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
-		ct = "multipart/x-mixed-replace; boundary=frame"
+		ct = defaultCT
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "no-cache, no-store")
-	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering if present
-
+	w.Header().Set("X-Accel-Buffering", "no")
 	flusher, canFlush := w.(http.Flusher)
 	buf := make([]byte, 32*1024)
 	for {
@@ -426,9 +416,50 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GET /api/counting/stream?camera=id
+// Proxies the MJPEG stream from the Python YOLO service for the given camera.
+// For remote cameras, proxies through the remote worker (no timeout).
+func handleStream(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("camera")
+	if id == "" {
+		http.Error(w, "camera required", http.StatusBadRequest)
+		return
+	}
+
+	// Remote cameras: proxy through the worker (no timeout).
+	mgr.mu.Lock()
+	re, isRemote := mgr.remotes[id]
+	mgr.mu.Unlock()
+	if isRemote {
+		resp, err := workers.RequestWorkerStream(re.cam.WorkerID, http.MethodGet, "/api/counting/stream?camera="+neturl.QueryEscape(id))
+		if err != nil {
+			http.Error(w, "remote stream unavailable: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		pipeStream(w, resp, "multipart/x-mixed-replace; boundary=frame")
+		return
+	}
+
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+
+	streamURL := fmt.Sprintf("%s/stream/%s", yoloURL, neturl.PathEscape(id))
+	resp, err := (&http.Client{}).Get(streamURL) // no timeout — stream runs indefinitely
+	if err != nil {
+		http.Error(w, "YOLO stream unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	pipeStream(w, resp, "multipart/x-mixed-replace; boundary=frame")
+}
+
 // GET /api/counting/sse?camera=id
 // Proxies the SSE stream of per-frame YOLO detection data from the Python service.
-// Each event is a JSON object with bounding boxes, track IDs, and direction counts.
+// For remote cameras, proxies through the remote worker (no timeout).
 func handleSSE(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -439,46 +470,32 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remote cameras: proxy through the worker.
+	mgr.mu.Lock()
+	re, isRemote := mgr.remotes[id]
+	mgr.mu.Unlock()
+	if isRemote {
+		resp, err := workers.RequestWorkerStream(re.cam.WorkerID, http.MethodGet, "/api/counting/sse?camera="+neturl.QueryEscape(id))
+		if err != nil {
+			http.Error(w, "remote SSE unavailable: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		pipeStream(w, resp, "text/event-stream")
+		return
+	}
+
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
 	}
 
 	sseURL := fmt.Sprintf("%s/sse/%s", yoloURL, neturl.PathEscape(id))
-	client := &http.Client{} // no timeout — SSE connection stays open
-	resp, err := client.Get(sseURL)
+	resp, err := (&http.Client{}).Get(sseURL) // no timeout — SSE connection stays open
 	if err != nil {
 		http.Error(w, "YOLO SSE unavailable: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		http.Error(w, strings.TrimSpace(string(b)), resp.StatusCode)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-store")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	flusher, canFlush := w.(http.Flusher)
-	buf := make([]byte, 4*1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
-			}
-			if canFlush {
-				flusher.Flush()
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
+	pipeStream(w, resp, "text/event-stream")
 }
 
 func newCameraID(streamName string) string {
