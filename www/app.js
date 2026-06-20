@@ -47,6 +47,16 @@ function canUseHeatmap() {
   return u && (u.role === 'admin' || !!u.allow_heatmap);
 }
 
+function canEditMapLocations() {
+  const u = getUser();
+  return u && (u.role === 'admin' || !!u.allow_map_edit);
+}
+
+function canSeeCamNames() {
+  const u = getUser();
+  return u && (u.role === 'admin' || !!u.allow_cam_names);
+}
+
 // hasTab returns true if the current user has permission for the given page tab.
 // Admin always returns true; viewer checks the tabs array from /api/auth/me.
 function hasTab(tab) {

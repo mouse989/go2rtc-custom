@@ -164,7 +164,7 @@ tr:hover td { background:var(--surface2); }
     </a>
     <a href="/admin.html" class="nav-item active admin-only">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
-      Users
+      Admin Config
     </a>
   </nav>
   <div class="sidebar-footer">
@@ -971,8 +971,10 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
         <div style="display:flex;flex-wrap:wrap;gap:.4rem">
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-traffic"> 🚦 Live Traffic</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-heatmap"> 🌡 Heatmap</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-edit"> 📍 Edit Map Locations</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-names"> 🏷 See Camera Names</label>
         </div>
-        <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic và heatmap trên tab Map.</p>
+        <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic, heatmap, sửa vị trí camera, và xem tên thật camera trên tab Map.</p>
       </div>
 
       <div class="form-group" id="cam-section" style="margin-top:.75rem;">
@@ -1482,6 +1484,8 @@ function openEdit(u) {
   });
   document.getElementById('f-allow-traffic').checked = !!u.allow_traffic;
   document.getElementById('f-allow-heatmap').checked = !!u.allow_heatmap;
+  document.getElementById('f-allow-map-edit').checked = !!u.allow_map_edit;
+  document.getElementById('f-allow-cam-names').checked = !!u.allow_cam_names;
   setCamChecks(u.streams || []);
   updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
@@ -1607,9 +1611,11 @@ async function submitForm(e) {
 
   if (!editing && !password) { toast('Password is required for new user', 'error'); return; }
 
-  const allow_traffic = role === 'admin' ? true : document.getElementById('f-allow-traffic').checked;
-  const allow_heatmap = role === 'admin' ? true : document.getElementById('f-allow-heatmap').checked;
-  const body = { role, enabled, streams, allow_traffic, allow_heatmap, tabs };
+  const allow_traffic   = role === 'admin' ? true : document.getElementById('f-allow-traffic').checked;
+  const allow_heatmap   = role === 'admin' ? true : document.getElementById('f-allow-heatmap').checked;
+  const allow_map_edit  = role === 'admin' ? true : document.getElementById('f-allow-map-edit').checked;
+  const allow_cam_names = role === 'admin' ? true : document.getElementById('f-allow-cam-names').checked;
+  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, tabs };
   if (password) body.password = password;
 
   const btn = document.getElementById('dlg-btn');
