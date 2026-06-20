@@ -316,7 +316,7 @@ body.sb-collapsed           { --map-left:0; }
     </a>
     <a href="/admin.html" class="nav-item admin-only">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
-      Users
+      Admin Config
     </a>
   </nav>
 
@@ -510,6 +510,15 @@ let _clusterMarkers = new Map();  // cluster_id → {marker, el, count} — diff
 let _clusterUpdatePending = false;
 let _ovUpdatePending = false;
 
+// Display name for a camera: respects allow_cam_names permission.
+// With permission: label → stream name → location name → id
+// Without permission: label → id (hides internal name from viewers)
+function camLabel(loc, id, s) {
+  if (!loc) return id;
+  if (canSeeCamNames()) return loc.label || (s && s.name) || loc.name || id;
+  return loc.label || id;
+}
+
 // ── Camera SVG (for HTML markers in edit mode) ────────────────
 const CAM_SVG = `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm12 2.5l4-2v7l-4-2V8.5z"/></svg>`;
 
@@ -610,7 +619,7 @@ function buildCamerasGeoJSON() {
       geometry:{ type:'Point', coordinates:[loc.lon, loc.lat] },
       properties:{
         id: loc.id,
-        name: loc.label || loc.name || loc.id,
+        name: camLabel(loc, loc.id, _streamByID[loc.id]),
         state: _searchHits.includes(loc.id) ? 'hit'
                : (_ovWindows[loc.id] ? 'active' : 'normal'),
       }
@@ -1076,7 +1085,7 @@ function showResultsPanel(ids, km) {
     .forEach(id => {
       const loc = _locByID[id], s = _streamByID[id];
       if (!loc||!s) return;
-      const label = loc.label||loc.name||id;
+      const label = camLabel(loc, id, s);
       const card = document.createElement('div');
       card.className = 'result-card';
       card.innerHTML = `
@@ -1191,7 +1200,7 @@ function buildSidebar() {
     .sort((a,b) => (a.label||a.name||a.id).localeCompare(b.label||b.name||b.id));
 
   sortedLocs.forEach(loc => {
-    const label = loc.label||loc.name||loc.id;
+    const label = camLabel(loc, loc.id, _streamByID[loc.id]);
     const inR   = _searchHits.includes(loc.id);
     located.appendChild(mkCamItem(label, true, inR, () => {
       if (map) map.easeTo({ center:[loc.lon,loc.lat], zoom:Math.max(map.getZoom(),15) });
@@ -1312,7 +1321,7 @@ function openGrid(ids) {
   grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
   ids.forEach(id => {
     const s=_streamByID[id], loc=_locByID[id]; if (!s) return;
-    const label=(loc&&(loc.label||loc.name))||id;
+    const label=camLabel(loc, id, _streamByID[id]);
     const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
     const cell=document.createElement('div');
     cell.style.cssText='background:#000;border-radius:8px;overflow:hidden;position:relative;aspect-ratio:16/9;';
@@ -1347,7 +1356,7 @@ function openOverlays(ids) {
 }
 
 function createOverlayWindow(id, loc, s, x, y) {
-  const label = loc.label||loc.name||id;
+  const label = camLabel(loc, id, s);
   const wsUrl = `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
   const win = document.createElement('div');
   win.className='ov-win'; win.dataset.id=id;
@@ -1409,7 +1418,7 @@ function closeAllOverlays() {
 function openModal(maskedID) {
   _currentModalID=maskedID;
   const s=_streamByID[maskedID],loc=_locByID[maskedID]; if(!s) return;
-  const label=(loc&&(loc.label||loc.name))||maskedID;
+  const label=camLabel(loc, maskedID, _streamByID[maskedID]);
   document.getElementById('modalTitle').textContent=label;
   document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('#modeTabs [data-mode="snapshot"]').classList.add('active');
@@ -1692,6 +1701,12 @@ document.getElementById('btnHeatmap').addEventListener('click', toggleHeatmap);
   await initApp('map');
   _token = getToken(); _isAdmin = isAdmin();
   if (_isAdmin) document.querySelectorAll('.admin-only').forEach(el=>el.style.display='');
+  if (canEditMapLocations()) {
+    const btnEdit = document.getElementById('btnEdit');
+    if (btnEdit) btnEdit.style.display = '';
+    const secUnplaced = document.getElementById('secUnplaced');
+    if (secUnplaced) secUnplaced.classList.remove('admin-only');
+  }
 
   // Fetch settings: VietMap API key + default search radius
   try {

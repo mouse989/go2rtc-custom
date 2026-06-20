@@ -33,6 +33,8 @@ type User struct {
 	Enabled      bool     `json:"enabled"`
 	AllowTraffic bool     `json:"allow_traffic"`  // can use traffic overlay on map
 	AllowHeatmap bool     `json:"allow_heatmap"`  // can use heatmap overlay on map
+	AllowMapEdit bool     `json:"allow_map_edit"` // can edit camera locations on map
+	AllowCamNames bool    `json:"allow_cam_names"` // can see real camera names (like admin)
 }
 
 // EffectiveTabs returns the full resolved tab list for this user.
