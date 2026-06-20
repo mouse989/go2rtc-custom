@@ -100,11 +100,26 @@
       background:var(--surface); border:1px solid var(--border);
       border-radius:12px; padding:20px; width:100%; max-width:520px;
       position:relative; box-shadow:0 8px 32px rgba(0,0,0,.3);
+      max-height:calc(100vh - 80px); max-height:calc(100dvh - 80px);
+      overflow-y:auto;
     }
     .modal-title { font-size:1rem; font-weight:700; margin:0 0 14px; }
     .form-row { margin-bottom:10px; }
-    .form-row label { display:block; font-size:0.78rem; font-weight:600; margin-bottom:3px; color:var(--text-secondary); }
-    .form-row input, .form-row select { width:100%; box-sizing:border-box; }
+    .form-row label { display:block; font-size:0.78rem; font-weight:600; margin-bottom:4px; color:var(--text-secondary); }
+    .form-row input:not([type=checkbox]):not([type=radio]),
+    .form-row select {
+      width:100%; box-sizing:border-box;
+      padding:8px 12px;
+      background:var(--surface2); border:1.5px solid var(--border);
+      border-radius:8px; color:var(--text); font-size:0.84rem; font-family:inherit;
+      outline:none; transition:border-color .18s ease, box-shadow .18s ease;
+    }
+    .form-row input:not([type=checkbox]):not([type=radio]):focus,
+    .form-row select:focus {
+      border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(59,130,246,.14);
+    }
+    .form-row input::placeholder { color:var(--text-muted); opacity:.65; }
     .form-row.dir-row { display:flex; flex-wrap:wrap; gap:8px 16px; }
     .dir-check { display:flex; align-items:center; gap:5px; font-size:0.82rem; cursor:pointer; }
     .modal-footer { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; padding-top:10px; border-top:1px solid var(--border); }
@@ -145,6 +160,9 @@
         width: 100% !important;
         box-sizing: border-box;
         padding: 14px !important;
+        max-height: calc(100vh - 24px) !important;
+        max-height: calc(100dvh - 24px) !important;
+        overflow-y: auto !important;
       }
       .sname { word-break: break-all; }
       #previewCanvas { width: 100% !important; height: auto !important; max-height: 180px !important; }
