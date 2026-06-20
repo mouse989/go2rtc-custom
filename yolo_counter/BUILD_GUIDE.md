@@ -42,7 +42,8 @@ Output binary: `dist\yolo_counter.exe`
 This script:
 1. Installs PyTorch with CUDA 12.1 support
 2. Installs ultralytics, opencv, fastapi, uvicorn, pyinstaller
-3. Runs PyInstaller to produce a single self-contained `.exe`
+3. Installs NVIDIA CUDA runtime pip packages (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, etc.) — these provide the CUDA DLLs (`cudart64_121.dll`, `cublas64_12.dll`, …) as discoverable Python package files so PyInstaller can bundle them into the `.exe`. Without this step Windows throws **WinError 1114** (DLL initialization failed) at runtime because the GPU driver alone does not install the CUDA runtime DLLs.
+4. Runs PyInstaller with `--collect-all torch` to recursively bundle every file inside the `torch` package (including `torch/lib/*.dll`) into the single `.exe`
 
 ## Placing the binary in the project
 

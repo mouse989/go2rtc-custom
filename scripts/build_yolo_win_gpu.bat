@@ -31,8 +31,12 @@ ECHO --- Installing ultralytics, opencv, web stack, PyInstaller ---
 pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
 IF ERRORLEVEL 1 GOTO error
 
+ECHO --- Installing NVIDIA CUDA runtime libraries (needed to bundle CUDA DLLs into .exe) ---
+pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cuda-nvrtc-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12
+IF ERRORLEVEL 1 GOTO error
+
 ECHO --- Building binary ---
-python -m PyInstaller --onefile --name yolo_counter "%SCRIPT%"
+python -m PyInstaller --onefile --collect-all torch --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.

@@ -219,6 +219,12 @@
           <label style="font-size:0.75rem;color:var(--text-secondary);display:block;margin-bottom:2px;">Epochs</label>
           <input id="trainEpochs" type="number" value="50" min="1" max="500" style="width:100%;font-size:0.78rem;">
         </div>
+        <div style="margin-bottom:6px;">
+          <label style="font-size:0.75rem;color:var(--text-secondary);display:block;margin-bottom:2px;">Máy chủ train</label>
+          <select id="trainServer" style="width:100%;font-size:0.78rem;">
+            <option value="">🖥 Máy chủ chính (local)</option>
+          </select>
+        </div>
         <button class="btn btn-primary" id="btnTrain" style="width:100%;font-size:0.8rem;">🚀 Bắt đầu</button>
         <div class="status-msg" id="trainMsg"></div>
       </div>
@@ -246,6 +252,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initApp('counting');
   await loadImages();
   await loadCameras();
+  await loadTrainServers();
 });
 
 // ── class colors ──
@@ -261,8 +268,7 @@ let selectedCls = 0;
 let drawing = false;
 let dragStart = null;
 let dragCurrent = null;
-let _activeWorker = ''; // worker ID for remote camera dataset; '' = local
-let _trainWorker  = ''; // worker ID at the time training was started
+let _trainWorker  = ''; // worker ID selected at the time training was started
 
 const canvas = document.getElementById('annCanvas');
 const ctx = canvas.getContext('2d');
@@ -276,8 +282,7 @@ document.getElementById('sidebarToggle')?.addEventListener('click', () => {
 let labeledSet = new Set();
 async function loadImages() {
   try {
-    const suffix = _activeWorker ? '?worker=' + encodeURIComponent(_activeWorker) : '';
-    const d = await apiFetch('/api/counting/dataset-images' + suffix);
+    const d = await apiFetch('/api/counting/dataset-images');
     images = d.images || [];
     labeledSet = new Set(d.labeled || []);
     document.getElementById('imgCount').textContent = images.length;
@@ -322,8 +327,7 @@ async function loadImage(idx) {
       resolve();
     };
     img.onerror = resolve;
-    const wParam = _activeWorker ? '&worker=' + encodeURIComponent(_activeWorker) : '';
-    img.src = `/api/counting/dataset-image?file=${encodeURIComponent(fname)}${wParam}`;
+    img.src = `/api/counting/dataset-image?file=${encodeURIComponent(fname)}`;
   });
 
   // Try loading existing labels (needs image dimensions, so after image loads)
@@ -333,8 +337,7 @@ async function loadImage(idx) {
 async function loadLabels(fname) {
   boxes = [];
   try {
-    const wParam = _activeWorker ? '&worker=' + encodeURIComponent(_activeWorker) : '';
-    const d = await apiFetch(`/api/counting/dataset-label?file=${encodeURIComponent(fname)}${wParam}`);
+    const d = await apiFetch(`/api/counting/dataset-label?file=${encodeURIComponent(fname)}`);
     const w = currentImg ? currentImg.naturalWidth : canvas.width;
     const h = currentImg ? currentImg.naturalHeight : canvas.height;
     boxes = (d.boxes || []).map(b => ({
@@ -486,8 +489,7 @@ document.getElementById('btnSave').addEventListener('click', async () => {
   const msg = document.getElementById('saveMsg');
   msg.textContent = 'Đang lưu...';
   try {
-    const wParam = _activeWorker ? '?worker=' + encodeURIComponent(_activeWorker) : '';
-    const d = await apiFetch('/api/counting/dataset-label' + wParam, {
+    const d = await apiFetch('/api/counting/dataset-label', {
       method: 'POST',
       body: JSON.stringify({ filename: fname, boxes: normalized }),
     });
@@ -522,15 +524,20 @@ async function loadCameras() {
   }
 }
 
-// When camera selection changes, switch the active worker and reload dataset images.
-document.getElementById('collectCam').addEventListener('change', function() {
-  const opt = this.options[this.selectedIndex];
-  const newWorker = opt?.dataset?.workerId || '';
-  if (newWorker !== _activeWorker) {
-    _activeWorker = newWorker;
-    loadImages();
-  }
-});
+// ── populate train server selector ──
+async function loadTrainServers() {
+  try {
+    const workers = await apiFetch('/api/workers/status');
+    const sel = document.getElementById('trainServer');
+    while (sel.options.length > 1) sel.remove(1);
+    (workers || []).filter(w => w.status === 'online').forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = `🌐 ${w.name || w.id}`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {}
+}
 
 // ── collect frames ──
 document.getElementById('btnCollect').addEventListener('click', async () => {
@@ -538,16 +545,12 @@ document.getElementById('btnCollect').addEventListener('click', async () => {
   const camId = sel.value;
   const frames = document.getElementById('collectFrames').value || '50';
   if (!camId) { document.getElementById('collectMsg').textContent = 'Chọn camera trước'; return; }
-  // Ensure active worker matches selected camera
-  const opt = sel.options[sel.selectedIndex];
-  _activeWorker = opt?.dataset?.workerId || '';
   const msg = document.getElementById('collectMsg');
-  const workerNote = _activeWorker ? ' (máy chủ từ xa)' : '';
-  msg.textContent = `Đang thu thập${workerNote} (~${frames * 5}s)...`;
+  msg.textContent = `Đang thu thập (~${frames * 5}s)...`;
   try {
     const d = await apiFetch(`/api/counting/collect?camera=${encodeURIComponent(camId)}&frames=${frames}`, { method: 'POST' });
     if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = `✓ Thu thập ${d.collected ?? 0} ảnh${workerNote} vào dataset/images/`;
+    msg.textContent = `✓ Thu thập ${d.collected ?? 0} ảnh vào dataset/images/`;
     await loadImages();
   } catch (e) {
     msg.textContent = 'Lỗi: ' + e.message;
@@ -558,26 +561,48 @@ document.getElementById('btnCollect').addEventListener('click', async () => {
 document.getElementById('btnTrain').addEventListener('click', async () => {
   const model = document.getElementById('trainModel').value;
   const epochs = parseInt(document.getElementById('trainEpochs').value) || 50;
+  const trainServer = document.getElementById('trainServer').value;
   const msg = document.getElementById('trainMsg');
-  _trainWorker = _activeWorker; // capture which worker's data we're training on
-  const wParam = _trainWorker ? '?worker=' + encodeURIComponent(_trainWorker) : '';
-  const workerNote = _trainWorker ? ' (máy chủ từ xa)' : '';
-  msg.textContent = 'Đang tạo dataset.yaml' + workerNote + '...';
-  try {
-    // Step 1: auto-generate dataset.yaml
-    const yaml = await apiFetch('/api/counting/dataset-yaml' + wParam, { method: 'POST' });
-    if (yaml.error) { msg.textContent = 'Lỗi tạo yaml: ' + yaml.error; return; }
-    msg.textContent = `✓ dataset.yaml (${yaml.labeled} ảnh đã gán nhãn)${workerNote}. Đang khởi động train...`;
-    // Step 2: start training
-    const d = await apiFetch('/api/counting/train' + wParam, {
-      method: 'POST',
-      body: JSON.stringify({ model, epochs }),
-    });
-    if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
-    msg.textContent = d.message || '✓ Training bắt đầu' + workerNote;
-    startTrainPolling();
-  } catch (e) {
-    msg.textContent = 'Lỗi: ' + e.message;
+  _trainWorker = trainServer;
+
+  if (trainServer) {
+    // Remote training: push dataset → generate yaml → start train on remote worker
+    const wParam = '?worker=' + encodeURIComponent(trainServer);
+    msg.textContent = 'Đang đẩy dataset lên máy chủ từ xa...';
+    try {
+      const push = await apiFetch('/api/counting/dataset-push' + wParam, { method: 'POST' });
+      if (push.error) { msg.textContent = 'Lỗi push dataset: ' + push.error; return; }
+      msg.textContent = `✓ Dataset đã đẩy. Đang tạo dataset.yaml...`;
+      const yaml = await apiFetch('/api/counting/dataset-yaml' + wParam, { method: 'POST' });
+      if (yaml.error) { msg.textContent = 'Lỗi tạo yaml: ' + yaml.error; return; }
+      msg.textContent = `✓ dataset.yaml (${yaml.labeled} ảnh). Đang khởi động train từ xa...`;
+      const d = await apiFetch('/api/counting/train' + wParam, {
+        method: 'POST',
+        body: JSON.stringify({ model, epochs }),
+      });
+      if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
+      msg.textContent = d.message || '✓ Training bắt đầu trên máy chủ từ xa';
+      startTrainPolling();
+    } catch (e) {
+      msg.textContent = 'Lỗi: ' + e.message;
+    }
+  } else {
+    // Local training: generate yaml → start train
+    msg.textContent = 'Đang tạo dataset.yaml...';
+    try {
+      const yaml = await apiFetch('/api/counting/dataset-yaml', { method: 'POST' });
+      if (yaml.error) { msg.textContent = 'Lỗi tạo yaml: ' + yaml.error; return; }
+      msg.textContent = `✓ dataset.yaml (${yaml.labeled} ảnh đã gán nhãn). Đang khởi động train...`;
+      const d = await apiFetch('/api/counting/train', {
+        method: 'POST',
+        body: JSON.stringify({ model, epochs }),
+      });
+      if (d.error) { msg.textContent = 'Lỗi: ' + d.error; return; }
+      msg.textContent = d.message || '✓ Training bắt đầu';
+      startTrainPolling();
+    } catch (e) {
+      msg.textContent = 'Lỗi: ' + e.message;
+    }
   }
 });
 
@@ -604,9 +629,24 @@ async function pollTrainStatus() {
       clearInterval(trainPollTimer);
       trainPollTimer = null;
       if (st.returncode === 0) {
-        msg.textContent = st.model
-          ? `✓ Huấn luyện hoàn tất. Model lưu tại: ${st.model}`
-          : '✓ Huấn luyện hoàn tất.';
+        if (_trainWorker && st.model) {
+          msg.textContent = `✓ Huấn luyện hoàn tất. Đang kéo model về máy chủ chính...`;
+          try {
+            const pull = await apiFetch(
+              `/api/workers/models/pull?id=${encodeURIComponent(_trainWorker)}&model=${encodeURIComponent(st.model)}`,
+              { method: 'POST' }
+            );
+            msg.textContent = pull.ok
+              ? `✓ Model đã kéo về: ${pull.path || st.model}`
+              : `✓ Huấn luyện xong nhưng kéo model thất bại: ${pull.error || ''}`;
+          } catch (pullErr) {
+            msg.textContent = `✓ Huấn luyện xong. Lỗi kéo model: ${pullErr.message}`;
+          }
+        } else {
+          msg.textContent = st.model
+            ? `✓ Huấn luyện hoàn tất. Model lưu tại: ${st.model}`
+            : '✓ Huấn luyện hoàn tất.';
+        }
       } else {
         msg.textContent = `✗ Huấn luyện dừng (mã lỗi ${st.returncode}). Xem log bên dưới.`;
       }

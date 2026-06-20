@@ -20,6 +20,7 @@ import os
 import sys
 import threading
 import time
+import zipfile
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
@@ -1079,6 +1080,51 @@ def dataset_image(filename: str):
     with open(path, "rb") as f:
         data = f.read()
     return Response(content=data, media_type="image/jpeg")
+
+
+@app.get("/dataset/export")
+def dataset_export():
+    """Package dataset/images/ + dataset/labels/ as a zip for transfer to another server."""
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    dataset_dir = os.path.join(base, "dataset")
+    buf = io.BytesIO()
+    count = 0
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for folder in ('images', 'labels'):
+            fd = os.path.join(dataset_dir, folder)
+            if os.path.isdir(fd):
+                for fname in os.listdir(fd):
+                    fpath = os.path.join(fd, fname)
+                    if os.path.isfile(fpath):
+                        zf.write(fpath, f"{folder}/{fname}")
+                        count += 1
+    buf.seek(0)
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="dataset.zip"',
+                             "X-File-Count": str(count)})
+
+
+@app.post("/dataset/import")
+async def dataset_import(request: Request):
+    """Receive a zip (from /dataset/export) and merge it into local dataset/."""
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    dataset_dir = os.path.join(base, "dataset")
+    body = await request.body()
+    images_n = labels_n = 0
+    with zipfile.ZipFile(io.BytesIO(body), 'r') as zf:
+        for name in zf.namelist():
+            if name.endswith('/'):
+                continue
+            if name.startswith('images/') or name.startswith('labels/'):
+                target = os.path.join(dataset_dir, name)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, 'wb') as f:
+                    f.write(zf.read(name))
+                if name.startswith('images/'):
+                    images_n += 1
+                else:
+                    labels_n += 1
+    return {"ok": True, "images": images_n, "labels": labels_n}
 
 
 @app.post("/dataset/yaml")
