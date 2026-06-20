@@ -43,6 +43,10 @@ func registerAPI() {
 	api.HandleFunc("api/counting/models", handleModels)
 	api.HandleFunc("api/counting/yolo-restart", handleYoloRestart)
 	api.HandleFunc("api/counting/yolo-sync", handleYoloSyncWorker)
+	// Dataset endpoints — always handled by main server's local YOLO service.
+	// Use dataset-push to copy the dataset to a remote worker before training there.
+	api.HandleFunc("api/counting/dataset-push", handleDatasetPush)
+	api.HandleFunc("api/counting/dataset-import", handleDatasetImport)
 	// Worker-side endpoints (called by Server 1 workers module)
 	api.HandleFunc("api/counting/export", handleExport)
 	api.HandleFunc("api/counting/models/download", handleModelsDownload)
@@ -530,7 +534,8 @@ func handleYoloStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /api/counting/collect?camera=id&frames=N
-// For remote cameras, proxies the collect request to the remote worker.
+// Always collects on the main server — the main server's go2rtc proxy has RTSP
+// streams for all cameras regardless of which worker processes them.
 func handleCollect(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -543,24 +548,6 @@ func handleCollect(w http.ResponseWriter, r *http.Request) {
 	frames := r.URL.Query().Get("frames")
 	if frames == "" {
 		frames = "50"
-	}
-
-	// Proxy to remote worker if camera is remote.
-	mgr.mu.Lock()
-	re, isRemote := mgr.remotes[id]
-	mgr.mu.Unlock()
-	if isRemote {
-		path := fmt.Sprintf("/api/counting/collect?camera=%s&frames=%s", id, frames)
-		resp, err := workers.RequestWorker(re.cam.WorkerID, http.MethodPost, path, nil, "")
-		if err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-		return
 	}
 
 	var streamName string
@@ -636,13 +623,9 @@ func handleTrain(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
-// GET /api/counting/dataset-images?worker=id
+// GET /api/counting/dataset-images — always returns images from main server's local dataset.
 func handleDatasetImages(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
-		return
-	}
-	if wid := r.URL.Query().Get("worker"); wid != "" {
-		proxyToWorker(w, wid, http.MethodGet, "/api/counting/dataset-images", nil, "")
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -652,16 +635,12 @@ func handleDatasetImages(w http.ResponseWriter, r *http.Request) {
 	proxyGet(w, yoloURL+"/dataset/images")
 }
 
-// GET /api/counting/dataset-image?file=name.jpg&worker=id
+// GET /api/counting/dataset-image?file=name.jpg — always from main server's local dataset.
 func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
 	}
 	f := r.URL.Query().Get("file")
-	if wid := r.URL.Query().Get("worker"); wid != "" {
-		proxyToWorker(w, wid, http.MethodGet, "/api/counting/dataset-image?file="+neturl.QueryEscape(f), nil, "")
-		return
-	}
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
@@ -669,20 +648,10 @@ func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	proxyGetRaw(w, yoloURL+"/dataset/image/"+f)
 }
 
-// GET /api/counting/dataset-label?file=name.jpg&worker=id (load existing boxes)
-// POST /api/counting/dataset-label?worker=id (save boxes)
+// GET /api/counting/dataset-label?file=name.jpg — load existing boxes (always local).
+// POST /api/counting/dataset-label — save annotated boxes (always local).
 func handleDatasetLabel(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
-		return
-	}
-	if wid := r.URL.Query().Get("worker"); wid != "" {
-		if r.Method == http.MethodGet {
-			f := r.URL.Query().Get("file")
-			proxyToWorker(w, wid, http.MethodGet, "/api/counting/dataset-label?file="+neturl.QueryEscape(f), nil, "")
-		} else {
-			body, _ := io.ReadAll(r.Body)
-			proxyToWorker(w, wid, http.MethodPost, "/api/counting/dataset-label", bytes.NewReader(body), "application/json")
-		}
 		return
 	}
 	yoloURL := getConfig().YoloURL
@@ -769,7 +738,9 @@ func handleYoloSyncWorker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "worker": workerID})
 }
 
-// POST /api/counting/dataset-yaml?worker=id
+// POST /api/counting/dataset-yaml — generates dataset.yaml on the main server (always local).
+// When training on a remote worker, dataset-push uploads images+labels first, then the
+// remote worker generates its own yaml via its own dataset-yaml endpoint.
 func handleDatasetYaml(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -778,6 +749,7 @@ func handleDatasetYaml(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
+	// If ?worker= is provided, generate yaml on that worker (used after dataset-push).
 	if wid := r.URL.Query().Get("worker"); wid != "" {
 		proxyToWorker(w, wid, http.MethodPost, "/api/counting/dataset-yaml", nil, "")
 		return
@@ -794,6 +766,86 @@ func handleDatasetYaml(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
+// POST /api/counting/dataset-push?worker=id
+// Exports the local dataset as a zip and imports it on the remote worker so it can train.
+func handleDatasetPush(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	workerID := r.URL.Query().Get("worker")
+	if workerID == "" {
+		http.Error(w, "worker param required", http.StatusBadRequest)
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	// Step 1: export local dataset as zip.
+	exportResp, err := (&http.Client{Timeout: 120 * time.Second}).Get(yoloURL + "/dataset/export")
+	if err != nil {
+		http.Error(w, "export failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer exportResp.Body.Close()
+	if exportResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(exportResp.Body)
+		http.Error(w, "export: "+strings.TrimSpace(string(b)), exportResp.StatusCode)
+		return
+	}
+	zipData, err := io.ReadAll(exportResp.Body)
+	if err != nil {
+		http.Error(w, "read export: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Step 2: import zip on the remote worker.
+	importResp, err := workers.RequestWorker(workerID, http.MethodPost, "/api/counting/dataset-import",
+		bytes.NewReader(zipData), "application/zip")
+	if err != nil {
+		http.Error(w, "import on worker failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer importResp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(importResp.StatusCode)
+	io.Copy(w, importResp.Body)
+}
+
+// POST /api/counting/dataset-import
+// Receives a zip file (from dataset-push) and imports it into the local YOLO dataset dir.
+func handleDatasetImport(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Post(
+		yoloURL+"/dataset/import", "application/zip", bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, "import failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
 
