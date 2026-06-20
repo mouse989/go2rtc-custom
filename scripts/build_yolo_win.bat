@@ -24,7 +24,7 @@ pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyins
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Building binary ---
-pyinstaller --onefile --name yolo_counter yolo_counter\counter.py
+python -m PyInstaller --onefile --name yolo_counter yolo_counter\counter.py
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.
