@@ -126,8 +126,70 @@
     .debug-legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:10px; font-size:0.78rem; }
     .legend-dot { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:4px; vertical-align:middle; }
 
-    /* Content scroll */
-    .tab-content { overflow-y:auto; flex:1; }
+    /* Content scroll — both axes */
+    .tab-content { overflow: auto; flex:1; -webkit-overflow-scrolling: touch; }
+
+    /* Camera status border (left edge color) */
+    .cam-row-on  { border-left: 3px solid #16a34a; }
+    .cam-row-err { border-left: 3px solid #dc2626; }
+    .cam-row-off { border-left: 3px solid #6b7280; }
+
+    /* ── Mobile ── */
+    @media (max-width: 768px) {
+      .cnt-header { padding: 6px 10px; gap: 6px; }
+      .cnt-header h2 { font-size: 0.88rem; }
+      .section { padding: 8px 10px; }
+      .overlay { padding: 12px; }
+      .chart-lbl { font-size: 0.68rem; }
+      .chart-bars { height: 60px; }
+      .card { min-width: 80px; padding: 8px 10px; }
+      .card .num { font-size: 1.4rem; }
+      .section select,
+      .section input[type="date"],
+      .section input[type="text"],
+      .section input[type="number"],
+      .section input[type="password"] {
+        padding: 8px 10px !important; font-size: 0.88rem; min-height: 36px;
+      }
+      #detailSideTable { max-width: 100% !important; min-width: 0 !important; }
+      #detailChartWrap { min-width: 0 !important; height: 260px !important; }
+      #dirBreakdownTable { min-width: 0 !important; }
+      #logCamFilter, #logDirFilter { width: 100%; }
+      .sub-title { margin: 8px 0 6px; }
+      /* History sticky first column */
+      #tab-history .tbl th:first-child,
+      #tab-history .tbl td:first-child {
+        position: sticky; left: 0;
+        background: var(--surface); z-index: 1;
+        border-right: 1px solid var(--border);
+        min-width: 90px;
+      }
+    }
+    @media (max-width: 480px) {
+      .cnt-header h2 { font-size: 0.82rem; }
+      .tab-btn { padding: 7px 9px; font-size: 0.78rem; }
+      .card .num { font-size: 1.2rem; }
+      .card .lbl { font-size: 0.68rem; }
+    }
+
+    /* ── Desktop / large screens (UTMC control rooms) ── */
+    @media (min-width: 1280px) {
+      .card { padding: 14px 16px; }
+      .card .num { font-size: 2.0rem; }
+      .card .lbl { font-size: 0.78rem; }
+      .chart-bars { height: 90px; }
+      .tbl th, .tbl td { padding: 7px 10px; font-size: 0.82rem; }
+      #detailChartWrap { height: 380px; }
+      .section { padding: 14px 20px; }
+      .tab-btn { padding: 10px 16px; font-size: 0.85rem; }
+      /* Sticky camera name column in history table */
+      #tab-history .tbl th:first-child,
+      #tab-history .tbl td:first-child {
+        position: sticky; left: 0;
+        background: var(--surface); z-index: 1;
+        border-right: 1px solid var(--border);
+      }
+    }
   </style>
 </head>
 <body>
@@ -310,7 +372,7 @@
       <!-- Table + Chart side by side -->
       <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
         <!-- Compact hourly table -->
-        <div style="overflow-x:auto;flex-shrink:0;min-width:220px;max-width:340px">
+        <div id="detailSideTable" style="overflow-x:auto;flex-shrink:0;min-width:220px;max-width:340px">
           <table class="tbl" id="detailTable" style="font-size:0.77rem">
             <thead>
               <tr>
@@ -329,7 +391,7 @@
           </table>
         </div>
         <!-- Line chart -->
-        <div style="flex:1;min-width:280px;height:320px;position:relative">
+        <div id="detailChartWrap" style="flex:1;min-width:280px;height:320px;position:relative">
           <canvas id="detailChart"></canvas>
         </div>
       </div>
@@ -1026,7 +1088,8 @@ function renderCamTable() {
       return hv.length ? `<div style="margin-top:2px;font-size:.65rem;color:var(--text-secondary)">${hv.join(' ')}</div>` : '';
     })();
 
-    return `<tr draggable="true" data-id="${c.id}">
+    const rowCls = c.running ? (c.lastErr ? 'cam-row-err' : 'cam-row-on') : 'cam-row-off';
+    return `<tr draggable="true" data-id="${c.id}" class="${rowCls}">
       <td style="cursor:grab;text-align:center;color:var(--text-secondary);user-select:none" title="Kéo để đổi thứ tự">⠿</td>
       <td>
         <span class="dot ${dotCls}"></span><strong style="font-size:.82rem">${esc(c.name||c.id)}</strong>
@@ -1069,19 +1132,30 @@ async function loadTodaySummary() {
   } catch(e) {}
 }
 
+function barIntensityColor(ratio) {
+  if (ratio < 0.3) return '#22c55e';
+  if (ratio < 0.6) return '#eab308';
+  if (ratio < 0.85) return '#f97316';
+  return '#ef4444';
+}
+
 function renderBarChart(elemId, summaries, curHour=-1) {
   const el = document.getElementById(elemId);
   if (!el) return;
   const hours = new Array(24).fill(0);
   (summaries||[]).forEach(s => (s.hours||[]).forEach((v,h) => hours[h]+=v));
   const mx = Math.max(...hours, 1);
-  el.innerHTML = hours.map((v,h) => `
+  el.innerHTML = hours.map((v,h) => {
+    const ratio = v / mx;
+    const color = v > 0 ? barIntensityColor(ratio) : 'var(--border)';
+    return `
     <div class="chart-col" title="${h}:00 — ${v} xe">
       <div class="chart-bar-wrap">
-        <div class="chart-bar ${h===curHour?'cur':''}" style="height:${Math.round(v/mx*62)+4}px"></div>
+        <div class="chart-bar ${h===curHour?'cur':''}" style="height:${Math.round(ratio*62)+4}px;background:${color}"></div>
       </div>
       <span class="chart-lbl">${h}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ════════════════════════════════════════════════════════
@@ -1146,6 +1220,8 @@ async function loadEvents() {
     newEvs.forEach(ev => {
       const row = document.createElement('div');
       row.className = 'log-row';
+      if ((ev.count||0) >= 10) row.style.background = 'rgba(239,68,68,.08)';
+      else if ((ev.count||0) >= 5) row.style.background = 'rgba(234,179,8,.07)';
       row.dataset.camId = ev.cameraId || '';
       row.dataset.dir   = ev.dir || '';
       const dirLabel = ev.dir ? (DIR_LABEL[ev.dir] || ev.dir) : '';
@@ -1226,10 +1302,25 @@ async function loadHistory() {
       body.innerHTML = `<tr><td colspan="26" style="text-align:center;padding:16px;color:var(--text-secondary)">Không có dữ liệu</td></tr>`;
       return;
     }
+    // Compute per-hour max across all cameras for heatmap normalization
+    const hourMaxes = new Array(24).fill(0);
+    data.forEach(s => (s.hours||[]).forEach((v,h) => { if (v > hourMaxes[h]) hourMaxes[h] = v; }));
+
+    function heatCellStyle(v, mx) {
+      if (!v || !mx) return 'text-align:center;font-size:.73rem';
+      const r = v / mx;
+      let bg = '';
+      if (r >= 0.85) bg = 'background:rgba(239,68,68,.22);font-weight:700';
+      else if (r >= 0.6) bg = 'background:rgba(249,115,22,.18);font-weight:600';
+      else if (r >= 0.3) bg = 'background:rgba(234,179,8,.15)';
+      else bg = 'background:rgba(34,197,94,.12)';
+      return `text-align:center;font-size:.73rem;${bg}`;
+    }
+
     body.innerHTML = data.map(s => `<tr>
       <td>${esc(s.name||s.cameraId)}</td>
       <td><strong>${(s.total||0).toLocaleString()}</strong></td>
-      ${(s.hours||new Array(24).fill(0)).map(v=>`<td style="text-align:center;font-size:.73rem">${v||''}</td>`).join('')}
+      ${(s.hours||new Array(24).fill(0)).map((v,h)=>`<td style="${heatCellStyle(v,hourMaxes[h])}">${v||''}</td>`).join('')}
     </tr>`).join('');
   } catch(e) {}
 }
@@ -2093,10 +2184,10 @@ async function loadWorkerList() {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">
           <div>
             <strong>${esc(w.name)}</strong>
-            <span style="font-size:.75rem;color:var(--text-muted);margin-left:8px">${esc(w.url)}</span>
+            <span style="font-size:.75rem;color:var(--text-muted);margin-left:8px;word-break:break-all">${esc(w.url)}</span>
             ${!w.enabled ? '<span style="font-size:.72rem;color:#d97706;margin-left:6px">(tắt)</span>' : ''}
           </div>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" onclick="syncWorker('${w.id}')" title="Đồng bộ dữ liệu ngay">↻ Sync</button>
             <button class="btn btn-ghost btn-sm" onclick="syncYoloConfig('${w.id}','${esc(w.name)}')" title="Push model/conf từ server này sang worker rồi restart yolo_counter">⚙ Config</button>
             <button class="btn btn-ghost btn-sm" onclick="openWorkerModels('${w.id}','${esc(w.name)}')" title="Quản lý models">📦 Models</button>

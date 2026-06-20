@@ -108,6 +108,13 @@ tr:hover td { background:var(--surface2); }
 .input:focus { border-color:var(--accent); }
 .form-group { margin-bottom:.9rem; }
 .form-group label { display:block; font-size:.78rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:.3rem; }
+@media (max-width:768px) {
+  .dlg { width:calc(100vw - 16px) !important; min-width:0 !important; padding:1rem !important; }
+  .dlg-backdrop { padding:8px !important; align-items:flex-start !important; }
+  .cam-tb-btn { padding:6px 10px !important; min-height:32px !important; font-size:.8rem !important; }
+  .cam-row input[type=checkbox] { width:18px !important; height:18px !important; }
+  .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+}
 </style>
 </head>
 <body>

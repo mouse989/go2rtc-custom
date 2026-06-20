@@ -206,6 +206,14 @@ body.embedded .content { padding:.25rem 0 1rem !important; }
   transition:color .12s, border-color .12s;
 }
 .tf-history-dl:hover { color:var(--accent); border-color:var(--accent); }
+@media (max-width:768px) {
+  .dlg { width:calc(100vw - 16px) !important; min-width:0 !important; }
+  .dlg.dlg-wide { width:calc(100vw - 16px) !important; }
+  .tf-grid { grid-template-columns:1fr 1fr !important; }
+  .tf-region-del { padding:6px 8px !important; min-height:32px !important; }
+  .tf-toggle-row input[type=checkbox] { width:20px !important; height:20px !important; }
+  .tf-log-wrap { -webkit-overflow-scrolling:touch; }
+}
 </style>
 </head>
 <body>
@@ -1038,7 +1046,7 @@ async function loadHistory() {
       container.innerHTML = '<div class="tf-empty">No saved scans.</div>';
       return;
     }
-    container.innerHTML = `
+    container.innerHTML = `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table class="tf-history-table">
         <thead><tr>
           <th>Date</th><th class="num">Scans</th><th class="num">Raw</th>
@@ -1059,7 +1067,7 @@ async function loadHistory() {
               </td>
             </tr>`).join('')}
         </tbody>
-      </table>`;
+      </table></div>`;
   } catch(e) { /* silent */ }
 }
 

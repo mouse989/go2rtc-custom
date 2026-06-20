@@ -579,6 +579,35 @@ tr:hover td { background: rgba(255,255,255,.02); }
   .form-row { grid-template-columns: 1fr; }
   .search-wrap input { width: 140px; }
   .search-wrap input:focus { width: 170px; }
+
+  /* Modals & dialogs: full-width on mobile */
+  .modal-backdrop { padding: 8px !important; align-items: flex-start !important; }
+  .modal-box, .dlg {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: calc(100vw - 16px) !important;
+    box-sizing: border-box;
+  }
+
+  /* Topbar: tighter on mobile */
+  .topbar { padding: 0 .75rem; gap: .5rem; }
+  .topbar-title { font-size: .9rem; }
+
+  /* Buttons: ensure minimum touch target */
+  .btn { min-height: 34px; }
+  .btn-sm { padding: 6px 10px !important; font-size: 0.8rem !important; min-height: 32px; }
+
+  /* Tables: horizontal scroll hint */
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+}
+
+/* ─────────────────────────── Large screens (UTMC control rooms) ─────────────────────────── */
+@media (min-width: 1280px) {
+  :root { --sidebar-w: 240px; }
+  .topbar { padding: 0 1.75rem; gap: 1.25rem; }
+  .btn { padding: .38rem .9rem; font-size: .88rem; }
+  .btn-sm { padding: .3rem .72rem; }
+  .sidebar-nav .nav-item { padding: .55rem 1.1rem; font-size: .9rem; }
 }
 
 /* ─────────────────────────── Light theme ─────────────────────────── */
