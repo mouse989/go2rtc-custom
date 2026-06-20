@@ -119,14 +119,20 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
-	c := getConfig()
 	if id != "" {
-		for _, cam := range c.Cameras {
+		// Start a single camera: mark it Enabled and ensure global running flag is on,
+		// then persist so the camera auto-resumes after a system restart.
+		cfgMu.Lock()
+		for i, cam := range cfg.Cameras {
 			if cam.ID == id {
-				mgr.startCamera(cam)
+				cfg.Cameras[i].Enabled = true
+				cfg.Running = true
+				mgr.startCamera(cfg.Cameras[i])
 				break
 			}
 		}
+		cfgMu.Unlock()
+		_ = saveConfig()
 	} else {
 		cfgMu.Lock()
 		cfg.Running = true
@@ -144,7 +150,17 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.URL.Query().Get("id")
 	if id != "" {
+		// Stop a single camera and clear its Enabled flag so it does NOT auto-resume.
 		mgr.stopCamera(id)
+		cfgMu.Lock()
+		for i := range cfg.Cameras {
+			if cfg.Cameras[i].ID == id {
+				cfg.Cameras[i].Enabled = false
+				break
+			}
+		}
+		cfgMu.Unlock()
+		_ = saveConfig()
 	} else {
 		cfgMu.Lock()
 		cfg.Running = false
