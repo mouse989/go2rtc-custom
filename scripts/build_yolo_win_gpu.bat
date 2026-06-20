@@ -12,8 +12,16 @@ REM The binary will be at:           dist\yolo_counter.exe
 ECHO === Building yolo_counter.exe for Windows (NVIDIA GPU / CUDA 12.1) ===
 ECHO.
 
-REM Move to repo root (script is in scripts\ subfolder)
-cd /d "%~dp0.."
+REM Resolve repo root from script location (script lives in scripts\)
+SET "REPO=%~dp0.."
+SET "SCRIPT=%REPO%\yolo_counter\counter.py"
+
+REM Verify counter.py exists before proceeding
+IF NOT EXIST "%SCRIPT%" (
+    ECHO ERROR: Cannot find yolo_counter\counter.py under %REPO%
+    ECHO Make sure you are running this script from inside the repo.
+    EXIT /B 1
+)
 
 ECHO --- Installing PyTorch (CUDA 12.1) ---
 pip install torch --index-url https://download.pytorch.org/whl/cu121
@@ -24,7 +32,7 @@ pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyins
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Building binary ---
-python -m PyInstaller --onefile --name yolo_counter yolo_counter\counter.py
+python -m PyInstaller --onefile --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.
