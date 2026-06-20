@@ -35,7 +35,37 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-h); }
 img { display: block; }
 button { font-family: inherit; cursor: pointer; }
-input, select { font-family: inherit; }
+input, select, textarea { font-family: inherit; }
+
+/* ── Modern form field style (dialogs, panels, modals) ── */
+.modal input:not([type=checkbox]):not([type=radio]),
+.modal select, .modal textarea,
+.dlg input:not([type=checkbox]):not([type=radio]),
+.dlg select, .dlg textarea,
+#editPanel input:not([type=checkbox]):not([type=radio]),
+#editPanel select {
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: .84rem;
+  font-family: inherit;
+  padding: 7px 11px;
+  outline: none;
+  transition: border-color .18s ease, box-shadow .18s ease;
+  box-sizing: border-box;
+  width: 100%;
+}
+.modal input:not([type=checkbox]):not([type=radio]):focus,
+.modal select:focus, .modal textarea:focus,
+.dlg input:not([type=checkbox]):not([type=radio]):focus,
+.dlg select:focus, .dlg textarea:focus,
+#editPanel input:not([type=checkbox]):not([type=radio]):focus,
+#editPanel select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .14);
+}
+.modal input::placeholder, .dlg input::placeholder { color: var(--text-muted); opacity: .65; }
 
 /* ─────────────────────────── Sidebar ─────────────────────────── */
 .sidebar {
