@@ -36,7 +36,7 @@ pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cuda-nvrtc-cu12 n
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Building binary ---
-python -m PyInstaller --onedir --collect-all torch --name yolo_counter "%SCRIPT%"
+python -m PyInstaller --onedir --collect-all torch --runtime-hook "%REPO%\yolo_counter\pyi_rth_torch_cuda.py" --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.
