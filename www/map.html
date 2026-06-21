@@ -2082,7 +2082,7 @@ document.getElementById('stnCancel').addEventListener('click', () => {
   _editingStnID = null;
 });
 
-document.getElementById('btnStnEdit').addEventListener('click', function() {
+document.getElementById('btnStnEdit').addEventListener('click', async function() {
   _stnEditMode = !_stnEditMode;
   this.classList.toggle('active', _stnEditMode);
   if (!_stnEditMode) {
@@ -2090,6 +2090,12 @@ document.getElementById('btnStnEdit').addEventListener('click', function() {
     _editingStnID = null;
     if (map) map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
   } else {
+    // Refresh camera list and station types from server when entering edit mode.
+    await loadCountingCams();
+    try {
+      const types = await apiFetch('/api/counting/station-types');
+      _stationTypes = Array.isArray(types) ? types : [];
+    } catch(_) {}
     if (map) map.getCanvas().style.cursor = 'crosshair';
   }
   buildStnMarkers();
@@ -2246,8 +2252,13 @@ document.getElementById('stmTypeDelete').addEventListener('click', async () => {
   } catch(err) { toast('Loi: ' + err.message, 'error'); }
 });
 
-document.getElementById('btnStnTypes').addEventListener('click', () => {
+document.getElementById('btnStnTypes').addEventListener('click', async () => {
   _editingTypeID = null;
+  // Always re-fetch from server so the manager reflects the current shared config.
+  try {
+    const types = await apiFetch('/api/counting/station-types');
+    _stationTypes = Array.isArray(types) ? types : [];
+  } catch(_) {}
   renderStnTypeMgrList();
   document.getElementById('stnTypeMgrEditor').style.display = 'none';
   document.getElementById('stnTypeMgrEmpty').style.display  = 'flex';
