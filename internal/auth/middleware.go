@@ -222,6 +222,21 @@ func userCanAccessPath(u *User, path string) bool {
 			}
 		}
 	}
+	// Station data access for map users with station permissions.
+	// These paths are accessible without the "counting" tab — only map tab
+	// + allow_view_stations or allow_config_stations is required.
+	if u.AllowViewStations || u.AllowConfigStations {
+		for _, p := range []string{"/api/counting/stations", "/api/counting/station-types", "/api/counting/summary"} {
+			if strings.HasPrefix(path, p) {
+				return true
+			}
+		}
+	}
+	if u.AllowConfigStations {
+		if strings.HasPrefix(path, "/api/counting/cameras") {
+			return true
+		}
+	}
 	return false
 }
 
