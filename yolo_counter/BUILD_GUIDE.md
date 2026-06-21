@@ -51,7 +51,11 @@ This script:
 1. Installs PyTorch with CUDA 12.1 support
 2. Installs ultralytics, opencv, fastapi, uvicorn, pyinstaller
 3. Installs NVIDIA CUDA runtime pip packages (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, etc.) to ensure all CUDA DLLs are bundled by PyInstaller
-4. Runs PyInstaller with `--onedir --collect-all torch --runtime-hook pyi_rth_torch_cuda.py` to place every torch DLL in the output folder and register their directories at startup
+4. Runs PyInstaller with `--onedir --collect-all torch --runtime-hook pyi_rth_torch_cuda.py`
+5. **Copies `_internal\torch\lib\*.dll` to the root** of `dist\yolo_counter\` so they sit next to `yolo_counter.exe`
+
+> **Why copy DLLs to the root?**
+> Python 3.8+ calls `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` at startup, restricting DLL search to: (a) the EXE's own directory, (b) directories registered via `AddDllDirectory()`, (c) System32. The EXE is at `dist\yolo_counter\yolo_counter.exe`, so its directory is `dist\yolo_counter\`. PyInstaller puts torch DLLs inside `_internal\torch\lib\` — a subdirectory Windows never searches. Copying them to the root directory means Windows finds `c10.dll`'s dependencies (`cudart64_121.dll`, `fbgemm.dll`, etc.) in the guaranteed-searched application directory.
 
 ## Placing the binary in the project
 
