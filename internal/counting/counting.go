@@ -153,13 +153,15 @@ func getConfig() Config {
 	return cfg
 }
 
-// GetLocalStats returns the total counting cameras configured and the number
-// currently being analyzed by this server's local process.
-func GetLocalStats() (total, analyzing int) {
+// GetLocalStats returns the total counting cameras configured, the number
+// currently being analyzed by this server's local process, and the active yolo model name.
+func GetLocalStats() (total, analyzing int, yoloModel string) {
 	if mgr == nil {
-		return 0, 0
+		return 0, 0, ""
 	}
-	return mgr.LocalStats()
+	total, analyzing = mgr.LocalStats()
+	yoloModel = getConfig().YoloModel
+	return
 }
 
 func saveConfig() error {

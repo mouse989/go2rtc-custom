@@ -1347,7 +1347,7 @@ function renderSrvCards(mainStats) {
       'Máy chủ chính', 'Local', true,
       s.cpu_percent, s.mem_percent, s.mem_used, s.mem_total,
       s.net_in_rate, s.net_out_rate,
-      s.cameras_total || 0, s.cameras_analyzing || 0, '', s.gpus || []
+      s.cameras_total || 0, s.cameras_analyzing || 0, s.yolo_model || '', s.gpus || []
     );
   }
 

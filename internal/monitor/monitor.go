@@ -49,8 +49,9 @@ type Stats struct {
 	StreamConsumers int `json:"stream_consumers"` // total viewing sessions
 
 	// Counting cameras on this server
-	CamerasTotal    int `json:"cameras_total"`    // counting cameras configured (local + remote delegation)
-	CamerasAnalyzing int `json:"cameras_analyzing"` // cameras actively analyzing on this server
+	CamerasTotal     int    `json:"cameras_total"`     // counting cameras configured (local + remote delegation)
+	CamerasAnalyzing int    `json:"cameras_analyzing"` // cameras actively analyzing on this server
+	YoloModel        string `json:"yolo_model,omitempty"` // active YOLO model filename
 
 	// Traffic history storage (computed per request)
 	TrafficFiles int   `json:"traffic_files"` // daily history files on disk
@@ -190,7 +191,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	s.ActiveUsers = auth.ActiveUsers(5 * time.Minute)
 	s.StreamsTotal, s.StreamsActive, s.StreamConsumers = streams.GetStreamStats()
 	s.TrafficFiles, s.TrafficBytes = traffic.HistoryStats()
-	s.CamerasTotal, s.CamerasAnalyzing = counting.GetLocalStats()
+	s.CamerasTotal, s.CamerasAnalyzing, s.YoloModel = counting.GetLocalStats()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s)
