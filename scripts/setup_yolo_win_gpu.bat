@@ -54,17 +54,26 @@ ECHO --- Installing PyTorch (CUDA 12.6, compatible with driver 560+ / CUDA 13.x)
 "%DEPLOY%\yolo_venv\Scripts\pip" install torch --index-url https://download.pytorch.org/whl/cu126
 IF ERRORLEVEL 1 GOTO error
 
-ECHO --- Installing ultralytics, opencv, web stack ---
-"%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics opencv-python-headless fastapi "uvicorn[standard]"
+ECHO --- Installing ultralytics (pulls opencv-python), web stack ---
+REM Do NOT install opencv-python-headless alongside ultralytics: ultralytics depends on
+REM opencv-python, and having both packages installed conflicts on Windows (cv2 not found).
+"%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]"
 IF ERRORLEVEL 1 GOTO error
 
-ECHO --- Verifying torch sees the GPU ---
+ECHO --- Verifying cv2 available ---
+"%DEPLOY%\yolo_venv\Scripts\python" -c "import cv2; print('cv2', cv2.__version__)"
+IF ERRORLEVEL 1 (
+    ECHO [warn] cv2 not found via ultralytics dep, installing opencv-python explicitly...
+    "%DEPLOY%\yolo_venv\Scripts\pip" install opencv-python
+    IF ERRORLEVEL 1 GOTO error
+)
+
+ECHO --- Verifying torch sees the GPU and cv2 is importable ---
 "%DEPLOY%\yolo_venv\Scripts\python" -c ^
-    "import torch; print('torch', torch.__version__, '| cuda', torch.version.cuda, '| GPU available:', torch.cuda.is_available())"
+    "import cv2, torch; print('cv2', cv2.__version__, '| torch', torch.__version__, '| cuda', torch.version.cuda, '| GPU available:', torch.cuda.is_available())"
 IF ERRORLEVEL 1 (
     ECHO.
-    ECHO ERROR: torch import failed inside the venv.
-    ECHO Run the line above manually to see the real error.
+    ECHO ERROR: import failed inside the venv. Run the line above manually to see the real error.
     GOTO error
 )
 

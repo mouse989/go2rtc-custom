@@ -37,8 +37,10 @@ ECHO --- Installing PyTorch (CUDA 12.6, self-contained) ---
 pip install torch --index-url https://download.pytorch.org/whl/cu126
 IF ERRORLEVEL 1 GOTO error
 
-ECHO --- Installing ultralytics, opencv, web stack, PyInstaller ---
-pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+ECHO --- Installing ultralytics (pulls opencv-python), web stack, PyInstaller ---
+REM ultralytics depends on opencv-python; do not also install opencv-python-headless
+REM as having both packages causes cv2 import failures on Windows.
+pip install ultralytics fastapi "uvicorn[standard]" pyinstaller
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Verifying torch imports and sees the GPU (before bundling) ---
