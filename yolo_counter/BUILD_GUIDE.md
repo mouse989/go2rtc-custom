@@ -40,22 +40,20 @@ scripts\build_yolo_win_gpu.bat
 Output **folder**: `dist\yolo_counter\`
 
 > **Why `--onedir` instead of `--onefile`?**
-> PyTorch GPU builds contain hundreds of CUDA DLLs (`c10.dll`, `cudart64_121.dll`, `cublas64_12.dll`, …). With `--onefile` PyInstaller extracts them to a temporary `_MEI*` directory that Windows cannot find during DLL initialisation, causing **WinError 1114** at startup. With `--onedir` all DLLs sit next to the executable in `_internal\`, which avoids the extraction issue.
+> PyTorch GPU builds contain hundreds of CUDA DLLs (`c10.dll`, `cudart64_12.dll`, `cublas64_12.dll`, …). `--onedir` keeps them all next to the executable in `_internal\torch\lib\`, where torch's own loader expects them.
 
-> **Why the runtime hook AND the in-script DLL registration?**
-> Even with `--onedir`, CUDA DLLs from the `nvidia-*` packages land in subdirectories such as `_internal\nvidia\cuda_runtime\bin\`. Windows' DLL loader only searches the EXE directory and `%PATH%` — it does not recurse into subdirectories. `os.add_dll_directory()` is called in two places for belt-and-suspenders reliability:
-> 1. `pyi_rth_torch_cuda.py` (PyInstaller runtime hook) — runs before the main script starts
-> 2. Top of `counter.py` — fallback in case the runtime hook path was not found during build
+> **Critical: do NOT install the `nvidia-*-cu12` pip packages.**
+> The torch **cu121 wheel is fully self-contained** — `torch\lib\` already ships its matching `cudart64_12.dll`, `cublas64_12.dll`, `cudnn*.dll`, etc. (all version 12.1). The standalone `nvidia-cuda-runtime-cu12` / `nvidia-cublas-cu12` packages install **newer** CUDA libraries (12.6/12.8). When those newer DLLs end up on the search path they get loaded *instead* of torch's bundled 12.1 libs, and the version mismatch makes the DLL's initialisation routine fail with **WinError 1114** (`ERROR_DLL_INIT_FAILED` — the DLL loads but its `DllMain` fails). The build script explicitly **uninstalls** these packages before building.
 
 This script:
-1. Installs PyTorch with CUDA 12.1 support
-2. Installs ultralytics, opencv, fastapi, uvicorn, pyinstaller
-3. Installs NVIDIA CUDA runtime pip packages (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, etc.) to ensure all CUDA DLLs are bundled by PyInstaller
-4. Runs PyInstaller with `--onedir --collect-all torch --runtime-hook pyi_rth_torch_cuda.py`
-5. **Copies `_internal\torch\lib\*.dll` to the root** of `dist\yolo_counter\` so they sit next to `yolo_counter.exe`
+1. Uninstalls any conflicting standalone `nvidia-*-cu12` packages left from earlier attempts
+2. Installs PyTorch with CUDA 12.1 support (self-contained)
+3. Installs ultralytics, opencv, fastapi, uvicorn, pyinstaller
+4. Verifies `import torch` works in plain Python (so a broken torch install is caught before bundling)
+5. Cleans stale `dist\` / `build\` artifacts (old DLLs cause conflicts)
+6. Runs PyInstaller with `--onedir --collect-all torch --collect-all ultralytics --runtime-hook pyi_rth_torch_cuda.py`
 
-> **Why copy DLLs to the root?**
-> Python 3.8+ calls `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)` at startup, restricting DLL search to: (a) the EXE's own directory, (b) directories registered via `AddDllDirectory()`, (c) System32. The EXE is at `dist\yolo_counter\yolo_counter.exe`, so its directory is `dist\yolo_counter\`. PyInstaller puts torch DLLs inside `_internal\torch\lib\` — a subdirectory Windows never searches. Copying them to the root directory means Windows finds `c10.dll`'s dependencies (`cudart64_121.dll`, `fbgemm.dll`, etc.) in the guaranteed-searched application directory.
+> **The runtime hook (`pyi_rth_torch_cuda.py`)** and the matching block at the top of `counter.py` call `os.add_dll_directory()` for every bundled directory that contains DLLs (keeping the returned cookies alive so the registration persists). This is a safety net so torch can always locate its own `torch\lib\` directory at startup.
 
 ## Placing the binary in the project
 
