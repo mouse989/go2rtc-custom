@@ -9,6 +9,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/counting"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
 	"github.com/rs/zerolog"
@@ -46,6 +47,10 @@ type Stats struct {
 	StreamsTotal    int `json:"streams_total"`    // configured cameras
 	StreamsActive   int `json:"streams_active"`   // cameras with >=1 viewer right now
 	StreamConsumers int `json:"stream_consumers"` // total viewing sessions
+
+	// Counting cameras on this server
+	CamerasTotal    int `json:"cameras_total"`    // counting cameras configured (local + remote delegation)
+	CamerasAnalyzing int `json:"cameras_analyzing"` // cameras actively analyzing on this server
 
 	// Traffic history storage (computed per request)
 	TrafficFiles int   `json:"traffic_files"` // daily history files on disk
@@ -185,6 +190,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	s.ActiveUsers = auth.ActiveUsers(5 * time.Minute)
 	s.StreamsTotal, s.StreamsActive, s.StreamConsumers = streams.GetStreamStats()
 	s.TrafficFiles, s.TrafficBytes = traffic.HistoryStats()
+	s.CamerasTotal, s.CamerasAnalyzing = counting.GetLocalStats()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s)

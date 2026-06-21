@@ -57,6 +57,16 @@ function canSeeCamNames() {
   return u && (u.role === 'admin' || !!u.allow_cam_names);
 }
 
+function canViewStations() {
+  const u = getUser();
+  return u && (u.role === 'admin' || !!u.allow_view_stations || !!u.allow_config_stations);
+}
+
+function canConfigStations() {
+  const u = getUser();
+  return u && (u.role === 'admin' || !!u.allow_config_stations);
+}
+
 // hasTab returns true if the current user has permission for the given page tab.
 // Admin always returns true; viewer checks the tabs array from /api/auth/me.
 function hasTab(tab) {

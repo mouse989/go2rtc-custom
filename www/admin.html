@@ -974,8 +974,10 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-heatmap"> 🌡 Heatmap</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-edit"> 📍 Edit Map Locations</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-names"> 🏷 See Camera Names</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-view-stations"> 📊 Xem trạm đo</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-config-stations"> ⚙ Config trạm đo</label>
         </div>
-        <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic, heatmap, sửa vị trí camera, và xem tên thật camera trên tab Map.</p>
+        <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic, heatmap, sửa vị trí camera, xem tên thật camera, xem/config trạm đo đếm lưu lượng trên tab Map.</p>
       </div>
 
       <div class="form-group" id="cam-section" style="margin-top:.75rem;">
@@ -1487,6 +1489,8 @@ function openEdit(u) {
   document.getElementById('f-allow-heatmap').checked = !!u.allow_heatmap;
   document.getElementById('f-allow-map-edit').checked = !!u.allow_map_edit;
   document.getElementById('f-allow-cam-names').checked = !!u.allow_cam_names;
+  document.getElementById('f-allow-view-stations').checked = !!u.allow_view_stations;
+  document.getElementById('f-allow-config-stations').checked = !!u.allow_config_stations;
   setCamChecks(u.streams || []);
   updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
@@ -1612,11 +1616,13 @@ async function submitForm(e) {
 
   if (!editing && !password) { toast('Password is required for new user', 'error'); return; }
 
-  const allow_traffic   = role === 'admin' ? true : document.getElementById('f-allow-traffic').checked;
-  const allow_heatmap   = role === 'admin' ? true : document.getElementById('f-allow-heatmap').checked;
-  const allow_map_edit  = role === 'admin' ? true : document.getElementById('f-allow-map-edit').checked;
-  const allow_cam_names = role === 'admin' ? true : document.getElementById('f-allow-cam-names').checked;
-  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, tabs };
+  const allow_traffic          = role === 'admin' ? true : document.getElementById('f-allow-traffic').checked;
+  const allow_heatmap          = role === 'admin' ? true : document.getElementById('f-allow-heatmap').checked;
+  const allow_map_edit         = role === 'admin' ? true : document.getElementById('f-allow-map-edit').checked;
+  const allow_cam_names        = role === 'admin' ? true : document.getElementById('f-allow-cam-names').checked;
+  const allow_view_stations    = role === 'admin' ? true : document.getElementById('f-allow-view-stations').checked;
+  const allow_config_stations  = role === 'admin' ? true : document.getElementById('f-allow-config-stations').checked;
+  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, tabs };
   if (password) body.password = password;
 
   const btn = document.getElementById('dlg-btn');

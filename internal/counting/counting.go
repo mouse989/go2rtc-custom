@@ -153,6 +153,15 @@ func getConfig() Config {
 	return cfg
 }
 
+// GetLocalStats returns the total counting cameras configured and the number
+// currently being analyzed by this server's local process.
+func GetLocalStats() (total, analyzing int) {
+	if mgr == nil {
+		return 0, 0
+	}
+	return mgr.LocalStats()
+}
+
 func saveConfig() error {
 	cfgMu.RLock()
 	data, _ := json.MarshalIndent(cfg, "", "  ")

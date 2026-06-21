@@ -31,10 +31,12 @@ type User struct {
 	AllowPaths   []string `json:"allow_paths"`    // custom API paths; nil = role defaults
 	Tabs         []string `json:"tabs"`           // page-level permissions (viewer); must be granted explicitly
 	Enabled      bool     `json:"enabled"`
-	AllowTraffic bool     `json:"allow_traffic"`  // can use traffic overlay on map
-	AllowHeatmap bool     `json:"allow_heatmap"`  // can use heatmap overlay on map
-	AllowMapEdit bool     `json:"allow_map_edit"` // can edit camera locations on map
-	AllowCamNames bool    `json:"allow_cam_names"` // can see real camera names (like admin)
+	AllowTraffic        bool     `json:"allow_traffic"`         // can use traffic overlay on map
+	AllowHeatmap        bool     `json:"allow_heatmap"`         // can use heatmap overlay on map
+	AllowMapEdit        bool     `json:"allow_map_edit"`        // can edit camera locations on map
+	AllowCamNames       bool     `json:"allow_cam_names"`       // can see real camera names (like admin)
+	AllowViewStations   bool     `json:"allow_view_stations"`   // can view traffic counting station data on map
+	AllowConfigStations bool     `json:"allow_config_stations"` // can add/edit/delete stations and station types
 }
 
 // EffectiveTabs returns the full resolved tab list for this user.

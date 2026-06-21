@@ -304,26 +304,6 @@ body.sb-collapsed           { --map-left:0; }
 #stnChartBackdrop { z-index:615; }
 #stnChartCanvas { width:100% !important; }
 
-/* ── Station detail marker (high zoom) ──────────────────────── */
-.stn-marker-wrap.stn-detail {
-  flex-direction:column; align-items:flex-start;
-  border-radius:10px; min-width:96px; height:auto;
-  padding:5px 8px 4px; gap:0;
-}
-.stn-dl-name {
-  font-size:9.5px; font-weight:600; max-width:110px;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  opacity:.88; margin-bottom:1px;
-}
-.stn-dl-cnt {
-  font-size:13px; font-weight:800; line-height:1.15;
-}
-.stn-dl-unit { font-size:8.5px; font-weight:500; opacity:.78; margin-left:1px; }
-.stn-spark {
-  display:block; width:72px; height:12px;
-  margin-top:3px; border-radius:2px; overflow:visible;
-}
-
 @media (max-width:768px) {
   #stnPanel, #stnTypePanel {
     width:100% !important; max-width:100vw !important;
@@ -353,9 +333,27 @@ body.sb-collapsed           { --map-left:0; }
   .ov-win { width:calc(100vw - 16px) !important; }
   .result-card { flex:0 0 140px !important; }
 }
+
+/* ── Floating mobile nav button ──────────────────────────────── */
+#btnMobileNav {
+  display:none;
+  position:fixed; bottom:1rem; left:1rem; z-index:600;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:50%; width:44px; height:44px;
+  align-items:center; justify-content:center;
+  font-size:1.2rem; cursor:pointer;
+  box-shadow:0 3px 12px rgba(0,0,0,.45);
+  color:var(--text);
+}
+@media (max-width:768px) {
+  #btnMobileNav { display:flex; }
+}
 </style>
 </head>
 <body>
+
+<!-- ── Floating mobile menu button ───────────────────────────── -->
+<button id="btnMobileNav" title="Menu">☰</button>
 
 <!-- ── Sidebar ──────────────────────────────────────────────── -->
 <aside class="sidebar" id="sidebar">
@@ -980,6 +978,14 @@ function rebuildMapLayers() {
   if (_heatmapOn) _addHeatmapLayers();
 }
 
+// ── Helpers ───────────────────────────────────────────────────
+// Returns YYYY-MM-DD in the browser's LOCAL timezone (avoids UTC-offset date shift).
+function localDateStr(d = new Date()) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
 // ── Map initialisation ────────────────────────────────────────
 async function initMap(apiKey) {
   map = new vietmapgl.Map({
@@ -1086,15 +1092,6 @@ async function initMap(apiKey) {
 
   map.on('move', scheduleOverlayUpdate);
   map.on('zoom', scheduleOverlayUpdate);
-
-  // Switch station markers between compact pill (≤14) and detail plate (>14)
-  map.on('zoom', () => {
-    const detail = map.getZoom() > STN_DETAIL_ZOOM;
-    if (detail !== _stnDetailMode) {
-      _stnDetailMode = detail;
-      updateStnMarkersStyle();
-    }
-  });
 
   // Wait for initial load
   await new Promise(resolve => map.once('load', resolve));
@@ -1931,8 +1928,6 @@ let _stationTypes  = [];    // [{id, name, thresh_yellow, thresh_orange, thresh_
 let _stationMkrs   = {};    // stationID → {marker, el}
 let _stnSummary    = {};    // cameraID  → {hour, total, hours[24]}
 let _stnEditMode   = false;
-const STN_DETAIL_ZOOM = 14;  // matches clusterMaxZoom — cameras become individual icons
-let _stnDetailMode = false;
 let _editingStnID  = null;
 let _stnChart      = null;
 let _stnChartCamID = null;
@@ -1962,7 +1957,7 @@ async function loadCountingCams() {
 }
 
 async function loadStationsLayer() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr();
   const currentHour = new Date().getHours();
   const [stns, types, summary] = await Promise.all([
     apiFetch('/api/counting/stations').catch(() => []),
@@ -1983,67 +1978,26 @@ async function loadStationsLayer() {
   buildStnMarkers();
 }
 
-// ── Station marker rendering ───────────────────────────────────
-
-function drawStnSparkline(canvas, hours, curH) {
-  const W = 72, H = 12;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  const last8 = [];
-  for (let i = 7; i >= 0; i--) last8.push({ h: curH - i, v: hours[curH - i] || 0 });
-  const max = Math.max(1, ...last8.map(d => d.v));
-  const barW = Math.floor(W / 8) - 1;
-  last8.forEach((d, i) => {
-    const barH = Math.max(2, Math.round((d.v / max) * (H - 2)));
-    ctx.fillStyle = d.h === curH ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.42)';
-    ctx.fillRect(i * (barW + 1), H - barH, barW, barH);
-  });
-}
-
-function applyStnMarkerStyle(stn, el) {
-  const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0, hours: [] };
-  const hourV = rec.hour;
-  const color = stnColor(hourV, stn.type_id);
-  const lbl   = stn.label || stn.camera_id;
-  const type  = stnTypeByID(stn.type_id);
-  const curH  = new Date().getHours();
-  const title = lbl + (type ? ' [' + type.name + ']' : '')
-    + '\nGio ' + curH + ':00 — ' + hourV.toLocaleString() + ' luot'
-    + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
-  el.title = title;
-  el.style.background = color;
-
-  if (_stnDetailMode) {
-    el.className = 'stn-marker-wrap stn-detail' + (_stnEditMode ? ' stn-placing' : '');
-    const n = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
-    el.innerHTML = `
-      <div class="stn-dl-name">${lbl.replace(/</g,'&lt;')}</div>
-      <div class="stn-dl-cnt">${n}<span class="stn-dl-unit">l/h</span></div>
-      <canvas class="stn-spark"></canvas>`;
-    const canvas = el.querySelector('.stn-spark');
-    drawStnSparkline(canvas, rec.hours, curH);
-  } else {
-    el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
-    const n = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
-    el.textContent = n;
-  }
-}
-
-function updateStnMarkersStyle() {
-  _stations.forEach(stn => {
-    const m = _stationMkrs[stn.id];
-    if (m) applyStnMarkerStyle(stn, m.el);
-  });
-}
-
+// ── Station markers ────────────────────────────────────────────
 function buildStnMarkers() {
   Object.values(_stationMkrs).forEach(m => m.marker.remove());
   _stationMkrs = {};
   if (!map) return;
-  _stnDetailMode = map.getZoom() > STN_DETAIL_ZOOM;
+  const curH = new Date().getHours();
   _stations.forEach(stn => {
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
+    const hourV = rec.hour;
+    const color = stnColor(hourV, stn.type_id);
+    const lbl   = stn.label || stn.camera_id;
+    const type  = stnTypeByID(stn.type_id);
+    const n = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
     const el = document.createElement('div');
-    applyStnMarkerStyle(stn, el);
+    el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
+    el.style.background = color;
+    el.title = lbl + (type ? ' [' + type.name + ']' : '')
+      + '\nKhung gio ' + curH + ':00-' + (curH + 1) + ':00 — ' + hourV.toLocaleString() + ' luot'
+      + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
+    el.textContent = n;
     const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
       .setLngLat([stn.lon, stn.lat]).addTo(map);
     el.addEventListener('click', e => {
@@ -2331,7 +2285,7 @@ async function openStnChart(stn) {
   const titleEl = document.getElementById('stnChartTitle');
   titleEl.textContent = stn.label || stn.camera_id;
   titleEl.style.color = color;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr();
   document.getElementById('stnChartDate').value = today;
   document.getElementById('stnChartBackdrop').classList.add('open');
   await loadStnChartData(stn.camera_id, today);
@@ -2347,7 +2301,7 @@ async function loadStnChartData(cameraId, date) {
     const slots  = await apiFetch('/api/counting/data?camera=' + encodeURIComponent(cameraId) + '&date=' + date);
     const hourly = slotsToHourly(Array.isArray(slots) ? slots : []);
     const total  = hourly.reduce((s, h) => s + h.n, 0);
-    const isToday = date === new Date().toISOString().slice(0, 10);
+    const isToday = date === localDateStr();
     const curH  = new Date().getHours();
     const hourV = isToday ? (hourly[curH]?.n || 0) : null;
     el.innerHTML = hourV !== null
@@ -2441,6 +2395,13 @@ document.getElementById('stnChartBackdrop').addEventListener('click', e => {
   }
 });
 
+// ── Mobile nav floating button ────────────────────────────────
+document.getElementById('btnMobileNav').addEventListener('click', () => {
+  const toggle = document.getElementById('sidebarToggle');
+  if (toggle) toggle.click();
+  else document.body.classList.toggle('sb-collapsed');
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 (async () => {
   await initApp('map');
@@ -2451,6 +2412,11 @@ document.getElementById('stnChartBackdrop').addEventListener('click', e => {
     if (btnEdit) btnEdit.style.display = '';
     const secUnplaced = document.getElementById('secUnplaced');
     if (secUnplaced) secUnplaced.classList.remove('admin-only');
+  }
+  // Station config buttons for users with config permission (admin already covered above)
+  if (!_isAdmin && canConfigStations()) {
+    document.getElementById('btnStnEdit').style.display = '';
+    document.getElementById('btnStnTypes').style.display = '';
   }
 
   // Fetch settings: VietMap API key + default search radius
@@ -2481,11 +2447,12 @@ document.getElementById('stnChartBackdrop').addEventListener('click', e => {
   try {
     await initMap(_vietmapKey);
     await reloadData();
-    // Load counting stations + today's summary (non-blocking)
-    loadCountingCams();
-    loadStationsLayer();
-    // Refresh station counts every 5 minutes
-    setInterval(loadStationsLayer, 5 * 60 * 1000);
+    // Load counting stations + today's summary (only if user has view permission)
+    if (canViewStations()) {
+      loadCountingCams();
+      loadStationsLayer();
+      setInterval(loadStationsLayer, 5 * 60 * 1000);
+    }
   } catch (err) {
     console.error('[map] init error:', err);
     document.getElementById('mapNoKey').style.display = 'flex';

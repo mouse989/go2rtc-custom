@@ -723,7 +723,7 @@ let pendingFlipped = false;  // arrow is on left side instead of right
 let editingLineIndex = -1;   // ≥0 when editing canvasLines[i] via inline form
 const LINE_COLORS = ['#00e600','#00dcdc','#e6a000','#e600e6','#e60000','#0080ff'];
 
-const today = () => new Date().toISOString().slice(0,10);
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
 const TABS  = ['live','history','detail','debug','workers','settings'];
 const VEHICLE_TYPES = ['car','motorcycle','bus','truck'];
 const TYPE_ICON = {car:'🚗',motorcycle:'🏍',bus:'🚌',truck:'🚛'};
