@@ -108,7 +108,27 @@
   .net-rate-label { font-size:.73rem !important; }
   .uptime-lbl { font-size:.7rem !important; }
   .mon-grid { grid-template-columns:1fr !important; }
+  .srv-grid { grid-template-columns:1fr !important; }
 }
+
+/* ── All-servers overview ── */
+.srv-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:.75rem; margin-bottom:1.25rem; }
+.srv-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.85rem 1rem; transition:opacity .3s; }
+.srv-card.offline { opacity:.55; }
+.srv-header { display:flex; align-items:center; gap:.5rem; margin-bottom:.65rem; }
+.srv-name { font-weight:700; font-size:.88rem; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.srv-tag { font-size:.62rem; background:var(--surface2); border-radius:4px; padding:1px 6px; color:var(--text-muted); flex-shrink:0; }
+.srv-metric-row { display:flex; align-items:center; gap:.5rem; margin-bottom:.3rem; font-size:.76rem; }
+.srv-metric-lbl { width:34px; color:var(--text-muted); flex-shrink:0; font-weight:500; }
+.srv-metric-val { width:52px; text-align:right; font-weight:700; flex-shrink:0; }
+.srv-bar { flex:1; height:5px; background:var(--surface2); border-radius:3px; overflow:hidden; }
+.srv-bar-fill { height:100%; border-radius:3px; background:var(--accent); transition:width .6s ease; }
+.srv-bar-fill.warn { background:var(--yellow,#f59e0b); }
+.srv-bar-fill.crit { background:var(--red,#ef4444); }
+.srv-net-row { display:flex; gap:.75rem; margin-top:.45rem; font-size:.74rem; border-top:1px solid var(--border); padding-top:.4rem; }
+.srv-net-in  { color:#38bdf8; }
+.srv-net-out { color:#a78bfa; }
+.srv-yolo-row { margin-top:.3rem; font-size:.73rem; color:var(--text-muted); }
 </style>
 </head>
 <body>
@@ -192,6 +212,12 @@
   </header>
 
   <div class="content">
+    <!-- All Servers Overview (always visible once workers are loaded) -->
+    <div id="srvSection" style="display:none">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:.5rem;padding:0 .05rem">Tổng quan máy chủ</div>
+      <div class="srv-grid" id="srvGrid"></div>
+    </div>
+
     <!-- Loading -->
     <div class="loading-state" id="loadingState"><div class="spinner"></div><p>Fetching stats…</p></div>
 
@@ -651,6 +677,9 @@ function render(s) {
   document.getElementById('stotal').textContent = s.streams_total ?? 0;
   document.getElementById('tfFiles').textContent = s.traffic_files ?? 0;
   document.getElementById('tfSize').textContent  = fmtBytes(s.traffic_bytes || 0);
+
+  // Update main server card in the overview grid (live at 3s rate)
+  renderSrvCards(s);
 }
 
 // ── Device monitoring ─────────────────────────────────────────────
@@ -1231,6 +1260,97 @@ function checkDevAlerts(newStats) {
   }
 }
 
+// ── All-servers overview ────────────────────────────────────────────
+let _mainStats = null;   // latest /api/system/stats
+let _workerStats = [];   // latest /api/workers/status
+
+function srvBarClass(pct) {
+  if (pct >= 85) return 'crit';
+  if (pct >= 60) return 'warn';
+  return '';
+}
+
+function buildSrvCard(name, tag, online, cpu, memPct, memUsed, memTotal, netIn, netOut, yoloCams, yoloModel) {
+  const cpuRnd   = Math.round(cpu || 0);
+  const memRnd   = Math.round(memPct || 0);
+  const memLabel = (memUsed && memTotal)
+    ? `${fmtBytes(memUsed)} / ${fmtBytes(memTotal)}`
+    : (memRnd ? memRnd + '%' : '—');
+  const netLabel = (netIn || netOut)
+    ? `<span class="srv-net-in">↓ ${fmtRate(netIn||0)}</span><span class="srv-net-out">↑ ${fmtRate(netOut||0)}</span>`
+    : '<span style="color:var(--text-muted)">— network —</span>';
+  const yoloLabel = (yoloCams > 0)
+    ? `🎯 YOLO: <b>${yoloCams}</b> camera${yoloCams > 1 ? 's' : ''}${yoloModel ? ' · ' + yoloModel.split('/').pop() : ''}`
+    : '🎯 YOLO: —';
+
+  return `
+    <div class="srv-card${online ? '' : ' offline'}">
+      <div class="srv-header">
+        <div class="status-dot" style="background:${online ? 'var(--green,#22c55e)' : 'var(--red,#ef4444)'}"></div>
+        <span class="srv-name" title="${name}">${name}</span>
+        <span class="srv-tag">${tag}</span>
+      </div>
+      <div class="srv-metric-row">
+        <span class="srv-metric-lbl">CPU</span>
+        <div class="srv-bar"><div class="srv-bar-fill ${srvBarClass(cpuRnd)}" style="width:${cpuRnd}%"></div></div>
+        <span class="srv-metric-val">${cpuRnd}%</span>
+      </div>
+      <div class="srv-metric-row">
+        <span class="srv-metric-lbl">RAM</span>
+        <div class="srv-bar"><div class="srv-bar-fill ${srvBarClass(memRnd)}" style="width:${memRnd}%"></div></div>
+        <span class="srv-metric-val" title="${memLabel}">${memRnd}%</span>
+      </div>
+      <div class="srv-net-row">${netLabel}</div>
+      <div class="srv-yolo-row">${yoloLabel}</div>
+    </div>`;
+}
+
+function renderSrvCards(mainStats) {
+  if (mainStats) _mainStats = mainStats;
+  const grid = document.getElementById('srvGrid');
+  if (!grid) return;
+
+  let html = '';
+
+  // Main server card (local)
+  if (_mainStats) {
+    const s = _mainStats;
+    html += buildSrvCard(
+      'Máy chủ chính', 'Local', true,
+      s.cpu_percent, s.mem_percent, s.mem_used, s.mem_total,
+      s.net_in_rate, s.net_out_rate,
+      s.streams_active || 0, ''
+    );
+  }
+
+  // Remote worker cards
+  for (const w of _workerStats) {
+    html += buildSrvCard(
+      w.name || w.id,
+      w.online ? 'Online' : 'Offline',
+      w.online,
+      w.cpu_percent, w.mem_percent, w.mem_used, w.mem_total,
+      w.net_in_rate, w.net_out_rate,
+      w.cameras || 0, w.yoloModel || ''
+    );
+  }
+
+  grid.innerHTML = html;
+  const section = document.getElementById('srvSection');
+  if (section && (_mainStats || _workerStats.length > 0)) {
+    section.style.display = '';
+  }
+}
+
+async function fetchWorkerStats() {
+  try {
+    _workerStats = await apiFetch('/api/workers/status') || [];
+  } catch(e) {
+    _workerStats = [];
+  }
+  renderSrvCards(null);
+}
+
 // ── Poll ──────────────────────────────────────────────────────────
 let pollTimer = null;
 
@@ -1262,10 +1382,11 @@ async function fetchStats() {
       'Access denied — Monitor permission required.';
     return;
   }
-  await Promise.all([fetchStats(), fetchSnapStats(), fetchDevStats()]);
+  await Promise.all([fetchStats(), fetchSnapStats(), fetchDevStats(), fetchWorkerStats()]);
   pollTimer = setInterval(fetchStats, 3000);
   setInterval(fetchSnapStats, 10000);
-  setInterval(fetchDevStats, 15000); // device stats refresh every 15 s
+  setInterval(fetchDevStats, 15000);
+  setInterval(fetchWorkerStats, 30000); // matches backend health check interval
 
   window.addEventListener('resize', () => {
     drawSpark('cpuSpark', cpuHistory, '#2f81f7', 100);

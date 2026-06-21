@@ -126,6 +126,31 @@ func checkWorker(wk *Worker) {
 		}
 	}
 
+	// Fetch hardware stats (CPU, RAM, network) from the worker's /api/system/stats.
+	var cpuPct, memPct float64
+	var memUsed, memTotal, netIn, netOut uint64
+	hwResp, hwErr := workerRequest(wk, http.MethodGet, "/api/system/stats", nil, "")
+	if hwErr == nil {
+		hwBody, _ := io.ReadAll(hwResp.Body)
+		hwResp.Body.Close()
+		var hw struct {
+			CPUPercent float64 `json:"cpu_percent"`
+			MemPercent float64 `json:"mem_percent"`
+			MemUsed    uint64  `json:"mem_used"`
+			MemTotal   uint64  `json:"mem_total"`
+			NetInRate  uint64  `json:"net_in_rate"`
+			NetOutRate uint64  `json:"net_out_rate"`
+		}
+		if json.Unmarshal(hwBody, &hw) == nil {
+			cpuPct = hw.CPUPercent
+			memPct = hw.MemPercent
+			memUsed = hw.MemUsed
+			memTotal = hw.MemTotal
+			netIn = hw.NetInRate
+			netOut = hw.NetOutRate
+		}
+	}
+
 	s := &WorkerStatus{
 		ID:           wk.ID,
 		Name:         wk.Name,
@@ -139,6 +164,12 @@ func checkWorker(wk *Worker) {
 		YoloModel:    yoloModel,
 		Training:     training,
 		TrainedModel: trainedModel,
+		CPUPercent:   cpuPct,
+		MemPercent:   memPct,
+		MemUsed:      memUsed,
+		MemTotal:     memTotal,
+		NetInRate:    netIn,
+		NetOutRate:   netOut,
 	}
 	setStatus(s)
 
