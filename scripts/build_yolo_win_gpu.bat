@@ -33,12 +33,15 @@ ECHO --- Removing any conflicting standalone NVIDIA CUDA pip packages ---
 REM These may linger from earlier build attempts and shadow torch's own libs.
 pip uninstall -y nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cuda-nvrtc-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12 nvidia-cudnn-cu12 nvidia-cuda-cupti-cu12 nvidia-nvtx-cu12 nvidia-nvjitlink-cu12 1>NUL 2>NUL
 
-ECHO --- Installing PyTorch (CUDA 12.6, self-contained) ---
-pip install torch --index-url https://download.pytorch.org/whl/cu126
+ECHO --- Installing PyTorch + torchvision (CUDA 12.6, self-contained) ---
+REM torchvision MUST come from the same index as torch to get the CUDA NMS kernel.
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 IF ERRORLEVEL 1 GOTO error
 
-ECHO --- Installing ultralytics, opencv, web stack, PyInstaller ---
-pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+ECHO --- Installing ultralytics (pulls opencv-python), web stack, PyInstaller ---
+REM ultralytics depends on opencv-python; do not also install opencv-python-headless
+REM as having both packages causes cv2 import failures on Windows.
+pip install ultralytics fastapi "uvicorn[standard]" pyinstaller
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Verifying torch imports and sees the GPU (before bundling) ---

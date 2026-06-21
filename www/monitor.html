@@ -129,6 +129,7 @@
 .srv-net-in  { color:#38bdf8; }
 .srv-net-out { color:#a78bfa; }
 .srv-yolo-row { margin-top:.3rem; font-size:.73rem; color:var(--text-muted); }
+.srv-gpu-name { font-size:.63rem; color:var(--text-muted); margin:.3rem 0 .15rem; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; }
 </style>
 </head>
 <body>
@@ -1270,7 +1271,7 @@ function srvBarClass(pct) {
   return '';
 }
 
-function buildSrvCard(name, tag, online, cpu, memPct, memUsed, memTotal, netIn, netOut, yoloCams, yoloModel) {
+function buildSrvCard(name, tag, online, cpu, memPct, memUsed, memTotal, netIn, netOut, yoloCams, yoloModel, gpus) {
   const cpuRnd   = Math.round(cpu || 0);
   const memRnd   = Math.round(memPct || 0);
   const memLabel = (memUsed && memTotal)
@@ -1282,6 +1283,32 @@ function buildSrvCard(name, tag, online, cpu, memPct, memUsed, memTotal, netIn, 
   const yoloLabel = (yoloCams > 0)
     ? `🎯 YOLO: <b>${yoloCams}</b> camera${yoloCams > 1 ? 's' : ''}${yoloModel ? ' · ' + yoloModel.split('/').pop() : ''}`
     : '🎯 YOLO: —';
+
+  // GPU rows — one block per physical GPU
+  let gpuHtml = '';
+  if (gpus && gpus.length > 0) {
+    gpuHtml += `<div style="border-top:1px solid var(--border);margin:.4rem 0 .35rem"></div>`;
+    gpus.forEach((g, i) => {
+      const label   = gpus.length > 1 ? `GPU${i}` : 'GPU';
+      const gpuPct  = Math.round(g.utilization || 0);
+      const vramPct = Math.round(g.mem_percent  || 0);
+      const vramLbl = (g.mem_used && g.mem_total)
+        ? `${fmtBytes(g.mem_used)} / ${fmtBytes(g.mem_total)}`
+        : `${vramPct}%`;
+      gpuHtml += `
+        <div class="srv-gpu-name" title="${escHtml(g.name)}">🖥 ${escHtml(g.name)}</div>
+        <div class="srv-metric-row">
+          <span class="srv-metric-lbl">${label}</span>
+          <div class="srv-bar"><div class="srv-bar-fill ${srvBarClass(gpuPct)}" style="width:${gpuPct}%;background:#f97316"></div></div>
+          <span class="srv-metric-val">${gpuPct}%</span>
+        </div>
+        <div class="srv-metric-row" style="margin-top:-.1rem">
+          <span class="srv-metric-lbl" style="color:var(--text-muted);font-size:.67rem">VRAM</span>
+          <div class="srv-bar"><div class="srv-bar-fill ${srvBarClass(vramPct)}" style="width:${vramPct}%;background:#8b5cf6"></div></div>
+          <span class="srv-metric-val" style="font-size:.7rem" title="${vramLbl}">${vramPct}%</span>
+        </div>`;
+    });
+  }
 
   return `
     <div class="srv-card${online ? '' : ' offline'}">
@@ -1300,6 +1327,7 @@ function buildSrvCard(name, tag, online, cpu, memPct, memUsed, memTotal, netIn, 
         <div class="srv-bar"><div class="srv-bar-fill ${srvBarClass(memRnd)}" style="width:${memRnd}%"></div></div>
         <span class="srv-metric-val" title="${memLabel}">${memRnd}%</span>
       </div>
+      ${gpuHtml}
       <div class="srv-net-row">${netLabel}</div>
       <div class="srv-yolo-row">${yoloLabel}</div>
     </div>`;
@@ -1319,7 +1347,7 @@ function renderSrvCards(mainStats) {
       'Máy chủ chính', 'Local', true,
       s.cpu_percent, s.mem_percent, s.mem_used, s.mem_total,
       s.net_in_rate, s.net_out_rate,
-      s.streams_active || 0, ''
+      s.streams_active || 0, '', s.gpus || []
     );
   }
 
@@ -1331,7 +1359,7 @@ function renderSrvCards(mainStats) {
       w.online,
       w.cpu_percent, w.mem_percent, w.mem_used, w.mem_total,
       w.net_in_rate, w.net_out_rate,
-      w.cameras || 0, w.yoloModel || ''
+      w.cameras || 0, w.yoloModel || '', w.gpus || []
     );
   }
 

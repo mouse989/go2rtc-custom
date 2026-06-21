@@ -38,6 +38,9 @@ type Stats struct {
 	NetInRate  uint64 `json:"net_in_rate"`  // bytes/s total across all adapters
 	NetOutRate uint64 `json:"net_out_rate"` // bytes/s total across all adapters
 
+	// GPU stats (nil when no NVIDIA GPU / nvidia-smi present)
+	GPUs []GPUInfo `json:"gpus,omitempty"`
+
 	// Streaming / users (computed per request)
 	ActiveUsers     int `json:"active_users"`     // distinct users active in last 5 min
 	StreamsTotal    int `json:"streams_total"`    // configured cameras
@@ -90,6 +93,7 @@ func sample() {
 	diskTotal, diskFree := sampleDisk()
 	uptime := sampleUptime()
 	netIn, netOut := sampleNetwork()
+	gpus := sampleGPU()
 
 	memUsed := memTotal - memAvail
 	memPct := 0.0
@@ -113,6 +117,7 @@ func sample() {
 		GoVersion:   runtime.Version(),
 		NetInRate:   netIn,
 		NetOutRate:  netOut,
+		GPUs:        gpus,
 		StartTime:   startTime.Unix(),
 		Timestamp:   time.Now().Unix(),
 	}

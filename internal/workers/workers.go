@@ -28,6 +28,15 @@ type Worker struct {
 	RTSPBase string `json:"rtspBase,omitempty"` // RTSP URL that yolo_counter on this worker should pull from, e.g. "rtsp://server1-ip:8554"
 }
 
+// GPUInfo mirrors monitor.GPUInfo for GPU stats fetched from remote workers.
+type GPUInfo struct {
+	Name        string  `json:"name"`
+	Utilization float64 `json:"utilization"`
+	MemUsed     uint64  `json:"mem_used"`
+	MemTotal    uint64  `json:"mem_total"`
+	MemPercent  float64 `json:"mem_percent"`
+}
+
 // WorkerStatus is the runtime status of a worker (cached, not persisted).
 type WorkerStatus struct {
 	ID           string `json:"id"`
@@ -45,12 +54,13 @@ type WorkerStatus struct {
 	TrainedModel string `json:"trainedModel,omitempty"` // last auto-pulled model
 
 	// Hardware stats fetched from /api/system/stats during health check.
-	CPUPercent float64 `json:"cpu_percent,omitempty"`
-	MemPercent float64 `json:"mem_percent,omitempty"`
-	MemUsed    uint64  `json:"mem_used,omitempty"`
-	MemTotal   uint64  `json:"mem_total,omitempty"`
-	NetInRate  uint64  `json:"net_in_rate,omitempty"`
-	NetOutRate uint64  `json:"net_out_rate,omitempty"`
+	CPUPercent float64   `json:"cpu_percent,omitempty"`
+	MemPercent float64   `json:"mem_percent,omitempty"`
+	MemUsed    uint64    `json:"mem_used,omitempty"`
+	MemTotal   uint64    `json:"mem_total,omitempty"`
+	NetInRate  uint64    `json:"net_in_rate,omitempty"`
+	NetOutRate uint64    `json:"net_out_rate,omitempty"`
+	GPUs       []GPUInfo `json:"gpus,omitempty"`
 }
 
 var (
