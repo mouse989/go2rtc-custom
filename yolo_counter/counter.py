@@ -29,10 +29,15 @@ from typing import Dict, List, Optional, Any
 # so that c10.dll can find cudart/cublas/etc. at import time.
 # This must run before 'import torch' (which happens lazily in _resolve_device).
 if sys.platform == 'win32' and hasattr(sys, '_MEIPASS'):
+    # Keep cookies alive for the lifetime of the process.
+    # os.add_dll_directory() returns a cookie whose destructor calls
+    # RemoveDllDirectory() — discarding the return value causes CPython's
+    # reference-counting GC to remove the registration immediately.
+    _dll_dir_cookies = []
     for _dll_root, _dll_dirs, _dll_files in os.walk(sys._MEIPASS):
         if any(_f.lower().endswith('.dll') for _f in _dll_files):
             try:
-                os.add_dll_directory(_dll_root)
+                _dll_dir_cookies.append(os.add_dll_directory(_dll_root))
             except OSError:
                 pass
     del _dll_root, _dll_dirs, _dll_files
