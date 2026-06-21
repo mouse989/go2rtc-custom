@@ -65,6 +65,34 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// requireStationView allows admins and users with allow_view_stations or allow_config_stations.
+func requireStationView(w http.ResponseWriter, r *http.Request) bool {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	if user.Role == auth.RoleAdmin || user.AllowViewStations || user.AllowConfigStations {
+		return true
+	}
+	http.Error(w, "forbidden", http.StatusForbidden)
+	return false
+}
+
+// requireStationConfig allows admins and users with allow_config_stations.
+func requireStationConfig(w http.ResponseWriter, r *http.Request) bool {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	if user.Role == auth.RoleAdmin || user.AllowConfigStations {
+		return true
+	}
+	http.Error(w, "forbidden", http.StatusForbidden)
+	return false
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	data, _ := json.Marshal(v)
 	w.Header().Set("Content-Type", "application/json")
@@ -180,12 +208,21 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 
 // GET/POST/PUT/DELETE /api/counting/cameras
 func handleCameras(w http.ResponseWriter, r *http.Request) {
+	// Viewers with station config permission may list cameras (to populate the station editor dropdown).
+	// Mutations still require admin.
+	if r.Method == http.MethodGet {
+		if !requireStationConfig(w, r) {
+			return
+		}
+		writeJSON(w, getConfig().Cameras)
+		return
+	}
 	if !requireAdmin(w, r) {
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, getConfig().Cameras)
+		writeJSON(w, getConfig().Cameras) // unreachable; handled above
 
 	case http.MethodPost:
 		var cam CameraConfig
@@ -305,7 +342,7 @@ func handleData(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/counting/summary?date=YYYY-MM-DD
 func handleSummary(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if !requireStationView(w, r) {
 		return
 	}
 	date := r.URL.Query().Get("date")
@@ -1002,12 +1039,17 @@ func handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET/POST/PUT/DELETE /api/counting/stations
+// GET is open to all users with station-view permission.
+// POST/PUT/DELETE require station-config permission (admin or allow_config_stations).
 func handleStations(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if !requireStationView(w, r) {
+			return
+		}
 		writeJSON(w, listStations())
 	case http.MethodPost:
-		if !requireAdmin(w, r) {
+		if !requireStationConfig(w, r) {
 			return
 		}
 		var s Station
@@ -1023,7 +1065,7 @@ func handleStations(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, created)
 	case http.MethodPut:
-		if !requireAdmin(w, r) {
+		if !requireStationConfig(w, r) {
 			return
 		}
 		id := r.URL.Query().Get("id")
@@ -1043,7 +1085,7 @@ func handleStations(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, updated)
 	case http.MethodDelete:
-		if !requireAdmin(w, r) {
+		if !requireStationConfig(w, r) {
 			return
 		}
 		id := r.URL.Query().Get("id")
@@ -1062,12 +1104,17 @@ func handleStations(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET/POST/PUT/DELETE /api/counting/station-types
+// GET is open to all users with station-view permission.
+// POST/PUT/DELETE require station-config permission (admin or allow_config_stations).
 func handleStationTypes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if !requireStationView(w, r) {
+			return
+		}
 		writeJSON(w, listStationTypes())
 	case http.MethodPost:
-		if !requireAdmin(w, r) {
+		if !requireStationConfig(w, r) {
 			return
 		}
 		var t StationType
@@ -1083,7 +1130,7 @@ func handleStationTypes(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, created)
 	case http.MethodPut:
-		if !requireAdmin(w, r) {
+		if !requireStationConfig(w, r) {
 			return
 		}
 		id := r.URL.Query().Get("id")
@@ -1103,7 +1150,7 @@ func handleStationTypes(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, updated)
 	case http.MethodDelete:
-		if !requireAdmin(w, r) {
+		if !requireStationConfig(w, r) {
 			return
 		}
 		id := r.URL.Query().Get("id")
