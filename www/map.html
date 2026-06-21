@@ -240,6 +240,79 @@ body.sb-collapsed           { --map-left:0; }
 .main { pointer-events:none; background:transparent; }
 .topbar { pointer-events:all; background:var(--surface); }
 
+/* ── Traffic counting station markers ───────────────────────── */
+.stn-marker-wrap {
+  border:2px solid rgba(255,255,255,.92);
+  border-radius:14px; min-width:38px; height:26px;
+  display:flex; align-items:center; justify-content:center;
+  padding:0 8px; gap:3px;
+  font-size:11px; font-weight:700; color:#fff;
+  cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.55);
+  white-space:nowrap; transition:transform .15s, box-shadow .15s;
+  font-family:system-ui,-apple-system,Arial,sans-serif;
+  background: #6b7280;
+}
+.stn-marker-wrap:hover { transform:scale(1.12); box-shadow:0 3px 14px rgba(0,0,0,.7); }
+.stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
+
+/* ── Station / type edit panels ─────────────────────────────── */
+#stnPanel, #stnTypePanel {
+  position:fixed; right:.8rem; top:50%; transform:translateY(-50%);
+  z-index:401; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:.85rem;
+  display:none; flex-direction:column; gap:.5rem;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+}
+#stnPanel { width:290px; min-width:240px; }
+#stnPanel.show, #stnTypePanel.show { display:flex; }
+#stnPanel h4, #stnTypePanel h4 { font-size:.9rem; font-weight:700; }
+#stnPanel label, #stnTypePanel label {
+  font-size:.73rem; color:var(--text-muted); display:block; margin-bottom:.15rem;
+}
+#stnPanel input, #stnPanel select,
+#stnTypePanel input, #stnTypePanel select {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:6px; padding:.3rem .5rem; color:var(--text); font-size:.81rem;
+  box-sizing:border-box; outline:none;
+}
+#stnTypePanel input:focus, #stnTypePanel select:focus,
+#stnPanel input:focus, #stnPanel select:focus { border-color:var(--accent); }
+
+/* ── Type manager modal ──────────────────────────────────────── */
+#stnTypeBackdrop { z-index:620; }
+.stn-type-row {
+  display:flex; align-items:center; gap:.55rem;
+  padding:.42rem .6rem; border:1px solid var(--border); border-radius:7px;
+  background:var(--surface2); cursor:pointer; font-size:.8rem;
+  transition:border-color .12s;
+}
+.stn-type-row:hover, .stn-type-row.active { border-color:var(--accent); }
+.stn-type-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.stn-type-thresholds { display:flex; gap:.25rem; margin-top:.1rem; flex-wrap:wrap; }
+.stn-thresh-chip {
+  font-size:.62rem; padding:1px 5px; border-radius:3px;
+  font-weight:700; color:#fff;
+}
+.stn-cam-item {
+  display:flex; align-items:center; gap:.45rem;
+  padding:.28rem .4rem; font-size:.77rem; border-radius:4px; cursor:pointer;
+}
+.stn-cam-item:hover { background:var(--surface); }
+.stn-cam-item input[type=checkbox] { accent-color:var(--accent); flex-shrink:0; }
+
+/* ── Station chart modal ─────────────────────────────────────── */
+#stnChartBackdrop { z-index:615; }
+#stnChartCanvas { width:100% !important; }
+
+@media (max-width:768px) {
+  #stnPanel, #stnTypePanel {
+    width:100% !important; max-width:100vw !important;
+    position:fixed !important; bottom:0; left:0; right:0; top:auto;
+    transform:none; border-radius:12px 12px 0 0; max-height:72vh;
+    overflow-y:auto;
+  }
+}
+
 /* ── No-key overlay ─────────────────────────────────────────── */
 #mapNoKey {
   position:fixed; inset:0; left:var(--map-left);
@@ -377,6 +450,12 @@ body.sb-collapsed           { --map-left:0; }
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
     Edit locations
   </button>
+  <button class="map-btn admin-only" id="btnStnEdit" style="display:none" title="Thêm/sửa trạm đo đếm lưu lượng">
+    📊 Trạm đo
+  </button>
+  <button class="map-btn admin-only" id="btnStnTypes" style="display:none" title="Quản lý loại trạm &amp; ngưỡng màu">
+    ⚙ Loại trạm
+  </button>
 </div>
 
 <!-- ── Results panel ──────────────────────────────────────────── -->
@@ -472,8 +551,125 @@ body.sb-collapsed           { --map-left:0; }
   </div>
 </div>
 
+<!-- ── Station edit panel ────────────────────────────────────── -->
+<div id="stnPanel">
+  <h4 id="stnPanelTitle">📍 Thêm trạm đo</h4>
+  <p style="font-size:.71rem;color:var(--text-muted);margin:0">Click trên bản đồ để đặt toạ độ.</p>
+  <div>
+    <label>Loại trạm</label>
+    <select id="stnTypeSelect"></select>
+  </div>
+  <div>
+    <label>Camera đo đếm</label>
+    <select id="stnCamSelect"></select>
+  </div>
+  <div>
+    <label>Tên trạm (tuỳ chọn)</label>
+    <input type="text" id="stnLabel" placeholder="e.g. Ngã tư chợ">
+  </div>
+  <div style="display:flex;gap:.5rem">
+    <div style="flex:1"><label>Lat</label><input type="number" id="stnLat" step="0.000001"></div>
+    <div style="flex:1"><label>Lon</label><input type="number" id="stnLon" step="0.000001"></div>
+  </div>
+  <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+    <button class="btn btn-primary"   id="stnSave"   style="flex:1;font-size:.8rem">💾 Lưu</button>
+    <button class="btn btn-secondary" id="stnCancel"  style="font-size:.8rem">Huỷ</button>
+    <button class="btn btn-danger"    id="stnDelete"  style="font-size:.8rem;display:none">🗑</button>
+  </div>
+</div>
+
+<!-- ── Station type manager modal ───────────────────────────── -->
+<div class="modal-backdrop" id="stnTypeBackdrop">
+  <div class="modal" style="max-width:700px;padding:0">
+    <div class="modal-header">
+      <h3>⚙ Quản lý loại trạm đo</h3>
+      <button class="modal-close" id="stnTypeMgrClose">✕</button>
+    </div>
+    <div class="modal-body" style="display:flex;gap:.9rem;min-height:380px;padding:1rem">
+      <!-- Left: type list -->
+      <div style="flex:0 0 190px;display:flex;flex-direction:column;gap:.45rem">
+        <button class="btn btn-primary" id="btnStnTypeNew" style="font-size:.78rem">+ Thêm loại</button>
+        <div id="stnTypeMgrList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:.3rem">
+          <!-- populated by JS -->
+        </div>
+      </div>
+      <!-- Right: type editor -->
+      <div id="stnTypeMgrEditor" style="flex:1;display:none;flex-direction:column;gap:.6rem;min-width:0">
+        <div>
+          <label style="font-size:.73rem;color:var(--text-muted)">Tên loại trạm</label>
+          <input id="stmTypeName" type="text" placeholder="e.g. Quốc lộ"
+                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;color:var(--text);font-size:.84rem;box-sizing:border-box;outline:none">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.45rem">
+          <div>
+            <label style="font-size:.7rem;color:#eab308;font-weight:700">🟡 Ngưỡng vàng</label>
+            <input id="stmTypeYellow" type="number" min="0" placeholder="500"
+                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/ngày</div>
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#f97316;font-weight:700">🟠 Ngưỡng cam</label>
+            <input id="stmTypeOrange" type="number" min="0" placeholder="1000"
+                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/ngày</div>
+          </div>
+          <div>
+            <label style="font-size:.7rem;color:#ef4444;font-weight:700">🔴 Ngưỡng đỏ</label>
+            <input id="stmTypeRed" type="number" min="0" placeholder="2000"
+                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/ngày</div>
+          </div>
+        </div>
+        <!-- Quick-add cameras -->
+        <div style="display:flex;flex-direction:column;gap:.35rem;flex:1;min-height:0">
+          <div style="font-size:.76rem;font-weight:700;color:var(--text)">📷 Thêm nhanh camera</div>
+          <input id="stmCamSearch" type="search" placeholder="Tìm tên camera…"
+                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .45rem;color:var(--text);font-size:.78rem;box-sizing:border-box;outline:none">
+          <div id="stmCamList"
+               style="flex:1;min-height:120px;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:.25rem .2rem;background:var(--bg)">
+            <!-- populated by JS -->
+          </div>
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <button class="btn btn-secondary" id="stmCamAddBtn" style="font-size:.76rem">✅ Thêm camera đã chọn</button>
+            <span id="stmCamAddInfo" style="font-size:.72rem;color:var(--text-muted)"></span>
+          </div>
+        </div>
+        <div style="display:flex;gap:.4rem;padding-top:.2rem;border-top:1px solid var(--border)">
+          <button class="btn btn-primary"   id="stmTypeSave"   style="flex:1;font-size:.8rem">💾 Lưu loại</button>
+          <button class="btn btn-danger"    id="stmTypeDelete" style="font-size:.8rem;display:none">🗑 Xoá</button>
+        </div>
+      </div>
+      <!-- Empty state -->
+      <div id="stnTypeMgrEmpty" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:.83rem">
+        ← Chọn loại trạm hoặc tạo mới
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Station chart modal ───────────────────────────────────── -->
+<div class="modal-backdrop" id="stnChartBackdrop">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h3 id="stnChartTitle">Trạm đo</h3>
+      <button class="modal-close" id="stnChartClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem;flex-wrap:wrap;gap:.5rem">
+        <div style="font-size:.8rem;color:var(--text-muted)">
+          Tổng hôm nay: <strong id="stnChartTotal" style="color:var(--text)">—</strong> lượt
+        </div>
+        <input type="date" id="stnChartDate"
+               style="font-size:.78rem;padding:.28rem .45rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none">
+      </div>
+      <canvas id="stnChartCanvas"></canvas>
+    </div>
+  </div>
+</div>
+
 <!-- ── Scripts ────────────────────────────────────────────────── -->
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script type="module" src="video-stream.js"></script>
 <script src="app.js"></script>
 <script>
@@ -757,6 +953,9 @@ function rebuildMapLayers() {
   // Rebuild edit-mode markers if needed
   if (_editMode) buildMarkers();
 
+  // Rebuild station markers (HTML elements — safe to re-add after style change)
+  buildStnMarkers();
+
   // Re-add heatmap below cameras if it was active before style change
   if (_heatmapOn) _addHeatmapLayers();
 }
@@ -846,6 +1045,13 @@ async function initMap(apiKey) {
       // Refresh snapshot for whichever camera is currently selected in the list
       const curSel = document.getElementById('editCamSelect').value;
       if (curSel) updateEditSnapshot(curSel);
+    }
+    if (_stnEditMode) {
+      document.getElementById('stnLat').value = e.lngLat.lat.toFixed(6);
+      document.getElementById('stnLon').value = e.lngLat.lng.toFixed(6);
+      if (!document.getElementById('stnPanel').classList.contains('show')) {
+        openStnPanel(null);
+      }
     }
   });
 
@@ -1689,6 +1895,437 @@ async function toggleHeatmap() {
 
 document.getElementById('btnHeatmap').addEventListener('click', toggleHeatmap);
 
+// ── Traffic counting stations ─────────────────────────────────
+
+let _stations      = [];    // [{id, type_id, camera_id, lat, lon, label}]
+let _stationTypes  = [];    // [{id, name, thresh_yellow, thresh_orange, thresh_red}]
+let _stationMkrs   = {};    // stationID → {marker, el}
+let _stnSummary    = {};    // cameraID  → total count today
+let _stnEditMode   = false;
+let _editingStnID  = null;
+let _stnChart      = null;
+let _stnChartCamID = null;
+let _countingCams  = [];    // from /api/counting/cameras
+let _editingTypeID = null;  // type being edited in manager
+
+// ── Color logic ────────────────────────────────────────────────
+function stnTypeByID(id) {
+  return _stationTypes.find(t => t.id === id) || null;
+}
+
+function stnColor(total, typeID) {
+  const t = stnTypeByID(typeID);
+  if (!t) return '#6b7280';
+  if (total >= t.thresh_red)    return '#ef4444';
+  if (total >= t.thresh_orange) return '#f97316';
+  if (total >= t.thresh_yellow) return '#eab308';
+  return '#22c55e';
+}
+
+// ── Load data ─────────────────────────────────────────────────
+async function loadCountingCams() {
+  try {
+    const cams = await apiFetch('/api/counting/cameras');
+    _countingCams = Array.isArray(cams) ? cams : [];
+  } catch(_) { _countingCams = []; }
+}
+
+async function loadStationsLayer() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [stns, types, summary] = await Promise.all([
+    apiFetch('/api/counting/stations').catch(() => []),
+    apiFetch('/api/counting/station-types').catch(() => []),
+    apiFetch('/api/counting/summary?date=' + today).catch(() => []),
+  ]);
+  _stations     = Array.isArray(stns)  ? stns  : [];
+  _stationTypes = Array.isArray(types) ? types : [];
+  _stnSummary   = {};
+  (Array.isArray(summary) ? summary : []).forEach(hs => {
+    _stnSummary[hs.cameraId] = hs.total;
+  });
+  buildStnMarkers();
+}
+
+// ── Station markers ────────────────────────────────────────────
+function buildStnMarkers() {
+  Object.values(_stationMkrs).forEach(m => m.marker.remove());
+  _stationMkrs = {};
+  if (!map) return;
+  _stations.forEach(stn => {
+    const total = _stnSummary[stn.camera_id] || 0;
+    const color = stnColor(total, stn.type_id);
+    const lbl   = stn.label || stn.camera_id;
+    const type  = stnTypeByID(stn.type_id);
+    const n = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : String(total);
+    const el = document.createElement('div');
+    el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
+    el.style.background = color;
+    el.title = lbl + (type ? ' [' + type.name + ']' : '') + '\n' + total.toLocaleString() + ' luot hom nay';
+    el.textContent = n;
+    const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([stn.lon, stn.lat]).addTo(map);
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (_stnEditMode) openStnPanel(stn);
+      else              openStnChart(stn);
+    });
+    _stationMkrs[stn.id] = { marker, el };
+  });
+}
+
+// ── Station edit panel ─────────────────────────────────────────
+function populateStnTypeSelect(selectedID) {
+  const sel = document.getElementById('stnTypeSelect');
+  sel.innerHTML = '<option value="">— khong co loai —</option>';
+  _stationTypes.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id; opt.textContent = t.name;
+    if (t.id === selectedID) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function populateStnCams(selectedID) {
+  const sel = document.getElementById('stnCamSelect');
+  sel.innerHTML = '<option value="">— chon camera —</option>';
+  _countingCams.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id || ''; opt.textContent = c.name || c.id || '';
+    if ((c.id || '') === selectedID) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function openStnPanel(stn) {
+  _editingStnID = stn ? stn.id : null;
+  populateStnTypeSelect(stn ? stn.type_id : '');
+  populateStnCams(stn ? stn.camera_id : '');
+  document.getElementById('stnPanelTitle').textContent = stn ? 'Sua tram do' : 'Them tram do';
+  document.getElementById('stnLabel').value = stn ? (stn.label || '') : '';
+  document.getElementById('stnLat').value   = stn ? stn.lat : '';
+  document.getElementById('stnLon').value   = stn ? stn.lon : '';
+  document.getElementById('stnDelete').style.display = stn ? '' : 'none';
+  document.getElementById('stnPanel').classList.add('show');
+}
+
+document.getElementById('stnSave').addEventListener('click', async () => {
+  const typeId = document.getElementById('stnTypeSelect').value;
+  const camId  = document.getElementById('stnCamSelect').value;
+  const lat    = parseFloat(document.getElementById('stnLat').value);
+  const lon    = parseFloat(document.getElementById('stnLon').value);
+  const label  = document.getElementById('stnLabel').value.trim();
+  if (!camId) { toast('Vui long chon camera', 'error'); return; }
+  if (isNaN(lat) || isNaN(lon)) { toast('Vui long click tren ban do de dat toa do', 'error'); return; }
+  const body = { type_id: typeId, camera_id: camId, lat, lon, label };
+  try {
+    if (_editingStnID) {
+      await apiFetch('/api/counting/stations?id=' + encodeURIComponent(_editingStnID), { method:'PUT', body });
+    } else {
+      await apiFetch('/api/counting/stations', { method:'POST', body });
+    }
+    await loadStationsLayer();
+    document.getElementById('stnPanel').classList.remove('show');
+    _editingStnID = null;
+    toast('Da luu tram do', 'success');
+  } catch(err) { toast('Loi: ' + err.message, 'error'); }
+});
+
+document.getElementById('stnDelete').addEventListener('click', async () => {
+  if (!_editingStnID || !confirm('Xoa tram do nay?')) return;
+  try {
+    await apiFetch('/api/counting/stations?id=' + encodeURIComponent(_editingStnID), { method:'DELETE' });
+    await loadStationsLayer();
+    document.getElementById('stnPanel').classList.remove('show');
+    _editingStnID = null;
+    toast('Da xoa tram do', 'success');
+  } catch(err) { toast('Loi: ' + err.message, 'error'); }
+});
+
+document.getElementById('stnCancel').addEventListener('click', () => {
+  document.getElementById('stnPanel').classList.remove('show');
+  _editingStnID = null;
+});
+
+document.getElementById('btnStnEdit').addEventListener('click', function() {
+  _stnEditMode = !_stnEditMode;
+  this.classList.toggle('active', _stnEditMode);
+  if (!_stnEditMode) {
+    document.getElementById('stnPanel').classList.remove('show');
+    _editingStnID = null;
+    if (map) map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
+  } else {
+    if (map) map.getCanvas().style.cursor = 'crosshair';
+  }
+  buildStnMarkers();
+});
+
+// ── Station type manager ───────────────────────────────────────
+function renderStnTypeMgrList() {
+  const list = document.getElementById('stnTypeMgrList');
+  list.innerHTML = '';
+  if (!_stationTypes.length) {
+    list.innerHTML = '<div style="font-size:.77rem;color:var(--text-muted);padding:.3rem .4rem">Chua co loai nao</div>';
+    return;
+  }
+  _stationTypes.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'stn-type-row' + (t.id === _editingTypeID ? ' active' : '');
+    row.innerHTML =
+      '<span class="stn-type-dot" style="background:' + stnColor(t.thresh_orange, t.id) + '"></span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(t.name) + '</div>' +
+        '<div class="stn-type-thresholds">' +
+          '<span class="stn-thresh-chip" style="background:#eab308">&ge;' + t.thresh_yellow + '</span>' +
+          '<span class="stn-thresh-chip" style="background:#f97316">&ge;' + t.thresh_orange + '</span>' +
+          '<span class="stn-thresh-chip" style="background:#ef4444">&ge;' + t.thresh_red    + '</span>' +
+        '</div>' +
+      '</div>';
+    row.addEventListener('click', () => openTypeEditor(t));
+    list.appendChild(row);
+  });
+}
+
+function openTypeEditor(t) {
+  _editingTypeID = t ? t.id : null;
+  renderStnTypeMgrList();
+  document.getElementById('stmTypeName').value   = t ? t.name            : '';
+  document.getElementById('stmTypeYellow').value = t ? t.thresh_yellow   : '';
+  document.getElementById('stmTypeOrange').value = t ? t.thresh_orange   : '';
+  document.getElementById('stmTypeRed').value    = t ? t.thresh_red      : '';
+  document.getElementById('stmTypeDelete').style.display = t ? '' : 'none';
+  document.getElementById('stnTypeMgrEditor').style.display = 'flex';
+  document.getElementById('stnTypeMgrEmpty').style.display  = 'none';
+  document.getElementById('stmCamAddInfo').textContent = '';
+  renderStmCamList('');
+}
+
+function renderStmCamList(filter) {
+  const list = document.getElementById('stmCamList');
+  list.innerHTML = '';
+  const filt = filter.toLowerCase();
+  const existingCamIDs = new Set(
+    _stations.filter(s => s.type_id === _editingTypeID).map(s => s.camera_id)
+  );
+  const cams = _countingCams.filter(c => !filt || (c.name || c.id || '').toLowerCase().includes(filt));
+  cams.forEach(c => {
+    const camId    = c.id || '';
+    const hasLoc   = !!(_locByID[camId]);
+    const alreadyHas = existingCamIDs.has(camId);
+    const item = document.createElement('label');
+    item.className = 'stn-cam-item';
+    item.style.opacity = hasLoc ? '1' : '.45';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = camId;
+    if (alreadyHas) { cb.checked = true; cb.disabled = true; }
+    if (!hasLoc && !alreadyHas) cb.disabled = true;
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = c.name || camId;
+    item.appendChild(cb); item.appendChild(nameSpan);
+    if (alreadyHas) {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'font-size:.65rem;color:var(--accent);margin-left:auto';
+      badge.textContent = 'da co tram';
+      item.appendChild(badge);
+    } else if (!hasLoc) {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'font-size:.65rem;color:var(--text-muted);margin-left:auto';
+      badge.textContent = 'chua co vi tri';
+      item.appendChild(badge);
+    }
+    list.appendChild(item);
+  });
+  if (!list.children.length) {
+    list.innerHTML = '<div style="padding:.4rem;font-size:.77rem;color:var(--text-muted)">Khong tim thay camera</div>';
+  }
+}
+
+document.getElementById('stmCamSearch').addEventListener('input', function() {
+  renderStmCamList(this.value);
+});
+
+document.getElementById('stmCamAddBtn').addEventListener('click', async () => {
+  if (!_editingTypeID) { toast('Luu loai tram truoc', 'error'); return; }
+  const checks = document.querySelectorAll('#stmCamList input[type=checkbox]:checked:not(:disabled)');
+  if (!checks.length) { toast('Chua chon camera nao', 'error'); return; }
+  const info = document.getElementById('stmCamAddInfo');
+  info.textContent = 'dang them...';
+  let added = 0, skipped = 0;
+  for (const cb of checks) {
+    const camId = cb.value;
+    const loc   = _locByID[camId];
+    if (!loc) { skipped++; continue; }
+    const cam   = _countingCams.find(c => c.id === camId);
+    const label = cam ? (cam.name || camId) : camId;
+    try {
+      await apiFetch('/api/counting/stations', {
+        method:'POST',
+        body: { type_id: _editingTypeID, camera_id: camId, lat: loc.lat, lon: loc.lon, label }
+      });
+      added++;
+    } catch(_) { skipped++; }
+  }
+  await loadStationsLayer();
+  renderStmCamList(document.getElementById('stmCamSearch').value);
+  info.textContent = 'Da them ' + added + ' tram' + (skipped ? ' (bo qua ' + skipped + ')' : '');
+});
+
+document.getElementById('btnStnTypeNew').addEventListener('click', () => openTypeEditor(null));
+
+document.getElementById('stmTypeSave').addEventListener('click', async () => {
+  const name   = document.getElementById('stmTypeName').value.trim();
+  const yellow = parseInt(document.getElementById('stmTypeYellow').value) || 0;
+  const orange = parseInt(document.getElementById('stmTypeOrange').value) || 0;
+  const red    = parseInt(document.getElementById('stmTypeRed').value)    || 0;
+  if (!name) { toast('Vui long nhap ten loai tram', 'error'); return; }
+  const body = { name, thresh_yellow: yellow, thresh_orange: orange, thresh_red: red };
+  try {
+    let saved;
+    if (_editingTypeID) {
+      saved = await apiFetch('/api/counting/station-types?id=' + encodeURIComponent(_editingTypeID), { method:'PUT', body });
+    } else {
+      saved = await apiFetch('/api/counting/station-types', { method:'POST', body });
+      _editingTypeID = saved.id;
+    }
+    const types = await apiFetch('/api/counting/station-types').catch(() => []);
+    _stationTypes = Array.isArray(types) ? types : [];
+    renderStnTypeMgrList();
+    buildStnMarkers();
+    toast('Da luu loai tram', 'success');
+    renderStmCamList(document.getElementById('stmCamSearch').value);
+  } catch(err) { toast('Loi: ' + err.message, 'error'); }
+});
+
+document.getElementById('stmTypeDelete').addEventListener('click', async () => {
+  if (!_editingTypeID || !confirm('Xoa loai tram nay? Cac tram thuoc loai nay se khong co mau.')) return;
+  try {
+    await apiFetch('/api/counting/station-types?id=' + encodeURIComponent(_editingTypeID), { method:'DELETE' });
+    const types = await apiFetch('/api/counting/station-types').catch(() => []);
+    _stationTypes = Array.isArray(types) ? types : [];
+    _editingTypeID = null;
+    renderStnTypeMgrList();
+    buildStnMarkers();
+    document.getElementById('stnTypeMgrEditor').style.display = 'none';
+    document.getElementById('stnTypeMgrEmpty').style.display  = 'flex';
+    toast('Da xoa loai tram', 'success');
+  } catch(err) { toast('Loi: ' + err.message, 'error'); }
+});
+
+document.getElementById('btnStnTypes').addEventListener('click', () => {
+  _editingTypeID = null;
+  renderStnTypeMgrList();
+  document.getElementById('stnTypeMgrEditor').style.display = 'none';
+  document.getElementById('stnTypeMgrEmpty').style.display  = 'flex';
+  document.getElementById('stnTypeBackdrop').classList.add('open');
+});
+document.getElementById('stnTypeMgrClose').addEventListener('click', () => {
+  document.getElementById('stnTypeBackdrop').classList.remove('open');
+});
+document.getElementById('stnTypeBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('stnTypeBackdrop').classList.remove('open');
+});
+
+// ── Station chart modal ────────────────────────────────────────
+function slotsToHourly(slots) {
+  const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0}));
+  (slots || []).forEach(sl => {
+    const h = parseInt((sl.t || '0').split(':')[0], 10);
+    if (h >= 0 && h < 24) {
+      Object.values(sl.dt || {}).forEach(types => {
+        hours[h].car        += types.car        || 0;
+        hours[h].motorcycle += types.motorcycle || 0;
+        hours[h].bus        += types.bus        || 0;
+        hours[h].truck      += types.truck      || 0;
+      });
+      hours[h].n += sl.n || 0;
+    }
+  });
+  return hours;
+}
+
+async function openStnChart(stn) {
+  _stnChartCamID = stn.camera_id;
+  const color = stnColor(_stnSummary[stn.camera_id] || 0, stn.type_id);
+  const titleEl = document.getElementById('stnChartTitle');
+  titleEl.textContent = stn.label || stn.camera_id;
+  titleEl.style.color = color;
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('stnChartDate').value = today;
+  document.getElementById('stnChartBackdrop').classList.add('open');
+  await loadStnChartData(stn.camera_id, today);
+  document.getElementById('stnChartDate').onchange = async function() {
+    await loadStnChartData(_stnChartCamID, this.value);
+  };
+}
+
+async function loadStnChartData(cameraId, date) {
+  document.getElementById('stnChartTotal').textContent = '...';
+  try {
+    const slots  = await apiFetch('/api/counting/data?camera=' + encodeURIComponent(cameraId) + '&date=' + date);
+    const hourly = slotsToHourly(Array.isArray(slots) ? slots : []);
+    const total  = hourly.reduce((s, h) => s + h.n, 0);
+    document.getElementById('stnChartTotal').textContent = total.toLocaleString();
+    renderStnChart(hourly);
+  } catch(e) {
+    document.getElementById('stnChartTotal').textContent = '—';
+    console.error('[stn-chart]', e);
+  }
+}
+
+function renderStnChart(hourly) {
+  const labels = Array.from({length:24}, (_, i) => i + ':00');
+  const defs = [
+    { label:'Tong',    key:'n',          color:'#94a3b8', fill:true  },
+    { label:'O to',    key:'car',        color:'#3b82f6', fill:false },
+    { label:'Xe may',  key:'motorcycle', color:'#22c55e', fill:false },
+    { label:'Xe buyt', key:'bus',        color:'#f97316', fill:false },
+    { label:'Xe tai',  key:'truck',      color:'#a855f7', fill:false },
+  ];
+  const datasets = defs.map(d => ({
+    label: d.label, data: hourly.map(h => h[d.key]),
+    borderColor: d.color,
+    backgroundColor: d.fill ? d.color + '1a' : 'transparent',
+    borderWidth: d.fill ? 1.5 : 1.8,
+    pointRadius: 2, tension: 0.4, fill: d.fill,
+  }));
+
+  if (_stnChart) {
+    _stnChart.data.datasets.forEach((ds, i) => { ds.data = datasets[i].data; });
+    _stnChart.update('none');
+    return;
+  }
+  const dark    = !document.body.classList.contains('light-theme');
+  const gridCol = dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.08)';
+  const tickCol = dark ? '#888' : '#777';
+  _stnChart = new Chart(document.getElementById('stnChartCanvas'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins: {
+        legend: { labels:{ color:dark?'#ccc':'#333', font:{size:11}, boxWidth:14 } },
+        tooltip: { mode:'index', intersect:false },
+      },
+      scales: {
+        x: { ticks:{color:tickCol, font:{size:10}}, grid:{color:gridCol} },
+        y: { ticks:{color:tickCol, font:{size:10}}, grid:{color:gridCol}, beginAtZero:true },
+      },
+      interaction: { mode:'index', intersect:false },
+    },
+  });
+  document.getElementById('stnChartCanvas').style.height = '300px';
+}
+
+document.getElementById('stnChartClose').addEventListener('click', () => {
+  document.getElementById('stnChartBackdrop').classList.remove('open');
+  document.getElementById('stnChartTitle').style.color = '';
+});
+document.getElementById('stnChartBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    document.getElementById('stnChartBackdrop').classList.remove('open');
+    document.getElementById('stnChartTitle').style.color = '';
+  }
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 (async () => {
   await initApp('map');
@@ -1729,6 +2366,11 @@ document.getElementById('btnHeatmap').addEventListener('click', toggleHeatmap);
   try {
     await initMap(_vietmapKey);
     await reloadData();
+    // Load counting stations + today's summary (non-blocking)
+    loadCountingCams();
+    loadStationsLayer();
+    // Refresh station counts every 5 minutes
+    setInterval(loadStationsLayer, 5 * 60 * 1000);
   } catch (err) {
     console.error('[map] init error:', err);
     document.getElementById('mapNoKey').style.display = 'flex';

@@ -74,17 +74,6 @@
     .t3 { background:#ef444422; color:#dc2626; }
     .dir-b { font-size:0.75rem; margin-right:3px; }
 
-    .log-wrap {
-      background:var(--surface2); border:1px solid var(--border);
-      border-radius:8px; max-height:420px; overflow-y:auto;
-      font-size:0.79rem; font-family:monospace;
-    }
-    .log-row { display:flex; gap:8px; padding:4px 10px; border-bottom:1px solid var(--border); align-items:center; }
-    .log-ts  { color:var(--text-secondary); flex-shrink:0; }
-    .log-cam { flex:1; font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .log-cnt { color:var(--accent); font-weight:700; flex-shrink:0; }
-    .log-total { color:var(--text-secondary); flex-shrink:0; }
-    .log-dir { flex-shrink:0; }
     .empty-log { padding:24px; text-align:center; color:var(--text-secondary); font-size:0.82rem; }
 
     .sub-title { font-size:0.75rem; font-weight:700; text-transform:uppercase;
@@ -181,7 +170,6 @@
       #detailSideTable { max-width: 100% !important; min-width: 0 !important; }
       #detailChartWrap { min-width: 0 !important; height: 260px !important; }
       #dirBreakdownTable { min-width: 0 !important; }
-      #logCamFilter, #logDirFilter { width: 100%; }
       .sub-title { margin: 8px 0 6px; }
       /* History sticky first column */
       #tab-history .tbl th:first-child,
@@ -300,10 +288,9 @@
   <!-- ── Tabs ── -->
   <div class="tabs-bar">
     <button class="tab-btn active" onclick="showTab('live',this)">Realtime</button>
-    <button class="tab-btn" onclick="showTab('log',this)">Nhật ký sự kiện</button>
     <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
     <button class="tab-btn" onclick="showTab('detail',this)">📊 Chi tiết lưu lượng</button>
-    <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra YOLO</button>
+    <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra AI</button>
     <button class="tab-btn" onclick="showTab('workers',this)">Máy chủ phân tích</button>
     <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
   </div>
@@ -329,27 +316,6 @@
           </thead>
           <tbody id="camBody"></tbody>
         </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════════════ LOG ══════════════ -->
-  <div id="tab-log" class="tab-content" style="display:none">
-    <div class="section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <div class="sub-title" style="margin:0">Nhật ký sự kiện (tự làm mới 3s)</div>
-          <select id="logCamFilter" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem" onchange="applyLogFilter()">
-            <option value="">Tất cả camera</option>
-          </select>
-          <select id="logDirFilter" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem" onchange="applyLogFilter()">
-            <option value="">Tất cả hướng</option>
-          </select>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="clearLogView()">✕ Xoá log</button>
-      </div>
-      <div class="log-wrap" id="logWrap">
-        <div class="empty-log" id="logEmpty">Chưa có sự kiện nào.</div>
       </div>
     </div>
   </div>
@@ -444,8 +410,8 @@
         <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0">
           <button id="dbgBtnSync" onclick="setDebugMode('sync')"
             style="padding:4px 10px;font-size:.78rem;border:none;cursor:pointer;background:var(--accent);color:#fff"
-            title="Hiển thị frame YOLO đã xử lý — bbox hoàn toàn đồng bộ với video, dùng để kiểm tra độ chính xác đếm">
-            🔬 YOLO Sync
+            title="Hiển thị frame AI đã xử lý — bbox hoàn toàn đồng bộ với video, dùng để kiểm tra độ chính xác đếm">
+            🔬 AI Sync
           </button>
           <button id="dbgBtnLive" onclick="setDebugMode('live')"
             style="padding:4px 10px;font-size:.78rem;border:none;cursor:pointer;background:var(--surface2);color:var(--text)"
@@ -455,11 +421,11 @@
         </div>
         <span id="debugStatus" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
-      <div id="yoloSvcStatus" style="padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:.78rem;background:var(--surface2)">Đang kiểm tra dịch vụ YOLO…</div>
+      <div id="yoloSvcStatus" style="padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:.78rem;background:var(--surface2)">Đang kiểm tra dịch vụ AI…</div>
 
       <!-- Mode info banner -->
       <div id="debugModeBanner" style="padding:6px 10px;margin-bottom:8px;border-radius:6px;font-size:.77rem;border:1px solid var(--border);background:var(--surface2)">
-        🔬 <b>YOLO Sync</b>: mỗi frame hiển thị là frame Python thực sự đã xử lý — bbox, track ID và đường đếm hoàn toàn khớp với hình ảnh. Dùng chế độ này để kiểm tra độ chính xác đếm.
+        🔬 <b>AI Sync</b>: mỗi frame hiển thị là frame Python thực sự đã xử lý — bbox, track ID và đường đếm hoàn toàn khớp với hình ảnh. Dùng chế độ này để kiểm tra độ chính xác đếm.
       </div>
 
       <div class="debug-box">
@@ -472,7 +438,7 @@
         <div id="debugSyncBox" style="display:none">
           <img id="debugSyncImg" style="width:100%;border-radius:6px;border:1px solid var(--border);display:block" alt="">
           <div id="debugSyncError" style="display:none;padding:20px;color:#d97706;font-size:.82rem;text-align:center">
-            Chưa có frame — YOLO chưa xử lý frame nào.<br>Kiểm tra dịch vụ Python YOLO đã chạy và camera đang hoạt động.
+            Chưa có frame — AI chưa xử lý frame nào.<br>Kiểm tra dịch vụ AI đã chạy và camera đang hoạt động.
           </div>
         </div>
 
@@ -538,18 +504,18 @@
   <!-- ══════════════ SETTINGS ══════════════ -->
   <div id="tab-settings" class="tab-content" style="display:none">
     <div class="section">
-      <div class="sub-title">Thông số YOLO &amp; xử lý</div>
+      <div class="sub-title">Thông số AI &amp; xử lý</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px">
         <div class="form-row" style="grid-column:1/-1">
-          <label>URL dịch vụ YOLO (Python)</label>
+          <label>URL dịch vụ AI (Python)</label>
           <input type="text" id="sYoloUrl" placeholder="http://localhost:8765" style="font-family:monospace">
         </div>
         <div class="form-row">
-          <label>Ngưỡng tin cậy YOLO (conf)</label>
+          <label>Ngưỡng tin cậy AI (conf)</label>
           <input type="number" id="sYoloConf" step="0.05" min="0.1" max="0.9">
         </div>
         <div class="form-row">
-          <label>Model YOLO</label>
+          <label>Model AI</label>
           <div style="display:flex;gap:6px;align-items:center;">
             <select id="sYoloModel" style="flex:1;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.82rem">
               <optgroup label="Pretrained" id="sYoloModelPretrained">
@@ -561,7 +527,7 @@
               </optgroup>
               <optgroup label="Đã huấn luyện" id="sYoloModelCustom"></optgroup>
             </select>
-            <button class="btn btn-sm" id="btnYoloRestart" type="button" title="Khởi động lại dịch vụ YOLO để áp dụng model mới">↻ Áp dụng</button>
+            <button class="btn btn-sm" id="btnYoloRestart" type="button" title="Khởi động lại dịch vụ AI để áp dụng model mới">↻ Áp dụng</button>
           </div>
           <div id="yoloRestartMsg" style="font-size:.78rem;color:var(--text-muted);min-height:1.1em;"></div>
         </div>
@@ -731,9 +697,7 @@ let allStreams  = [];
 let workerList = []; // cached list of configured workers for name lookup
 let editId     = null;
 let pollTimer  = null;
-let logTimer   = null;
 let debugTimer = null;
-let logFrozen  = false;
 
 // Live view state
 let _debugMode      = 'sync'; // 'sync' = Python annotated MJPEG | 'live' = go2rtc + SSE overlay
@@ -760,7 +724,7 @@ let editingLineIndex = -1;   // ≥0 when editing canvasLines[i] via inline form
 const LINE_COLORS = ['#00e600','#00dcdc','#e6a000','#e600e6','#e60000','#0080ff'];
 
 const today = () => new Date().toISOString().slice(0,10);
-const TABS  = ['live','log','history','detail','debug','workers','settings'];
+const TABS  = ['live','history','detail','debug','workers','settings'];
 const VEHICLE_TYPES = ['car','motorcycle','bus','truck'];
 const TYPE_ICON = {car:'🚗',motorcycle:'🏍',bus:'🚌',truck:'🚛'};
 const DIR_LABEL = {down:'↓',up:'↑',right:'→',left:'←'};
@@ -780,7 +744,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadTodaySummary();
   pollTimer = setInterval(async () => { await poll(); await loadTodaySummary(); }, 5000);
   setInterval(loadTodayMatrix, 30000);
-  logTimer  = setInterval(loadEvents, 3000);
 
   const canvas = document.getElementById('previewCanvas');
   canvas.addEventListener('click',     handleCanvasClick);
@@ -800,7 +763,6 @@ function showTab(name, btn) {
   if (btn) btn.classList.add('active');
   if (name === 'history') loadHistory();
   if (name === 'detail')  openDetailTab();
-  if (name === 'log')     loadEvents();
   if (name === 'debug')   { openDebugTab(); checkYoloService(); }
   if (name !== 'debug')   stopDebugRefresh();
   if (name === 'workers') loadWorkersTab();
@@ -1224,97 +1186,6 @@ async function loadTodayMatrix() {
 }
 
 // ════════════════════════════════════════════════════════
-// Event log
-// ════════════════════════════════════════════════════════
-let lastLogTs = 0;
-let allLogRows = []; // [{el, camId, dir}] — kept for filter
-
-async function loadEvents() {
-  try {
-    const events = await apiFetch('/api/counting/events?limit=200');
-    const wrap  = document.getElementById('logWrap');
-    const empty = document.getElementById('logEmpty');
-    if (!events.length) { empty.style.display = ''; return; }
-    empty.style.display = 'none';
-
-    const newEvs = events.filter(e => e.ts > lastLogTs);
-    if (!newEvs.length) return;
-    lastLogTs = newEvs[0].ts;
-
-    // Rebuild camera + direction filter dropdowns from known statuses
-    updateLogFilterOptions();
-
-    newEvs.forEach(ev => {
-      const row = document.createElement('div');
-      row.className = 'log-row';
-      if ((ev.count||0) >= 10) row.style.background = 'rgba(239,68,68,.08)';
-      else if ((ev.count||0) >= 5) row.style.background = 'rgba(234,179,8,.07)';
-      row.dataset.camId = ev.cameraId || '';
-      row.dataset.dir   = ev.dir || '';
-      const dirLabel = ev.dir ? (DIR_LABEL[ev.dir] || ev.dir) : '';
-      const dirArrow = ev.dir ? `<span class="log-dir" style="color:var(--accent);font-weight:600" title="${esc(ev.dir)}">${esc(dirLabel)}</span>` : '';
-      const typeIcon = ev.vehicleClass ? `<span class="log-dir" title="${ev.vehicleClass}">${TYPE_ICON[ev.vehicleClass]||'🚗'}</span>` : '';
-      row.innerHTML = `
-        <span class="log-ts">${fmtTime(ev.ts)}</span>
-        <span class="log-cam">${esc(ev.name||ev.cameraId)}</span>
-        ${dirArrow}${typeIcon}
-        <span class="log-cnt">+${ev.count}</span>
-        <span class="log-total">Σ${ev.total}</span>
-      `;
-      allLogRows.unshift({el: row, camId: ev.cameraId||'', dir: ev.dir||''});
-      wrap.insertBefore(row, wrap.children[1] || null);
-    });
-    // Cap memory
-    while (allLogRows.length > 500) {
-      const old = allLogRows.pop();
-      if (old.el.parentNode) old.el.parentNode.removeChild(old.el);
-    }
-    applyLogFilter();
-  } catch(e) {}
-}
-
-function updateLogFilterOptions() {
-  const camSel = document.getElementById('logCamFilter');
-  const dirSel = document.getElementById('logDirFilter');
-  if (!camSel || !dirSel) return;
-  const curCam = camSel.value, curDir = dirSel.value;
-  const camIds = [...new Set(statuses.map(c => ({id:c.id, name:c.name||c.id})).map(c=>JSON.stringify(c)))].map(s=>JSON.parse(s));
-  const dirs   = [...new Set(allLogRows.map(r=>r.dir).filter(Boolean))];
-  camSel.innerHTML = '<option value="">Tất cả camera</option>' +
-    camIds.map(c=>`<option value="${esc(c.id)}" ${c.id===curCam?'selected':''}>${esc(c.name)}</option>`).join('');
-  dirSel.innerHTML = '<option value="">Tất cả hướng</option>' +
-    dirs.map(d=>`<option value="${esc(d)}" ${d===curDir?'selected':''}>${esc(DIR_LABEL[d]||d)}</option>`).join('');
-}
-
-function applyLogFilter() {
-  const camFilter = (document.getElementById('logCamFilter')?.value) || '';
-  const dirFilter = (document.getElementById('logDirFilter')?.value) || '';
-  let visible = 0;
-  allLogRows.forEach(r => {
-    const show = (!camFilter || r.camId === camFilter) && (!dirFilter || r.dir === dirFilter);
-    r.el.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
-  const empty = document.getElementById('logEmpty');
-  if (empty) empty.style.display = visible === 0 ? '' : 'none';
-}
-
-function fmtTime(ts) {
-  const d = new Date(ts*1000);
-  return d.getHours().toString().padStart(2,'0')+':'+
-    d.getMinutes().toString().padStart(2,'0')+':'+
-    d.getSeconds().toString().padStart(2,'0');
-}
-
-function clearLogView() {
-  const wrap = document.getElementById('logWrap');
-  allLogRows.forEach(r => { if (r.el.parentNode) r.el.parentNode.removeChild(r.el); });
-  allLogRows = [];
-  document.getElementById('logEmpty').style.display = '';
-  lastLogTs = Math.floor(Date.now()/1000);
-}
-
-// ════════════════════════════════════════════════════════
 // History
 // ════════════════════════════════════════════════════════
 async function loadHistory() {
@@ -1387,7 +1258,7 @@ function setDebugMode(mode) {
   // Update info banner
   const banner = document.getElementById('debugModeBanner');
   if (mode === 'sync') {
-    banner.innerHTML = '🔬 <b>YOLO Sync</b>: mỗi frame hiển thị là frame Python thực sự đã xử lý — bbox, track ID và đường đếm hoàn toàn khớp với hình ảnh. Dùng để kiểm tra độ chính xác đếm.';
+    banner.innerHTML = '🔬 <b>AI Sync</b>: mỗi frame hiển thị là frame Python thực sự đã xử lý — bbox, track ID và đường đếm hoàn toàn khớp với hình ảnh. Dùng để kiểm tra độ chính xác đếm.';
   } else {
     banner.innerHTML = '📹 <b>Live</b>: video từ go2rtc tốc độ đầy đủ + bbox overlay từ YOLO qua SSE. Do CPU xử lý chậm hơn camera, bbox có thể lệch 0.3–1s so với vị trí xe thực tế.';
   }

@@ -191,17 +191,38 @@ async function initApp(requiredTab) {
   });
 
   // ── Sidebar toggle ─────────────────────────────────────────────
-  // Works on both desktop (sb-collapsed class + CSS var) and mobile (open class)
+  // Desktop: sb-collapsed body class (icon-only collapse via CSS var)
+  // Mobile:  .open class + backdrop overlay; close on backdrop tap
   const toggleBtn = document.getElementById('sidebarToggle');
   const sidebar   = document.getElementById('sidebar');
+
+  // Inject backdrop element once (shared across all pages via app.js)
+  let backdrop = document.getElementById('sidebarBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'sidebarBackdrop';
+    document.body.appendChild(backdrop);
+  }
+
+  function closeMobileSidebar() {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('visible');
+    if (window.__map) setTimeout(() => window.__map.invalidateSize(), 260);
+  }
+
   if (toggleBtn && sidebar) {
     toggleBtn.addEventListener('click', () => {
-      document.body.classList.toggle('sb-collapsed');
-      // On mobile, also drive the slide-in animation
-      if (window.innerWidth <= 768) sidebar.classList.toggle('open');
-      // Resize Leaflet if present (exposed via window.__map by map.html)
-      if (window.__map) setTimeout(() => window.__map.invalidateSize(), 220);
+      if (window.innerWidth <= 768) {
+        const opening = !sidebar.classList.contains('open');
+        sidebar.classList.toggle('open');
+        backdrop.classList.toggle('visible', opening);
+        if (window.__map && !opening) setTimeout(() => window.__map.invalidateSize(), 260);
+      } else {
+        document.body.classList.toggle('sb-collapsed');
+        if (window.__map) setTimeout(() => window.__map.invalidateSize(), 220);
+      }
     });
+    backdrop.addEventListener('click', closeMobileSidebar);
   }
 
   // ── Theme toggle (🌙 / ☀️ button in sidebar footer) ─────────────
