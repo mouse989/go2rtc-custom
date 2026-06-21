@@ -240,6 +240,51 @@ body.sb-collapsed           { --map-left:0; }
 .main { pointer-events:none; background:transparent; }
 .topbar { pointer-events:all; background:var(--surface); }
 
+/* ── Traffic counting station markers ───────────────────────── */
+.stn-marker-wrap {
+  background:#e11d48; border:2px solid rgba(255,255,255,.9);
+  border-radius:14px; min-width:36px; height:28px;
+  display:flex; align-items:center; justify-content:center;
+  padding:0 8px; gap:3px;
+  font-size:11px; font-weight:700; color:#fff;
+  cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.6);
+  white-space:nowrap; transition:transform .15s;
+  font-family:system-ui,-apple-system,Arial,sans-serif;
+}
+.stn-marker-wrap:hover { transform:scale(1.12); }
+.stn-marker-wrap.stn-placing { background:#f59e0b; cursor:crosshair; }
+
+/* ── Station edit panel ─────────────────────────────────────── */
+#stnPanel {
+  position:fixed; right:.8rem; top:50%; transform:translateY(-50%);
+  z-index:400; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:.85rem;
+  width:280px; min-width:240px;
+  display:none; flex-direction:column; gap:.5rem;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+}
+#stnPanel.show { display:flex; }
+#stnPanel h4 { font-size:.9rem; font-weight:700; }
+#stnPanel label { font-size:.73rem; color:var(--text-muted); display:block; margin-bottom:.15rem; }
+#stnPanel input, #stnPanel select {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:6px; padding:.32rem .5rem; color:var(--text); font-size:.81rem;
+  box-sizing:border-box;
+}
+
+/* ── Station chart modal ─────────────────────────────────────── */
+#stnChartBackdrop { z-index:610; }
+#stnChartCanvas { width:100% !important; max-height:340px; }
+
+@media (max-width:768px) {
+  #stnPanel {
+    width:100% !important; max-width:100vw !important;
+    position:fixed !important; bottom:0; left:0; right:0; top:auto;
+    transform:none; border-radius:12px 12px 0 0; max-height:70vh;
+    overflow-y:auto;
+  }
+}
+
 /* ── No-key overlay ─────────────────────────────────────────── */
 #mapNoKey {
   position:fixed; inset:0; left:var(--map-left);
@@ -377,6 +422,9 @@ body.sb-collapsed           { --map-left:0; }
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
     Edit locations
   </button>
+  <button class="map-btn admin-only" id="btnStnEdit" style="display:none" title="Thêm/sửa trạm đo đếm lưu lượng">
+    📊 Trạm đo
+  </button>
 </div>
 
 <!-- ── Results panel ──────────────────────────────────────────── -->
@@ -472,8 +520,52 @@ body.sb-collapsed           { --map-left:0; }
   </div>
 </div>
 
+<!-- ── Station edit panel ────────────────────────────────────── -->
+<div id="stnPanel">
+  <h4 id="stnPanelTitle">📍 Thêm trạm đo</h4>
+  <p style="font-size:.71rem;color:var(--text-muted);margin:0">Click trên bản đồ để đặt toạ độ.</p>
+  <div>
+    <label>Camera đo đếm</label>
+    <select id="stnCamSelect"></select>
+  </div>
+  <div>
+    <label>Tên trạm (tuỳ chọn)</label>
+    <input type="text" id="stnLabel" placeholder="e.g. Ngã tư chợ">
+  </div>
+  <div style="display:flex;gap:.5rem">
+    <div style="flex:1"><label>Lat</label><input type="number" id="stnLat" step="0.000001"></div>
+    <div style="flex:1"><label>Lon</label><input type="number" id="stnLon" step="0.000001"></div>
+  </div>
+  <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+    <button class="btn btn-primary"   id="stnSave"   style="flex:1;font-size:.8rem">💾 Lưu</button>
+    <button class="btn btn-secondary" id="stnCancel"  style="font-size:.8rem">Huỷ</button>
+    <button class="btn btn-danger"    id="stnDelete"  style="font-size:.8rem;display:none">🗑</button>
+  </div>
+</div>
+
+<!-- ── Station chart modal ───────────────────────────────────── -->
+<div class="modal-backdrop" id="stnChartBackdrop">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h3 id="stnChartTitle">Trạm đo</h3>
+      <button class="modal-close" id="stnChartClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem;flex-wrap:wrap;gap:.5rem">
+        <div style="font-size:.8rem;color:var(--text-muted)">
+          Tổng hôm nay: <strong id="stnChartTotal" style="color:var(--text)">—</strong> lượt
+        </div>
+        <input type="date" id="stnChartDate"
+               style="font-size:.78rem;padding:.28rem .45rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none">
+      </div>
+      <canvas id="stnChartCanvas"></canvas>
+    </div>
+  </div>
+</div>
+
 <!-- ── Scripts ────────────────────────────────────────────────── -->
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script type="module" src="video-stream.js"></script>
 <script src="app.js"></script>
 <script>
@@ -757,6 +849,9 @@ function rebuildMapLayers() {
   // Rebuild edit-mode markers if needed
   if (_editMode) buildMarkers();
 
+  // Rebuild station markers (HTML elements — safe to re-add after style change)
+  buildStnMarkers();
+
   // Re-add heatmap below cameras if it was active before style change
   if (_heatmapOn) _addHeatmapLayers();
 }
@@ -846,6 +941,13 @@ async function initMap(apiKey) {
       // Refresh snapshot for whichever camera is currently selected in the list
       const curSel = document.getElementById('editCamSelect').value;
       if (curSel) updateEditSnapshot(curSel);
+    }
+    if (_stnEditMode) {
+      document.getElementById('stnLat').value = e.lngLat.lat.toFixed(6);
+      document.getElementById('stnLon').value = e.lngLat.lng.toFixed(6);
+      if (!document.getElementById('stnPanel').classList.contains('show')) {
+        openStnPanel(null);
+      }
     }
   });
 
@@ -1689,6 +1791,239 @@ async function toggleHeatmap() {
 
 document.getElementById('btnHeatmap').addEventListener('click', toggleHeatmap);
 
+// ── Traffic counting stations ─────────────────────────────────
+
+let _stations      = [];    // [{id, camera_id, lat, lon, label}]
+let _stationMkrs   = {};    // stationID → {marker, el}
+let _stnSummary    = {};    // cameraID  → total count today
+let _stnEditMode   = false;
+let _editingStnID  = null;
+let _stnChart      = null;
+let _stnChartCamID = null;  // currently displayed camera in chart
+let _countingCams  = [];    // from /api/counting/cameras
+
+async function loadCountingCams() {
+  try {
+    const cams = await apiFetch('/api/counting/cameras');
+    _countingCams = Array.isArray(cams) ? cams : [];
+  } catch(_) { _countingCams = []; }
+}
+
+async function loadStationsLayer() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [stns, summary] = await Promise.all([
+    apiFetch('/api/counting/stations').catch(() => []),
+    apiFetch('/api/counting/summary?date=' + today).catch(() => []),
+  ]);
+  _stations = Array.isArray(stns) ? stns : [];
+  _stnSummary = {};
+  (Array.isArray(summary) ? summary : []).forEach(hs => {
+    _stnSummary[hs.cameraId] = hs.total;
+  });
+  buildStnMarkers();
+}
+
+function buildStnMarkers() {
+  Object.values(_stationMkrs).forEach(m => m.marker.remove());
+  _stationMkrs = {};
+  if (!map) return;
+  _stations.forEach(stn => {
+    const total = _stnSummary[stn.camera_id] || 0;
+    const lbl   = stn.label || stn.camera_id;
+    const el    = document.createElement('div');
+    el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
+    el.title = lbl;
+    const n = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : String(total);
+    el.innerHTML = `<span>📍</span><span>${escHtml(n)}</span>`;
+    const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([stn.lon, stn.lat]).addTo(map);
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (_stnEditMode) openStnPanel(stn);
+      else              openStnChart(stn);
+    });
+    _stationMkrs[stn.id] = { marker, el };
+  });
+}
+
+// Station edit panel
+function populateStnCams() {
+  const sel = document.getElementById('stnCamSelect');
+  sel.innerHTML = '<option value="">— chọn camera —</option>';
+  _countingCams.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id || c.camera_id || '';
+    opt.textContent = c.name || c.id || c.camera_id || '';
+    sel.appendChild(opt);
+  });
+}
+
+function openStnPanel(stn) {
+  _editingStnID = stn ? stn.id : null;
+  populateStnCams();
+  document.getElementById('stnPanelTitle').textContent = stn ? '📍 Sửa trạm đo' : '📍 Thêm trạm đo';
+  document.getElementById('stnCamSelect').value = stn ? (stn.camera_id || '') : '';
+  document.getElementById('stnLabel').value      = stn ? (stn.label || '')    : '';
+  document.getElementById('stnLat').value        = stn ? stn.lat : '';
+  document.getElementById('stnLon').value        = stn ? stn.lon : '';
+  document.getElementById('stnDelete').style.display = stn ? '' : 'none';
+  document.getElementById('stnPanel').classList.add('show');
+}
+
+document.getElementById('stnSave').addEventListener('click', async () => {
+  const camId = document.getElementById('stnCamSelect').value;
+  const lat   = parseFloat(document.getElementById('stnLat').value);
+  const lon   = parseFloat(document.getElementById('stnLon').value);
+  const label = document.getElementById('stnLabel').value.trim();
+  if (!camId) { toast('Vui lòng chọn camera', 'error'); return; }
+  if (isNaN(lat) || isNaN(lon)) { toast('Vui lòng click trên bản đồ để đặt toạ độ', 'error'); return; }
+  const body = { camera_id: camId, lat, lon, label };
+  try {
+    if (_editingStnID) {
+      await apiFetch('/api/counting/stations?id=' + encodeURIComponent(_editingStnID), { method:'PUT', body });
+    } else {
+      await apiFetch('/api/counting/stations', { method:'POST', body });
+    }
+    await loadStationsLayer();
+    document.getElementById('stnPanel').classList.remove('show');
+    _editingStnID = null;
+    toast('Đã lưu trạm đo', 'success');
+  } catch(err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+document.getElementById('stnDelete').addEventListener('click', async () => {
+  if (!_editingStnID || !confirm('Xoá trạm đo này?')) return;
+  try {
+    await apiFetch('/api/counting/stations?id=' + encodeURIComponent(_editingStnID), { method:'DELETE' });
+    await loadStationsLayer();
+    document.getElementById('stnPanel').classList.remove('show');
+    _editingStnID = null;
+    toast('Đã xoá trạm đo', 'success');
+  } catch(err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+document.getElementById('stnCancel').addEventListener('click', () => {
+  document.getElementById('stnPanel').classList.remove('show');
+  _editingStnID = null;
+});
+
+// Stations toolbar toggle
+document.getElementById('btnStnEdit').addEventListener('click', function() {
+  _stnEditMode = !_stnEditMode;
+  this.classList.toggle('active', _stnEditMode);
+  if (!_stnEditMode) {
+    document.getElementById('stnPanel').classList.remove('show');
+    _editingStnID = null;
+    if (map) map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
+  } else {
+    if (map) map.getCanvas().style.cursor = 'crosshair';
+  }
+  buildStnMarkers();
+});
+
+// Station chart modal
+function slotsToHourly(slots) {
+  const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0}));
+  (slots || []).forEach(sl => {
+    const h = parseInt((sl.t || '0').split(':')[0], 10);
+    if (h >= 0 && h < 24) {
+      Object.values(sl.dt || {}).forEach(types => {
+        hours[h].car        += types.car        || 0;
+        hours[h].motorcycle += types.motorcycle || 0;
+        hours[h].bus        += types.bus        || 0;
+        hours[h].truck      += types.truck      || 0;
+      });
+      hours[h].n += sl.n || 0;
+    }
+  });
+  return hours;
+}
+
+async function openStnChart(stn) {
+  _stnChartCamID = stn.camera_id;
+  document.getElementById('stnChartTitle').textContent = stn.label || stn.camera_id;
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('stnChartDate').value = today;
+  document.getElementById('stnChartBackdrop').classList.add('open');
+  await loadStnChartData(stn.camera_id, today);
+  document.getElementById('stnChartDate').onchange = async function() {
+    await loadStnChartData(_stnChartCamID, this.value);
+  };
+}
+
+async function loadStnChartData(cameraId, date) {
+  document.getElementById('stnChartTotal').textContent = '⏳';
+  try {
+    const slots = await apiFetch(
+      '/api/counting/data?camera=' + encodeURIComponent(cameraId) + '&date=' + date
+    );
+    const hourly = slotsToHourly(Array.isArray(slots) ? slots : []);
+    const total  = hourly.reduce((s, h) => s + h.n, 0);
+    document.getElementById('stnChartTotal').textContent = total.toLocaleString();
+    renderStnChart(hourly);
+  } catch(e) {
+    document.getElementById('stnChartTotal').textContent = '—';
+    console.error('[stn-chart]', e);
+  }
+}
+
+function renderStnChart(hourly) {
+  const labels = Array.from({length:24}, (_, i) => `${i}:00`);
+  const defs = [
+    { label:'Tổng',   key:'n',          color:'#94a3b8', fill:true  },
+    { label:'Ô tô',   key:'car',        color:'#3b82f6', fill:false },
+    { label:'Xe máy', key:'motorcycle', color:'#22c55e', fill:false },
+    { label:'Xe buýt',key:'bus',        color:'#f97316', fill:false },
+    { label:'Xe tải', key:'truck',      color:'#a855f7', fill:false },
+  ];
+  const datasets = defs.map(d => ({
+    label: d.label,
+    data:  hourly.map(h => h[d.key]),
+    borderColor: d.color,
+    backgroundColor: d.fill ? d.color.replace(')', ',.1)').replace('rgb(','rgba(') : 'transparent',
+    borderWidth: d.fill ? 1.5 : 1.8,
+    pointRadius: 2,
+    tension: 0.4,
+    fill: d.fill,
+  }));
+
+  if (_stnChart) {
+    _stnChart.data.datasets.forEach((ds, i) => { ds.data = datasets[i].data; });
+    _stnChart.update('none');
+    return;
+  }
+  const isDark = !document.body.classList.contains('light-theme');
+  const gridCol = isDark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.08)';
+  const tickCol = isDark ? '#888' : '#777';
+  _stnChart = new Chart(document.getElementById('stnChartCanvas'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: isDark ? '#ccc' : '#333', font:{size:11}, boxWidth:14 } },
+        tooltip: { mode:'index', intersect:false },
+      },
+      scales: {
+        x: { ticks:{color:tickCol, font:{size:10}}, grid:{color:gridCol} },
+        y: { ticks:{color:tickCol, font:{size:10}}, grid:{color:gridCol}, beginAtZero:true },
+      },
+      interaction: { mode:'index', intersect:false },
+    },
+  });
+  // Canvas height for chart
+  document.getElementById('stnChartCanvas').style.height = '300px';
+}
+
+document.getElementById('stnChartClose').addEventListener('click', () => {
+  document.getElementById('stnChartBackdrop').classList.remove('open');
+});
+document.getElementById('stnChartBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    document.getElementById('stnChartBackdrop').classList.remove('open');
+  }
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 (async () => {
   await initApp('map');
@@ -1729,6 +2064,11 @@ document.getElementById('btnHeatmap').addEventListener('click', toggleHeatmap);
   try {
     await initMap(_vietmapKey);
     await reloadData();
+    // Load counting stations + today's summary (non-blocking)
+    loadCountingCams();
+    loadStationsLayer();
+    // Refresh station counts every 5 minutes
+    setInterval(loadStationsLayer, 5 * 60 * 1000);
   } catch (err) {
     console.error('[map] init error:', err);
     document.getElementById('mapNoKey').style.display = 'flex';
