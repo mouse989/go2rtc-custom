@@ -605,19 +605,19 @@ body.sb-collapsed           { --map-left:0; }
             <label style="font-size:.7rem;color:#eab308;font-weight:700">🟡 Ngưỡng vàng</label>
             <input id="stmTypeYellow" type="number" min="0" placeholder="500"
                    style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
-            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/ngày</div>
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/giờ</div>
           </div>
           <div>
             <label style="font-size:.7rem;color:#f97316;font-weight:700">🟠 Ngưỡng cam</label>
             <input id="stmTypeOrange" type="number" min="0" placeholder="1000"
                    style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
-            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/ngày</div>
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/giờ</div>
           </div>
           <div>
             <label style="font-size:.7rem;color:#ef4444;font-weight:700">🔴 Ngưỡng đỏ</label>
             <input id="stmTypeRed" type="number" min="0" placeholder="2000"
                    style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
-            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/ngày</div>
+            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/giờ</div>
           </div>
         </div>
         <!-- Quick-add cameras -->
@@ -657,7 +657,7 @@ body.sb-collapsed           { --map-left:0; }
     <div class="modal-body">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem;flex-wrap:wrap;gap:.5rem">
         <div style="font-size:.8rem;color:var(--text-muted)">
-          Tổng hôm nay: <strong id="stnChartTotal" style="color:var(--text)">—</strong> lượt
+          <span id="stnChartTotal" style="font-size:.8rem">—</span>
         </div>
         <input type="date" id="stnChartDate"
                style="font-size:.78rem;padding:.28rem .45rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none">
@@ -1932,6 +1932,7 @@ async function loadCountingCams() {
 
 async function loadStationsLayer() {
   const today = new Date().toISOString().slice(0, 10);
+  const currentHour = new Date().getHours();
   const [stns, types, summary] = await Promise.all([
     apiFetch('/api/counting/stations').catch(() => []),
     apiFetch('/api/counting/station-types').catch(() => []),
@@ -1941,7 +1942,11 @@ async function loadStationsLayer() {
   _stationTypes = Array.isArray(types) ? types : [];
   _stnSummary   = {};
   (Array.isArray(summary) ? summary : []).forEach(hs => {
-    _stnSummary[hs.cameraId] = hs.total;
+    // Use count for the current clock hour, matching the counting page's hourly logic.
+    _stnSummary[hs.cameraId] = {
+      hour:  (hs.hours && hs.hours[currentHour]) || 0,
+      total: hs.total || 0,
+    };
   });
   buildStnMarkers();
 }
@@ -1951,16 +1956,20 @@ function buildStnMarkers() {
   Object.values(_stationMkrs).forEach(m => m.marker.remove());
   _stationMkrs = {};
   if (!map) return;
+  const curH = new Date().getHours();
   _stations.forEach(stn => {
-    const total = _stnSummary[stn.camera_id] || 0;
-    const color = stnColor(total, stn.type_id);
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
+    const hourV = rec.hour;
+    const color = stnColor(hourV, stn.type_id);
     const lbl   = stn.label || stn.camera_id;
     const type  = stnTypeByID(stn.type_id);
-    const n = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : String(total);
+    const n = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
     const el = document.createElement('div');
     el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
     el.style.background = color;
-    el.title = lbl + (type ? ' [' + type.name + ']' : '') + '\n' + total.toLocaleString() + ' luot hom nay';
+    el.title = lbl + (type ? ' [' + type.name + ']' : '')
+      + '\nGio ' + curH + ':00 — ' + hourV.toLocaleString() + ' luot'
+      + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
     el.textContent = n;
     const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
       .setLngLat([stn.lon, stn.lat]).addTo(map);
@@ -2244,7 +2253,8 @@ function slotsToHourly(slots) {
 
 async function openStnChart(stn) {
   _stnChartCamID = stn.camera_id;
-  const color = stnColor(_stnSummary[stn.camera_id] || 0, stn.type_id);
+  const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
+  const color = stnColor(rec.hour, stn.type_id);
   const titleEl = document.getElementById('stnChartTitle');
   titleEl.textContent = stn.label || stn.camera_id;
   titleEl.style.color = color;
@@ -2258,38 +2268,69 @@ async function openStnChart(stn) {
 }
 
 async function loadStnChartData(cameraId, date) {
-  document.getElementById('stnChartTotal').textContent = '...';
+  const el = document.getElementById('stnChartTotal');
+  el.textContent = '⏳';
   try {
     const slots  = await apiFetch('/api/counting/data?camera=' + encodeURIComponent(cameraId) + '&date=' + date);
     const hourly = slotsToHourly(Array.isArray(slots) ? slots : []);
     const total  = hourly.reduce((s, h) => s + h.n, 0);
-    document.getElementById('stnChartTotal').textContent = total.toLocaleString();
-    renderStnChart(hourly);
+    const isToday = date === new Date().toISOString().slice(0, 10);
+    const curH  = new Date().getHours();
+    const hourV = isToday ? (hourly[curH]?.n || 0) : null;
+    el.innerHTML = hourV !== null
+      ? `Giờ ${curH}:00 — <strong style="color:var(--text)">${hourV.toLocaleString()}</strong> lượt &nbsp;|&nbsp; Cả ngày — <strong style="color:var(--text)">${total.toLocaleString()}</strong> lượt`
+      : `Cả ngày — <strong style="color:var(--text)">${total.toLocaleString()}</strong> lượt`;
+    renderStnChart(hourly, isToday ? curH : -1);
   } catch(e) {
-    document.getElementById('stnChartTotal').textContent = '—';
+    el.textContent = '—';
     console.error('[stn-chart]', e);
   }
 }
 
-function renderStnChart(hourly) {
+function renderStnChart(hourly, curHour) {
   const labels = Array.from({length:24}, (_, i) => i + ':00');
   const defs = [
-    { label:'Tong',    key:'n',          color:'#94a3b8', fill:true  },
-    { label:'O to',    key:'car',        color:'#3b82f6', fill:false },
-    { label:'Xe may',  key:'motorcycle', color:'#22c55e', fill:false },
-    { label:'Xe buyt', key:'bus',        color:'#f97316', fill:false },
-    { label:'Xe tai',  key:'truck',      color:'#a855f7', fill:false },
+    { label:'Tổng',    key:'n',          color:'#94a3b8', fill:true  },
+    { label:'Ô tô',    key:'car',        color:'#3b82f6', fill:false },
+    { label:'Xe máy',  key:'motorcycle', color:'#22c55e', fill:false },
+    { label:'Xe buýt', key:'bus',        color:'#f97316', fill:false },
+    { label:'Xe tải',  key:'truck',      color:'#a855f7', fill:false },
   ];
   const datasets = defs.map(d => ({
     label: d.label, data: hourly.map(h => h[d.key]),
     borderColor: d.color,
     backgroundColor: d.fill ? d.color + '1a' : 'transparent',
     borderWidth: d.fill ? 1.5 : 1.8,
-    pointRadius: 2, tension: 0.4, fill: d.fill,
+    pointRadius: (ctx) => ctx.dataIndex === curHour ? 5 : 2,
+    pointBackgroundColor: (ctx) => ctx.dataIndex === curHour ? '#fff' : d.color,
+    tension: 0.4, fill: d.fill,
   }));
 
+  // Annotation plugin not loaded — use afterDraw to draw current-hour line manually.
+  const drawCurHourLine = {
+    id: 'curHourLine',
+    afterDraw(chart) {
+      if (curHour < 0) return;
+      const { ctx, scales: { x, y } } = chart;
+      const xPos = x.getPixelForValue(curHour);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.35)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xPos, y.top);
+      ctx.lineTo(xPos, y.bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
   if (_stnChart) {
-    _stnChart.data.datasets.forEach((ds, i) => { ds.data = datasets[i].data; });
+    _stnChart.data.datasets.forEach((ds, i) => {
+      ds.data = datasets[i].data;
+      ds.pointRadius = datasets[i].pointRadius;
+      ds.pointBackgroundColor = datasets[i].pointBackgroundColor;
+    });
     _stnChart.update('none');
     return;
   }
@@ -2311,6 +2352,7 @@ function renderStnChart(hourly) {
       },
       interaction: { mode:'index', intersect:false },
     },
+    plugins: [drawCurHourLine],
   });
   document.getElementById('stnChartCanvas').style.height = '300px';
 }
