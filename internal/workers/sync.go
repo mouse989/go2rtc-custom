@@ -126,20 +126,22 @@ func checkWorker(wk *Worker) {
 		}
 	}
 
-	// Fetch hardware stats (CPU, RAM, network) from the worker's /api/system/stats.
+	// Fetch hardware stats (CPU, RAM, network, GPU) from the worker's /api/system/stats.
 	var cpuPct, memPct float64
 	var memUsed, memTotal, netIn, netOut uint64
+	var gpus []GPUInfo
 	hwResp, hwErr := workerRequest(wk, http.MethodGet, "/api/system/stats", nil, "")
 	if hwErr == nil {
 		hwBody, _ := io.ReadAll(hwResp.Body)
 		hwResp.Body.Close()
 		var hw struct {
-			CPUPercent float64 `json:"cpu_percent"`
-			MemPercent float64 `json:"mem_percent"`
-			MemUsed    uint64  `json:"mem_used"`
-			MemTotal   uint64  `json:"mem_total"`
-			NetInRate  uint64  `json:"net_in_rate"`
-			NetOutRate uint64  `json:"net_out_rate"`
+			CPUPercent float64   `json:"cpu_percent"`
+			MemPercent float64   `json:"mem_percent"`
+			MemUsed    uint64    `json:"mem_used"`
+			MemTotal   uint64    `json:"mem_total"`
+			NetInRate  uint64    `json:"net_in_rate"`
+			NetOutRate uint64    `json:"net_out_rate"`
+			GPUs       []GPUInfo `json:"gpus"`
 		}
 		if json.Unmarshal(hwBody, &hw) == nil {
 			cpuPct = hw.CPUPercent
@@ -148,6 +150,7 @@ func checkWorker(wk *Worker) {
 			memTotal = hw.MemTotal
 			netIn = hw.NetInRate
 			netOut = hw.NetOutRate
+			gpus = hw.GPUs
 		}
 	}
 
@@ -170,6 +173,7 @@ func checkWorker(wk *Worker) {
 		MemTotal:     memTotal,
 		NetInRate:    netIn,
 		NetOutRate:   netOut,
+		GPUs:         gpus,
 	}
 	setStatus(s)
 
