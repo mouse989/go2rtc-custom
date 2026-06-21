@@ -43,6 +43,14 @@ type WorkerStatus struct {
 	YoloModel    string `json:"yoloModel,omitempty"`
 	Training     bool   `json:"training,omitempty"`
 	TrainedModel string `json:"trainedModel,omitempty"` // last auto-pulled model
+
+	// Hardware stats fetched from /api/system/stats during health check.
+	CPUPercent float64 `json:"cpu_percent,omitempty"`
+	MemPercent float64 `json:"mem_percent,omitempty"`
+	MemUsed    uint64  `json:"mem_used,omitempty"`
+	MemTotal   uint64  `json:"mem_total,omitempty"`
+	NetInRate  uint64  `json:"net_in_rate,omitempty"`
+	NetOutRate uint64  `json:"net_out_rate,omitempty"`
 }
 
 var (
