@@ -53,6 +53,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/models/upload", handleModelsUpload)
 	// Traffic counting stations (map layer)
 	api.HandleFunc("api/counting/stations", handleStations)
+	api.HandleFunc("api/counting/station-types", handleStationTypes)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -1051,6 +1052,66 @@ func handleStations(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := deleteStation(id); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// GET/POST/PUT/DELETE /api/counting/station-types
+func handleStationTypes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, listStationTypes())
+	case http.MethodPost:
+		if !requireAdmin(w, r) {
+			return
+		}
+		var t StationType
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		created, err := createStationType(t)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, created)
+	case http.MethodPut:
+		if !requireAdmin(w, r) {
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		var t StationType
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		updated, err := updateStationType(id, t)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, updated)
+	case http.MethodDelete:
+		if !requireAdmin(w, r) {
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		if err := deleteStationType(id); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
