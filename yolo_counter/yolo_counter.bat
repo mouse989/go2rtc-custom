@@ -13,10 +13,18 @@
 set "COUNTER_PY=%~dp0counter.py"
 
 :: Python executable.
-:: If yolo_venv\ exists next to this file (created by setup_yolo_win_gpu.bat),
-:: it is used automatically. Otherwise falls back to system python.
-set "PYTHON=python"
-if exist "%~dp0yolo_venv\Scripts\python.exe" set "PYTHON=%~dp0yolo_venv\Scripts\python.exe"
+:: Uses yolo_venv\ (created by setup_yolo_win_gpu.bat) if present.
+:: Exits with a clear error if the venv is missing instead of silently
+:: falling back to system Python (which lacks the required packages).
+set "VENV_PYTHON=%~dp0yolo_venv\Scripts\python.exe"
+if exist "%VENV_PYTHON%" (
+    set "PYTHON=%VENV_PYTHON%"
+) else (
+    echo [yolo_counter] ERROR: yolo_venv not found at %~dp0yolo_venv\
+    echo [yolo_counter] Run setup first from the repo root:
+    echo [yolo_counter]   scripts\setup_yolo_win_gpu.bat %~dp0
+    exit /b 1
+)
 
 :: ── Default args used when go2rtc launches this file ─────────────────────────
 :: go2rtc passes its own args when it auto-launches this file, so these only
