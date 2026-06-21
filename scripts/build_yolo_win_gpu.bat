@@ -1,5 +1,5 @@
 @ECHO OFF
-REM Build yolo_counter.exe for Windows with NVIDIA GPU (CUDA 12.1) support.
+REM Build yolo_counter.exe for Windows with NVIDIA GPU (CUDA 12.6) support.
 REM Run on a Windows machine that has an NVIDIA GPU.
 REM Requires Python 3.11 and pip in PATH.
 REM
@@ -7,9 +7,8 @@ REM Usage:
 REM   Double-click or run from cmd:  scripts\build_yolo_win_gpu.bat
 REM
 REM For CPU-only use:                scripts\build_yolo_win.bat
-REM The binary will be at:           dist\yolo_counter.exe
 
-ECHO === Building yolo_counter.exe for Windows (NVIDIA GPU / CUDA 12.1) ===
+ECHO === Building yolo_counter.exe for Windows (NVIDIA GPU / CUDA 12.6) ===
 ECHO.
 
 REM Resolve repo root from script location (script lives in scripts\)
@@ -23,27 +22,47 @@ IF NOT EXIST "%SCRIPT%" (
     EXIT /B 1
 )
 
-ECHO --- Installing PyTorch (CUDA 12.1) ---
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+REM ---------------------------------------------------------------------------
+REM IMPORTANT: the torch cu126 wheel is fully self-contained. Its torch\lib\
+REM directory already ships cudart64_12.dll, cublas64_12.dll, cudnn*, etc.
+REM Do NOT install the nvidia-*-cu12 pip packages here: they may install
+REM mismatched CUDA libraries that shadow torch's own, causing WinError 1114.
+REM ---------------------------------------------------------------------------
+
+ECHO --- Removing any conflicting standalone NVIDIA CUDA pip packages ---
+REM These may linger from earlier build attempts and shadow torch's own libs.
+pip uninstall -y nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cuda-nvrtc-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12 nvidia-cudnn-cu12 nvidia-cuda-cupti-cu12 nvidia-nvtx-cu12 nvidia-nvjitlink-cu12 1>NUL 2>NUL
+
+ECHO --- Installing PyTorch (CUDA 12.6, self-contained) ---
+pip install torch --index-url https://download.pytorch.org/whl/cu126
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Installing ultralytics, opencv, web stack, PyInstaller ---
 pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
 IF ERRORLEVEL 1 GOTO error
 
-ECHO --- Installing NVIDIA CUDA runtime libraries (needed to bundle CUDA DLLs into .exe) ---
-pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cuda-nvrtc-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cusolver-cu12 nvidia-cusparse-cu12
-IF ERRORLEVEL 1 GOTO error
+ECHO --- Verifying torch imports and sees the GPU (before bundling) ---
+python -c "import torch; print('torch', torch.__version__, 'cuda build', torch.version.cuda, 'available', torch.cuda.is_available())"
+IF ERRORLEVEL 1 (
+    ECHO.
+    ECHO ERROR: 'import torch' failed in plain Python. The problem is NOT PyInstaller.
+    ECHO Fix the torch install first - run the line above manually to see the real error.
+    GOTO error
+)
+
+ECHO --- Cleaning stale build artifacts (old DLLs cause conflicts) ---
+IF EXIST "dist\yolo_counter" rmdir /S /Q "dist\yolo_counter"
+IF EXIST "build\yolo_counter" rmdir /S /Q "build\yolo_counter"
 
 ECHO --- Building binary ---
-python -m PyInstaller --onedir --collect-all torch --runtime-hook "%REPO%\yolo_counter\pyi_rth_torch_cuda.py" --name yolo_counter "%SCRIPT%"
+python -m PyInstaller --onedir --collect-all torch --collect-all ultralytics --runtime-hook "%REPO%\yolo_counter\pyi_rth_torch_cuda.py" --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.
 ECHO === Done! Folder: dist\yolo_counter\ (NVIDIA GPU / CUDA 12.1) ===
 ECHO.
-ECHO DEPLOY: copy all files from dist\yolo_counter\ next to go2rtc.exe
-ECHO         (not just the .exe — all DLLs must be in the same folder)
+ECHO DEPLOY: xcopy /E /Y dist\yolo_counter\* D:\GO_YO\
+ECHO         (copy the whole folder including _internal\ - do not copy only the .exe)
 GOTO end
 
 :error
