@@ -530,7 +530,7 @@ async function loadTrainServers() {
     const workers = await apiFetch('/api/workers/status');
     const sel = document.getElementById('trainServer');
     while (sel.options.length > 1) sel.remove(1);
-    (workers || []).filter(w => w.status === 'online').forEach(w => {
+    (workers || []).filter(w => w.online).forEach(w => {
       const opt = document.createElement('option');
       opt.value = w.id;
       opt.textContent = `🌐 ${w.name || w.id}`;
