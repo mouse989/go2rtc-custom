@@ -36,11 +36,14 @@ pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cuda-nvrtc-cu12 n
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Building binary ---
-python -m PyInstaller --onefile --collect-all torch --name yolo_counter "%SCRIPT%"
+python -m PyInstaller --onedir --collect-all torch --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.
-ECHO === Done! Binary: dist\yolo_counter.exe (NVIDIA GPU / CUDA 12.1) ===
+ECHO === Done! Folder: dist\yolo_counter\ (NVIDIA GPU / CUDA 12.1) ===
+ECHO.
+ECHO DEPLOY: copy all files from dist\yolo_counter\ next to go2rtc.exe
+ECHO         (not just the .exe — all DLLs must be in the same folder)
 GOTO end
 
 :error

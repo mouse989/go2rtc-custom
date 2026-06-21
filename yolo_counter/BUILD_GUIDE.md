@@ -37,17 +37,28 @@ Output binary: `dist\yolo_counter.exe`
 scripts\build_yolo_win_gpu.bat
 ```
 
-Output binary: `dist\yolo_counter.exe`
+Output **folder**: `dist\yolo_counter\`
+
+> **Why `--onedir` instead of `--onefile`?**
+> PyTorch GPU builds contain hundreds of CUDA DLLs (`c10.dll`, `cudart64_121.dll`, `cublas64_12.dll`, …). With `--onefile` PyInstaller extracts them to a temporary `_MEI*` directory that Windows cannot find during DLL initialisation, causing **WinError 1114** at startup. With `--onedir` all DLLs sit next to the executable, which is exactly where Windows looks first — no extraction, no path issues.
 
 This script:
 1. Installs PyTorch with CUDA 12.1 support
 2. Installs ultralytics, opencv, fastapi, uvicorn, pyinstaller
-3. Installs NVIDIA CUDA runtime pip packages (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, etc.) — these provide the CUDA DLLs (`cudart64_121.dll`, `cublas64_12.dll`, …) as discoverable Python package files so PyInstaller can bundle them into the `.exe`. Without this step Windows throws **WinError 1114** (DLL initialization failed) at runtime because the GPU driver alone does not install the CUDA runtime DLLs.
-4. Runs PyInstaller with `--collect-all torch` to recursively bundle every file inside the `torch` package (including `torch/lib/*.dll`) into the single `.exe`
+3. Installs NVIDIA CUDA runtime pip packages (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`, etc.) to ensure all CUDA DLLs are discoverable by PyInstaller
+4. Runs PyInstaller with `--onedir --collect-all torch` to place every torch DLL in the output folder
 
 ## Placing the binary in the project
 
-Copy `dist\yolo_counter.exe` to the directory where go2rtc-custom is deployed, then configure it as a worker in the Counting → Workers tab of the web UI.
+**GPU build** — copy the **entire contents** of `dist\yolo_counter\` (including all subfolders) to the directory where go2rtc-custom is deployed (e.g. `C:\go2rtc\`):
+
+```bat
+xcopy /E /Y dist\yolo_counter\* C:\go2rtc\
+```
+
+`yolo_counter.exe` and all its CUDA DLLs must be in the same folder as `go2rtc.exe`. Do **not** copy only the `.exe` — the DLLs alongside it are required.
+
+**CPU build** — copy only the single `dist\yolo_counter.exe` next to `go2rtc.exe`.
 
 ## Notes
 
