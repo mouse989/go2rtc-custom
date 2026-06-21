@@ -12,9 +12,11 @@
 :: Path to counter.py  (default: same folder as this .bat file)
 set "COUNTER_PY=%~dp0counter.py"
 
-:: Python executable (leave as "python" or set absolute path for CUDA env):
-::   set "PYTHON=C:\Program Files\Python312\python.exe"
+:: Python executable.
+:: If yolo_venv\ exists next to this file (created by setup_yolo_win_gpu.bat),
+:: it is used automatically. Otherwise falls back to system python.
 set "PYTHON=python"
+if exist "%~dp0yolo_venv\Scripts\python.exe" set "PYTHON=%~dp0yolo_venv\Scripts\python.exe"
 
 :: ── Default args used when go2rtc launches this file ─────────────────────────
 :: go2rtc passes its own args when it auto-launches this file, so these only
