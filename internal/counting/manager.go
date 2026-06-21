@@ -120,6 +120,16 @@ func (m *Manager) stopCamera(id string) {
 	}
 }
 
+// LocalStats returns (total configured cameras, cameras analyzing locally) for the monitor page.
+func (m *Manager) LocalStats() (total, analyzing int) {
+	c := getConfig()
+	total = len(c.Cameras)
+	m.mu.Lock()
+	analyzing = len(m.workers)
+	m.mu.Unlock()
+	return
+}
+
 // isRunning reports whether a camera worker is active (local or remote).
 func (m *Manager) isRunning(id string) bool {
 	m.mu.Lock()

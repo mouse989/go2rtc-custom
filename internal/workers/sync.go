@@ -72,12 +72,13 @@ func checkWorker(wk *Worker) {
 		setStatus(s)
 		return
 	}
-	// Derive actual running state: global flag OR any individual camera running.
+	// Derive actual running state and count active cameras.
 	anyRunning := statusData.Running
+	camRunning := 0
 	for _, c := range statusData.Cameras {
 		if c.Running {
 			anyRunning = true
-			break
+			camRunning++
 		}
 	}
 
@@ -162,7 +163,8 @@ func checkWorker(wk *Worker) {
 		Online:       true,
 		LastCheck:    now,
 		LastSync:     lastSync,
-		Cameras:      len(statusData.Cameras),
+		Cameras:        len(statusData.Cameras),
+		CamerasRunning: camRunning,
 		Running:      anyRunning,
 		YoloModel:    yoloModel,
 		Training:     training,

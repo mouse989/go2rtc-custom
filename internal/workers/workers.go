@@ -47,7 +47,8 @@ type WorkerStatus struct {
 	Error        string `json:"error,omitempty"`
 	LastCheck    string `json:"lastCheck"`
 	LastSync     string `json:"lastSync,omitempty"`
-	Cameras      int    `json:"cameras,omitempty"`
+	Cameras        int    `json:"cameras,omitempty"`         // total counting cameras configured on this worker
+	CamerasRunning int    `json:"cameras_running,omitempty"` // cameras actively analyzing
 	Running      bool   `json:"running,omitempty"`
 	YoloModel    string `json:"yoloModel,omitempty"`
 	Training     bool   `json:"training,omitempty"`
