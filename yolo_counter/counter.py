@@ -25,6 +25,23 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 
+# Windows + PyInstaller: register every _internal/** subdir that contains DLLs
+# so that c10.dll can find cudart/cublas/etc. at import time.
+# This must run before 'import torch' (which happens lazily in _resolve_device).
+if sys.platform == 'win32' and hasattr(sys, '_MEIPASS'):
+    # Keep cookies alive for the lifetime of the process.
+    # os.add_dll_directory() returns a cookie whose destructor calls
+    # RemoveDllDirectory() — discarding the return value causes CPython's
+    # reference-counting GC to remove the registration immediately.
+    _dll_dir_cookies = []
+    for _dll_root, _dll_dirs, _dll_files in os.walk(sys._MEIPASS):
+        if any(_f.lower().endswith('.dll') for _f in _dll_files):
+            try:
+                _dll_dir_cookies.append(os.add_dll_directory(_dll_root))
+            except OSError:
+                pass
+    del _dll_root, _dll_dirs, _dll_files
+
 import cv2
 import numpy as np
 import uvicorn
@@ -1230,7 +1247,21 @@ def _resolve_device(device_arg: str) -> str:
     users can see exactly why GPU is or is not being used and how to fix it.
     """
     import subprocess
-    import torch
+    try:
+        import torch
+    except OSError as _torch_err:
+        _msg = str(_torch_err)
+        if 'WinError 1114' in _msg or 'DLL' in _msg.upper():
+            logger.critical(
+                "[device] Failed to load PyTorch DLLs (WinError 1114).\n"
+                "  This means a CUDA runtime DLL could not initialise. Common causes:\n"
+                "    (a) NVIDIA driver too old for CUDA 12.1 — update to driver >= 527.41\n"
+                "        Check current driver:  nvidia-smi\n"
+                "    (b) _internal\\ folder is incomplete — re-copy all files from dist\\yolo_counter\\\n"
+                "    (c) Anti-virus quarantined a DLL — check AV logs/quarantine\n"
+                f"  Raw error: {_torch_err}"
+            )
+        raise
 
     pt_ver  = torch.__version__
     pt_cuda = torch.version.cuda  # None when CPU-only build
