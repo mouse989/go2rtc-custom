@@ -1281,8 +1281,8 @@ function buildSrvCard(name, tag, online, cpu, memPct, memUsed, memTotal, netIn, 
     ? `<span class="srv-net-in">↓ ${fmtRate(netIn||0)}</span><span class="srv-net-out">↑ ${fmtRate(netOut||0)}</span>`
     : '<span style="color:var(--text-muted)">— network —</span>';
   const yoloLabel = (yoloCams > 0)
-    ? `🎯 YOLO: <b>${yoloCams}</b> camera${yoloCams > 1 ? 's' : ''}${yoloModel ? ' · ' + yoloModel.split('/').pop() : ''}`
-    : '🎯 YOLO: —';
+    ? `🎯 AI: <b>${yoloCams}</b> camera${yoloCams > 1 ? 's' : ''}${yoloModel ? ' · ' + yoloModel.split('/').pop() : ''}`
+    : '🎯 AI: —';
 
   // GPU rows — one block per physical GPU
   let gpuHtml = '';
