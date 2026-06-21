@@ -50,8 +50,10 @@ ECHO --- Removing any conflicting standalone NVIDIA CUDA pip packages ---
     nvidia-cusparse-cu12 nvidia-cudnn-cu12 nvidia-cuda-cupti-cu12 ^
     nvidia-nvtx-cu12 nvidia-nvjitlink-cu12 2>NUL
 
-ECHO --- Installing PyTorch (CUDA 12.6, compatible with driver 560+ / CUDA 13.x) ---
-"%DEPLOY%\yolo_venv\Scripts\pip" install torch --index-url https://download.pytorch.org/whl/cu126
+ECHO --- Installing PyTorch + torchvision (CUDA 12.6, compatible with driver 560+ / CUDA 13.x) ---
+REM torchvision MUST come from the same PyTorch index as torch.
+REM Installing torchvision from PyPI gives a CPU-only build that lacks CUDA NMS kernels.
+"%DEPLOY%\yolo_venv\Scripts\pip" install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Installing ultralytics (pulls opencv-python), web stack ---
@@ -68,12 +70,12 @@ IF ERRORLEVEL 1 (
     IF ERRORLEVEL 1 GOTO error
 )
 
-ECHO --- Verifying torch sees the GPU and cv2 is importable ---
+ECHO --- Verifying torch + torchvision CUDA and cv2 ---
 "%DEPLOY%\yolo_venv\Scripts\python" -c ^
-    "import cv2, torch; print('cv2', cv2.__version__, '| torch', torch.__version__, '| cuda', torch.version.cuda, '| GPU available:', torch.cuda.is_available())"
+    "import cv2, torch, torchvision; import torch; t=torch.tensor([1.0],device='cuda'); print('cv2', cv2.__version__, '| torch', torch.__version__, '| torchvision', torchvision.__version__, '| cuda', torch.version.cuda, '| GPU:', torch.cuda.is_available())"
 IF ERRORLEVEL 1 (
     ECHO.
-    ECHO ERROR: import failed inside the venv. Run the line above manually to see the real error.
+    ECHO ERROR: verification failed. Run the line above manually to see the real error.
     GOTO error
 )
 
