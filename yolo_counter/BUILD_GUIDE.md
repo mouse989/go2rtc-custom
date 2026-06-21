@@ -4,7 +4,7 @@
 
 - Windows 10/11 (64-bit)
 - Python 3.11 installed and added to PATH (`python --version` should return 3.11.x)
-- For GPU build: NVIDIA GPU with CUDA 12.1 compatible driver
+- For GPU build: NVIDIA GPU with CUDA 12.6 compatible driver
 
 ## Project structure
 
@@ -28,10 +28,13 @@ scripts\build_yolo_win.bat
 
 Output binary: `dist\yolo_counter.exe`
 
-## Build — Windows GPU / NVIDIA CUDA 12.1 (recommended for production)
+## Build — Windows GPU / NVIDIA CUDA 12.6 (recommended for production)
 
-> Run this on a machine that has an NVIDIA GPU and a compatible driver installed.
+> Run this on a machine that has an NVIDIA GPU with driver ≥ 560 (CUDA 12.6+).
 > The resulting binary uses GPU acceleration but can fall back to CPU if no GPU is found at runtime.
+> **CUDA 12.6 is the minimum wheel version compatible with very new drivers (596.x, CUDA 13.x).**
+> CUDA 12.6 wheels fail with WinError 1114 on those drivers because the 12.1 runtime's init routine
+> is incompatible with the changed internal driver APIs in CUDA 13.x.
 
 ```bat
 scripts\build_yolo_win_gpu.bat
@@ -47,7 +50,7 @@ Output **folder**: `dist\yolo_counter\`
 
 This script:
 1. Uninstalls any conflicting standalone `nvidia-*-cu12` packages left from earlier attempts
-2. Installs PyTorch with CUDA 12.1 support (self-contained)
+2. Installs PyTorch with CUDA 12.6 support (self-contained)
 3. Installs ultralytics, opencv, fastapi, uvicorn, pyinstaller
 4. Verifies `import torch` works in plain Python (so a broken torch install is caught before bundling)
 5. Cleans stale `dist\` / `build\` artifacts (old DLLs cause conflicts)
