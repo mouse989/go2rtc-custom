@@ -319,7 +319,7 @@ func handleCameras(w http.ResponseWriter, r *http.Request) {
 // Returns a list of available dates when date param is omitted.
 // Returns []Slot5 (5-minute aggregates) when date is given.
 func handleData(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	if !requireStationView(w, r) {
 		return
 	}
 	q := r.URL.Query()
