@@ -1970,16 +1970,46 @@ async function loadStationsLayer() {
   ]);
   _stations     = Array.isArray(stns)  ? stns  : [];
   _stationTypes = Array.isArray(types) ? types : [];
-  _stnSummary   = {};
-  (Array.isArray(summary) ? summary : []).forEach(hs => {
-    // Use count for the current clock hour, matching the counting page's hourly logic.
+  applyStnSummary(Array.isArray(summary) ? summary : [], currentHour);
+  buildStnMarkers();
+}
+
+// Refresh only the summary counts and update existing marker elements in place.
+// Called every 3 s — avoids rebuilding DOM nodes or re-fetching stations/types.
+async function refreshStnCounts() {
+  if (!_stnLayerOn || _stations.length === 0) return;
+  const today = localDateStr();
+  const curH  = new Date().getHours();
+  try {
+    const summary = await apiFetch('/api/counting/summary?date=' + today);
+    applyStnSummary(Array.isArray(summary) ? summary : [], curH);
+  } catch (_) { return; }
+  _stations.forEach(stn => {
+    const entry = _stationMkrs[stn.id];
+    if (!entry) return;
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
+    const hourV = rec.hour;
+    const n     = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
+    const color = stnColor(hourV, stn.type_id);
+    const lbl   = stn.label || stn.camera_id;
+    const type  = stnTypeByID(stn.type_id);
+    entry.el.textContent       = n;
+    entry.el.style.background  = color;
+    entry.el.title = lbl + (type ? ' [' + type.name + ']' : '')
+      + '\nKhung gio ' + curH + ':00-' + (curH + 1) + ':00 — ' + hourV.toLocaleString() + ' luot'
+      + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
+  });
+}
+
+function applyStnSummary(summary, currentHour) {
+  _stnSummary = {};
+  summary.forEach(hs => {
     _stnSummary[hs.cameraId] = {
       hour:  (hs.hours && hs.hours[currentHour]) || 0,
       total: hs.total || 0,
       hours: hs.hours || [],
     };
   });
-  buildStnMarkers();
 }
 
 // ── Station markers ────────────────────────────────────────────
@@ -2479,7 +2509,10 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     if (canViewStations()) {
       document.getElementById('btnStnLayer').style.display = '';
       loadCountingCams();
-      loadStationsLayer();
+      await loadStationsLayer();
+      // Refresh counts every 3 s (update markers in place, no DOM rebuild).
+      setInterval(refreshStnCounts, 3000);
+      // Reload full layer (stations + types) every 5 min in case config changed.
       setInterval(loadStationsLayer, 5 * 60 * 1000);
     }
   } catch (err) {
