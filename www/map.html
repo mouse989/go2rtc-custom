@@ -464,6 +464,7 @@ body.sb-collapsed           { --map-left:0; }
   </button>
   <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
   <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
+  <button class="map-btn active" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
   <!-- Map style toggle (single button, shows current mode) -->
   <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
   <button class="map-btn admin-only" id="btnEdit" style="display:none">
@@ -1930,6 +1931,7 @@ let _stationTypes  = [];    // [{id, name, thresh_yellow, thresh_orange, thresh_
 let _stationMkrs   = {};    // stationID → {marker, el}
 let _stnSummary    = {};    // cameraID  → {hour, total, hours[24]}
 let _stnEditMode   = false;
+let _stnLayerOn    = true;  // station layer visibility toggle
 let _editingStnID  = null;
 let _stnChart      = null;
 let _stnChartCamID = null;
@@ -2001,7 +2003,8 @@ function buildStnMarkers() {
       + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
     el.textContent = n;
     const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([stn.lon, stn.lat]).addTo(map);
+      .setLngLat([stn.lon, stn.lat]);
+    if (_stnLayerOn) marker.addTo(map);
     el.addEventListener('click', e => {
       e.stopPropagation();
       if (_stnEditMode) openStnPanel(stn);
@@ -2010,6 +2013,17 @@ function buildStnMarkers() {
     _stationMkrs[stn.id] = { marker, el };
   });
 }
+
+// ── Station layer toggle ───────────────────────────────────────
+function toggleStnLayer() {
+  _stnLayerOn = !_stnLayerOn;
+  document.getElementById('btnStnLayer').classList.toggle('active', _stnLayerOn);
+  Object.values(_stationMkrs).forEach(({ marker }) => {
+    if (_stnLayerOn) marker.addTo(map);
+    else             marker.remove();
+  });
+}
+document.getElementById('btnStnLayer').addEventListener('click', toggleStnLayer);
 
 // ── Station edit panel ─────────────────────────────────────────
 function populateStnTypeSelect(selectedID) {
@@ -2463,6 +2477,7 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     await reloadData();
     // Load counting stations + today's summary (only if user has view permission)
     if (canViewStations()) {
+      document.getElementById('btnStnLayer').style.display = '';
       loadCountingCams();
       loadStationsLayer();
       setInterval(loadStationsLayer, 5 * 60 * 1000);
