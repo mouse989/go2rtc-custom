@@ -464,6 +464,7 @@ body.sb-collapsed           { --map-left:0; }
   </button>
   <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
   <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
+  <button class="map-btn active" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
   <!-- Map style toggle (single button, shows current mode) -->
   <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
   <button class="map-btn admin-only" id="btnEdit" style="display:none">
@@ -1930,6 +1931,7 @@ let _stationTypes  = [];    // [{id, name, thresh_yellow, thresh_orange, thresh_
 let _stationMkrs   = {};    // stationID → {marker, el}
 let _stnSummary    = {};    // cameraID  → {hour, total, hours[24]}
 let _stnEditMode   = false;
+let _stnLayerOn    = true;  // station layer visibility toggle
 let _editingStnID  = null;
 let _stnChart      = null;
 let _stnChartCamID = null;
@@ -1968,16 +1970,46 @@ async function loadStationsLayer() {
   ]);
   _stations     = Array.isArray(stns)  ? stns  : [];
   _stationTypes = Array.isArray(types) ? types : [];
-  _stnSummary   = {};
-  (Array.isArray(summary) ? summary : []).forEach(hs => {
-    // Use count for the current clock hour, matching the counting page's hourly logic.
+  applyStnSummary(Array.isArray(summary) ? summary : [], currentHour);
+  buildStnMarkers();
+}
+
+// Refresh only the summary counts and update existing marker elements in place.
+// Called every 3 s — avoids rebuilding DOM nodes or re-fetching stations/types.
+async function refreshStnCounts() {
+  if (!_stnLayerOn || _stations.length === 0) return;
+  const today = localDateStr();
+  const curH  = new Date().getHours();
+  try {
+    const summary = await apiFetch('/api/counting/summary?date=' + today);
+    applyStnSummary(Array.isArray(summary) ? summary : [], curH);
+  } catch (_) { return; }
+  _stations.forEach(stn => {
+    const entry = _stationMkrs[stn.id];
+    if (!entry) return;
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
+    const hourV = rec.hour;
+    const n     = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
+    const color = stnColor(hourV, stn.type_id);
+    const lbl   = stn.label || stn.camera_id;
+    const type  = stnTypeByID(stn.type_id);
+    entry.el.textContent       = n;
+    entry.el.style.background  = color;
+    entry.el.title = lbl + (type ? ' [' + type.name + ']' : '')
+      + '\nKhung gio ' + curH + ':00-' + (curH + 1) + ':00 — ' + hourV.toLocaleString() + ' luot'
+      + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
+  });
+}
+
+function applyStnSummary(summary, currentHour) {
+  _stnSummary = {};
+  summary.forEach(hs => {
     _stnSummary[hs.cameraId] = {
       hour:  (hs.hours && hs.hours[currentHour]) || 0,
       total: hs.total || 0,
       hours: hs.hours || [],
     };
   });
-  buildStnMarkers();
 }
 
 // ── Station markers ────────────────────────────────────────────
@@ -2001,7 +2033,8 @@ function buildStnMarkers() {
       + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
     el.textContent = n;
     const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([stn.lon, stn.lat]).addTo(map);
+      .setLngLat([stn.lon, stn.lat]);
+    if (_stnLayerOn) marker.addTo(map);
     el.addEventListener('click', e => {
       e.stopPropagation();
       if (_stnEditMode) openStnPanel(stn);
@@ -2010,6 +2043,17 @@ function buildStnMarkers() {
     _stationMkrs[stn.id] = { marker, el };
   });
 }
+
+// ── Station layer toggle ───────────────────────────────────────
+function toggleStnLayer() {
+  _stnLayerOn = !_stnLayerOn;
+  document.getElementById('btnStnLayer').classList.toggle('active', _stnLayerOn);
+  Object.values(_stationMkrs).forEach(({ marker }) => {
+    if (_stnLayerOn) marker.addTo(map);
+    else             marker.remove();
+  });
+}
+document.getElementById('btnStnLayer').addEventListener('click', toggleStnLayer);
 
 // ── Station edit panel ─────────────────────────────────────────
 function populateStnTypeSelect(selectedID) {
@@ -2463,8 +2507,12 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     await reloadData();
     // Load counting stations + today's summary (only if user has view permission)
     if (canViewStations()) {
+      document.getElementById('btnStnLayer').style.display = '';
       loadCountingCams();
-      loadStationsLayer();
+      await loadStationsLayer();
+      // Refresh counts every 3 s (update markers in place, no DOM rebuild).
+      setInterval(refreshStnCounts, 3000);
+      // Reload full layer (stations + types) every 5 min in case config changed.
       setInterval(loadStationsLayer, 5 * 60 * 1000);
     }
   } catch (err) {
