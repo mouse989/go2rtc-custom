@@ -122,10 +122,10 @@ function copyText(text, btn) {
 
 // Returns the first page the user is permitted to access.
 function firstPermittedPage(u) {
-  if (!u || u.role === 'admin') return '/';
+  if (!u || u.role === 'admin') return '/map.html';
   const order = [
-    { tab: 'cameras',   page: '/' },
     { tab: 'map',       page: '/map.html' },
+    { tab: 'cameras',   page: '/' },
     { tab: 'dashboard', page: '/dashboard.html' },
     { tab: 'monitor',   page: '/monitor.html' },
     { tab: 'log',       page: '/log.html' },

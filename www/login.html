@@ -151,15 +151,15 @@ document.getElementById('form').addEventListener('submit', async e => {
           const me = await meRes.json();
           localStorage.setItem('go2rtc_user', JSON.stringify(me));
           const order = [
-            { tab: 'cameras', page: '/' },
-            { tab: 'map',     page: '/map.html' },
+            { tab: 'map',       page: '/map.html' },
+            { tab: 'cameras',   page: '/' },
             { tab: 'dashboard', page: '/dashboard.html' },
             { tab: 'monitor',   page: '/monitor.html' },
             { tab: 'log',       page: '/log.html' },
             { tab: 'config',    page: '/config.html' },
             { tab: 'api_docs',  page: '/api-docs.html' },
           ];
-          let dest = me.role === 'admin' ? '/' : null;
+          let dest = me.role === 'admin' ? '/map.html' : null;
           if (!dest) for (const { tab, page } of order) {
             if ((me.tabs || []).includes(tab)) { dest = page; break; }
           }
