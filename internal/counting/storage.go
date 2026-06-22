@@ -343,21 +343,39 @@ func (s *dailyStore) hourlySummary(date string) ([]HourlySummary, error) {
 	byCamera := map[string]*HourlySummary{}
 	c := getConfig()
 	nameOf := map[string]string{}
+	configIDs := map[string]bool{}
 	for _, cam := range c.Cameras {
 		nameOf[cam.ID] = cam.Name
+		configIDs[cam.ID] = true
+	}
+
+	// resolve maps a slot's stored camera ID back to its canonical config ID.
+	// Remote workers push slots prefixed with "<workerID>:" but the map/UI
+	// references the unprefixed config ID, so they must be reconciled here.
+	resolve := func(slotCam string) string {
+		if configIDs[slotCam] {
+			return slotCam
+		}
+		for _, cam := range c.Cameras {
+			if cam.ID != "" && strings.HasSuffix(slotCam, ":"+cam.ID) {
+				return cam.ID
+			}
+		}
+		return slotCam
 	}
 
 	for _, sl := range slots {
 		h := 0
 		fmt.Sscanf(sl.T, "%d", &h)
-		hs, ok := byCamera[sl.Cam]
+		camID := resolve(sl.Cam)
+		hs, ok := byCamera[camID]
 		if !ok {
-			name := nameOf[sl.Cam]
+			name := nameOf[camID]
 			if name == "" {
 				name = sl.Name
 			}
-			hs = &HourlySummary{CameraID: sl.Cam, Name: name}
-			byCamera[sl.Cam] = hs
+			hs = &HourlySummary{CameraID: camID, Name: name}
+			byCamera[camID] = hs
 		}
 		hs.Hours[h] += sl.N
 		hs.Total += sl.N

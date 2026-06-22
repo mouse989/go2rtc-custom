@@ -302,7 +302,9 @@ body.sb-collapsed           { --map-left:0; }
 
 /* ── Station chart modal ─────────────────────────────────────── */
 #stnChartBackdrop { z-index:615; }
-#stnChartCanvas { width:100% !important; }
+/* Cap width so the fixed-aspect-ratio chart stays compact on large screens.
+   Chart.js (maintainAspectRatio) derives the height from this width. */
+#stnChartCanvas { width:100% !important; max-width:680px; margin:0 auto; display:block; }
 
 @media (max-width:768px) {
   #stnPanel, #stnTypePanel {
@@ -2379,7 +2381,9 @@ function renderStnChart(hourly, curHour) {
     type: 'line',
     data: { labels, datasets },
     options: {
-      responsive:true, maintainAspectRatio:false,
+      // Fixed aspect ratio (≈16:9) so the chart never stretches to viewport
+      // height on large screens; width is bounded by the modal max-width.
+      responsive:true, maintainAspectRatio:true, aspectRatio:1.78,
       plugins: {
         legend: { labels:{ color:dark?'#ccc':'#333', font:{size:11}, boxWidth:14 } },
         tooltip: { mode:'index', intersect:false },
@@ -2392,7 +2396,6 @@ function renderStnChart(hourly, curHour) {
     },
     plugins: [drawCurHourLine],
   });
-  document.getElementById('stnChartCanvas').style.height = '300px';
 }
 
 document.getElementById('stnChartClose').addEventListener('click', () => {
