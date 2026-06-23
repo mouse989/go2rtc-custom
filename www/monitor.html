@@ -1413,7 +1413,7 @@ async function fetchStats() {
 
   // Apply monitor sub-permissions: hide sections the user isn't granted.
   // Admins always see everything.
-  const isAdm = App.isAdmin();
+  const isAdm = isAdmin();
   const showWorkers   = isAdm || !!user.allow_monitor_workers;
   const showProcess   = isAdm || !!user.allow_monitor_process;
   const showStreaming  = isAdm || !!user.allow_monitor_streaming;
