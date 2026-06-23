@@ -223,6 +223,7 @@ async function initApp(requiredTab) {
   function closeMobileSidebar() {
     sidebar.classList.remove('open');
     backdrop.classList.remove('visible');
+    document.body.classList.remove('sidebar-open');
     if (window.__map) setTimeout(() => window.__map.invalidateSize(), 260);
   }
 
@@ -232,6 +233,7 @@ async function initApp(requiredTab) {
         const opening = !sidebar.classList.contains('open');
         sidebar.classList.toggle('open');
         backdrop.classList.toggle('visible', opening);
+        document.body.classList.toggle('sidebar-open', opening);
         if (window.__map && !opening) setTimeout(() => window.__map.invalidateSize(), 260);
       } else {
         document.body.classList.toggle('sb-collapsed');
