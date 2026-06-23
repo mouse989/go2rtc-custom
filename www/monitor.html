@@ -308,7 +308,7 @@
         </div>
 
         <!-- go2rtc Process -->
-        <div class="mon-card" style="grid-column:1/-1">
+        <div class="mon-card" id="procCard" style="grid-column:1/-1">
           <div class="mon-card-title">
             <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
             go2rtc Process
@@ -324,7 +324,7 @@
         </div>
 
         <!-- Streaming & Users -->
-        <div class="mon-card" style="grid-column:1/-1;cursor:pointer" onclick="openActivityModal()" title="Click để xem chi tiết users và streaming">
+        <div class="mon-card" id="streamingCard" style="grid-column:1/-1;cursor:pointer" onclick="openActivityModal()" title="Click để xem chi tiết users và streaming">
           <div class="mon-card-title">
             <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm12.553 1.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/></svg>
             Streaming &amp; Users
@@ -1410,11 +1410,32 @@ async function fetchStats() {
       'Access denied — Monitor permission required.';
     return;
   }
-  await Promise.all([fetchStats(), fetchSnapStats(), fetchDevStats(), fetchWorkerStats()]);
+
+  // Apply monitor sub-permissions: hide sections the user isn't granted.
+  // Admins always see everything.
+  const isAdm = App.isAdmin();
+  const showWorkers   = isAdm || !!user.allow_monitor_workers;
+  const showProcess   = isAdm || !!user.allow_monitor_process;
+  const showStreaming  = isAdm || !!user.allow_monitor_streaming;
+  const showSnapshot  = isAdm || !!user.allow_monitor_snapshot;
+  const showDevices   = isAdm || !!user.allow_monitor_devices;
+
+  if (!showWorkers)  document.getElementById('srvSection')?.remove();
+  if (!showProcess)  document.getElementById('procCard')?.remove();
+  if (!showStreaming) document.getElementById('streamingCard')?.remove();
+  if (!showSnapshot) document.getElementById('snapCard')?.remove();
+  if (!showDevices)  document.getElementById('devMonCard')?.remove();
+
+  const fetches = [fetchStats()];
+  if (showSnapshot)  fetches.push(fetchSnapStats());
+  if (showDevices)   fetches.push(fetchDevStats());
+  if (showWorkers)   fetches.push(fetchWorkerStats());
+  await Promise.all(fetches);
+
   pollTimer = setInterval(fetchStats, 3000);
-  setInterval(fetchSnapStats, 10000);
-  setInterval(fetchDevStats, 15000);
-  setInterval(fetchWorkerStats, 30000); // matches backend health check interval
+  if (showSnapshot)  setInterval(fetchSnapStats, 10000);
+  if (showDevices)   setInterval(fetchDevStats, 15000);
+  if (showWorkers)   setInterval(fetchWorkerStats, 30000);
 
   window.addEventListener('resize', () => {
     drawSpark('cpuSpark', cpuHistory, '#2f81f7', 100);
