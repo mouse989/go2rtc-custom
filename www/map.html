@@ -334,6 +334,13 @@ body.sb-collapsed           { --map-left:0; }
   .map-btn { padding:.55rem .8rem !important; min-height:38px !important; }
   .ov-win { width:calc(100vw - 16px) !important; }
   .result-card { flex:0 0 140px !important; }
+  /* Sidebar must be above the backdrop (z-index:799) on mobile.
+     The base .sidebar{z-index:500} rule in this file overrides app.css's
+     mobile 800 value because it comes later in the cascade — fix it here. */
+  .sidebar { z-index:900 !important; }
+  /* Disable map toolbar pointer events while sidebar is open so map touch
+     handlers can't steal taps through the sidebar area. */
+  body.sidebar-open #mapToolbar { pointer-events:none; }
 }
 
 /* ── Floating mobile nav button ──────────────────────────────── */
