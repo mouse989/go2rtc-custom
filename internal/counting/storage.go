@@ -33,11 +33,12 @@ type Slot5 struct {
 	N    int                       `json:"n"`
 }
 
-// HourlySummary aggregates crossings per camera per hour (for summary endpoint).
+// HourlySummary aggregates crossings per camera per hour and per 15-min slot.
 type HourlySummary struct {
 	CameraID string  `json:"cameraId"`
 	Name     string  `json:"name"`
-	Hours    [24]int `json:"hours"`
+	Hours    [24]int `json:"hours"`   // index 0-23: total count per hour
+	Slots15  [96]int `json:"slots15"` // index 0-95: total count per 15-min slot (h*4 + m/15)
 	Total    int     `json:"total"`
 }
 
@@ -365,8 +366,8 @@ func (s *dailyStore) hourlySummary(date string) ([]HourlySummary, error) {
 	}
 
 	for _, sl := range slots {
-		h := 0
-		fmt.Sscanf(sl.T, "%d", &h)
+		var h, m int
+		fmt.Sscanf(sl.T, "%d:%d", &h, &m)
 		camID := resolve(sl.Cam)
 		hs, ok := byCamera[camID]
 		if !ok {
@@ -377,7 +378,13 @@ func (s *dailyStore) hourlySummary(date string) ([]HourlySummary, error) {
 			hs = &HourlySummary{CameraID: camID, Name: name}
 			byCamera[camID] = hs
 		}
-		hs.Hours[h] += sl.N
+		if h >= 0 && h < 24 {
+			hs.Hours[h] += sl.N
+		}
+		slot15 := h*4 + m/15
+		if slot15 >= 0 && slot15 < 96 {
+			hs.Slots15[slot15] += sl.N
+		}
 		hs.Total += sl.N
 	}
 

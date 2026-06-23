@@ -12,12 +12,18 @@ import (
 // StationType defines display thresholds for color-coding station icons.
 // Count < ThreshYellow → green; ≥ ThreshYellow → yellow;
 // ≥ ThreshOrange → orange; ≥ ThreshRed → red.
+// Grouping selects which time window the icon and thresholds apply to:
+// "1h" (default) = current full clock hour; "15min" = current 15-minute slot.
 type StationType struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	ThreshYellow int    `json:"thresh_yellow"`
+	Grouping     string `json:"grouping"`         // "1h" or "15min"
+	ThreshYellow int    `json:"thresh_yellow"`    // 1-hour thresholds
 	ThreshOrange int    `json:"thresh_orange"`
 	ThreshRed    int    `json:"thresh_red"`
+	Thresh15Yellow int  `json:"thresh_15_yellow"` // 15-min thresholds
+	Thresh15Orange int  `json:"thresh_15_orange"`
+	Thresh15Red    int  `json:"thresh_15_red"`
 }
 
 // Station is a traffic counting station placed on the map.

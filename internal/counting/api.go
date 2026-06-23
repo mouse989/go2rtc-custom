@@ -54,6 +54,7 @@ func registerAPI() {
 	// Traffic counting stations (map layer)
 	api.HandleFunc("api/counting/stations", handleStations)
 	api.HandleFunc("api/counting/station-types", handleStationTypes)
+	api.HandleFunc("api/counting/export-csv", handleExportCSV)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -1179,4 +1180,133 @@ func yoloExePath() string {
 		return exeName
 	}
 	return filepath.Join(filepath.Dir(self), exeName)
+}
+
+// GET /api/counting/export-csv?date=YYYY-MM-DD
+// Returns a 15-minute aggregated CSV for all cameras on the given date.
+// Vehicle order matches the counting detail page: Ô tô, Xe máy, Xe buýt, Xe tải.
+func handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	if !requireStationView(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+
+	slots, err := mgr.store.getSlots(date, "")
+	if err != nil {
+		slots = []*Slot5{}
+	}
+
+	// Resolve worker-prefixed IDs to config IDs (same logic as hourlySummary).
+	c := getConfig()
+	configIDs := map[string]bool{}
+	nameOf := map[string]string{}
+	for _, cam := range c.Cameras {
+		configIDs[cam.ID] = true
+		nameOf[cam.ID] = cam.Name
+	}
+	resolve := func(slotCam string) string {
+		if configIDs[slotCam] {
+			return slotCam
+		}
+		for _, cam := range c.Cameras {
+			if cam.ID != "" && strings.HasSuffix(slotCam, ":"+cam.ID) {
+				return cam.ID
+			}
+		}
+		return slotCam
+	}
+
+	// Aggregate into: camID → slot15(0-95) → vehicleClass → count.
+	// slot15 = hour*4 + minute/15 (96 slots per day, each 15 minutes).
+	type slot15Data struct {
+		car, motorcycle, bus, truck, total int
+	}
+	byCamera := map[string][96]slot15Data{}
+	slotName := map[string]string{}
+
+	for _, sl := range slots {
+		var h, m int
+		fmt.Sscanf(sl.T, "%d:%d", &h, &m)
+		idx := h*4 + m/15
+		if idx < 0 || idx >= 96 {
+			continue
+		}
+		camID := resolve(sl.Cam)
+		row := byCamera[camID]
+		row[idx].total += sl.N
+		for dir, classes := range sl.DT {
+			_ = dir
+			for cls, cnt := range classes {
+				switch cls {
+				case "car":
+					row[idx].car += cnt
+				case "motorcycle":
+					row[idx].motorcycle += cnt
+				case "bus":
+					row[idx].bus += cnt
+				case "truck":
+					row[idx].truck += cnt
+				}
+			}
+		}
+		byCamera[camID] = row
+		if _, ok := slotName[camID]; !ok {
+			name := nameOf[camID]
+			if name == "" {
+				name = sl.Name
+			}
+			slotName[camID] = name
+		}
+	}
+
+	// Build camera order: config order first, then any remaining.
+	ordered := make([]string, 0, len(byCamera))
+	for _, cam := range c.Cameras {
+		if _, ok := byCamera[cam.ID]; ok {
+			ordered = append(ordered, cam.ID)
+		}
+	}
+	for id := range byCamera {
+		found := false
+		for _, o := range ordered {
+			if o == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			ordered = append(ordered, id)
+		}
+	}
+
+	filename := "counting_" + date + ".csv"
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+
+	// BOM for Excel Vietnamese UTF-8 display.
+	w.Write([]byte("\xEF\xBB\xBF"))
+	fmt.Fprintln(w, "Camera ID;Tên camera;Khung giờ;Ô tô;Xe máy;Xe buýt;Xe tải;Tổng")
+
+	for _, camID := range ordered {
+		rows := byCamera[camID]
+		name := slotName[camID]
+		for i := 0; i < 96; i++ {
+			h := i / 4
+			m := (i % 4) * 15
+			label := fmt.Sprintf("%02d:%02d-%02d:%02d", h, m, h, m+15)
+			if m+15 == 60 {
+				label = fmt.Sprintf("%02d:%02d-%02d:00", h, m, h+1)
+			}
+			d := rows[i]
+			fmt.Fprintf(w, "%s;%s;%s;%d;%d;%d;%d;%d\n",
+				camID, name, label, d.car, d.motorcycle, d.bus, d.truck, d.total)
+		}
+	}
 }

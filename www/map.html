@@ -621,24 +621,58 @@ body.sb-collapsed           { --map-left:0; }
           <input id="stmTypeName" type="text" placeholder="e.g. Quốc lộ"
                  style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;color:var(--text);font-size:.84rem;box-sizing:border-box;outline:none">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.45rem">
-          <div>
-            <label style="font-size:.7rem;color:#eab308;font-weight:700">🟡 Ngưỡng vàng</label>
-            <input id="stmTypeYellow" type="number" min="0" placeholder="500"
-                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
-            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/giờ</div>
+        <!-- Grouping selector -->
+        <div>
+          <label style="font-size:.73rem;color:var(--text-muted)">Hiển thị theo khung</label>
+          <div style="display:flex;gap:.4rem;margin-top:.3rem">
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.8rem;cursor:pointer">
+              <input type="radio" name="stmTypeGrouping" id="stmGrouping1h"  value="1h"    checked> 1 giờ
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.8rem;cursor:pointer">
+              <input type="radio" name="stmTypeGrouping" id="stmGrouping15m" value="15min"> 15 phút
+            </label>
           </div>
-          <div>
-            <label style="font-size:.7rem;color:#f97316;font-weight:700">🟠 Ngưỡng cam</label>
-            <input id="stmTypeOrange" type="number" min="0" placeholder="1000"
-                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
-            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/giờ</div>
+        </div>
+        <!-- 1-hour thresholds -->
+        <div id="stmThresh1h">
+          <div style="font-size:.7rem;color:var(--text-muted);margin-bottom:.3rem;font-weight:600">Ngưỡng màu — lượt/giờ</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.45rem">
+            <div>
+              <label style="font-size:.7rem;color:#eab308;font-weight:700">🟡 Vàng</label>
+              <input id="stmTypeYellow" type="number" min="0" placeholder="500"
+                     style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            </div>
+            <div>
+              <label style="font-size:.7rem;color:#f97316;font-weight:700">🟠 Cam</label>
+              <input id="stmTypeOrange" type="number" min="0" placeholder="1000"
+                     style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            </div>
+            <div>
+              <label style="font-size:.7rem;color:#ef4444;font-weight:700">🔴 Đỏ</label>
+              <input id="stmTypeRed" type="number" min="0" placeholder="2000"
+                     style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            </div>
           </div>
-          <div>
-            <label style="font-size:.7rem;color:#ef4444;font-weight:700">🔴 Ngưỡng đỏ</label>
-            <input id="stmTypeRed" type="number" min="0" placeholder="2000"
-                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
-            <div style="font-size:.63rem;color:var(--text-muted);margin-top:2px">lượt/giờ</div>
+        </div>
+        <!-- 15-min thresholds -->
+        <div id="stmThresh15m" style="display:none">
+          <div style="font-size:.7rem;color:var(--text-muted);margin-bottom:.3rem;font-weight:600">Ngưỡng màu — lượt/15 phút</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.45rem">
+            <div>
+              <label style="font-size:.7rem;color:#eab308;font-weight:700">🟡 Vàng</label>
+              <input id="stmType15Yellow" type="number" min="0" placeholder="125"
+                     style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            </div>
+            <div>
+              <label style="font-size:.7rem;color:#f97316;font-weight:700">🟠 Cam</label>
+              <input id="stmType15Orange" type="number" min="0" placeholder="250"
+                     style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            </div>
+            <div>
+              <label style="font-size:.7rem;color:#ef4444;font-weight:700">🔴 Đỏ</label>
+              <input id="stmType15Red" type="number" min="0" placeholder="500"
+                     style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box;outline:none">
+            </div>
           </div>
         </div>
         <!-- Quick-add cameras -->
@@ -1943,12 +1977,32 @@ function stnTypeByID(id) {
   return _stationTypes.find(t => t.id === id) || null;
 }
 
-function stnColor(total, typeID) {
+// "07:15-07:30" label for the 15-min window containing hour h, minute m.
+function stnWindow15Label(h, m) {
+  const s = Math.floor(m / 15) * 15;
+  const e = s + 15;
+  const pad = n => String(n).padStart(2, '0');
+  if (e === 60) return pad(h) + ':' + pad(s) + '-' + pad(h + 1) + ':00';
+  return pad(h) + ':' + pad(s) + '-' + pad(h) + ':' + pad(e);
+}
+
+// Returns the display value (count) for a station based on its type's grouping.
+function stnValue(rec, typeID) {
+  const t = stnTypeByID(typeID);
+  if (t && t.grouping === '15min') return rec.slot15 || 0;
+  return rec.hour || 0;
+}
+
+function stnColor(val, typeID) {
   const t = stnTypeByID(typeID);
   if (!t) return '#6b7280';
-  if (total >= t.thresh_red)    return '#ef4444';
-  if (total >= t.thresh_orange) return '#f97316';
-  if (total >= t.thresh_yellow) return '#eab308';
+  const is15 = t.grouping === '15min';
+  const r = is15 ? (t.thresh_15_red    || 0) : (t.thresh_red    || 0);
+  const o = is15 ? (t.thresh_15_orange || 0) : (t.thresh_orange || 0);
+  const y = is15 ? (t.thresh_15_yellow || 0) : (t.thresh_yellow || 0);
+  if (r > 0 && val >= r) return '#ef4444';
+  if (o > 0 && val >= o) return '#f97316';
+  if (y > 0 && val >= y) return '#eab308';
   return '#22c55e';
 }
 
@@ -1984,30 +2038,37 @@ async function refreshStnCounts() {
     const summary = await apiFetch('/api/counting/summary?date=' + today);
     applyStnSummary(Array.isArray(summary) ? summary : [], curH);
   } catch (_) { return; }
+  const curM = new Date().getMinutes();
   _stations.forEach(stn => {
     const entry = _stationMkrs[stn.id];
     if (!entry) return;
-    const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
-    const hourV = rec.hour;
-    const n     = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
-    const color = stnColor(hourV, stn.type_id);
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, slot15: 0, total: 0 };
+    const t     = stnTypeByID(stn.type_id);
+    const is15  = t && t.grouping === '15min';
+    const val   = stnValue(rec, stn.type_id);
+    const color = stnColor(val, stn.type_id);
     const lbl   = stn.label || stn.camera_id;
-    const type  = stnTypeByID(stn.type_id);
-    entry.el.textContent       = n;
-    entry.el.style.background  = color;
-    entry.el.title = lbl + (type ? ' [' + type.name + ']' : '')
-      + '\nKhung gio ' + curH + ':00-' + (curH + 1) + ':00 — ' + hourV.toLocaleString() + ' luot'
+    const n     = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : String(val);
+    const windowStr = is15 ? stnWindow15Label(curH, curM) : (curH + ':00-' + (curH + 1) + ':00');
+    entry.el.textContent      = n;
+    entry.el.style.background = color;
+    entry.el.title = lbl + (t ? ' [' + t.name + ']' : '')
+      + '\nKhung gio ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
       + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
   });
 }
 
 function applyStnSummary(summary, currentHour) {
+  const now = new Date();
+  const curSlot15 = currentHour * 4 + Math.floor(now.getMinutes() / 15);
   _stnSummary = {};
   summary.forEach(hs => {
     _stnSummary[hs.cameraId] = {
-      hour:  (hs.hours && hs.hours[currentHour]) || 0,
-      total: hs.total || 0,
-      hours: hs.hours || [],
+      hour:    (hs.hours   && hs.hours[currentHour]) || 0,
+      slot15:  (hs.slots15 && hs.slots15[curSlot15]) || 0,
+      total:   hs.total || 0,
+      hours:   hs.hours   || [],
+      slots15: hs.slots15 || [],
     };
   });
 }
@@ -2017,19 +2078,25 @@ function buildStnMarkers() {
   Object.values(_stationMkrs).forEach(m => m.marker.remove());
   _stationMkrs = {};
   if (!map) return;
-  const curH = new Date().getHours();
+  const _now = new Date();
+  const curH  = _now.getHours();
+  const curM  = _now.getMinutes();
   _stations.forEach(stn => {
-    const rec   = _stnSummary[stn.camera_id] || { hour: 0, total: 0 };
-    const hourV = rec.hour;
-    const color = stnColor(hourV, stn.type_id);
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, slot15: 0, total: 0 };
+    const t     = stnTypeByID(stn.type_id);
+    const is15  = t && t.grouping === '15min';
+    const val   = stnValue(rec, stn.type_id);
+    const color = stnColor(val, stn.type_id);
     const lbl   = stn.label || stn.camera_id;
-    const type  = stnTypeByID(stn.type_id);
-    const n = hourV >= 1000 ? (hourV / 1000).toFixed(1) + 'k' : String(hourV);
+    const n = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : String(val);
+    const windowStr = is15
+      ? stnWindow15Label(curH, curM)
+      : (curH + ':00-' + (curH + 1) + ':00');
     const el = document.createElement('div');
     el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
     el.style.background = color;
-    el.title = lbl + (type ? ' [' + type.name + ']' : '')
-      + '\nKhung gio ' + curH + ':00-' + (curH + 1) + ':00 — ' + hourV.toLocaleString() + ' luot'
+    el.title = lbl + (t ? ' [' + t.name + ']' : '')
+      + '\nKhung gio ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
       + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
     el.textContent = n;
     const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
@@ -2176,16 +2243,32 @@ function renderStnTypeMgrList() {
 function openTypeEditor(t) {
   _editingTypeID = t ? t.id : null;
   renderStnTypeMgrList();
-  document.getElementById('stmTypeName').value   = t ? t.name            : '';
-  document.getElementById('stmTypeYellow').value = t ? t.thresh_yellow   : '';
-  document.getElementById('stmTypeOrange').value = t ? t.thresh_orange   : '';
-  document.getElementById('stmTypeRed').value    = t ? t.thresh_red      : '';
+  document.getElementById('stmTypeName').value     = t ? t.name          : '';
+  document.getElementById('stmTypeYellow').value   = t ? t.thresh_yellow : '';
+  document.getElementById('stmTypeOrange').value   = t ? t.thresh_orange : '';
+  document.getElementById('stmTypeRed').value      = t ? t.thresh_red    : '';
+  document.getElementById('stmType15Yellow').value = t ? t.thresh_15_yellow : '';
+  document.getElementById('stmType15Orange').value = t ? t.thresh_15_orange : '';
+  document.getElementById('stmType15Red').value    = t ? t.thresh_15_red    : '';
+  const grouping = (t && t.grouping) || '1h';
+  document.getElementById('stmGrouping1h').checked  = grouping !== '15min';
+  document.getElementById('stmGrouping15m').checked = grouping === '15min';
+  syncGroupingUI();
   document.getElementById('stmTypeDelete').style.display = t ? '' : 'none';
   document.getElementById('stnTypeMgrEditor').style.display = 'flex';
   document.getElementById('stnTypeMgrEmpty').style.display  = 'none';
   document.getElementById('stmCamAddInfo').textContent = '';
   renderStmCamList('');
 }
+
+function syncGroupingUI() {
+  const is15 = document.getElementById('stmGrouping15m').checked;
+  document.getElementById('stmThresh1h').style.display  = is15 ? 'none' : '';
+  document.getElementById('stmThresh15m').style.display = is15 ? '' : 'none';
+}
+document.querySelectorAll('input[name="stmTypeGrouping"]').forEach(r =>
+  r.addEventListener('change', syncGroupingUI)
+);
 
 function renderStmCamList(filter) {
   const list = document.getElementById('stmCamList');
@@ -2260,12 +2343,20 @@ document.getElementById('stmCamAddBtn').addEventListener('click', async () => {
 document.getElementById('btnStnTypeNew').addEventListener('click', () => openTypeEditor(null));
 
 document.getElementById('stmTypeSave').addEventListener('click', async () => {
-  const name   = document.getElementById('stmTypeName').value.trim();
-  const yellow = parseInt(document.getElementById('stmTypeYellow').value) || 0;
-  const orange = parseInt(document.getElementById('stmTypeOrange').value) || 0;
-  const red    = parseInt(document.getElementById('stmTypeRed').value)    || 0;
+  const name     = document.getElementById('stmTypeName').value.trim();
+  const grouping = document.getElementById('stmGrouping15m').checked ? '15min' : '1h';
+  const yellow   = parseInt(document.getElementById('stmTypeYellow').value)   || 0;
+  const orange   = parseInt(document.getElementById('stmTypeOrange').value)   || 0;
+  const red      = parseInt(document.getElementById('stmTypeRed').value)      || 0;
+  const y15      = parseInt(document.getElementById('stmType15Yellow').value) || 0;
+  const o15      = parseInt(document.getElementById('stmType15Orange').value) || 0;
+  const r15      = parseInt(document.getElementById('stmType15Red').value)    || 0;
   if (!name) { toast('Vui long nhap ten loai tram', 'error'); return; }
-  const body = { name, thresh_yellow: yellow, thresh_orange: orange, thresh_red: red };
+  const body = {
+    name, grouping,
+    thresh_yellow: yellow, thresh_orange: orange, thresh_red: red,
+    thresh_15_yellow: y15, thresh_15_orange: o15, thresh_15_red: r15,
+  };
   try {
     let saved;
     if (_editingTypeID) {
