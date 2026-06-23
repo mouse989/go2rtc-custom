@@ -89,16 +89,21 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responseJSON(w, map[string]interface{}{
-		"username":              user.Username,
-		"role":                  user.Role,
-		"streams":               user.Streams,
-		"allow_traffic":         user.AllowTraffic,
-		"allow_heatmap":         user.AllowHeatmap,
-		"allow_map_edit":        user.AllowMapEdit,
-		"allow_cam_names":       user.AllowCamNames,
-		"allow_view_stations":   user.AllowViewStations,
-		"allow_config_stations": user.AllowConfigStations,
-		"tabs":                  user.EffectiveTabs(),
+		"username":                user.Username,
+		"role":                    user.Role,
+		"streams":                 user.Streams,
+		"allow_traffic":           user.AllowTraffic,
+		"allow_heatmap":           user.AllowHeatmap,
+		"allow_map_edit":          user.AllowMapEdit,
+		"allow_cam_names":         user.AllowCamNames,
+		"allow_view_stations":     user.AllowViewStations,
+		"allow_config_stations":   user.AllowConfigStations,
+		"allow_monitor_workers":   user.AllowMonitorWorkers,
+		"allow_monitor_process":   user.AllowMonitorProcess,
+		"allow_monitor_streaming": user.AllowMonitorStreaming,
+		"allow_monitor_snapshot":  user.AllowMonitorSnapshot,
+		"allow_monitor_devices":   user.AllowMonitorDevices,
+		"tabs":                    user.EffectiveTabs(),
 	})
 }
 
@@ -131,19 +136,24 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Username            string   `json:"username"`
-			Password            string   `json:"password"`
-			Role                string   `json:"role"`
-			Streams             []string `json:"streams"`
-			AllowPaths          []string `json:"allow_paths"`
-			Tabs                []string `json:"tabs"`
-			Enabled             *bool    `json:"enabled"`
-			AllowTraffic        bool     `json:"allow_traffic"`
-			AllowHeatmap        bool     `json:"allow_heatmap"`
-			AllowMapEdit        bool     `json:"allow_map_edit"`
-			AllowCamNames       bool     `json:"allow_cam_names"`
-			AllowViewStations   bool     `json:"allow_view_stations"`
-			AllowConfigStations bool     `json:"allow_config_stations"`
+			Username              string   `json:"username"`
+			Password              string   `json:"password"`
+			Role                  string   `json:"role"`
+			Streams               []string `json:"streams"`
+			AllowPaths            []string `json:"allow_paths"`
+			Tabs                  []string `json:"tabs"`
+			Enabled               *bool    `json:"enabled"`
+			AllowTraffic          bool     `json:"allow_traffic"`
+			AllowHeatmap          bool     `json:"allow_heatmap"`
+			AllowMapEdit          bool     `json:"allow_map_edit"`
+			AllowCamNames         bool     `json:"allow_cam_names"`
+			AllowViewStations     bool     `json:"allow_view_stations"`
+			AllowConfigStations   bool     `json:"allow_config_stations"`
+			AllowMonitorWorkers   bool     `json:"allow_monitor_workers"`
+			AllowMonitorProcess   bool     `json:"allow_monitor_process"`
+			AllowMonitorStreaming bool     `json:"allow_monitor_streaming"`
+			AllowMonitorSnapshot  bool     `json:"allow_monitor_snapshot"`
+			AllowMonitorDevices   bool     `json:"allow_monitor_devices"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -161,18 +171,23 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			enabled = *req.Enabled
 		}
 		u := &User{
-			Username:            req.Username,
-			Role:                req.Role,
-			Streams:             req.Streams,
-			AllowPaths:          req.AllowPaths,
-			Tabs:                req.Tabs,
-			Enabled:             enabled,
-			AllowTraffic:        req.AllowTraffic,
-			AllowHeatmap:        req.AllowHeatmap,
-			AllowMapEdit:        req.AllowMapEdit,
-			AllowCamNames:       req.AllowCamNames,
-			AllowViewStations:   req.AllowViewStations,
-			AllowConfigStations: req.AllowConfigStations,
+			Username:              req.Username,
+			Role:                  req.Role,
+			Streams:               req.Streams,
+			AllowPaths:            req.AllowPaths,
+			Tabs:                  req.Tabs,
+			Enabled:               enabled,
+			AllowTraffic:          req.AllowTraffic,
+			AllowHeatmap:          req.AllowHeatmap,
+			AllowMapEdit:          req.AllowMapEdit,
+			AllowCamNames:         req.AllowCamNames,
+			AllowViewStations:     req.AllowViewStations,
+			AllowConfigStations:   req.AllowConfigStations,
+			AllowMonitorWorkers:   req.AllowMonitorWorkers,
+			AllowMonitorProcess:   req.AllowMonitorProcess,
+			AllowMonitorStreaming: req.AllowMonitorStreaming,
+			AllowMonitorSnapshot:  req.AllowMonitorSnapshot,
+			AllowMonitorDevices:   req.AllowMonitorDevices,
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -192,18 +207,23 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Password            string   `json:"password"`
-			Role                string   `json:"role"`
-			Streams             []string `json:"streams"`
-			AllowPaths          []string `json:"allow_paths"`
-			Tabs                []string `json:"tabs"`
-			Enabled             *bool    `json:"enabled"`
-			AllowTraffic        *bool    `json:"allow_traffic"`
-			AllowHeatmap        *bool    `json:"allow_heatmap"`
-			AllowMapEdit        *bool    `json:"allow_map_edit"`
-			AllowCamNames       *bool    `json:"allow_cam_names"`
-			AllowViewStations   *bool    `json:"allow_view_stations"`
-			AllowConfigStations *bool    `json:"allow_config_stations"`
+			Password              string   `json:"password"`
+			Role                  string   `json:"role"`
+			Streams               []string `json:"streams"`
+			AllowPaths            []string `json:"allow_paths"`
+			Tabs                  []string `json:"tabs"`
+			Enabled               *bool    `json:"enabled"`
+			AllowTraffic          *bool    `json:"allow_traffic"`
+			AllowHeatmap          *bool    `json:"allow_heatmap"`
+			AllowMapEdit          *bool    `json:"allow_map_edit"`
+			AllowCamNames         *bool    `json:"allow_cam_names"`
+			AllowViewStations     *bool    `json:"allow_view_stations"`
+			AllowConfigStations   *bool    `json:"allow_config_stations"`
+			AllowMonitorWorkers   *bool    `json:"allow_monitor_workers"`
+			AllowMonitorProcess   *bool    `json:"allow_monitor_process"`
+			AllowMonitorStreaming *bool    `json:"allow_monitor_streaming"`
+			AllowMonitorSnapshot  *bool    `json:"allow_monitor_snapshot"`
+			AllowMonitorDevices   *bool    `json:"allow_monitor_devices"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -246,6 +266,21 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowConfigStations != nil {
 			existing.AllowConfigStations = *req.AllowConfigStations
+		}
+		if req.AllowMonitorWorkers != nil {
+			existing.AllowMonitorWorkers = *req.AllowMonitorWorkers
+		}
+		if req.AllowMonitorProcess != nil {
+			existing.AllowMonitorProcess = *req.AllowMonitorProcess
+		}
+		if req.AllowMonitorStreaming != nil {
+			existing.AllowMonitorStreaming = *req.AllowMonitorStreaming
+		}
+		if req.AllowMonitorSnapshot != nil {
+			existing.AllowMonitorSnapshot = *req.AllowMonitorSnapshot
+		}
+		if req.AllowMonitorDevices != nil {
+			existing.AllowMonitorDevices = *req.AllowMonitorDevices
 		}
 		if err := UpdateUser(existing, req.Password); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
