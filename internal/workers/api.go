@@ -167,7 +167,9 @@ func handleWorkers(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/workers/status → all worker statuses
 func handleWorkersStatus(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok || (user.Role != auth.RoleAdmin && !user.AllowMonitorWorkers) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if r.Method != http.MethodGet {
