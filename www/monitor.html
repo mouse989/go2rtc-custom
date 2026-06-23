@@ -659,25 +659,30 @@ function render(s) {
     ctx.stroke();
   }
 
-  // Process
-  document.getElementById('goVer').textContent       = s.go_version || '—';
-  document.getElementById('goRoutines').textContent  = s.goroutines || 0;
-  document.getElementById('goAlloc').textContent     = fmtBytes(s.go_mem_alloc || 0);
-  document.getElementById('goSys').textContent       = fmtBytes(s.go_mem_sys   || 0);
-  document.getElementById('goCores').textContent     = s.go_num_cpu || '—';
-  if (s.start_time) {
-    const procSec = Math.floor(Date.now() / 1000 - s.start_time);
-    document.getElementById('procUptime').textContent = fmtDuration(procSec);
+  // Process (card may be removed if user lacks allow_monitor_process)
+  const _goVer = document.getElementById('goVer');
+  if (_goVer) {
+    _goVer.textContent = s.go_version || '—';
+    document.getElementById('goRoutines').textContent  = s.goroutines || 0;
+    document.getElementById('goAlloc').textContent     = fmtBytes(s.go_mem_alloc || 0);
+    document.getElementById('goSys').textContent       = fmtBytes(s.go_mem_sys   || 0);
+    document.getElementById('goCores').textContent     = s.go_num_cpu || '—';
+    if (s.start_time) {
+      const procSec = Math.floor(Date.now() / 1000 - s.start_time);
+      document.getElementById('procUptime').textContent = fmtDuration(procSec);
+    }
   }
 
-  // Streaming & Users
-  document.getElementById('susers').textContent = s.active_users ?? 0;
-  document.getElementById('sviews').textContent = s.stream_consumers ?? 0;
-  document.getElementById('scams').textContent  =
-    `${s.streams_active ?? 0} / ${s.streams_total ?? 0}`;
-  document.getElementById('stotal').textContent = s.streams_total ?? 0;
-  document.getElementById('tfFiles').textContent = s.traffic_files ?? 0;
-  document.getElementById('tfSize').textContent  = fmtBytes(s.traffic_bytes || 0);
+  // Streaming & Users (card may be removed if user lacks allow_monitor_streaming)
+  const _susers = document.getElementById('susers');
+  if (_susers) {
+    _susers.textContent = s.active_users ?? 0;
+    document.getElementById('sviews').textContent  = s.stream_consumers ?? 0;
+    document.getElementById('scams').textContent   = `${s.streams_active ?? 0} / ${s.streams_total ?? 0}`;
+    document.getElementById('stotal').textContent  = s.streams_total ?? 0;
+    document.getElementById('tfFiles').textContent = s.traffic_files ?? 0;
+    document.getElementById('tfSize').textContent  = fmtBytes(s.traffic_bytes || 0);
+  }
 
   // Update main server card in the overview grid (live at 3s rate)
   renderSrvCards(s);
