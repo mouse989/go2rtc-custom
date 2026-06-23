@@ -408,6 +408,10 @@ body.sb-collapsed           { --map-left:0; }
 
   <div class="cam-list" id="camList">
     <div class="list-section">On map (<span id="cntLocated">0</span>)</div>
+    <div style="padding:.35rem .5rem .1rem">
+      <input type="text" id="camSearchInput" placeholder="🔍 Tìm tên camera…" oninput="filterCamList()"
+        style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .55rem;color:var(--text);font-size:.76rem;outline:none;transition:border-color .15s">
+    </div>
     <div id="listLocated"></div>
     <div class="list-section admin-only" id="secUnplaced" style="display:none">
       Unplaced (<span id="cntUnplaced">0</span>)
@@ -453,6 +457,10 @@ body.sb-collapsed           { --map-left:0; }
 
 <!-- ── Floating toolbar ──────────────────────────────────────── -->
 <div id="mapToolbar">
+  <button class="map-btn" id="btnNorth" title="Reset hướng bản đồ về Bắc" onclick="if(map)map.resetNorth()">
+    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M10 2a1 1 0 01.894.553l7 14A1 1 0 0117 18H3a1 1 0 01-.894-1.447l7-14A1 1 0 0110 2zm0 3.236L4.618 16h10.764L10 5.236z" clip-rule="evenodd"/></svg>
+    Bắc
+  </button>
   <button class="map-btn" id="btnSearch">
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
     Search area
@@ -1470,6 +1478,7 @@ function buildSidebar() {
     }));
   });
   document.getElementById('cntLocated').textContent = sortedLocs.length;
+  filterCamList();
 
   if (_isAdmin) {
     const ups = _allStreams
@@ -1485,6 +1494,13 @@ function buildSidebar() {
       });
     } else { secUp.style.display='none'; }
   }
+}
+
+function filterCamList() {
+  const q = (document.getElementById('camSearchInput')?.value || '').toLowerCase().trim();
+  document.querySelectorAll('#listLocated .cam-item').forEach(el => {
+    el.style.display = q === '' || el.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
 }
 
 function mkCamItem(label, located, inRadius, onClick) {

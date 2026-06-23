@@ -179,7 +179,7 @@ func HasTab(ctx context.Context, tab string) bool {
 // tabExtraPaths maps tab keys to API paths accessible only to users with that tab.
 // These are checked in addition to viewerDefaultPaths.
 var tabExtraPaths = map[string][]string{
-	TabMonitor:   {"/api/proxy/snapshot-stats", "/api/device-stats", "/api/system/stats", "/api/system/activity"},
+	TabMonitor:   {"/api/system/stats"},
 	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg"},
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
@@ -235,6 +235,29 @@ func userCanAccessPath(u *User, path string) bool {
 	if u.AllowConfigStations {
 		if strings.HasPrefix(path, "/api/counting/cameras") {
 			return true
+		}
+	}
+	// Monitor sub-permissions
+	if slices.Contains(u.EffectiveTabs(), TabMonitor) {
+		if u.AllowMonitorStreaming {
+			if strings.HasPrefix(path, "/api/system/activity") {
+				return true
+			}
+		}
+		if u.AllowMonitorSnapshot {
+			if strings.HasPrefix(path, "/api/proxy/snapshot-stats") {
+				return true
+			}
+		}
+		if u.AllowMonitorDevices {
+			if strings.HasPrefix(path, "/api/device-stats") {
+				return true
+			}
+		}
+		if u.AllowMonitorWorkers {
+			if strings.HasPrefix(path, "/api/workers/status") {
+				return true
+			}
 		}
 	}
 	return false

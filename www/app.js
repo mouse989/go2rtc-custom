@@ -67,6 +67,12 @@ function canConfigStations() {
   return u && (u.role === 'admin' || !!u.allow_config_stations);
 }
 
+function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
+function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
+function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }
+function canMonitorSnapshot()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_snapshot); }
+function canMonitorDevices()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_devices); }
+
 // hasTab returns true if the current user has permission for the given page tab.
 // Admin always returns true; viewer checks the tabs array from /api/auth/me.
 function hasTab(tab) {

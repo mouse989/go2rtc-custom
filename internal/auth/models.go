@@ -37,6 +37,12 @@ type User struct {
 	AllowCamNames       bool     `json:"allow_cam_names"`       // can see real camera names (like admin)
 	AllowViewStations   bool     `json:"allow_view_stations"`   // can view traffic counting station data on map
 	AllowConfigStations bool     `json:"allow_config_stations"` // can add/edit/delete stations and station types
+	// Monitor sub-permissions (only meaningful when user has monitor tab)
+	AllowMonitorWorkers  bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
+	AllowMonitorProcess  bool `json:"allow_monitor_process"`   // xem go2rtc process
+	AllowMonitorStreaming bool `json:"allow_monitor_streaming"` // xem streaming & users
+	AllowMonitorSnapshot bool `json:"allow_monitor_snapshot"`  // xem snapshot status
+	AllowMonitorDevices  bool `json:"allow_monitor_devices"`   // xem giám sát thiết bị
 }
 
 // EffectiveTabs returns the full resolved tab list for this user.
