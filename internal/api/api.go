@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/rs/zerolog"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 func Init() {
@@ -30,6 +32,13 @@ func Init() {
 			TLSCert    string `yaml:"tls_cert"`
 			TLSKey     string `yaml:"tls_key"`
 			UnixListen string `yaml:"unix_listen"`
+
+			// ACME / Let's Encrypt auto-cert.
+			// Set acme_domain + acme_email to enable. A temporary HTTP server
+			// on :80 handles the HTTP-01 challenge; certs are stored in
+			// <config_dir>/certs/ and auto-renewed before expiry.
+			ACMEDomain string `yaml:"acme_domain"` // e.g. "nvr.example.com"
+			ACMEEmail  string `yaml:"acme_email"`  // contact email for Let's Encrypt
 
 			AllowPaths []string `yaml:"allow_paths"`
 		} `yaml:"api"`
@@ -87,6 +96,11 @@ func Init() {
 	if cfg.Mod.TLSListen != "" && cfg.Mod.TLSCert != "" && cfg.Mod.TLSKey != "" {
 		go tlsListen("tcp", cfg.Mod.TLSListen, cfg.Mod.TLSCert, cfg.Mod.TLSKey)
 	}
+
+	// ACME / Let's Encrypt auto-cert (takes priority over manual tls_cert/tls_key).
+	if cfg.Mod.ACMEDomain != "" {
+		go acmeListen(cfg.Mod.ACMEDomain, cfg.Mod.ACMEEmail, cfg.Mod.TLSListen)
+	}
 }
 
 func listen(network, address string) {
@@ -138,6 +152,73 @@ func tlsListen(network, address, certFile, keyFile string) {
 	if err = server.ServeTLS(ln, "", ""); err != nil {
 		log.Fatal().Err(err).Msg("[api] tls serve")
 	}
+}
+
+// acmeListen obtains and auto-renews a Let's Encrypt certificate for domain,
+// serves HTTPS on httpsAddr (default ":443"), and runs a temporary HTTP server
+// on :80 solely to answer HTTP-01 ACME challenges.
+//
+// Certificates are cached in <config_dir>/certs/ so they survive restarts.
+// Renewal happens automatically in the background ~30 days before expiry.
+func acmeListen(domain, email, httpsAddr string) {
+	if httpsAddr == "" {
+		httpsAddr = ":443"
+	}
+
+	cacheDir := "certs"
+	if d := app.ConfigPath; d != "" {
+		cacheDir = filepath.Join(filepath.Dir(d), "certs")
+	}
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		log.Error().Err(err).Msg("[acme] cannot create cert cache dir")
+		return
+	}
+
+	m := &autocert.Manager{
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: autocert.HostWhitelist(domain),
+		Cache:      autocert.DirCache(cacheDir),
+		Email:      email,
+	}
+
+	// HTTP server on :80 — serves ONLY ACME challenge tokens; all other paths
+	// return 301 redirect to HTTPS. Windows Firewall must allow port 80 inbound.
+	httpSrv := &http.Server{
+		Addr:              ":80",
+		Handler:           m.HTTPHandler(http.HandlerFunc(redirectHTTPS)),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		log.Info().Str("domain", domain).Msg("[acme] HTTP challenge listener :80")
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("[acme] HTTP :80 failed — ACME challenges will not work; ensure port 80 is open")
+		}
+	}()
+
+	tlsCfg := m.TLSConfig()
+	tlsCfg.MinVersion = tls.VersionTLS12
+
+	ln, err := net.Listen("tcp", httpsAddr)
+	if err != nil {
+		log.Error().Err(err).Str("addr", httpsAddr).Msg("[acme] HTTPS listen failed")
+		return
+	}
+
+	log.Info().Str("domain", domain).Str("addr", httpsAddr).Msg("[acme] HTTPS server ready")
+
+	srv := &http.Server{
+		Handler:           Handler,
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	if err = srv.ServeTLS(ln, "", ""); err != nil {
+		log.Fatal().Err(err).Msg("[acme] HTTPS serve")
+	}
+}
+
+func redirectHTTPS(w http.ResponseWriter, r *http.Request) {
+	target := "https://" + r.Host + r.RequestURI
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
 }
 
 var Port int
