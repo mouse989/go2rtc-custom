@@ -12,6 +12,7 @@ Each camera gets a dedicated background thread that:
 
 import argparse
 import asyncio
+import datetime
 import io
 import json
 import logging
@@ -331,8 +332,16 @@ class CameraState:
         cap = None
         frame_interval = 1.0 / self._effective_fps()
         last_frame_time = 0.0
+        _current_day = datetime.date.today()
 
         while not self._stop_event.is_set():
+            # Reset tracker at midnight so object IDs start from 1 each day.
+            today = datetime.date.today()
+            if today != _current_day:
+                _current_day = today
+                self.tracker = Tracker()
+                logger.info(f"[{self.config.id}] midnight: tracker ID counter reset to 1")
+
             # Open/reopen capture
             if cap is None or not cap.isOpened():
                 if cap is not None:
