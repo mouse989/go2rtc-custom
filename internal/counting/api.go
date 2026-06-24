@@ -731,11 +731,14 @@ func handleTrainStatus(w http.ResponseWriter, r *http.Request) {
 	proxyGet(w, yoloURL+"/train/status")
 }
 
-// GET /api/counting/models — pretrained base names already shown in counting.html
-// plus any custom weights found under yolo_counter's models/ dir (populated by
-// training, see /train in counter.py).
+// GET /api/counting/models?worker=id — list base + custom trained weight files.
+// When worker= is set, proxies to that worker's /api/counting/models.
 func handleModels(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodGet, "/api/counting/models", nil, "")
 		return
 	}
 	yoloURL := getConfig().YoloURL
