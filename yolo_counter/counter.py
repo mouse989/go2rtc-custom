@@ -1356,6 +1356,7 @@ if __name__ == "__main__":
         from ultralytics import YOLO
         YOLO(job["model"]).train(
             data=job["data"], epochs=job["epochs"], imgsz=job["imgsz"], batch=job["batch"],
+            workers=0,  # disable multiprocessing dataloaders — avoids WinError 1455 on Windows GPU
         )
         sys.exit(0)
 
