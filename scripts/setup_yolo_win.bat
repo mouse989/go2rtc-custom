@@ -181,6 +181,18 @@ ECHO --- PyTorch selection: %TORCH_DESC% ---
 ECHO.
 
 REM ── Create Python venv ────────────────────────────────────────────────────
+REM Always delete any existing venv so pip installs the correct torch CUDA
+REM version from scratch.  Reusing an old venv keeps stale torch wheels
+REM (e.g. cu126 from a previous run) and pip will not downgrade them.
+ECHO --- Removing old yolo_venv (if any) ---
+IF EXIST "%DEPLOY%\yolo_venv" (
+    RMDIR /S /Q "%DEPLOY%\yolo_venv"
+    IF ERRORLEVEL 1 (
+        ECHO [warn] Could not remove old venv -- it may be in use.
+        ECHO        Close any terminals using it and retry.
+        GOTO error
+    )
+)
 ECHO --- Creating Python venv in %DEPLOY%\yolo_venv ---
 python -m venv "%DEPLOY%\yolo_venv"
 IF ERRORLEVEL 1 GOTO error
