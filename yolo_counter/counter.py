@@ -139,13 +139,37 @@ class Tracker:
     Primary matching signal is bounding-box IOU (robust when vehicles
     cross or overlap). Centroid distance is a secondary fallback for
     small/distant objects where IOU is naturally low.
+
+    Parameters
+    ----------
+    iou_min : float
+        Minimum IOU for a valid match.  Higher = stricter spatial overlap
+        required, fewer false merges between nearby vehicles.  (default 0.20)
+    dist_max : float
+        Centroid fallback radius in pixels.  Lower = tracks can't jump far
+        between frames.  (default 55)
+    max_missed : int
+        Frames a track may be absent before it is dropped.  Lower = IDs
+        disappear sooner when a vehicle exits or is occluded briefly.  (default 4)
+    class_penalty : float  0.0–1.0
+        Score multiplier applied when a detection's class differs from the
+        track's class.  0.0 = no penalty (class ignored).  1.0 = cross-class
+        match score is zeroed (strictly block class changes).  0.5 = score
+        halved, so a cross-class match must have 2× better IOU/distance to
+        win over a same-class candidate.  (default 0.5)
     """
 
-    IOU_MIN    = 0.20   # minimum IOU for a valid match (raised from 0.15 to reduce swaps)
-    DIST_MAX   = 55.0   # centroid fallback threshold px (lowered from 80 — tighter window)
-    MAX_MISSED = 4      # frames before a track is dropped (lowered from 5)
-
-    def __init__(self):
+    def __init__(
+        self,
+        iou_min: float = 0.20,
+        dist_max: float = 55.0,
+        max_missed: int = 4,
+        class_penalty: float = 0.50,
+    ):
+        self.iou_min       = iou_min
+        self.dist_max      = dist_max
+        self.max_missed    = max_missed
+        self.class_penalty = max(0.0, min(1.0, class_penalty))
         self._tracks: List[Track] = []
         self._next_id = 1
 
@@ -168,11 +192,18 @@ class Tracker:
                 cx, cy, _cls, dx1, dy1, dx2, dy2 = detections[idx]
                 iou = _iou(tr_box, (dx1, dy1, dx2, dy2))
                 dist = math.hypot(cx - tr.cx, cy - tr.cy)
-                dist_score = max(0.0, 1.0 - dist / self.DIST_MAX)
+                dist_score = max(0.0, 1.0 - dist / self.dist_max)
                 # IOU is the primary signal (scaled 2×); centroid is fallback
                 score = iou * 2.0 + dist_score
+                # Apply class penalty: cross-class matches score lower so that
+                # a same-class candidate is always preferred over a cross-class
+                # one unless it has a decisively better IOU/distance.
+                if (self.class_penalty > 0.0
+                        and tr.vehicle_class not in ('unknown', '')
+                        and _cls != tr.vehicle_class):
+                    score *= (1.0 - self.class_penalty)
                 # Reject pairs where BOTH signals are below threshold
-                if iou < self.IOU_MIN and dist > self.DIST_MAX:
+                if iou < self.iou_min and dist > self.dist_max:
                     continue
                 if score > best_score:
                     best_score = score
@@ -204,7 +235,7 @@ class Tracker:
             self._next_id += 1
 
         # Prune stale tracks
-        self._tracks = [tr for tr in self._tracks if tr.missed <= self.MAX_MISSED]
+        self._tracks = [tr for tr in self._tracks if tr.missed <= self.max_missed]
         return list(self._tracks)
 
 
@@ -262,12 +293,28 @@ class CameraConfig(BaseModel):
     frameWidth: int = 320
     yoloConf: float = 0.35
     rtspBase: str = ""  # override global --rtsp-base; used when stream lives on another server
+    # Tracker sensitivity — see Tracker docstring for meaning of each param
+    trackIouMin:      float = 0.20   # min IOU for spatial match (0.05–0.50)
+    trackDistMax:     float = 55.0   # centroid fallback radius in pixels (10–150)
+    trackMaxMissed:   int   = 4      # frames absent before track is dropped (1–15)
+    trackClassPenalty: float = 0.50  # 0=ignore class, 1=never swap class (0.0–1.0)
 
 
 @dataclass
 class CameraState:
     config: CameraConfig
-    tracker: Tracker = field(default_factory=Tracker)
+    tracker: Tracker = field(init=False)
+
+    def __post_init__(self):
+        self.tracker = self._make_tracker()
+
+    def _make_tracker(self) -> Tracker:
+        return Tracker(
+            iou_min=self.config.trackIouMin,
+            dist_max=self.config.trackDistMax,
+            max_missed=self.config.trackMaxMissed,
+            class_penalty=self.config.trackClassPenalty,
+        )
 
     # counts
     total: int = 0
@@ -339,7 +386,7 @@ class CameraState:
             today = datetime.date.today()
             if today != _current_day:
                 _current_day = today
-                self.tracker = Tracker()
+                self.tracker = self._make_tracker()
                 logger.info(f"[{self.config.id}] midnight: tracker ID counter reset to 1")
 
             # Open/reopen capture
