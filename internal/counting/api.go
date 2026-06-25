@@ -28,6 +28,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/cameras", handleCameras)
 	api.HandleFunc("api/counting/data", handleData)
 	api.HandleFunc("api/counting/summary", handleSummary)
+	api.HandleFunc("api/counting/rolling15", handleRolling15)
 	api.HandleFunc("api/counting/events", handleEvents)
 	api.HandleFunc("api/counting/debug", handleDebug)
 	api.HandleFunc("api/counting/stream", handleStream)
@@ -356,6 +357,50 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, summary)
+}
+
+// GET /api/counting/rolling15
+// Returns the vehicle count for each camera in a true rolling 15-minute window
+// ending at the current time. Sums all 5-minute Slot5 entries whose window
+// overlaps [now-15min, now] — typically 3-4 slots per camera.
+func handleRolling15(w http.ResponseWriter, r *http.Request) {
+	if !requireStationView(w, r) {
+		return
+	}
+	now := time.Now().Local()
+
+	type CamResult struct {
+		CameraID string `json:"cameraId"`
+		Count    int    `json:"count"`
+		From     string `json:"from"` // "HH:MM"
+		To       string `json:"to"`   // "HH:MM"
+	}
+
+	dateStr := now.Format("2006-01-02")
+	slots, _ := mgr.store.getSlots(dateStr, "")
+
+	camCount := make(map[string]int)
+	for _, sl := range slots {
+		var sh, sm int
+		if _, err := fmt.Sscanf(sl.T, "%d:%d", &sh, &sm); err != nil {
+			continue
+		}
+		slotStart := time.Date(now.Year(), now.Month(), now.Day(), sh, sm, 0, 0, now.Location())
+		slotEnd := slotStart.Add(5 * time.Minute)
+		// Include slot if it overlaps with [now-15min, now]
+		if slotEnd.After(now.Add(-15*time.Minute)) && !slotStart.After(now) {
+			camCount[sl.Cam] += sl.N
+		}
+	}
+
+	fromStr := now.Add(-15 * time.Minute).Format("15:04")
+	toStr := now.Format("15:04")
+
+	results := make([]CamResult, 0, len(camCount))
+	for camID, count := range camCount {
+		results = append(results, CamResult{CameraID: camID, Count: count, From: fromStr, To: toStr})
+	}
+	writeJSON(w, results)
 }
 
 // GET /api/counting/events?limit=N
