@@ -681,6 +681,32 @@
             Điều chỉnh nếu thấy ID nhảy giữa các loại xe hoặc mất track sớm.<br>
             Giá trị mặc định phù hợp cho hầu hết trường hợp.
           </div>
+          <!-- Velocity weight -->
+          <div style="margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
+              <label>🚀 Dự đoán vị trí theo vận tốc <span style="color:var(--text-muted);font-weight:400">(velocity weight)</span></label>
+              <span id="mVelWeightV" style="font-variant-numeric:tabular-nums;font-weight:600;min-width:32px;text-align:right">0.60</span>
+            </div>
+            <input type="range" id="mVelWeight" min="0" max="1" step="0.05" value="0.6"
+              oninput="document.getElementById('mVelWeightV').textContent=parseFloat(this.value).toFixed(2)"
+              style="width:100%">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted)">
+              <span>0 — dùng vị trí hiện tại</span><span>1 — dự đoán vị trí đầy đủ</span>
+            </div>
+          </div>
+          <!-- Min hits -->
+          <div style="margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
+              <label>✅ Xác nhận ID sau N frame <span style="color:var(--text-muted);font-weight:400">(min hits)</span></label>
+              <span id="mMinHitsV" style="font-variant-numeric:tabular-nums;font-weight:600;min-width:20px;text-align:right">2</span>
+            </div>
+            <input type="range" id="mMinHits" min="1" max="5" step="1" value="2"
+              oninput="document.getElementById('mMinHitsV').textContent=this.value"
+              style="width:100%">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted)">
+              <span>1 — tức thì (nhạy, nhiều ID ngắn)</span><span>5 — chậm hơn, ít ID giả</span>
+            </div>
+          </div>
           <!-- Class penalty -->
           <div style="margin-bottom:7px">
             <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
@@ -2022,10 +2048,12 @@ async function saveCamera() {
     tier:       parseInt(document.getElementById('mTier').value),
     enabled:    document.getElementById('mEnabled').checked,
     workerId:   document.getElementById('mWorkerID').value || '',
-    trackIouMin:      parseFloat(document.getElementById('mIouMin').value),
-    trackDistMax:     parseFloat(document.getElementById('mDistMax').value),
-    trackMaxMissed:   parseInt(document.getElementById('mMaxMissed').value),
-    trackClassPenalty: parseFloat(document.getElementById('mClassPenalty').value),
+    trackIouMin:        parseFloat(document.getElementById('mIouMin').value),
+    trackDistMax:       parseFloat(document.getElementById('mDistMax').value),
+    trackMaxMissed:     parseInt(document.getElementById('mMaxMissed').value),
+    trackClassPenalty:  parseFloat(document.getElementById('mClassPenalty').value),
+    trackVelocityWeight: parseFloat(document.getElementById('mVelWeight').value),
+    trackMinHits:       parseInt(document.getElementById('mMinHits').value),
   };
   try {
     if (editId) {
@@ -2056,6 +2084,8 @@ async function editCam(id) {
     const el = document.getElementById(id);
     if (el) { el.value = val; document.getElementById(valId).textContent = decimals ? parseFloat(val).toFixed(decimals) : val; }
   };
+  setSlider('mVelWeight',    'mVelWeightV',    cam.trackVelocityWeight ?? 0.6,  2);
+  setSlider('mMinHits',      'mMinHitsV',      cam.trackMinHits     ?? 2,    0);
   setSlider('mClassPenalty', 'mClassPenaltyV', cam.trackClassPenalty ?? 0.5, 2);
   setSlider('mIouMin',       'mIouMinV',       cam.trackIouMin      ?? 0.20, 2);
   setSlider('mDistMax',      'mDistMaxV',      cam.trackDistMax     ?? 55,   0);

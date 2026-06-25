@@ -107,15 +107,18 @@ class Track:
     cy: float
     prev_cx: float
     prev_cy: float
+    vx: float = 0.0  # smoothed velocity x (px/frame)
+    vy: float = 0.0  # smoothed velocity y (px/frame)
     x1: float = 0.0    # bounding box — used for IOU matching
     y1: float = 0.0
     x2: float = 0.0
     y2: float = 0.0
     missed: int = 0
+    hits: int = 1    # consecutive matched frames (used for min_hits confirmation)
     crossed_h: bool = False
     crossed_v: bool = False
     vehicle_class: str = "unknown"
-    position_history: list = field(default_factory=list)  # [(cx,cy),...] oldest first, max 5 entries
+    position_history: list = field(default_factory=list)  # [(cx,cy),...] oldest first, max 10 entries
     # Set of line IDs already triggered (one crossing event per track per line)
     crossed_lines: set = field(default_factory=set)
 
@@ -134,30 +137,43 @@ def _iou(b1: tuple, b2: tuple) -> float:
 
 
 class Tracker:
-    """IOU + centroid combined multi-object tracker.
+    """IOU + velocity-predicted centroid multi-object tracker.
 
-    Primary matching signal is bounding-box IOU (robust when vehicles
-    cross or overlap). Centroid distance is a secondary fallback for
-    small/distant objects where IOU is naturally low.
+    Matching pipeline
+    -----------------
+    1. For each existing track, predict its next position using its smoothed
+       velocity:  pred = current_pos + vx/vy * velocity_weight
+    2. Score each (track, detection) pair:
+         score = iou(predicted_box, det_box) * 2  +  dist_score(predicted_centroid)
+    3. Apply class_penalty when classes differ.
+    4. Greedy assignment: each track takes its best unmatched detection.
+    5. Detections without any track become tentative new tracks; they are only
+       promoted to confirmed (and assigned a permanent ID) after min_hits
+       consecutive frames — this prevents short-lived noise from stealing IDs.
 
     Parameters
     ----------
     iou_min : float
-        Minimum IOU for a valid match.  Higher = stricter spatial overlap
-        required, fewer false merges between nearby vehicles.  (default 0.20)
+        Minimum IOU for a valid match.  (default 0.20)
     dist_max : float
-        Centroid fallback radius in pixels.  Lower = tracks can't jump far
-        between frames.  (default 55)
+        Centroid fallback radius in pixels.  (default 55)
     max_missed : int
-        Frames a track may be absent before it is dropped.  Lower = IDs
-        disappear sooner when a vehicle exits or is occluded briefly.  (default 4)
-    class_penalty : float  0.0–1.0
-        Score multiplier applied when a detection's class differs from the
-        track's class.  0.0 = no penalty (class ignored).  1.0 = cross-class
-        match score is zeroed (strictly block class changes).  0.5 = score
-        halved, so a cross-class match must have 2× better IOU/distance to
-        win over a same-class candidate.  (default 0.5)
+        Frames a track may be absent before it is dropped.  (default 4)
+    class_penalty : float 0.0–1.0
+        Score multiplier for cross-class matches. 0=ignore, 1=block.  (default 0.5)
+    velocity_weight : float 0.0–1.0
+        How strongly to use velocity prediction when computing match distance.
+        0 = use current position (old behaviour).
+        1 = use fully extrapolated position (current + vx, current + vy).
+        (default 0.6)
+    min_hits : int
+        Consecutive matched frames required before a new detection gets a
+        permanent ID.  Higher = fewer phantom tracks in dense scenes but
+        slightly higher latency for genuinely new vehicles.  (default 2)
     """
+
+    # EMA alpha for velocity smoothing (not exposed — tuning not needed)
+    _VEL_ALPHA = 0.4  # weight given to the new observation (1-alpha kept from previous)
 
     def __init__(
         self,
@@ -165,44 +181,50 @@ class Tracker:
         dist_max: float = 55.0,
         max_missed: int = 4,
         class_penalty: float = 0.50,
+        velocity_weight: float = 0.60,
+        min_hits: int = 2,
     ):
-        self.iou_min       = iou_min
-        self.dist_max      = dist_max
-        self.max_missed    = max_missed
-        self.class_penalty = max(0.0, min(1.0, class_penalty))
+        self.iou_min        = iou_min
+        self.dist_max       = dist_max
+        self.max_missed     = max_missed
+        self.class_penalty  = max(0.0, min(1.0, class_penalty))
+        self.velocity_weight = max(0.0, min(1.0, velocity_weight))
+        self.min_hits       = max(1, min_hits)
         self._tracks: List[Track] = []
+        self._tentative: List[Track] = []  # not yet confirmed
         self._next_id = 1
 
-    def update(self, detections: List[tuple]) -> List[Track]:
-        """
-        detections: list of (cx, cy, cls_name, x1, y1, x2, y2) tuples
-        Returns the current list of active tracks.
-        """
-        for tr in self._tracks:
-            tr.missed += 1
+    # ------------------------------------------------------------------
+    def _match(self, pool: List[Track], detections: List[tuple]) -> tuple:
+        """Greedy matching of pool tracks against detections.
 
-        unmatched_dets = list(range(len(detections)))
-
-        for tr in self._tracks:
-            if not unmatched_dets:
+        Returns (updated_tracks, unmatched_det_indices).
+        """
+        unmatched = list(range(len(detections)))
+        for tr in pool:
+            if not unmatched:
                 break
-            tr_box = (tr.x1, tr.y1, tr.x2, tr.y2)
+            # Velocity-predicted position and box
+            w = self.velocity_weight
+            pred_cx = tr.cx + tr.vx * w
+            pred_cy = tr.cy + tr.vy * w
+            pred_box = (
+                tr.x1 + tr.vx * w,
+                tr.y1 + tr.vy * w,
+                tr.x2 + tr.vx * w,
+                tr.y2 + tr.vy * w,
+            )
             best_idx, best_score = None, -1.0
-            for idx in unmatched_dets:
+            for idx in unmatched:
                 cx, cy, _cls, dx1, dy1, dx2, dy2 = detections[idx]
-                iou = _iou(tr_box, (dx1, dy1, dx2, dy2))
-                dist = math.hypot(cx - tr.cx, cy - tr.cy)
+                iou = _iou(pred_box, (dx1, dy1, dx2, dy2))
+                dist = math.hypot(cx - pred_cx, cy - pred_cy)
                 dist_score = max(0.0, 1.0 - dist / self.dist_max)
-                # IOU is the primary signal (scaled 2×); centroid is fallback
                 score = iou * 2.0 + dist_score
-                # Apply class penalty: cross-class matches score lower so that
-                # a same-class candidate is always preferred over a cross-class
-                # one unless it has a decisively better IOU/distance.
                 if (self.class_penalty > 0.0
                         and tr.vehicle_class not in ('unknown', '')
                         and _cls != tr.vehicle_class):
                     score *= (1.0 - self.class_penalty)
-                # Reject pairs where BOTH signals are below threshold
                 if iou < self.iou_min and dist > self.dist_max:
                     continue
                 if score > best_score:
@@ -211,31 +233,66 @@ class Tracker:
 
             if best_idx is not None:
                 cx, cy, cls_name, dx1, dy1, dx2, dy2 = detections[best_idx]
+                # Update velocity using EMA
+                new_vx = cx - tr.cx
+                new_vy = cy - tr.cy
+                a = self._VEL_ALPHA
+                tr.vx = a * new_vx + (1 - a) * tr.vx
+                tr.vy = a * new_vy + (1 - a) * tr.vy
                 tr.prev_cx, tr.prev_cy = tr.cx, tr.cy
                 tr.cx, tr.cy = cx, cy
                 tr.x1, tr.y1, tr.x2, tr.y2 = dx1, dy1, dx2, dy2
                 tr.vehicle_class = cls_name
                 tr.missed = 0
-                unmatched_dets.remove(best_idx)
+                tr.hits += 1
+                unmatched.remove(best_idx)
                 tr.position_history.append((cx, cy))
                 if len(tr.position_history) > 10:
                     tr.position_history.pop(0)
 
-        # Create new tracks for unmatched detections
-        for idx in unmatched_dets:
+        return unmatched
+
+    # ------------------------------------------------------------------
+    def update(self, detections: List[tuple]) -> List[Track]:
+        """
+        detections: list of (cx, cy, cls_name, x1, y1, x2, y2) tuples
+        Returns confirmed active tracks (missed == 0 or still within max_missed).
+        """
+        for tr in self._tracks + self._tentative:
+            tr.missed += 1
+
+        # 1. Match confirmed tracks first (priority)
+        unmatched = self._match(self._tracks, detections)
+
+        # 2. Match tentative tracks against remaining unmatched detections
+        tent_dets = [detections[i] for i in unmatched]
+        tent_unmatched_rel = self._match(self._tentative, tent_dets)
+        # Map relative indices back to original
+        tent_unmatched = [unmatched[i] for i in tent_unmatched_rel]
+
+        # 3. Promote tentative tracks that reached min_hits
+        newly_confirmed = [tr for tr in self._tentative if tr.hits >= self.min_hits]
+        still_tentative = [tr for tr in self._tentative if tr.hits < self.min_hits]
+        self._tracks.extend(newly_confirmed)
+
+        # 4. Create new tentative tracks for fully unmatched detections
+        for idx in tent_unmatched:
             cx, cy, cls_name, dx1, dy1, dx2, dy2 = detections[idx]
-            self._tracks.append(Track(
+            still_tentative.append(Track(
                 id=self._next_id,
                 cx=cx, cy=cy,
                 prev_cx=cx, prev_cy=cy,
                 x1=dx1, y1=dy1, x2=dx2, y2=dy2,
                 vehicle_class=cls_name,
+                hits=1,
                 position_history=[(cx, cy)],
             ))
             self._next_id += 1
 
-        # Prune stale tracks
-        self._tracks = [tr for tr in self._tracks if tr.missed <= self.max_missed]
+        # 5. Prune stale tracks
+        self._tracks    = [tr for tr in self._tracks    if tr.missed <= self.max_missed]
+        self._tentative = [tr for tr in still_tentative if tr.missed <= self.min_hits]
+
         return list(self._tracks)
 
 
@@ -294,10 +351,12 @@ class CameraConfig(BaseModel):
     yoloConf: float = 0.35
     rtspBase: str = ""  # override global --rtsp-base; used when stream lives on another server
     # Tracker sensitivity — see Tracker docstring for meaning of each param
-    trackIouMin:      float = 0.20   # min IOU for spatial match (0.05–0.50)
-    trackDistMax:     float = 55.0   # centroid fallback radius in pixels (10–150)
-    trackMaxMissed:   int   = 4      # frames absent before track is dropped (1–15)
-    trackClassPenalty: float = 0.50  # 0=ignore class, 1=never swap class (0.0–1.0)
+    trackIouMin:       float = 0.20   # min IOU for spatial match (0.05–0.50)
+    trackDistMax:      float = 55.0   # centroid fallback radius in pixels (10–150)
+    trackMaxMissed:    int   = 4      # frames absent before track is dropped (1–15)
+    trackClassPenalty: float = 0.50   # 0=ignore class, 1=never swap class (0.0–1.0)
+    trackVelocityWeight: float = 0.60 # 0=use current pos, 1=full velocity prediction (0.0–1.0)
+    trackMinHits:      int   = 2      # frames before new detection gets a permanent ID (1–5)
 
 
 @dataclass
@@ -314,6 +373,8 @@ class CameraState:
             dist_max=self.config.trackDistMax,
             max_missed=self.config.trackMaxMissed,
             class_penalty=self.config.trackClassPenalty,
+            velocity_weight=self.config.trackVelocityWeight,
+            min_hits=self.config.trackMinHits,
         )
 
     # counts
