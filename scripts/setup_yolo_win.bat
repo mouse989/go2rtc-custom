@@ -258,11 +258,28 @@ ECHO --- Installing PyTorch + torchvision [%TORCH_DESC%] ---
 "%DEPLOY%\yolo_venv\Scripts\pip" install torch torchvision --index-url %TORCH_URL%
 IF ERRORLEVEL 1 GOTO error
 
+REM ── Pin NumPy < 2 for torch 1.12.x (cu113) ───────────────────────────────
+REM torch 1.12.x was compiled against NumPy 1.x.  NumPy 2.x breaks it with
+REM "Numpy is not available" / _ARRAY_API not found at ultralytics import time.
+REM ultralytics itself pulls the latest NumPy (2.x) so we must downgrade here,
+REM BEFORE installing ultralytics so pip's dependency resolver keeps numpy<2.
+IF "%TORCH_FLAVOR%"=="cu113" (
+    ECHO --- Pinning numpy^<2 for torch 1.12.x ^(cu113^) compatibility ---
+    "%DEPLOY%\yolo_venv\Scripts\pip" install "numpy<2"
+    IF ERRORLEVEL 1 GOTO error
+)
+
 REM ── Install ultralytics and web stack ─────────────────────────────────────
 REM Do NOT install opencv-python-headless alongside ultralytics on Windows:
 REM ultralytics pulls opencv-python; having both packages conflicts (cv2 not found).
 ECHO --- Installing ultralytics, fastapi, uvicorn ---
-"%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]"
+IF "%TORCH_FLAVOR%"=="cu113" (
+    REM Keep numpy pinned: pass numpy<2 alongside to prevent ultralytics from
+    REM pulling numpy 2.x as a transitive dependency.
+    "%DEPLOY%\yolo_venv\Scripts\pip" install "numpy<2" ultralytics fastapi "uvicorn[standard]"
+) ELSE (
+    "%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]"
+)
 IF ERRORLEVEL 1 GOTO error
 
 REM ── Verify cv2 ───────────────────────────────────────────────────────────

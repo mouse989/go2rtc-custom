@@ -73,6 +73,14 @@ Replace `D:\GO_YO\` with the folder where `go2rtc.exe` lives.
 
 The script auto-selects **torch cu113** (torch 1.12.x, CUDA 11.3 runtime). GPU acceleration is **enabled** — inference and YOLO counting work correctly. Training may be slightly slower than with torch 2.x.
 
+> **NumPy 2.x incompatibility** — torch 1.12.x was compiled against NumPy 1.x.
+> If you see `RuntimeError: Numpy is not available` or `_ARRAY_API not found`,
+> NumPy 2.x was pulled in by ultralytics.  Quick fix (no full re-setup needed):
+> ```bat
+> D:\GO_YO\yolo_venv\Scripts\pip install "numpy<2"
+> ```
+> The updated `setup_yolo_win.bat` now pins `numpy<2` automatically for cu113.
+
 For better GPU support, update driver to ≥ 522.06 (enables CUDA 11.8 → torch cu118 / torch 2.x).
 
 ### If CUDA < 11.3 (e.g. CUDA 10.0, driver 411.95)
