@@ -11,6 +11,7 @@ import (
 
 func registerHandlers() {
 	http.HandleFunc("/api/traveltime/config", handleConfig)
+	http.HandleFunc("/api/traveltime/appearance", handleAppearance)
 	http.HandleFunc("/api/traveltime/routes", handleRoutes)
 	http.HandleFunc("/api/traveltime/routes/order", handleRoutesOrder)
 	http.HandleFunc("/api/traveltime/status", handleStatus)
@@ -90,6 +91,56 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		writeJSON(w, getConfig())
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// ── Appearance ───────────────────────────────────────────────────────────────
+
+// GET  /api/traveltime/appearance — any logged-in user (reads shared config)
+// PUT  /api/traveltime/appearance — admin only (saves to traveltime.json)
+func handleAppearance(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if !requireLogin(w, r) {
+			return
+		}
+		cfgMu.RLock()
+		a := cfg.Appearance
+		cfgMu.RUnlock()
+		writeJSON(w, a)
+
+	case http.MethodPut, http.MethodPost:
+		if !requireAdmin(w, r) {
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err != nil {
+			http.Error(w, "read error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var a TTIAppearance
+		if err := json.Unmarshal(body, &a); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(a.Tiers) == 0 {
+			http.Error(w, "at least one tier required", http.StatusBadRequest)
+			return
+		}
+		cfgMu.Lock()
+		cfg.Appearance = a
+		cfgMu.Unlock()
+		if err := saveConfig(); err != nil {
+			http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cfgMu.RLock()
+		out := cfg.Appearance
+		cfgMu.RUnlock()
+		writeJSON(w, out)
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

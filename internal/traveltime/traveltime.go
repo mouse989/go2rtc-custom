@@ -13,12 +13,40 @@ import (
 
 var log zerolog.Logger
 
+// TTITier defines one colour band in the TTI chart.
+// MaxTTI is the exclusive upper bound (TTI < MaxTTI → this tier).
+// The last tier must have MaxTTI == 0 (catch-all for any remaining values).
+type TTITier struct {
+	MaxTTI float64 `json:"maxTTI"` // exclusive upper bound; 0 = last tier (no upper limit)
+	Color  string  `json:"color"`  // hex colour for chart bars, e.g. "#22c55e"
+	Label  string  `json:"label"`  // display label shown in legend and tooltip
+}
+
+// TTIAppearance holds the configurable visual settings for the TTI chart.
+type TTIAppearance struct {
+	Tiers       []TTITier `json:"tiers"`
+	NoDataColor string    `json:"noDataColor"` // colour for no-data legend swatch
+}
+
 // Config holds the travel-time module configuration.
 // The VietMap API key is shared from app Settings (not stored here).
 type Config struct {
-	GoogleScriptURL string `json:"googleScriptUrl"` // Optional Google Sheets Apps Script URL
-	IntervalMin     int    `json:"intervalMin"`     // Scheduler interval in minutes (≥1)
-	Running         bool   `json:"running"`         // Whether the scheduler should auto-start
+	GoogleScriptURL string        `json:"googleScriptUrl"` // Optional Google Sheets Apps Script URL
+	IntervalMin     int           `json:"intervalMin"`     // Scheduler interval in minutes (≥1)
+	Running         bool          `json:"running"`         // Whether the scheduler should auto-start
+	Appearance      TTIAppearance `json:"appearance"`      // TTI chart colour thresholds
+}
+
+func defaultAppearance() TTIAppearance {
+	return TTIAppearance{
+		Tiers: []TTITier{
+			{MaxTTI: 1.2, Color: "#22c55e", Label: "Thông thoáng"},
+			{MaxTTI: 1.35, Color: "#84cc16", Label: "Bình thường"},
+			{MaxTTI: 1.5, Color: "#f59e0b", Label: "Chậm"},
+			{MaxTTI: 0, Color: "#ef4444", Label: "Tắc nghẽn"},
+		},
+		NoDataColor: "#334155",
+	}
 }
 
 var (
@@ -28,7 +56,7 @@ var (
 )
 
 func defaultConfig() Config {
-	return Config{IntervalMin: 15}
+	return Config{IntervalMin: 15, Appearance: defaultAppearance()}
 }
 
 // Init initialises the travel-time module.
@@ -46,6 +74,10 @@ func Init() {
 			log.Warn().Err(err2).Msg("[traveltime] config parse error, using defaults")
 			cfg = defaultConfig()
 		}
+	}
+	// Backfill appearance defaults for configs saved before this field existed.
+	if len(cfg.Appearance.Tiers) == 0 {
+		cfg.Appearance = defaultAppearance()
 	}
 
 	routesFile := "travel_routes.json"

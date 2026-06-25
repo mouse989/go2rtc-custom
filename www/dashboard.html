@@ -253,6 +253,7 @@ let _map        = null;
 let _mapInited  = false;
 let _skelBuilt  = false;
 let _refreshTimer = null;
+let _ttiAppearance = null; // loaded from /api/traveltime/appearance
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function escH(s) {
@@ -261,14 +262,138 @@ function escH(s) {
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString('vi-VN',{hour12:false,hour:'2-digit',minute:'2-digit'});
 }
-function ttiColor(v) {
-  return v >= 1.5 ? '#ef4444' : v >= 1.2 ? '#f59e0b' : v > 0 ? '#22c55e' : '';
+// ── TTI colour helpers (driven by _ttiAppearance loaded from server) ─────────
+const _ttiDefault = {
+  tiers: [
+    {maxTTI:1.2,  color:'#22c55e', label:'Thông thoáng'},
+    {maxTTI:1.35, color:'#84cc16', label:'Bình thường'},
+    {maxTTI:1.5,  color:'#f59e0b', label:'Chậm'},
+    {maxTTI:0,    color:'#ef4444', label:'Tắc nghẽn'},
+  ],
+  noDataColor: '#334155',
+};
+function _getTiers() { return (_ttiAppearance||_ttiDefault).tiers||[]; }
+function ttiTier(v) {
+  if (!v || v <= 0) return null;
+  const tiers = _getTiers();
+  for (let i = 0; i < tiers.length - 1; i++) {
+    if (v < tiers[i].maxTTI) return tiers[i];
+  }
+  return tiers[tiers.length - 1] || null;
 }
-function ttiLabel(v) {
-  return v >= 1.5 ? 'Tắc nghẽn' : v >= 1.2 ? 'Chậm' : v > 0 ? 'Thông thoáng' : 'Không có dữ liệu';
+function ttiColor(v) { const t = ttiTier(v); return t ? t.color : ''; }
+function ttiLabel(v) { const t = ttiTier(v); return t ? t.label : 'Không có dữ liệu'; }
+function ttiBg(v)  { const t = ttiTier(v); return t ? t.color+'22' : '#1e293b'; }
+function ttiFg(v)  { const t = ttiTier(v); return t ? t.color : '#9ca3af'; }
+
+async function loadTtiAppearance() {
+  try {
+    const r = await fetch('/api/traveltime/appearance');
+    if (r.ok) _ttiAppearance = await r.json();
+  } catch(_) {}
+  if (!_ttiAppearance || !(_ttiAppearance.tiers||[]).length) _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
 }
-function ttiBg(v)  { return v >= 1.5 ? '#7f1d1d33' : v >= 1.2 ? '#92400e33' : v > 0 ? '#14532d33' : '#1e293b'; }
-function ttiFg(v)  { return v >= 1.5 ? '#f87171'   : v >= 1.2 ? '#fbbf24'   : v > 0 ? '#4ade80'   : '#9ca3af'; }
+
+function renderTtiLegend() {
+  const el = document.getElementById('ttiLegend');
+  if (!el) return;
+  const tiers = _getTiers();
+  const nd = (_ttiAppearance||_ttiDefault).noDataColor || '#334155';
+  let html = '';
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    const prevMax = i > 0 ? tiers[i-1].maxTTI : null;
+    const curMax  = t.maxTTI;
+    let range = '';
+    if (curMax === 0 || i === tiers.length - 1) {
+      range = prevMax != null ? `≥${prevMax} ` : '';
+    } else if (prevMax == null) {
+      range = `< ${curMax} `;
+    } else {
+      range = `${prevMax}–${curMax} `;
+    }
+    html += `<span><span class="tti-legend-dot" style="background:${t.color}"></span>${escH(range)}${escH(t.label)}</span>`;
+  }
+  html += `<span><span class="tti-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
+  el.innerHTML = html;
+}
+
+// ── TTI appearance admin panel ────────────────────────────────────────────────
+let _ttiCfgOpen = false;
+function toggleTtiCfg() {
+  const p = document.getElementById('ttiCfgPanel');
+  if (!p) return;
+  _ttiCfgOpen = !_ttiCfgOpen;
+  p.style.display = _ttiCfgOpen ? '' : 'none';
+  if (_ttiCfgOpen) renderTtiCfgPanel();
+}
+function renderTtiCfgPanel() {
+  const panel = document.getElementById('ttiCfgPanel');
+  if (!panel || !_ttiAppearance) return;
+  const tiers = _ttiAppearance.tiers;
+  const nd = _ttiAppearance.noDataColor || '#334155';
+  const rowHtml = tiers.map((t, i) => {
+    const isLast = i === tiers.length - 1;
+    const maxInput = isLast
+      ? `<span style="width:78px;font-size:.72rem;color:var(--text-muted)">≥ giá trị trước</span>`
+      : `<span style="font-size:.72rem;color:var(--text-muted)">< </span><input type="number" value="${t.maxTTI}" step="0.05" min="1.01" max="9.9" oninput="_ttiAppearance.tiers[${i}].maxTTI=+this.value;renderTtiLegend()" style="width:52px;font-size:.76rem;border:1px solid var(--border);border-radius:4px;padding:.2rem .35rem;background:var(--surface);color:var(--text)">`;
+    const delBtn = tiers.length > 1
+      ? `<button onclick="removeTtiTier(${i})" title="Xoá ngưỡng này" style="background:none;border:none;color:var(--red,#f87171);cursor:pointer;font-size:.9rem;line-height:1;padding:.1rem .25rem">✕</button>`
+      : '';
+    return `<div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem">
+      <input type="color" value="${t.color}" oninput="_ttiAppearance.tiers[${i}].color=this.value;renderTtiLegend()" title="Màu ngưỡng" style="width:28px;height:24px;border:none;background:none;cursor:pointer;padding:0;border-radius:3px;flex-shrink:0">
+      <input type="text" value="${escH(t.label)}" oninput="_ttiAppearance.tiers[${i}].label=this.value;renderTtiLegend()" placeholder="Nhãn" style="flex:1;min-width:70px;font-size:.76rem;border:1px solid var(--border);border-radius:4px;padding:.2rem .4rem;background:var(--surface);color:var(--text)">
+      ${maxInput}${delBtn}
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.5rem">Ngưỡng màu TTI</div>
+    <div style="font-size:.7rem;color:var(--text-muted);margin-bottom:.45rem">Màu · Nhãn · Ngưỡng trên (TTI &lt; giá trị)</div>
+    ${rowHtml}
+    <button onclick="addTtiTier()" style="width:100%;margin:.35rem 0;background:none;border:1px dashed var(--border);border-radius:4px;color:var(--text-muted);font-size:.72rem;padding:.22rem .6rem;cursor:pointer;font-family:inherit">+ Thêm ngưỡng</button>
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.45rem;font-size:.75rem">
+      <span style="color:var(--text-muted)">Không có dữ liệu:</span>
+      <input type="color" value="${nd}" oninput="_ttiAppearance.noDataColor=this.value;renderTtiLegend()" style="width:28px;height:24px;border:none;background:none;cursor:pointer;padding:0;border-radius:3px">
+    </div>
+    <div style="display:flex;gap:.4rem">
+      <button onclick="saveTtiAppearance()" class="btn btn-sm" style="flex:1;font-size:.74rem">💾 Lưu</button>
+      <button onclick="resetTtiAppearance()" class="btn btn-sm btn-secondary" style="font-size:.74rem">↺ Mặc định</button>
+    </div>
+    <div id="ttiCfgMsg" style="font-size:.72rem;margin-top:.35rem;min-height:.9rem"></div>`;
+}
+function addTtiTier() {
+  if (!_ttiAppearance) return;
+  const tiers = _ttiAppearance.tiers;
+  const prevMax = tiers.length > 1 ? tiers[tiers.length-2].maxTTI : 1.5;
+  const newMax = Math.round((prevMax + 0.1) * 100) / 100;
+  tiers.splice(tiers.length - 1, 0, {maxTTI: newMax, color: '#94a3b8', label: 'Ngưỡng mới'});
+  renderTtiCfgPanel();
+  renderTtiLegend();
+}
+function removeTtiTier(i) {
+  if (!_ttiAppearance || _ttiAppearance.tiers.length <= 1) return;
+  _ttiAppearance.tiers.splice(i, 1);
+  renderTtiCfgPanel();
+  renderTtiLegend();
+}
+function resetTtiAppearance() {
+  _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
+  renderTtiCfgPanel();
+  renderTtiLegend();
+}
+async function saveTtiAppearance() {
+  const msg = document.getElementById('ttiCfgMsg');
+  if (msg) { msg.textContent = 'Đang lưu…'; msg.style.color='var(--text-muted)'; }
+  try {
+    await apiFetch('/api/traveltime/appearance', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(_ttiAppearance)});
+    if (msg) { msg.textContent = '✓ Đã lưu'; msg.style.color='#4ade80'; }
+    renderTtiLegend();
+    const tt = _data?.travelTime || {};
+    renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
+  } catch(e) {
+    if (msg) { msg.textContent = '✗ ' + e.message; msg.style.color='#f87171'; }
+  }
+}
 
 // Slot helpers
 function slotOfTs(ts) {
@@ -371,6 +496,7 @@ function renderDashboard() {
   if (!_skelBuilt) {
     buildSkeleton();
     _skelBuilt = true;
+    renderTtiLegend();
     initTooltip();
     setTimeout(initMap, 80);
   }
@@ -410,12 +536,11 @@ function buildSkeleton() {
       </h3>
       <div id="ttiChartBody" class="tti-chart-wrap"></div>
       <div class="tti-axis-wrap" id="ttiAxis"></div>
-      <div class="tti-legend">
-        <span><span class="tti-legend-dot" style="background:#22c55e"></span>&lt;1.2 Thông thoáng</span>
-        <span><span class="tti-legend-dot" style="background:#f59e0b"></span>1.2–1.5 Chậm</span>
-        <span><span class="tti-legend-dot" style="background:#ef4444"></span>&gt;1.5 Tắc nghẽn</span>
-        <span><span class="tti-legend-dot" style="background:var(--surface2);border:1px solid var(--border)"></span>Không có dữ liệu</span>
+      <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+        <div id="ttiLegend" class="tti-legend" style="flex:1"></div>
+        ${(getUser()||{}).role==='admin' ? `<button id="btnTtiCfg" onclick="toggleTtiCfg()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:.68rem;padding:.12rem .45rem;cursor:pointer;font-family:inherit;flex-shrink:0">⚙ Màu TTI</button>` : ''}
       </div>
+      <div id="ttiCfgPanel" style="display:none;margin-top:.55rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.65rem .8rem;font-size:.74rem"></div>
     </div>
 
     <!-- Bottom: map + top routes -->
@@ -918,6 +1043,7 @@ async function resetHeatmapCfg() {
       '<div class="db-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard.</div>';
     return;
   }
+  await loadTtiAppearance();
   await loadDashboard();
   loadHeatmapCfg();
   _refreshTimer = setInterval(loadDashboard, 60000);
