@@ -20,13 +20,14 @@ REM  │                                                                     │
 REM  │  CUDA 12.6+  (driver ≥ 561)  →  torch cu126  (best performance)   │
 REM  │  CUDA 12.1+  (driver ≥ 530)  →  torch cu121                       │
 REM  │  CUDA 11.8+  (driver ≥ 522)  →  torch cu118                       │
-REM  │  CUDA < 11.8 (driver < 522)  →  GPU NOT SUPPORTED — see note       │
+REM  │  CUDA 11.3+  (driver ≥ 456)  →  torch cu113 / torch 1.12.x        │
+REM  │  CUDA < 11.3 (driver < 456)  →  GPU NOT SUPPORTED — see note       │
 REM  │  No GPU / nvidia-smi absent  →  torch CPU-only                     │
 REM  │                                                                     │
-REM  │  Note on old drivers (e.g. CUDA 10.x):                             │
-REM  │    PyTorch 2.x / ultralytics YOLO11 require CUDA 11.8+ at runtime. │
-REM  │    Update your NVIDIA driver to version ≥ 522.06 to enable GPU.    │
-REM  │    Download: https://www.nvidia.com/Download/index.aspx             │
+REM  │  Note on CUDA 10.x (e.g. driver 411.95):                           │
+REM  │    Minimum for any GPU-capable torch is CUDA 11.3 (driver ≥ 456).  │
+REM  │    Update your NVIDIA driver to ≥ 456.38 for GPU with torch cu113. │
+REM  │    Update to ≥ 522.06 for best GPU support with torch cu118.       │
 REM  └─────────────────────────────────────────────────────────────────────┘
 REM ═══════════════════════════════════════════════════════════════════════════
 
@@ -77,8 +78,8 @@ ECHO --- Detecting GPU and CUDA version ---
 
 REM Write detection output to a temp file to avoid FOR /F pipe quoting issues.
 REM Output format:  <torch_flavor>|<cuda_ver>|<driver_ver>
-REM torch_flavor:   cu126 / cu121 / cu118 / old / cpu
-python -c "import subprocess,re,sys;r=subprocess.run(['nvidia-smi'],capture_output=True,text=True,timeout=10);o=r.stdout;cm=re.search(r'CUDA Version: (\d+)\.(\d+)',o);dm=re.search(r'Driver Version: (\S+)',o);drv=dm.group(1) if dm else 'unknown';(print('cpu|none|'+drv) if not cm else (lambda mj,mn,cv:(print('cu126|'+cv+'|'+drv) if mj>12 or(mj==12 and mn>=6) else print('cu121|'+cv+'|'+drv) if mj==12 else print('cu118|'+cv+'|'+drv) if mj==11 and mn>=8 else print('old|'+cv+'|'+drv)))(int(cm.group(1)),int(cm.group(2)),cm.group(1)+'.'+cm.group(2)))" > "%TEMP%\yolo_cuda_detect.tmp" 2>nul
+REM torch_flavor:   cu126 / cu121 / cu118 / cu113 / old / cpu
+python -c "import subprocess,re,sys;r=subprocess.run(['nvidia-smi'],capture_output=True,text=True,timeout=10);o=r.stdout;cm=re.search(r'CUDA Version: (\d+)\.(\d+)',o);dm=re.search(r'Driver Version: (\S+)',o);drv=dm.group(1) if dm else 'unknown';(print('cpu|none|'+drv) if not cm else (lambda mj,mn,cv:(print('cu126|'+cv+'|'+drv) if mj>12 or(mj==12 and mn>=6) else print('cu121|'+cv+'|'+drv) if mj==12 else print('cu118|'+cv+'|'+drv) if mj==11 and mn>=8 else print('cu113|'+cv+'|'+drv) if mj==11 and mn>=3 else print('old|'+cv+'|'+drv)))(int(cm.group(1)),int(cm.group(2)),cm.group(1)+'.'+cm.group(2)))" > "%TEMP%\yolo_cuda_detect.tmp" 2>nul
 
 IF NOT EXIST "%TEMP%\yolo_cuda_detect.tmp" (
     ECHO [warn] nvidia-smi detection failed. Defaulting to CPU-only mode.
@@ -107,18 +108,37 @@ ECHO [info] CUDA version   : %CUDA_VER%
 ECHO [info] Torch flavor   : %TORCH_FLAVOR%
 ECHO.
 
-REM ── Handle unsupported CUDA (10.x or 11.0-11.7) ─────────────────────────
+REM ── Handle CUDA 11.3-11.7 — use torch cu113 (torch 1.12.x, older but GPU-capable) ──
+IF "%TORCH_FLAVOR%"=="cu113" (
+    ECHO ================================================================
+    ECHO  CUDA %CUDA_VER% detected (driver %DRIVER_VER%)
+    ECHO  → Using PyTorch cu113 (torch 1.12.x — CUDA 11.3 build)
+    ECHO ================================================================
+    ECHO.
+    ECHO  torch cu113 bundles CUDA 11.3 runtime which is compatible with
+    ECHO  your driver's CUDA %CUDA_VER% support.  GPU will be enabled.
+    ECHO.
+    ECHO  Note: torch 1.12 is older than the torch 2.x used with cu118/cu126.
+    ECHO  Inference and counting work fine.  Training may be slower.
+    ECHO.
+    ECHO  For best GPU support, update driver to ^>= 522.06 (CUDA 11.8)
+    ECHO  then re-run this script — it will auto-select torch cu118.
+    ECHO.
+)
+
+REM ── Handle truly unsupported CUDA (10.x or 11.0-11.2) ────────────────────
 IF "%TORCH_FLAVOR%"=="old" (
     ECHO ================================================================
     ECHO  GPU NOT SUPPORTED — CUDA %CUDA_VER% / Driver %DRIVER_VER%
     ECHO ================================================================
     ECHO.
-    ECHO  PyTorch 2.x and ultralytics YOLO11 require CUDA 11.8 or newer.
+    ECHO  The minimum CUDA for any GPU-capable PyTorch build is 11.3.
     ECHO  Your driver only supports up to CUDA %CUDA_VER%.
     ECHO.
     ECHO  To enable GPU acceleration, update your NVIDIA driver:
-    ECHO    Minimum for CUDA 11.8:  driver ^>= 522.06
-    ECHO    Minimum for CUDA 12.6:  driver ^>= 561.09  (recommended)
+    ECHO    Minimum for CUDA 11.3:  driver ^>= 456.38  (torch cu113)
+    ECHO    Minimum for CUDA 11.8:  driver ^>= 522.06  (torch cu118)
+    ECHO    Minimum for CUDA 12.6:  driver ^>= 561.09  (torch cu126, best)
     ECHO    Download: https://www.nvidia.com/Download/index.aspx
     ECHO.
     ECHO  Note: if your GPU is Kepler (GTX 600/700 series) the last
@@ -149,6 +169,9 @@ IF "%TORCH_FLAVOR%"=="cu126" (
 ) ELSE IF "%TORCH_FLAVOR%"=="cu118" (
     SET "TORCH_URL=https://download.pytorch.org/whl/cu118"
     SET "TORCH_DESC=CUDA 11.8  (driver %DRIVER_VER%)"
+) ELSE IF "%TORCH_FLAVOR%"=="cu113" (
+    SET "TORCH_URL=https://download.pytorch.org/whl/cu113"
+    SET "TORCH_DESC=CUDA 11.3 via cu113 / torch 1.12.x  (driver %DRIVER_VER%)"
 ) ELSE (
     SET "TORCH_URL=https://download.pytorch.org/whl/cpu"
     SET "TORCH_DESC=CPU-only  (no GPU acceleration)"
