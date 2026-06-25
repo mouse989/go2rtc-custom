@@ -43,6 +43,9 @@ type User struct {
 	AllowMonitorStreaming bool `json:"allow_monitor_streaming"` // xem streaming & users
 	AllowMonitorSnapshot bool `json:"allow_monitor_snapshot"`  // xem snapshot status
 	AllowMonitorDevices  bool `json:"allow_monitor_devices"`   // xem giám sát thiết bị
+	// Camera view sub-permissions (only meaningful when user has cameras tab)
+	AllowCamSnapshot bool `json:"allow_cam_snapshot"` // xem ảnh snapshot camera
+	AllowCamVideo    bool `json:"allow_cam_video"`    // xem video live (webrtc/mse/hls)
 }
 
 // EffectiveTabs returns the full resolved tab list for this user.
