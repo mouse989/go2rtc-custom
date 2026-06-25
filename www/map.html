@@ -571,7 +571,6 @@ body.sb-collapsed           { --map-left:0; }
         <button class="mode-tab" data-mode="hls">HLS</button>
       </div>
       <div id="playerWrap" style="background:#000;border-radius:6px;min-height:180px"></div>
-      <div id="streamLinks" style="margin-top:.65rem"></div>
     </div>
   </div>
 </div>
@@ -1600,29 +1599,48 @@ function openGrid(ids) {
   if (!ids.length) return;
   const grid = document.getElementById('gridPlayers');
   grid.innerHTML = '';
+  const videoOk = canCamVideo();
+  const snapOk  = canCamSnapshot();
   document.getElementById('gridTitle').textContent =
-    `Watching ${ids.length} camera${ids.length!==1?'s':''}`;
+    `${videoOk ? 'Watching' : 'Snapshot'} ${ids.length} camera${ids.length!==1?'s':''}`;
   const cols = ids.length<=1?1:ids.length<=4?2:ids.length<=9?3:4;
   grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  const _gridTimers = [];
   ids.forEach(id => {
     const s=_streamByID[id], loc=_locByID[id]; if (!s) return;
     const label=camLabel(loc, id, _streamByID[id]);
-    const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
     const cell=document.createElement('div');
     cell.style.cssText='background:#000;border-radius:8px;overflow:hidden;position:relative;aspect-ratio:16/9;';
     const lbl=document.createElement('div');
     lbl.style.cssText='position:absolute;top:.3rem;left:.45rem;z-index:5;font-size:.71rem;font-weight:600;background:rgba(0,0,0,.65);padding:.1rem .35rem;border-radius:4px;color:#fff;max-width:90%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     lbl.textContent=label;
-    const player=document.createElement('video-stream');
-    Object.assign(player,{mode:'webrtc,mse,hls',background:false,src:wsUrl});
-    player.style.cssText='width:100%;height:100%;display:block;';
-    cell.appendChild(lbl); cell.appendChild(player); grid.appendChild(cell);
+    cell.appendChild(lbl);
+    if (videoOk) {
+      const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
+      const player=document.createElement('video-stream');
+      Object.assign(player,{mode:'webrtc,mse,hls',background:false,src:wsUrl});
+      player.style.cssText='width:100%;height:100%;display:block;';
+      cell.appendChild(player);
+    } else if (snapOk) {
+      const img=document.createElement('img');
+      img.style.cssText='width:100%;height:100%;display:block;object-fit:cover;';
+      const loadSnap=()=>{ img.src=`${s.frame_url}&_t=${Date.now()}`; };
+      loadSnap();
+      _gridTimers.push(setInterval(loadSnap, 10000));
+      cell.appendChild(img);
+    }
+    grid.appendChild(cell);
   });
+  // store timers so close can clear them
+  grid.dataset.timers = JSON.stringify(_gridTimers.map((_,i)=>i));
+  grid._timers = _gridTimers;
   document.getElementById('gridBackdrop').classList.add('open');
 }
 document.getElementById('gridClose').addEventListener('click', () => {
   document.getElementById('gridBackdrop').classList.remove('open');
-  document.getElementById('gridPlayers').innerHTML='';
+  const grid = document.getElementById('gridPlayers');
+  if (grid._timers) { grid._timers.forEach(t => clearInterval(t)); grid._timers = null; }
+  grid.innerHTML='';
 });
 
 // ── PiP overlays ──────────────────────────────────────────────
@@ -1642,7 +1660,6 @@ function openOverlays(ids) {
 
 function createOverlayWindow(id, loc, s, x, y) {
   const label = camLabel(loc, id, s);
-  const wsUrl = `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
   const win = document.createElement('div');
   win.className='ov-win'; win.dataset.id=id;
   win.style.left=x+'px'; win.style.top=y+'px';
@@ -1654,10 +1671,22 @@ function createOverlayWindow(id, loc, s, x, y) {
   closeBtn.addEventListener('click', e => { e.stopPropagation(); removeOverlayWindow(id); });
   header.appendChild(nameSpan); header.appendChild(closeBtn); win.appendChild(header);
   const body=document.createElement('div'); body.className='ov-body';
-  const player=document.createElement('video-stream');
-  Object.assign(player,{mode:'webrtc,mse,hls',background:false,src:wsUrl});
-  player.style.cssText='width:100%;aspect-ratio:16/9;display:block;';
-  body.appendChild(player); win.appendChild(body);
+  if (canCamVideo()) {
+    const wsUrl = `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
+    const player=document.createElement('video-stream');
+    Object.assign(player,{mode:'webrtc,mse,hls',background:false,src:wsUrl});
+    player.style.cssText='width:100%;aspect-ratio:16/9;display:block;';
+    body.appendChild(player);
+  } else if (canCamSnapshot()) {
+    const img=document.createElement('img');
+    img.style.cssText='width:100%;aspect-ratio:16/9;display:block;object-fit:cover;background:#000;';
+    const loadSnap=()=>{ img.src=`${s.frame_url}&_t=${Date.now()}`; };
+    loadSnap();
+    const timer=setInterval(loadSnap, 10000);
+    win._snapTimer=timer;
+    body.appendChild(img);
+  }
+  win.appendChild(body);
   const pin=document.createElement('div'); pin.className='ov-pin'; win.appendChild(pin);
   document.getElementById('mapOverlays').appendChild(win);
   _ovWindows[id]={ el:win, lat:loc.lat, lon:loc.lon, pinned:false };
@@ -1689,12 +1718,20 @@ function makeDraggable(win, id) {
 }
 
 function removeOverlayWindow(id) {
-  const ov=_ovWindows[id]; if(ov){ov.el.remove();delete _ovWindows[id];}
+  const ov=_ovWindows[id];
+  if(ov){
+    if(ov.el._snapTimer) clearInterval(ov.el._snapTimer);
+    ov.el.remove(); delete _ovWindows[id];
+  }
   if(!Object.keys(_ovWindows).length) document.getElementById('btnMapOverlay').classList.remove('active');
   refreshMarkerIcons();
 }
 function closeAllOverlays() {
-  Object.values(_ovWindows).forEach(ov=>ov.el.remove()); _ovWindows={};
+  Object.values(_ovWindows).forEach(ov=>{
+    if(ov.el._snapTimer) clearInterval(ov.el._snapTimer);
+    ov.el.remove();
+  });
+  _ovWindows={};
   document.getElementById('btnMapOverlay').classList.remove('active');
   refreshMarkerIcons();
 }
@@ -1705,15 +1742,24 @@ function openModal(maskedID) {
   const s=_streamByID[maskedID],loc=_locByID[maskedID]; if(!s) return;
   const label=camLabel(loc, maskedID, _streamByID[maskedID]);
   document.getElementById('modalTitle').textContent=label;
+
+  // Filter mode tabs by permission
+  const snapOk  = canCamSnapshot();
+  const videoOk = canCamVideo();
+  document.querySelector('#modeTabs [data-mode="snapshot"]').style.display       = snapOk  ? '' : 'none';
+  document.querySelector('#modeTabs [data-mode="webrtc,mse,hls"]').style.display = videoOk ? '' : 'none';
+  document.querySelector('#modeTabs [data-mode="webrtc"]').style.display         = videoOk ? '' : 'none';
+  document.querySelector('#modeTabs [data-mode="mse"]').style.display            = videoOk ? '' : 'none';
+  document.querySelector('#modeTabs [data-mode="hls"]').style.display            = videoOk ? '' : 'none';
+
   document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
-  document.querySelector('#modeTabs [data-mode="snapshot"]').classList.add('active');
-  showSnapshot(maskedID);
-  const t=encodeURIComponent(_token);
-  document.getElementById('streamLinks').innerHTML=[
-    {label:'⚡ Watch (HD)', url:`${location.origin}/watch.html?id=${maskedID}&token=${t}`},
-    {label:'📺 HLS', url:s.hls_url},
-    {label:'📷 Snapshot', url:s.frame_url},
-  ].map(l=>`<a href="${escHtml(l.url)}" target="_blank" class="stream-link">${l.label}</a>`).join('');
+  if (snapOk) {
+    document.querySelector('#modeTabs [data-mode="snapshot"]').classList.add('active');
+    showSnapshot(maskedID);
+  } else if (videoOk) {
+    document.querySelector('#modeTabs [data-mode="webrtc,mse,hls"]').classList.add('active');
+    startPlayer(maskedID, 'webrtc,mse,hls');
+  }
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
