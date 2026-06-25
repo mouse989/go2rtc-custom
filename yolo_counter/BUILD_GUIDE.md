@@ -61,21 +61,29 @@ Replace `D:\GO_YO\` with the folder where `go2rtc.exe` lives.
    | 12.6 or 13.x | 561.09+ | torch cu126 |
    | 12.1 – 12.5 | 530.xx+ | torch cu121 |
    | 11.8 – 12.0 | 522.06+ | torch cu118 |
-   | < 11.8 (e.g. 10.0, 11.3) | — | ❌ GPU not supported — see below |
+   | **11.3 – 11.7** (e.g. 11.4 / driver 475) | **456.38+** | **torch cu113 (torch 1.12.x)** |
+   | < 11.3 (e.g. 10.0 / driver 411) | — | ❌ GPU not supported — see below |
    | No GPU / nvidia-smi absent | — | torch CPU-only |
 
 3. Creates `yolo_venv\` in your deploy dir, installs torch + ultralytics
 4. Verifies GPU accessibility
 5. Copies `counter.py` and `yolo_counter.bat` to the deploy folder
 
-### If CUDA < 11.8 (e.g. CUDA 10.0, driver 411.95)
+### CUDA 11.3–11.7 (e.g. CUDA 11.4 / driver 475.14)
 
-PyTorch 2.x and ultralytics YOLO11 require **CUDA 11.8 at minimum** (driver ≥ 522.06).
+The script auto-selects **torch cu113** (torch 1.12.x, CUDA 11.3 runtime). GPU acceleration is **enabled** — inference and YOLO counting work correctly. Training may be slightly slower than with torch 2.x.
+
+For better GPU support, update driver to ≥ 522.06 (enables CUDA 11.8 → torch cu118 / torch 2.x).
+
+### If CUDA < 11.3 (e.g. CUDA 10.0, driver 411.95)
+
+PyTorch requires CUDA 11.3 at minimum (driver ≥ 456.38) for GPU support.
 
 The script will show a warning and offer a **CPU-only fallback** (slower but functional).
 
 **To enable GPU:** update your NVIDIA driver:
-- Minimum: **522.06** → enables CUDA 11.8 (torch cu118)
+- Minimum: **456.38** → enables CUDA 11.3 (torch cu113 / torch 1.12.x)
+- Better: **522.06** → enables CUDA 11.8 (torch cu118 / torch 2.x)
 - Recommended: **561.09+** → enables CUDA 12.6 (torch cu126, best performance)
 - Download: https://www.nvidia.com/Download/index.aspx
 
