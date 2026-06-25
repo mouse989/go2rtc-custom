@@ -111,52 +111,52 @@ ECHO.
 REM ── Handle CUDA 11.3-11.7 — use torch cu113 (torch 1.12.x, older but GPU-capable) ──
 IF "%TORCH_FLAVOR%"=="cu113" (
     ECHO ================================================================
-    ECHO  CUDA %CUDA_VER% detected (driver %DRIVER_VER%)
-    ECHO  → Using PyTorch cu113 (torch 1.12.x — CUDA 11.3 build)
+    ECHO  CUDA %CUDA_VER% detected ^(driver %DRIVER_VER%^)
+    ECHO  Using PyTorch cu113 ^(torch 1.12.x -- CUDA 11.3 build^)
     ECHO ================================================================
     ECHO.
     ECHO  torch cu113 bundles CUDA 11.3 runtime which is compatible with
     ECHO  your driver's CUDA %CUDA_VER% support.  GPU will be enabled.
     ECHO.
     ECHO  Note: torch 1.12 is older than the torch 2.x used with cu118/cu126.
-    ECHO  Inference and counting work fine.  Training may be slower.
+    ECHO  Inference and counting work fine.  Training may be slightly slower.
     ECHO.
-    ECHO  For best GPU support, update driver to ^>= 522.06 (CUDA 11.8)
-    ECHO  then re-run this script — it will auto-select torch cu118.
+    ECHO  For best GPU support, update driver to ^>= 522.06 ^(CUDA 11.8^)
+    ECHO  then re-run this script -- it will auto-select torch cu118.
     ECHO.
 )
 
 REM ── Handle truly unsupported CUDA (10.x or 11.0-11.2) ────────────────────
-IF "%TORCH_FLAVOR%"=="old" (
-    ECHO ================================================================
-    ECHO  GPU NOT SUPPORTED — CUDA %CUDA_VER% / Driver %DRIVER_VER%
-    ECHO ================================================================
+IF NOT "%TORCH_FLAVOR%"=="old" GOTO :after_old_warn
+ECHO ================================================================
+ECHO  GPU NOT SUPPORTED -- CUDA %CUDA_VER% / Driver %DRIVER_VER%
+ECHO ================================================================
+ECHO.
+ECHO  The minimum CUDA for any GPU-capable PyTorch build is 11.3.
+ECHO  Your driver only supports up to CUDA %CUDA_VER%.
+ECHO.
+ECHO  To enable GPU acceleration, update your NVIDIA driver:
+ECHO    Minimum for CUDA 11.3:  driver ^>= 456.38  ^(torch cu113^)
+ECHO    Minimum for CUDA 11.8:  driver ^>= 522.06  ^(torch cu118^)
+ECHO    Minimum for CUDA 12.6:  driver ^>= 561.09  ^(torch cu126, best^)
+ECHO    Download: https://www.nvidia.com/Download/index.aspx
+ECHO.
+ECHO  Note: if your GPU is Kepler ^(GTX 600/700 series^) the last
+ECHO  supported driver is 391.35 ^(CUDA 9.1^), which cannot run
+ECHO  YOLO11 on GPU at all.  Use CPU-only mode in that case.
+ECHO.
+ECHO ================================================================
+ECHO.
+CHOICE /C YN /M "Continue with CPU-only mode (slower, no GPU)?"
+IF ERRORLEVEL 2 (
     ECHO.
-    ECHO  The minimum CUDA for any GPU-capable PyTorch build is 11.3.
-    ECHO  Your driver only supports up to CUDA %CUDA_VER%.
-    ECHO.
-    ECHO  To enable GPU acceleration, update your NVIDIA driver:
-    ECHO    Minimum for CUDA 11.3:  driver ^>= 456.38  (torch cu113)
-    ECHO    Minimum for CUDA 11.8:  driver ^>= 522.06  (torch cu118)
-    ECHO    Minimum for CUDA 12.6:  driver ^>= 561.09  (torch cu126, best)
-    ECHO    Download: https://www.nvidia.com/Download/index.aspx
-    ECHO.
-    ECHO  Note: if your GPU is Kepler (GTX 600/700 series) the last
-    ECHO  supported driver is 391.35 (CUDA 9.1), which cannot run
-    ECHO  YOLO11 on GPU at all.  Use CPU-only mode in that case.
-    ECHO.
-    ECHO ================================================================
-    ECHO.
-    CHOICE /C YN /M "Continue with CPU-only mode (slower, no GPU)?"
-    IF ERRORLEVEL 2 (
-        ECHO.
-        ECHO Aborted. Please update your NVIDIA driver and re-run this script.
-        EXIT /B 0
-    )
-    ECHO.
-    SET "TORCH_FLAVOR=cpu"
-    SET "CUDA_VER=none"
+    ECHO Aborted. Please update your NVIDIA driver and re-run this script.
+    EXIT /B 0
 )
+ECHO.
+SET "TORCH_FLAVOR=cpu"
+SET "CUDA_VER=none"
+:after_old_warn
 
 REM ── Map flavor to PyTorch index URL ──────────────────────────────────────
 :pick_url
