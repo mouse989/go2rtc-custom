@@ -2055,10 +2055,37 @@ function stnWindow15Label(h, m) {
   return pad(h) + ':' + pad(s) + '-' + pad(h) + ':' + pad(e);
 }
 
-// Returns the display value (count) for a station based on its type's grouping.
+// Build the text label and tooltip for a station marker (used by both build + refresh).
+function stnMarkerInfo(stn, rec, curH, curM) {
+  const t     = stnTypeByID(stn.type_id);
+  const is15  = t && t.grouping === '15min';
+  const val   = stnValue(rec, stn.type_id);
+  const color = stnColor(val, stn.type_id);
+  const lbl   = stn.label || stn.camera_id;
+  const n     = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : String(val);
+  let windowStr, tip;
+  if (is15) {
+    // Rolling window label from API response (e.g. "10:32 – 10:47")
+    const from = rec.rollingFrom || stnWindow15Label(curH, curM).split('-')[0].trim();
+    const to   = rec.rollingTo   || stnWindow15Label(curH, curM).split('-')[1].trim();
+    windowStr = from + ' – ' + to;
+    tip = lbl + (t ? ' [' + t.name + ']' : '')
+      + '\n15 phut truoc: ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
+      + '\nHom nay tong: ' + (rec.total || 0).toLocaleString() + ' luot';
+  } else {
+    windowStr = curH + ':00 – ' + (curH + 1) + ':00';
+    tip = lbl + (t ? ' [' + t.name + ']' : '')
+      + '\nGio hien tai ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
+      + '\nHom nay tong: ' + (rec.total || 0).toLocaleString() + ' luot';
+  }
+  return { text: n, color, tip };
+}
+
+// Returns the display value for a station based on its type's grouping.
+// 15-min stations use the TRUE rolling window count from /api/counting/rolling15.
 function stnValue(rec, typeID) {
   const t = stnTypeByID(typeID);
-  if (t && t.grouping === '15min') return rec.slot15 || 0;
+  if (t && t.grouping === '15min') return rec.rolling15 || 0;
   return rec.hour || 0;
 }
 
@@ -2086,59 +2113,84 @@ async function loadCountingCams() {
 async function loadStationsLayer() {
   const today = localDateStr();
   const currentHour = new Date().getHours();
-  const [stns, types, summary] = await Promise.all([
+  const [stns, types, summary, rolling] = await Promise.all([
     apiFetch('/api/counting/stations').catch(() => []),
     apiFetch('/api/counting/station-types').catch(() => []),
     apiFetch('/api/counting/summary?date=' + today).catch(() => []),
+    apiFetch('/api/counting/rolling15').catch(() => []),
   ]);
   _stations     = Array.isArray(stns)  ? stns  : [];
   _stationTypes = Array.isArray(types) ? types : [];
   applyStnSummary(Array.isArray(summary) ? summary : [], currentHour);
+  applyRolling15(Array.isArray(rolling) ? rolling : []);
   buildStnMarkers();
 }
 
-// Refresh only the summary counts and update existing marker elements in place.
-// Called every 3 s — avoids rebuilding DOM nodes or re-fetching stations/types.
+// Refresh counts and update existing station marker elements in place.
+// Called every 30 s — rolling15 window shifts by 30 s each cycle.
+// (5-min slot granularity means the meaningful change rate is every ~5 min,
+//  but 30 s provides smooth updates as vehicles cross within the current slot.)
 async function refreshStnCounts() {
-  if (!_stnLayerOn || _stations.length === 0) return;
+  if (!_stnLayerOn) return;
   const today = localDateStr();
   const curH  = new Date().getHours();
   try {
-    const summary = await apiFetch('/api/counting/summary?date=' + today);
+    // Fetch both: rolling15 for 15-min stations, summary for hourly stations.
+    const [summary, rolling] = await Promise.all([
+      apiFetch('/api/counting/summary?date=' + today),
+      apiFetch('/api/counting/rolling15'),
+    ]);
     applyStnSummary(Array.isArray(summary) ? summary : [], curH);
+    applyRolling15(Array.isArray(rolling) ? rolling : []);
   } catch (_) { return; }
+  if (_stations.length === 0) return;
   const curM = new Date().getMinutes();
   _stations.forEach(stn => {
     const entry = _stationMkrs[stn.id];
     if (!entry) return;
-    const rec   = _stnSummary[stn.camera_id] || { hour: 0, slot15: 0, total: 0 };
-    const t     = stnTypeByID(stn.type_id);
-    const is15  = t && t.grouping === '15min';
-    const val   = stnValue(rec, stn.type_id);
-    const color = stnColor(val, stn.type_id);
-    const lbl   = stn.label || stn.camera_id;
-    const n     = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : String(val);
-    const windowStr = is15 ? stnWindow15Label(curH, curM) : (curH + ':00-' + (curH + 1) + ':00');
-    entry.el.textContent      = n;
-    entry.el.style.background = color;
-    entry.el.title = lbl + (t ? ' [' + t.name + ']' : '')
-      + '\nKhung gio ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
-      + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
+    const rec  = _stnSummary[stn.camera_id] || { hour: 0, rolling15: 0, total: 0 };
+    const info = stnMarkerInfo(stn, rec, curH, curM);
+    entry.el.textContent      = info.text;
+    entry.el.style.background = info.color;
+    entry.el.title            = info.tip;
   });
 }
 
+// Apply fixed-slot summary (hourly stations and chart data).
+// Merges into _stnSummary without clearing rolling15 fields set by applyRolling15.
 function applyStnSummary(summary, currentHour) {
   const now = new Date();
   const curSlot15 = currentHour * 4 + Math.floor(now.getMinutes() / 15);
-  _stnSummary = {};
+  // Clear only the hourly/slot fields; preserve rolling15 written by applyRolling15.
+  Object.keys(_stnSummary).forEach(id => {
+    _stnSummary[id].hour    = 0;
+    _stnSummary[id].slot15  = 0;
+    _stnSummary[id].total   = 0;
+    _stnSummary[id].hours   = [];
+    _stnSummary[id].slots15 = [];
+  });
   summary.forEach(hs => {
-    _stnSummary[hs.cameraId] = {
+    if (!_stnSummary[hs.cameraId]) _stnSummary[hs.cameraId] = {};
+    Object.assign(_stnSummary[hs.cameraId], {
       hour:    (hs.hours   && hs.hours[currentHour]) || 0,
       slot15:  (hs.slots15 && hs.slots15[curSlot15]) || 0,
       total:   hs.total || 0,
       hours:   hs.hours   || [],
       slots15: hs.slots15 || [],
-    };
+    });
+  });
+}
+
+// Apply true rolling 15-min counts from /api/counting/rolling15.
+// Merges into _stnSummary without clearing hourly fields.
+function applyRolling15(results) {
+  // Clear existing rolling15 fields first.
+  Object.values(_stnSummary).forEach(rec => { rec.rolling15 = 0; rec.rollingFrom = ''; rec.rollingTo = ''; });
+  results.forEach(r => {
+    if (!_stnSummary[r.cameraId]) _stnSummary[r.cameraId] = {};
+    _stnSummary[r.cameraId].rolling15   = r.count || 0;
+    _stnSummary[r.cameraId].rollingFrom = r.from  || '';
+    _stnSummary[r.cameraId].rollingTo   = r.to    || '';
   });
 }
 
@@ -2151,23 +2203,14 @@ function buildStnMarkers() {
   const curH  = _now.getHours();
   const curM  = _now.getMinutes();
   _stations.forEach(stn => {
-    const rec   = _stnSummary[stn.camera_id] || { hour: 0, slot15: 0, total: 0 };
+    const rec   = _stnSummary[stn.camera_id] || { hour: 0, rolling15: 0, total: 0 };
     const t     = stnTypeByID(stn.type_id);
-    const is15  = t && t.grouping === '15min';
-    const val   = stnValue(rec, stn.type_id);
-    const color = stnColor(val, stn.type_id);
-    const lbl   = stn.label || stn.camera_id;
-    const n = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : String(val);
-    const windowStr = is15
-      ? stnWindow15Label(curH, curM)
-      : (curH + ':00-' + (curH + 1) + ':00');
+    const info = stnMarkerInfo(stn, rec, curH, curM);
     const el = document.createElement('div');
     el.className = 'stn-marker-wrap' + (_stnEditMode ? ' stn-placing' : '');
-    el.style.background = color;
-    el.title = lbl + (t ? ' [' + t.name + ']' : '')
-      + '\nKhung gio ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
-      + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
-    el.textContent = n;
+    el.style.background = info.color;
+    el.title        = info.tip;
+    el.textContent  = info.text;
     const marker = new vietmapgl.Marker({ element: el, anchor: 'center' })
       .setLngLat([stn.lon, stn.lat]);
     if (_stnLayerOn) marker.addTo(map);
@@ -2670,8 +2713,9 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
       document.getElementById('btnStnLayer').style.display = '';
       loadCountingCams();
       await loadStationsLayer();
-      // Refresh counts every 3 s (update markers in place, no DOM rebuild).
-      setInterval(refreshStnCounts, 3000);
+      // Refresh counts every 30 s — rolling15 window shifts meaningfully every ~5 min
+      // (one 5-min slot boundary), and 30 s captures live updates within the current slot.
+      setInterval(refreshStnCounts, 30000);
       // Reload full layer (stations + types) every 5 min in case config changed.
       setInterval(loadStationsLayer, 5 * 60 * 1000);
     }

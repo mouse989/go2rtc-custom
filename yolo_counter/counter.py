@@ -107,15 +107,18 @@ class Track:
     cy: float
     prev_cx: float
     prev_cy: float
+    vx: float = 0.0  # smoothed velocity x (px/frame)
+    vy: float = 0.0  # smoothed velocity y (px/frame)
     x1: float = 0.0    # bounding box — used for IOU matching
     y1: float = 0.0
     x2: float = 0.0
     y2: float = 0.0
     missed: int = 0
+    hits: int = 1    # consecutive matched frames (used for min_hits confirmation)
     crossed_h: bool = False
     crossed_v: bool = False
     vehicle_class: str = "unknown"
-    position_history: list = field(default_factory=list)  # [(cx,cy),...] oldest first, max 5 entries
+    position_history: list = field(default_factory=list)  # [(cx,cy),...] oldest first, max 10 entries
     # Set of line IDs already triggered (one crossing event per track per line)
     crossed_lines: set = field(default_factory=set)
 
@@ -134,30 +137,43 @@ def _iou(b1: tuple, b2: tuple) -> float:
 
 
 class Tracker:
-    """IOU + centroid combined multi-object tracker.
+    """IOU + velocity-predicted centroid multi-object tracker.
 
-    Primary matching signal is bounding-box IOU (robust when vehicles
-    cross or overlap). Centroid distance is a secondary fallback for
-    small/distant objects where IOU is naturally low.
+    Matching pipeline
+    -----------------
+    1. For each existing track, predict its next position using its smoothed
+       velocity:  pred = current_pos + vx/vy * velocity_weight
+    2. Score each (track, detection) pair:
+         score = iou(predicted_box, det_box) * 2  +  dist_score(predicted_centroid)
+    3. Apply class_penalty when classes differ.
+    4. Greedy assignment: each track takes its best unmatched detection.
+    5. Detections without any track become tentative new tracks; they are only
+       promoted to confirmed (and assigned a permanent ID) after min_hits
+       consecutive frames — this prevents short-lived noise from stealing IDs.
 
     Parameters
     ----------
     iou_min : float
-        Minimum IOU for a valid match.  Higher = stricter spatial overlap
-        required, fewer false merges between nearby vehicles.  (default 0.20)
+        Minimum IOU for a valid match.  (default 0.20)
     dist_max : float
-        Centroid fallback radius in pixels.  Lower = tracks can't jump far
-        between frames.  (default 55)
+        Centroid fallback radius in pixels.  (default 55)
     max_missed : int
-        Frames a track may be absent before it is dropped.  Lower = IDs
-        disappear sooner when a vehicle exits or is occluded briefly.  (default 4)
-    class_penalty : float  0.0–1.0
-        Score multiplier applied when a detection's class differs from the
-        track's class.  0.0 = no penalty (class ignored).  1.0 = cross-class
-        match score is zeroed (strictly block class changes).  0.5 = score
-        halved, so a cross-class match must have 2× better IOU/distance to
-        win over a same-class candidate.  (default 0.5)
+        Frames a track may be absent before it is dropped.  (default 4)
+    class_penalty : float 0.0–1.0
+        Score multiplier for cross-class matches. 0=ignore, 1=block.  (default 0.5)
+    velocity_weight : float 0.0–1.0
+        How strongly to use velocity prediction when computing match distance.
+        0 = use current position (old behaviour).
+        1 = use fully extrapolated position (current + vx, current + vy).
+        (default 0.6)
+    min_hits : int
+        Consecutive matched frames required before a new detection gets a
+        permanent ID.  Higher = fewer phantom tracks in dense scenes but
+        slightly higher latency for genuinely new vehicles.  (default 2)
     """
+
+    # EMA alpha for velocity smoothing (not exposed — tuning not needed)
+    _VEL_ALPHA = 0.4  # weight given to the new observation (1-alpha kept from previous)
 
     def __init__(
         self,
@@ -165,44 +181,50 @@ class Tracker:
         dist_max: float = 55.0,
         max_missed: int = 4,
         class_penalty: float = 0.50,
+        velocity_weight: float = 0.60,
+        min_hits: int = 2,
     ):
-        self.iou_min       = iou_min
-        self.dist_max      = dist_max
-        self.max_missed    = max_missed
-        self.class_penalty = max(0.0, min(1.0, class_penalty))
+        self.iou_min        = iou_min
+        self.dist_max       = dist_max
+        self.max_missed     = max_missed
+        self.class_penalty  = max(0.0, min(1.0, class_penalty))
+        self.velocity_weight = max(0.0, min(1.0, velocity_weight))
+        self.min_hits       = max(1, min_hits)
         self._tracks: List[Track] = []
+        self._tentative: List[Track] = []  # not yet confirmed
         self._next_id = 1
 
-    def update(self, detections: List[tuple]) -> List[Track]:
-        """
-        detections: list of (cx, cy, cls_name, x1, y1, x2, y2) tuples
-        Returns the current list of active tracks.
-        """
-        for tr in self._tracks:
-            tr.missed += 1
+    # ------------------------------------------------------------------
+    def _match(self, pool: List[Track], detections: List[tuple]) -> tuple:
+        """Greedy matching of pool tracks against detections.
 
-        unmatched_dets = list(range(len(detections)))
-
-        for tr in self._tracks:
-            if not unmatched_dets:
+        Returns (updated_tracks, unmatched_det_indices).
+        """
+        unmatched = list(range(len(detections)))
+        for tr in pool:
+            if not unmatched:
                 break
-            tr_box = (tr.x1, tr.y1, tr.x2, tr.y2)
+            # Velocity-predicted position and box
+            w = self.velocity_weight
+            pred_cx = tr.cx + tr.vx * w
+            pred_cy = tr.cy + tr.vy * w
+            pred_box = (
+                tr.x1 + tr.vx * w,
+                tr.y1 + tr.vy * w,
+                tr.x2 + tr.vx * w,
+                tr.y2 + tr.vy * w,
+            )
             best_idx, best_score = None, -1.0
-            for idx in unmatched_dets:
+            for idx in unmatched:
                 cx, cy, _cls, dx1, dy1, dx2, dy2 = detections[idx]
-                iou = _iou(tr_box, (dx1, dy1, dx2, dy2))
-                dist = math.hypot(cx - tr.cx, cy - tr.cy)
+                iou = _iou(pred_box, (dx1, dy1, dx2, dy2))
+                dist = math.hypot(cx - pred_cx, cy - pred_cy)
                 dist_score = max(0.0, 1.0 - dist / self.dist_max)
-                # IOU is the primary signal (scaled 2×); centroid is fallback
                 score = iou * 2.0 + dist_score
-                # Apply class penalty: cross-class matches score lower so that
-                # a same-class candidate is always preferred over a cross-class
-                # one unless it has a decisively better IOU/distance.
                 if (self.class_penalty > 0.0
                         and tr.vehicle_class not in ('unknown', '')
                         and _cls != tr.vehicle_class):
                     score *= (1.0 - self.class_penalty)
-                # Reject pairs where BOTH signals are below threshold
                 if iou < self.iou_min and dist > self.dist_max:
                     continue
                 if score > best_score:
@@ -211,31 +233,66 @@ class Tracker:
 
             if best_idx is not None:
                 cx, cy, cls_name, dx1, dy1, dx2, dy2 = detections[best_idx]
+                # Update velocity using EMA
+                new_vx = cx - tr.cx
+                new_vy = cy - tr.cy
+                a = self._VEL_ALPHA
+                tr.vx = a * new_vx + (1 - a) * tr.vx
+                tr.vy = a * new_vy + (1 - a) * tr.vy
                 tr.prev_cx, tr.prev_cy = tr.cx, tr.cy
                 tr.cx, tr.cy = cx, cy
                 tr.x1, tr.y1, tr.x2, tr.y2 = dx1, dy1, dx2, dy2
                 tr.vehicle_class = cls_name
                 tr.missed = 0
-                unmatched_dets.remove(best_idx)
+                tr.hits += 1
+                unmatched.remove(best_idx)
                 tr.position_history.append((cx, cy))
                 if len(tr.position_history) > 10:
                     tr.position_history.pop(0)
 
-        # Create new tracks for unmatched detections
-        for idx in unmatched_dets:
+        return unmatched
+
+    # ------------------------------------------------------------------
+    def update(self, detections: List[tuple]) -> List[Track]:
+        """
+        detections: list of (cx, cy, cls_name, x1, y1, x2, y2) tuples
+        Returns confirmed active tracks (missed == 0 or still within max_missed).
+        """
+        for tr in self._tracks + self._tentative:
+            tr.missed += 1
+
+        # 1. Match confirmed tracks first (priority)
+        unmatched = self._match(self._tracks, detections)
+
+        # 2. Match tentative tracks against remaining unmatched detections
+        tent_dets = [detections[i] for i in unmatched]
+        tent_unmatched_rel = self._match(self._tentative, tent_dets)
+        # Map relative indices back to original
+        tent_unmatched = [unmatched[i] for i in tent_unmatched_rel]
+
+        # 3. Promote tentative tracks that reached min_hits
+        newly_confirmed = [tr for tr in self._tentative if tr.hits >= self.min_hits]
+        still_tentative = [tr for tr in self._tentative if tr.hits < self.min_hits]
+        self._tracks.extend(newly_confirmed)
+
+        # 4. Create new tentative tracks for fully unmatched detections
+        for idx in tent_unmatched:
             cx, cy, cls_name, dx1, dy1, dx2, dy2 = detections[idx]
-            self._tracks.append(Track(
+            still_tentative.append(Track(
                 id=self._next_id,
                 cx=cx, cy=cy,
                 prev_cx=cx, prev_cy=cy,
                 x1=dx1, y1=dy1, x2=dx2, y2=dy2,
                 vehicle_class=cls_name,
+                hits=1,
                 position_history=[(cx, cy)],
             ))
             self._next_id += 1
 
-        # Prune stale tracks
-        self._tracks = [tr for tr in self._tracks if tr.missed <= self.max_missed]
+        # 5. Prune stale tracks
+        self._tracks    = [tr for tr in self._tracks    if tr.missed <= self.max_missed]
+        self._tentative = [tr for tr in still_tentative if tr.missed <= self.min_hits]
+
         return list(self._tracks)
 
 
@@ -294,10 +351,12 @@ class CameraConfig(BaseModel):
     yoloConf: float = 0.35
     rtspBase: str = ""  # override global --rtsp-base; used when stream lives on another server
     # Tracker sensitivity — see Tracker docstring for meaning of each param
-    trackIouMin:      float = 0.20   # min IOU for spatial match (0.05–0.50)
-    trackDistMax:     float = 55.0   # centroid fallback radius in pixels (10–150)
-    trackMaxMissed:   int   = 4      # frames absent before track is dropped (1–15)
-    trackClassPenalty: float = 0.50  # 0=ignore class, 1=never swap class (0.0–1.0)
+    trackIouMin:       float = 0.20   # min IOU for spatial match (0.05–0.50)
+    trackDistMax:      float = 55.0   # centroid fallback radius in pixels (10–150)
+    trackMaxMissed:    int   = 4      # frames absent before track is dropped (1–15)
+    trackClassPenalty: float = 0.50   # 0=ignore class, 1=never swap class (0.0–1.0)
+    trackVelocityWeight: float = 0.60 # 0=use current pos, 1=full velocity prediction (0.0–1.0)
+    trackMinHits:      int   = 2      # frames before new detection gets a permanent ID (1–5)
 
 
 @dataclass
@@ -314,6 +373,8 @@ class CameraState:
             dist_max=self.config.trackDistMax,
             max_missed=self.config.trackMaxMissed,
             class_penalty=self.config.trackClassPenalty,
+            velocity_weight=self.config.trackVelocityWeight,
+            min_hits=self.config.trackMinHits,
         )
 
     # counts
@@ -480,6 +541,12 @@ class CameraState:
 
     def _update_sse_data(self, tracks: list, fw: int, fh: int):
         """Store latest frame detection data for SSE browser overlay."""
+        # Aggregate per-class totals across all directions
+        class_totals: dict = {}
+        for types in self.dirTypeCounts.values():
+            for cls, n in types.items():
+                class_totals[cls] = class_totals.get(cls, 0) + n
+
         data = {
             "fw": fw,
             "fh": fh,
@@ -491,10 +558,12 @@ class CameraState:
                     "cx": tr.cx, "cy": tr.cy,
                     "cls": tr.vehicle_class,
                     "trail": list(tr.position_history),
+                    "crossed": len(tr.crossed_lines) > 0,
                 }
                 for tr in tracks if tr.missed == 0
             ],
             "counts": {k: dict(v) for k, v in self.dirTypeCounts.items()},
+            "class_totals": class_totals,
             "total": self.total,
         }
         with self.sse_lock:
@@ -632,43 +701,77 @@ class CameraState:
                           tracks: List[Track], fw: int, fh: int):
         dbg = frame.copy()
 
-        # Draw bounding boxes
+        # Draw bounding boxes (raw detections — thin, class-colored)
         for b in boxes_info:
             cls_name = b["cls"]
             color_bgr = CLASS_COLORS_BGR.get(cls_name, (0, 255, 0))
             x1, y1, x2, y2 = int(b["x1"]), int(b["y1"]), int(b["x2"]), int(b["y2"])
-            cv2.rectangle(dbg, (x1, y1), (x2, y2), color_bgr, 2)
+            cv2.rectangle(dbg, (x1, y1), (x2, y2), color_bgr, 1)
             label = f"{cls_name} {b['conf']:.2f}"
             label_y = max(y1 - 6, 12)
             cv2.putText(dbg, label, (x1, label_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_bgr, 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_bgr, 1, cv2.LINE_AA)
 
-        # Draw track bounding boxes with ID labels
-        cyan = (200, 200, 0)
+        # Draw trajectory trails (class-colored, fading)
         for tr in tracks:
-            tx1, ty1, tx2, ty2 = int(tr.x1), int(tr.y1), int(tr.x2), int(tr.y2)
-            cv2.rectangle(dbg, (tx1, ty1), (tx2, ty2), cyan, 1)
-            label_y = max(ty1 - 3, 8)
-            cv2.putText(dbg, f"#{tr.id}", (tx1, label_y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, cyan, 1, cv2.LINE_AA)
-            # Centroid dot
-            cv2.circle(dbg, (int(tr.cx), int(tr.cy)), 3, cyan, -1)
-
-        # Draw trajectory trail
-        for tr in tracks:
+            trail_color = CLASS_COLORS_BGR.get(tr.vehicle_class, (160, 160, 160))
             if len(tr.position_history) >= 2:
                 for j in range(1, len(tr.position_history)):
                     alpha = j / len(tr.position_history)
-                    c = int(180 * alpha)
+                    # Fade trail: blend class color toward black
+                    tc = tuple(int(c * alpha * 0.75) for c in trail_color)
                     cv2.line(dbg,
                              (int(tr.position_history[j-1][0]), int(tr.position_history[j-1][1])),
                              (int(tr.position_history[j][0]),   int(tr.position_history[j][1])),
-                             (c, c, c), 1, cv2.LINE_AA)
-                # Arrow tip from second-to-last to last point
+                             tc, 1, cv2.LINE_AA)
                 p1 = (int(tr.position_history[-2][0]), int(tr.position_history[-2][1]))
                 p2 = (int(tr.position_history[-1][0]), int(tr.position_history[-1][1]))
                 if p1 != p2:
-                    cv2.arrowedLine(dbg, p1, p2, (200, 200, 200), 1, tipLength=0.6)
+                    cv2.arrowedLine(dbg, p1, p2, trail_color, 1, tipLength=0.55)
+
+        # Draw track bounding boxes — crossed (counted) vs uncounted look different
+        overlay = dbg.copy()
+        for tr in tracks:
+            tx1, ty1 = int(tr.x1), int(tr.y1)
+            tx2, ty2 = int(tr.x2), int(tr.y2)
+            cls_color = CLASS_COLORS_BGR.get(tr.vehicle_class, (100, 200, 100))
+            is_crossed = len(tr.crossed_lines) > 0
+
+            if is_crossed:
+                # Counted vehicle: semi-transparent fill + thick border
+                cv2.rectangle(overlay, (tx1, ty1), (tx2, ty2), cls_color, -1)  # fill
+                cv2.rectangle(dbg,     (tx1, ty1), (tx2, ty2), cls_color, 2)   # thick border
+            else:
+                # Uncounted vehicle: thin border only (dashed effect via dots)
+                for seg in range(0, max(tx2 - tx1, ty2 - ty1), 8):
+                    # Top edge
+                    if tx1 + seg + 4 <= tx2:
+                        cv2.line(dbg, (tx1 + seg, ty1), (min(tx1 + seg + 4, tx2), ty1), cls_color, 1)
+                    # Bottom edge
+                    if tx1 + seg + 4 <= tx2:
+                        cv2.line(dbg, (tx1 + seg, ty2), (min(tx1 + seg + 4, tx2), ty2), cls_color, 1)
+                    # Left edge
+                    if ty1 + seg + 4 <= ty2:
+                        cv2.line(dbg, (tx1, ty1 + seg), (tx1, min(ty1 + seg + 4, ty2)), cls_color, 1)
+                    # Right edge
+                    if ty1 + seg + 4 <= ty2:
+                        cv2.line(dbg, (tx2, ty1 + seg), (tx2, min(ty1 + seg + 4, ty2)), cls_color, 1)
+
+            # Track ID label + class (crossed tracks get inverted label background)
+            label_y = max(ty1 - 3, 10)
+            tag = f"#{tr.id}"
+            (tw, th), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
+            if is_crossed:
+                cv2.rectangle(dbg, (tx1, label_y - th - 2), (tx1 + tw + 2, label_y + 1), cls_color, -1)
+                cv2.putText(dbg, tag, (tx1 + 1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 0, 0), 1, cv2.LINE_AA)
+            else:
+                cv2.putText(dbg, tag, (tx1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.38, cls_color, 1, cv2.LINE_AA)
+
+            # Centroid dot
+            cv2.circle(dbg, (int(tr.cx), int(tr.cy)), 3, cls_color, -1)
+
+        # Blend the fill overlay (15% opacity for crossed vehicles)
+        cv2.addWeighted(overlay, 0.15, dbg, 0.85, 0, dbg)
 
         white = (255, 255, 255)
         line_colors = [
@@ -731,15 +834,41 @@ class CameraState:
                             (255, 255, 255), _th, cv2.LINE_AA)
                 _ty += _sz[1] + _pad
 
-        # Status overlay at bottom
+        # Status overlay at bottom — two rows
         effective_fps = self._effective_fps()
-        overlay = (f"Total: {self.total} | FPS: {effective_fps:.1f} | "
-                   f"Frames: {self.framesProcessed}")
-        text_y = fh - 8
-        cv2.putText(dbg, overlay, (4, text_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 2, cv2.LINE_AA)
-        cv2.putText(dbg, overlay, (4, text_y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, white, 1, cv2.LINE_AA)
+        white = (255, 255, 255)
+        _font = cv2.FONT_HERSHEY_SIMPLEX
+        _fsc  = max(0.38, fw / 900)
+
+        # Row 1: class breakdown (colored per vehicle type)
+        class_parts = [
+            ("car",        f"Car:{self.totalCar}",        CLASS_COLORS_BGR["car"]),
+            ("motorcycle", f"Moto:{self.totalMotorcycle}", CLASS_COLORS_BGR["motorcycle"]),
+            ("bus",        f"Bus:{self.totalBus}",         CLASS_COLORS_BGR["bus"]),
+            ("truck",      f"Truck:{self.totalTruck}",     CLASS_COLORS_BGR["truck"]),
+        ]
+        x_cur = 4
+        ty1 = fh - 22
+        for _, txt, col in class_parts:
+            (tw, _), _ = cv2.getTextSize(txt, _font, _fsc, 1)
+            cv2.putText(dbg, txt, (x_cur, ty1), _font, _fsc, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(dbg, txt, (x_cur, ty1), _font, _fsc, col, 1, cv2.LINE_AA)
+            x_cur += tw + 10
+
+        # Row 2: total + fps + frames
+        status2 = (f"Total:{self.total} | FPS:{effective_fps:.1f} | "
+                   f"Frames:{self.framesProcessed}")
+        text_y = fh - 6
+        cv2.putText(dbg, status2, (4, text_y), _font, _fsc, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.putText(dbg, status2, (4, text_y), _font, _fsc, white, 1, cv2.LINE_AA)
+
+        # Legend: dashed = chưa đếm, solid-filled = đã đếm
+        legend_x = fw - 4
+        for txt in ["▪ đã đếm", "┄ chưa đếm"][::-1]:
+            (tw, _), _ = cv2.getTextSize(txt, _font, _fsc * 0.85, 1)
+            legend_x -= tw + 8
+            cv2.putText(dbg, txt, (legend_x, fh - 6), _font, _fsc * 0.85, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(dbg, txt, (legend_x, fh - 6), _font, _fsc * 0.85, white, 1, cv2.LINE_AA)
 
         ok, buf = cv2.imencode(".jpg", dbg, [cv2.IMWRITE_JPEG_QUALITY, 75])
         if ok:
