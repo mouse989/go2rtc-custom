@@ -2,12 +2,16 @@
 
 ## Quick reference — which method to use?
 
-| Platform | Method | Output |
-|---|---|---|
-| Windows CPU (any machine) | `build_yolo_win.bat` | single `yolo_counter.exe` |
-| Windows GPU, driver < 560 | `build_yolo_win_gpu.bat` | `dist\yolo_counter\` folder |
-| **Windows GPU, driver ≥ 560 (CUDA 12.8 / 13.x)** | **`setup_yolo_win_gpu.bat`** | **Python venv — no .exe needed** |
-| Linux | CI / `build_yolo_linux.sh` | single `yolo_counter` |
+| Platform | GPU? | Driver / CUDA | Method | Output |
+|---|---|---|---|---|
+| Windows | No | Any | `setup_yolo_win.bat` (auto) | Python venv (CPU) |
+| Windows | Yes | driver ≥ 522 / CUDA 11.8+ | `setup_yolo_win.bat` (auto) | Python venv (GPU) |
+| Windows | Yes | driver < 522 / CUDA ≤ 11.7 | Update driver → re-run | — |
+| Windows | Yes | driver 411 / CUDA 10.0 | Update driver → re-run | — |
+| Windows | Yes (old way) | driver ≥ 560 | `setup_yolo_win_gpu.bat` | Python venv (cu126) |
+| Linux | Any | — | CI / `build_yolo_linux.sh` | single `yolo_counter` |
+
+> **Recommended path for all Windows machines:** `setup_yolo_win.bat` — it auto-detects your CUDA version and installs the correct PyTorch.
 
 ---
 
@@ -15,6 +19,7 @@
 
 - Windows 10/11 (64-bit)
 - Python 3.11 installed and added to PATH (`python --version` should return 3.11.x)
+- NVIDIA GPU with driver ≥ 522.06 for GPU mode (optional)
 
 ---
 
@@ -25,51 +30,66 @@ go2rtc-custom/
 ├── yolo_counter/
 │   ├── counter.py              ← entry point
 │   ├── yolo_counter.bat        ← Python wrapper (auto-discovers venv)
-│   ├── pyi_rth_torch_cuda.py   ← PyInstaller runtime hook (GPU bundle only)
+│   ├── pyi_rth_torch_cuda.py   ← PyInstaller runtime hook (legacy GPU bundle)
 │   └── BUILD_GUIDE.md          ← this file
 ├── scripts/
-│   ├── build_yolo_win.bat          ← Windows CPU — produces yolo_counter.exe
-│   ├── build_yolo_win_gpu.bat      ← Windows GPU (older driver) — PyInstaller bundle
-│   └── setup_yolo_win_gpu.bat      ← Windows GPU (driver 560+) — Python venv
+│   ├── setup_yolo_win.bat          ← ★ RECOMMENDED — auto-detect CUDA + install venv
+│   ├── setup_yolo_win_gpu.bat      ← Legacy: hardcoded cu126 (driver ≥ 560 only)
+│   ├── build_yolo_win.bat          ← CPU — produces yolo_counter.exe (PyInstaller)
+│   └── build_yolo_win_gpu.bat      ← GPU — PyInstaller bundle (older drivers)
 ```
 
 ---
 
-## Windows CPU — single .exe (any machine)
+## Windows — Python venv (recommended for all GPU/CPU setups)
+
+Run **once** on the deployment machine from the repository root:
 
 ```bat
-scripts\build_yolo_win.bat
+scripts\setup_yolo_win.bat D:\GO_YO\
 ```
 
-Output: `dist\yolo_counter.exe` — copy it next to `go2rtc.exe`.
+Replace `D:\GO_YO\` with the folder where `go2rtc.exe` lives.
 
----
+### What the script does
 
-## Windows GPU — Python venv (driver ≥ 560, CUDA 12.8 / 13.x)
+1. Detects your NVIDIA driver and CUDA version via `nvidia-smi`
+2. Selects the matching PyTorch build:
 
-> Use this when the PyInstaller GPU build fails with **WinError 1114**.
-> Requires Python 3.11 installed on the **deployment machine** (the machine running go2rtc).
+   | CUDA shown in nvidia-smi | Minimum driver | PyTorch build |
+   |---|---|---|
+   | 12.6 or 13.x | 561.09+ | torch cu126 |
+   | 12.1 – 12.5 | 530.xx+ | torch cu121 |
+   | 11.8 – 12.0 | 522.06+ | torch cu118 |
+   | < 11.8 (e.g. 10.0, 11.3) | — | ❌ GPU not supported — see below |
+   | No GPU / nvidia-smi absent | — | torch CPU-only |
 
-Run **once** on the deployment machine from the repo root:
+3. Creates `yolo_venv\` in your deploy dir, installs torch + ultralytics
+4. Verifies GPU accessibility
+5. Copies `counter.py` and `yolo_counter.bat` to the deploy folder
 
-```bat
-scripts\setup_yolo_win_gpu.bat D:\GO_YO\
-```
+### If CUDA < 11.8 (e.g. CUDA 10.0, driver 411.95)
 
-Replace `D:\GO_YO\` with wherever `go2rtc.exe` lives.
+PyTorch 2.x and ultralytics YOLO11 require **CUDA 11.8 at minimum** (driver ≥ 522.06).
 
-This script:
-1. Creates `D:\GO_YO\yolo_venv\` with Python and installs torch (CUDA 12.6) + ultralytics
-2. Verifies `torch.cuda.is_available()` returns `True` inside the venv
-3. Copies `counter.py` and `yolo_counter.bat` to `D:\GO_YO\`
+The script will show a warning and offer a **CPU-only fallback** (slower but functional).
 
-After setup, **remove or rename any existing `yolo_counter.exe`** in the deploy folder:
+**To enable GPU:** update your NVIDIA driver:
+- Minimum: **522.06** → enables CUDA 11.8 (torch cu118)
+- Recommended: **561.09+** → enables CUDA 12.6 (torch cu126, best performance)
+- Download: https://www.nvidia.com/Download/index.aspx
+
+> **Note:** if your GPU is Kepler architecture (GTX 600 / GTX 700 series), the
+> maximum supported driver is 391.35 (CUDA 9.1). These GPUs **cannot** run YOLO11
+> on GPU regardless of driver version. Use CPU-only mode.
+
+### After setup — remove old yolo_counter.exe
+
+go2rtc prefers `.exe` over `.bat`. If an old `yolo_counter.exe` exists in the deploy folder, rename or remove it:
+
 ```bat
 ren D:\GO_YO\yolo_counter.exe yolo_counter.exe.bak
 ```
-
-go2rtc auto-discovers `yolo_counter.bat`, launches it via `cmd /c`, and passes all args.
-The `.bat` detects `yolo_venv\Scripts\python.exe` automatically and uses it.
 
 ### Updating counter.py after code changes
 
@@ -79,15 +99,29 @@ copy yolo_counter\counter.py D:\GO_YO\counter.py
 
 ---
 
-## Windows GPU — PyInstaller bundle (driver < 560 / CUDA 12.x)
+## Windows — CPU only (PyInstaller, single .exe)
 
-> For machines with older NVIDIA drivers where the PyInstaller bundle works.
+Use when you don't have a GPU or don't want to install Python on the deployment machine.
+
+```bat
+scripts\build_yolo_win.bat
+```
+
+Output: `dist\yolo_counter.exe` — copy it next to `go2rtc.exe`. No Python needed on target machine.
+
+---
+
+## Windows GPU — PyInstaller bundle (legacy, driver < 560)
+
+> The venv approach above is recommended over PyInstaller GPU builds.
+> Use this only if you cannot install Python on the deployment machine and
+> your driver is < 560.
 
 ```bat
 scripts\build_yolo_win_gpu.bat
 ```
 
-Output **folder**: `dist\yolo_counter\`
+Output folder: `dist\yolo_counter\`
 
 Deploy the entire folder contents next to `go2rtc.exe`:
 ```bat
@@ -95,29 +129,29 @@ xcopy /E /Y dist\yolo_counter\* D:\GO_YO\
 ```
 
 > **Why `--onedir` instead of `--onefile`?**
-> PyTorch GPU builds contain hundreds of CUDA DLLs (`c10.dll`, `cudart64_12.dll`, `cublas64_12.dll`, …). `--onedir` keeps them all in `_internal\torch\lib\`, where torch's own loader expects them.
-
-> **Do NOT install the `nvidia-*-cu12` pip packages.** The torch wheel is fully self-contained — those packages install newer CUDA libraries that shadow torch's bundled versions and cause WinError 1114.
+> PyTorch GPU builds contain hundreds of CUDA DLLs. `--onedir` keeps them in
+> `_internal\torch\lib\` where torch's loader expects them.
+>
+> **Do NOT install the `nvidia-*-cu12` pip packages.** The torch wheel bundles
+> its own CUDA DLLs — standalone nvidia packages install mismatched versions
+> that cause WinError 1114.
 
 ---
 
-## Placing files next to go2rtc
+## How go2rtc discovers the launcher
 
-**venv method** — files are copied automatically by `setup_yolo_win_gpu.bat`.
+go2rtc searches for `yolo_counter` in this order:
 
-**CPU / PyInstaller GPU** — copy manually:
-```bat
-REM CPU: single file
-copy dist\yolo_counter.exe D:\GO_YO\
+1. `yolo_counter.exe` — PyInstaller bundle or manual rename
+2. `yolo_counter.bat` — Python venv wrapper ← **used by setup_yolo_win.bat**
+3. `yolo_counter.cmd`
 
-REM GPU PyInstaller: entire folder
-xcopy /E /Y dist\yolo_counter\* D:\GO_YO\
-```
+If `.exe` exists, `.bat` is ignored. Always remove or rename an old `.exe` after switching to the venv method.
 
 ---
 
 ## Notes
 
-- The GPU PyInstaller build is **not** run in CI (no NVIDIA GPUs on GitHub-hosted runners). Build or setup locally.
-- CPU builds (`build-yolo-win64` and `build-yolo-linux64`) are available via GitHub Actions (`workflow_dispatch`).
-- Model weights (`.pt` files) are downloaded automatically by ultralytics on first run — internet access required on first startup.
+- GPU PyInstaller builds are **not** run in CI (no NVIDIA GPUs on GitHub runners). Build locally.
+- CPU builds (`build-yolo-win64`, `build-yolo-linux64`) are available via GitHub Actions (workflow_dispatch).
+- Model weights (`.pt` files) are downloaded automatically by ultralytics on first run — internet access required on the first startup.
