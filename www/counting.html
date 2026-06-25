@@ -670,6 +670,72 @@
           ⚠️ Đảm bảo máy chủ này có cấu hình <b>RTSP Base</b> để kéo luồng từ Server 1.
         </div>
       </div>
+      <!-- Tracking sensitivity — collapsed by default -->
+      <details style="margin-bottom:10px">
+        <summary style="cursor:pointer;font-size:0.8rem;font-weight:600;color:var(--text-secondary);user-select:none;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;list-style:none;display:flex;align-items:center;gap:6px">
+          <span>⚙ Cấu hình Tracking</span>
+          <span style="font-size:.7rem;font-weight:400;color:var(--text-muted);margin-left:auto">độ nhạy theo dõi đối tượng</span>
+        </summary>
+        <div style="padding:8px 10px;border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;background:var(--surface2)">
+          <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:7px;line-height:1.4">
+            Điều chỉnh nếu thấy ID nhảy giữa các loại xe hoặc mất track sớm.<br>
+            Giá trị mặc định phù hợp cho hầu hết trường hợp.
+          </div>
+          <!-- Class penalty -->
+          <div style="margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
+              <label>🔒 Giữ nguyên loại xe <span style="color:var(--text-muted);font-weight:400">(class penalty)</span></label>
+              <span id="mClassPenaltyV" style="font-variant-numeric:tabular-nums;font-weight:600;min-width:32px;text-align:right">0.50</span>
+            </div>
+            <input type="range" id="mClassPenalty" min="0" max="1" step="0.05" value="0.5"
+              oninput="document.getElementById('mClassPenaltyV').textContent=parseFloat(this.value).toFixed(2)"
+              style="width:100%">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted)">
+              <span>0 — không phạt (dễ nhảy loại)</span><span>1 — chặn hoàn toàn</span>
+            </div>
+          </div>
+          <!-- IOU min -->
+          <div style="margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
+              <label>📦 Tối thiểu IoU <span style="color:var(--text-muted);font-weight:400">(iou min)</span></label>
+              <span id="mIouMinV" style="font-variant-numeric:tabular-nums;font-weight:600;min-width:32px;text-align:right">0.20</span>
+            </div>
+            <input type="range" id="mIouMin" min="0.05" max="0.50" step="0.05" value="0.20"
+              oninput="document.getElementById('mIouMinV').textContent=parseFloat(this.value).toFixed(2)"
+              style="width:100%">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted)">
+              <span>0.05 — ghép dễ hơn</span><span>0.50 — chỉ ghép khi chồng nhiều</span>
+            </div>
+          </div>
+          <!-- Dist max -->
+          <div style="margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
+              <label>📏 Khoảng cách tối đa <span style="color:var(--text-muted);font-weight:400">(dist max, px)</span></label>
+              <span id="mDistMaxV" style="font-variant-numeric:tabular-nums;font-weight:600;min-width:28px;text-align:right">55</span>
+            </div>
+            <input type="range" id="mDistMax" min="10" max="150" step="5" value="55"
+              oninput="document.getElementById('mDistMaxV').textContent=this.value"
+              style="width:100%">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted)">
+              <span>10px — bám sát vị trí</span><span>150px — chịu dịch chuyển nhiều</span>
+            </div>
+          </div>
+          <!-- Max missed -->
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:2px">
+              <label>⏳ Frame mất tối đa <span style="color:var(--text-muted);font-weight:400">(max missed)</span></label>
+              <span id="mMaxMissedV" style="font-variant-numeric:tabular-nums;font-weight:600;min-width:20px;text-align:right">4</span>
+            </div>
+            <input type="range" id="mMaxMissed" min="1" max="15" step="1" value="4"
+              oninput="document.getElementById('mMaxMissedV').textContent=this.value"
+              style="width:100%">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-muted)">
+              <span>1 — xoá ID nhanh khi mất</span><span>15 — giữ ID lâu khi bị che khuất</span>
+            </div>
+          </div>
+        </div>
+      </details>
+
       <div style="padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:10px">
         <label class="dir-check" style="font-size:0.84rem;font-weight:600;">
           <input type="checkbox" id="mEnabled" checked style="width:auto"> Bật camera (tự động đếm khi hệ thống chạy)
@@ -1956,6 +2022,10 @@ async function saveCamera() {
     tier:       parseInt(document.getElementById('mTier').value),
     enabled:    document.getElementById('mEnabled').checked,
     workerId:   document.getElementById('mWorkerID').value || '',
+    trackIouMin:      parseFloat(document.getElementById('mIouMin').value),
+    trackDistMax:     parseFloat(document.getElementById('mDistMax').value),
+    trackMaxMissed:   parseInt(document.getElementById('mMaxMissed').value),
+    trackClassPenalty: parseFloat(document.getElementById('mClassPenalty').value),
   };
   try {
     if (editId) {
@@ -1981,6 +2051,15 @@ async function editCam(id) {
   document.getElementById('mFps').value   = cam.fps ?? 0;
   document.getElementById('mTier').value  = cam.tier ?? 1;
   document.getElementById('mEnabled').checked = cam.enabled !== false;
+  // Tracking params
+  const setSlider = (id, valId, val, decimals) => {
+    const el = document.getElementById(id);
+    if (el) { el.value = val; document.getElementById(valId).textContent = decimals ? parseFloat(val).toFixed(decimals) : val; }
+  };
+  setSlider('mClassPenalty', 'mClassPenaltyV', cam.trackClassPenalty ?? 0.5, 2);
+  setSlider('mIouMin',       'mIouMinV',       cam.trackIouMin      ?? 0.20, 2);
+  setSlider('mDistMax',      'mDistMaxV',      cam.trackDistMax     ?? 55,   0);
+  setSlider('mMaxMissed',    'mMaxMissedV',    cam.trackMaxMissed   ?? 4,    0);
 
   // Load lines: use explicit lines or auto-convert legacy H/V config
   if (cam.lines && cam.lines.length > 0) {
