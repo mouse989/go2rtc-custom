@@ -67,6 +67,8 @@ function canConfigStations() {
   return u && (u.role === 'admin' || !!u.allow_config_stations);
 }
 
+function canCamSnapshot() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_cam_snapshot); }
+function canCamVideo()    { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_cam_video); }
 function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
 function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
 function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }

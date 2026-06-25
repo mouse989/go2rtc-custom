@@ -20,7 +20,8 @@
 /* card */
 .cam-thumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:var(--surface2);border-radius:6px 6px 0 0;}
 .cam-preview{width:100%;height:100%;object-fit:cover;display:block;background:#111;}
-img.cam-preview{cursor:default;}
+img.cam-preview{cursor:pointer;}
+.cam-thumb{cursor:pointer;}
 .thumb-ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:.78rem;pointer-events:none;}
 .thumb-ph.hide{display:none;}
 .cam-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0);transition:background .2s;z-index:2;}
@@ -155,7 +156,6 @@ img.cam-preview{cursor:default;}
         <button class="mode-tab" data-mode="hls">HLS</button>
       </div>
       <div id="playerWrap" style="background:#000;border-radius:6px;min-height:200px"></div>
-      <div id="streamLinks" style="margin-top:.75rem"></div>
     </div>
   </div>
 </div>
@@ -236,7 +236,7 @@ function createCameraCard(name, token) {
       <span class="cam-name">${escHtml(name)}</span>
       <span class="cam-badge">LIVE</span>
     </div>`;
-  card.querySelector('.play-btn').addEventListener('click', () => openModal(name, token));
+  card.querySelector('.cam-thumb').addEventListener('click', () => openModal(name, token));
   return card;
 }
 
@@ -337,33 +337,26 @@ function openModal(name, token) {
   _currentToken  = token;
   document.getElementById('modalTitle').textContent = name;
 
-  // Default: snapshot tab
-  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-  document.querySelector('[data-mode="snapshot"]').classList.add('active');
-  _currentMode = 'snapshot';
-  showSnapshot(name, token);
+  // Show/hide mode tabs based on user permissions
+  const snapOk  = canCamSnapshot();
+  const videoOk = canCamVideo();
+  document.querySelector('[data-mode="snapshot"]').style.display     = snapOk  ? '' : 'none';
+  document.querySelector('[data-mode="webrtc,mse,hls"]').style.display = videoOk ? '' : 'none';
+  document.querySelector('[data-mode="webrtc"]').style.display       = videoOk ? '' : 'none';
+  document.querySelector('[data-mode="mse"]').style.display          = videoOk ? '' : 'none';
+  document.querySelector('[data-mode="hls"]').style.display          = videoOk ? '' : 'none';
 
-  // Stream links (clean: Watch HD + HLS + Snapshot only)
-  const info = _proxyMap[name];
-  let links;
-  if (info) {
-    const base = location.origin;
-    const t = encodeURIComponent(token);
-    links = [
-      { label: '⚡ Watch (HD)', url: `${base}/watch.html?id=${info.id}&token=${t}` },
-      { label: '📺 HLS',        url: info.hls_url },
-      { label: '📷 Snapshot',   url: info.frame_url },
-    ];
-  } else {
-    const qs = `src=${encodeURIComponent(name)}&token=${encodeURIComponent(token)}`;
-    links = [
-      { label: '⚡ Watch (HD)', url: `/watch.html?${qs}` },
-      { label: '📺 HLS',        url: `/api/hls/index.m3u8?${qs}` },
-      { label: '📷 Snapshot',   url: `/api/frame.jpeg?${qs}` },
-    ];
+  // Choose default mode based on permissions
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  if (snapOk) {
+    document.querySelector('[data-mode="snapshot"]').classList.add('active');
+    _currentMode = 'snapshot';
+    showSnapshot(name, token);
+  } else if (videoOk) {
+    document.querySelector('[data-mode="webrtc,mse,hls"]').classList.add('active');
+    _currentMode = 'webrtc,mse,hls';
+    startPlayer(name, token, _currentMode);
   }
-  document.getElementById('streamLinks').innerHTML =
-    links.map(l => `<a href="${escHtml(l.url)}" target="_blank" class="stream-link">${l.label}</a>`).join('');
 
   document.getElementById('modalBackdrop').classList.add('open');
   // Scale modal to fit screen height (small screens only)

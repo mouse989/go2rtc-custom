@@ -103,6 +103,8 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_monitor_streaming": user.AllowMonitorStreaming,
 		"allow_monitor_snapshot":  user.AllowMonitorSnapshot,
 		"allow_monitor_devices":   user.AllowMonitorDevices,
+		"allow_cam_snapshot":      user.AllowCamSnapshot,
+		"allow_cam_video":         user.AllowCamVideo,
 		"tabs":                    user.EffectiveTabs(),
 	})
 }
@@ -154,6 +156,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorStreaming bool     `json:"allow_monitor_streaming"`
 			AllowMonitorSnapshot  bool     `json:"allow_monitor_snapshot"`
 			AllowMonitorDevices   bool     `json:"allow_monitor_devices"`
+			AllowCamSnapshot      bool     `json:"allow_cam_snapshot"`
+			AllowCamVideo         bool     `json:"allow_cam_video"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -188,6 +192,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorStreaming: req.AllowMonitorStreaming,
 			AllowMonitorSnapshot:  req.AllowMonitorSnapshot,
 			AllowMonitorDevices:   req.AllowMonitorDevices,
+			AllowCamSnapshot:      req.AllowCamSnapshot,
+			AllowCamVideo:         req.AllowCamVideo,
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -224,6 +230,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorStreaming *bool    `json:"allow_monitor_streaming"`
 			AllowMonitorSnapshot  *bool    `json:"allow_monitor_snapshot"`
 			AllowMonitorDevices   *bool    `json:"allow_monitor_devices"`
+			AllowCamSnapshot      *bool    `json:"allow_cam_snapshot"`
+			AllowCamVideo         *bool    `json:"allow_cam_video"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -281,6 +289,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowMonitorDevices != nil {
 			existing.AllowMonitorDevices = *req.AllowMonitorDevices
+		}
+		if req.AllowCamSnapshot != nil {
+			existing.AllowCamSnapshot = *req.AllowCamSnapshot
+		}
+		if req.AllowCamVideo != nil {
+			existing.AllowCamVideo = *req.AllowCamVideo
 		}
 		if err := UpdateUser(existing, req.Password); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

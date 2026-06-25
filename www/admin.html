@@ -982,6 +982,9 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-streaming"> 📡 Xem Streaming &amp; Users</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-snapshot"> 📷 Xem Snapshot Status</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-devices"> 🔌 Xem giám sát thiết bị</label>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Camera</div>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-snapshot"> 📷 Xem snapshot camera</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-video"> 🎥 Xem video live (WebRTC/HLS)</label>
         </div>
         <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic, heatmap, sửa vị trí camera, xem tên thật camera, xem/config trạm đo đếm lưu lượng trên tab Map.</p>
       </div>
@@ -1502,6 +1505,8 @@ function openEdit(u) {
   document.getElementById('f-allow-monitor-streaming').checked = !!u.allow_monitor_streaming;
   document.getElementById('f-allow-monitor-snapshot').checked = !!u.allow_monitor_snapshot;
   document.getElementById('f-allow-monitor-devices').checked  = !!u.allow_monitor_devices;
+  document.getElementById('f-allow-cam-snapshot').checked = !!u.allow_cam_snapshot;
+  document.getElementById('f-allow-cam-video').checked    = !!u.allow_cam_video;
   setCamChecks(u.streams || []);
   updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
@@ -1638,7 +1643,9 @@ async function submitForm(e) {
   const allow_monitor_streaming = role === 'admin' ? true : document.getElementById('f-allow-monitor-streaming').checked;
   const allow_monitor_snapshot = role === 'admin' ? true : document.getElementById('f-allow-monitor-snapshot').checked;
   const allow_monitor_devices  = role === 'admin' ? true : document.getElementById('f-allow-monitor-devices').checked;
-  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, tabs };
+  const allow_cam_snapshot     = role === 'admin' ? true : document.getElementById('f-allow-cam-snapshot').checked;
+  const allow_cam_video        = role === 'admin' ? true : document.getElementById('f-allow-cam-video').checked;
+  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, tabs };
   if (password) body.password = password;
 
   const btn = document.getElementById('dlg-btn');
