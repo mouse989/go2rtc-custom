@@ -1261,12 +1261,22 @@ def _resolve_device(device_arg: str) -> str:
     except OSError as _torch_err:
         _msg = str(_torch_err)
         if 'WinError 1114' in _msg or 'DLL' in _msg.upper():
+            # Detect which torch CUDA build is installed to give accurate advice
+            try:
+                import importlib.metadata as _meta
+                _tv = _meta.version('torch')  # e.g. "1.12.1+cu113" or "2.6.0+cu126"
+            except Exception:
+                _tv = 'unknown'
             logger.critical(
                 "[device] Failed to load PyTorch DLLs (WinError 1114).\n"
-                "  This means a CUDA runtime DLL could not initialise. Common causes:\n"
-                "    (a) NVIDIA driver too old for CUDA 12.1 — update to driver >= 527.41\n"
-                "        Check current driver:  nvidia-smi\n"
-                "    (b) _internal\\ folder is incomplete — re-copy all files from dist\\yolo_counter\\\n"
+                "  A CUDA runtime DLL could not initialise. Common causes:\n"
+                f"  Installed torch: {_tv}\n"
+                "    (a) Wrong torch CUDA version for your driver — re-run setup_yolo_win.bat\n"
+                "        to auto-detect and install the correct build for your driver.\n"
+                "        Check current driver: nvidia-smi\n"
+                "        Delete the old venv first: rmdir /s /q D:\\GO_YO\\yolo_venv\n"
+                "    (b) _internal\\ folder is incomplete (PyInstaller build) — re-copy all\n"
+                "        files from dist\\yolo_counter\\\n"
                 "    (c) Anti-virus quarantined a DLL — check AV logs/quarantine\n"
                 f"  Raw error: {_torch_err}"
             )
