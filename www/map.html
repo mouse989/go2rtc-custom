@@ -255,6 +255,19 @@ body.sb-collapsed           { --map-left:0; }
 .stn-marker-wrap:hover { transform:scale(1.12); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 .stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
 
+/* ── Camera count badge (15-min overlay on symbol icons) ──────── */
+.cam-count-badge {
+  position:absolute; bottom:-18px; left:50%; transform:translateX(-50%);
+  background:#1e293b; color:#fff; font-size:10px; font-weight:700;
+  padding:1px 5px; border-radius:8px; white-space:nowrap;
+  border:1px solid rgba(255,255,255,.5); pointer-events:none;
+  font-family:system-ui,-apple-system,Arial,sans-serif;
+  box-shadow:0 1px 4px rgba(0,0,0,.5);
+}
+.cam-count-wrap {
+  position:relative; width:0; height:0; /* zero-size anchor over camera symbol */
+}
+
 /* ── Station / type edit panels ─────────────────────────────── */
 #stnPanel, #stnTypePanel {
   position:fixed; right:.8rem; top:50%; transform:translateY(-50%);
@@ -2033,6 +2046,7 @@ let _stations      = [];    // [{id, type_id, camera_id, lat, lon, label}]
 let _stationTypes  = [];    // [{id, name, thresh_yellow, thresh_orange, thresh_red}]
 let _stationMkrs   = {};    // stationID → {marker, el}
 let _stnSummary    = {};    // cameraID  → {hour, total, hours[24]}
+let _camCountMkrs  = {};    // cameraID  → {marker, badge el}
 let _stnEditMode   = false;
 let _stnLayerOn    = true;  // station layer visibility toggle
 let _editingStnID  = null;
@@ -2095,18 +2109,23 @@ async function loadStationsLayer() {
   _stationTypes = Array.isArray(types) ? types : [];
   applyStnSummary(Array.isArray(summary) ? summary : [], currentHour);
   buildStnMarkers();
+  buildCamCountBadges();
 }
 
 // Refresh only the summary counts and update existing marker elements in place.
 // Called every 3 s — avoids rebuilding DOM nodes or re-fetching stations/types.
 async function refreshStnCounts() {
-  if (!_stnLayerOn || _stations.length === 0) return;
+  if (!_stnLayerOn) return;
   const today = localDateStr();
   const curH  = new Date().getHours();
   try {
     const summary = await apiFetch('/api/counting/summary?date=' + today);
     applyStnSummary(Array.isArray(summary) ? summary : [], curH);
   } catch (_) { return; }
+  if (_stations.length === 0) {
+    refreshCamCountBadges();
+    return;
+  }
   const curM = new Date().getMinutes();
   _stations.forEach(stn => {
     const entry = _stationMkrs[stn.id];
@@ -2125,6 +2144,8 @@ async function refreshStnCounts() {
       + '\nKhung gio ' + windowStr + ' — ' + val.toLocaleString() + ' luot'
       + '\nHom nay tong: ' + rec.total.toLocaleString() + ' luot';
   });
+  // Also update camera count badges (15-min counts on camera symbol icons)
+  refreshCamCountBadges();
 }
 
 function applyStnSummary(summary, currentHour) {
@@ -2139,6 +2160,59 @@ function applyStnSummary(summary, currentHour) {
       hours:   hs.hours   || [],
       slots15: hs.slots15 || [],
     };
+  });
+}
+
+// ── Camera count badges (15-min overlay on symbol-layer icons) ─
+// One zero-size HTML Marker per camera that has counting summary data.
+// The badge pill is absolutely positioned 18 px below the anchor point.
+function buildCamCountBadges() {
+  // Remove existing badges
+  Object.values(_camCountMkrs).forEach(({ marker }) => marker.remove());
+  _camCountMkrs = {};
+  if (!map) return;
+  const now = new Date();
+  const curH = now.getHours();
+  const curM = now.getMinutes();
+  const windowStr = stnWindow15Label(curH, curM);
+  _locations.forEach(loc => {
+    if (!_streamByID[loc.id]) return;            // not a live camera
+    const rec = _stnSummary[loc.id];
+    if (!rec) return;                             // no counting data for this camera
+    const wrap = document.createElement('div');
+    wrap.className = 'cam-count-wrap';
+    const badge = document.createElement('div');
+    badge.className = 'cam-count-badge';
+    _updateCamBadge(badge, rec, windowStr);
+    wrap.appendChild(badge);
+    const marker = new vietmapgl.Marker({ element: wrap, anchor: 'center' })
+      .setLngLat([loc.lon, loc.lat])
+      .addTo(map);
+    _camCountMkrs[loc.id] = { marker, badge };
+  });
+}
+
+function _camBadgeColor(val) {
+  if (val <= 0) return '#475569';
+  if (val < 20)  return '#22c55e';
+  if (val < 50)  return '#f59e0b';
+  return '#ef4444';
+}
+
+function _updateCamBadge(badge, rec, windowStr) {
+  const val = rec.slot15 || 0;
+  const n = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : String(val);
+  badge.textContent = '15\'' + ': ' + n;
+  badge.style.background = _camBadgeColor(val);
+  badge.title = windowStr + ' — ' + val.toLocaleString() + ' lượt\nHôm nay tổng: ' + (rec.total || 0).toLocaleString() + ' lượt';
+}
+
+function refreshCamCountBadges() {
+  const now = new Date();
+  const windowStr = stnWindow15Label(now.getHours(), now.getMinutes());
+  Object.entries(_camCountMkrs).forEach(([camId, { badge }]) => {
+    const rec = _stnSummary[camId];
+    if (rec) _updateCamBadge(badge, rec, windowStr);
   });
 }
 
@@ -2185,6 +2259,10 @@ function toggleStnLayer() {
   _stnLayerOn = !_stnLayerOn;
   document.getElementById('btnStnLayer').classList.toggle('active', _stnLayerOn);
   Object.values(_stationMkrs).forEach(({ marker }) => {
+    if (_stnLayerOn) marker.addTo(map);
+    else             marker.remove();
+  });
+  Object.values(_camCountMkrs).forEach(({ marker }) => {
     if (_stnLayerOn) marker.addTo(map);
     else             marker.remove();
   });
