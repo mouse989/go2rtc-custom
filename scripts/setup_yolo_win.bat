@@ -77,22 +77,25 @@ REM ── Detect GPU / CUDA version using Python (robust, cross-locale) ──�
 ECHO --- Detecting GPU and CUDA version ---
 
 REM Write detection output to a temp file to avoid FOR /F pipe quoting issues.
-REM Output format:  <torch_flavor>|<cuda_ver>|<driver_ver>
-REM torch_flavor:   cu126 / cu121 / cu118 / cu113 / old / cpu
-python -c "import subprocess,re,sys;r=subprocess.run(['nvidia-smi'],capture_output=True,text=True,timeout=10);o=r.stdout;cm=re.search(r'CUDA Version: (\d+)\.(\d+)',o);dm=re.search(r'Driver Version: (\S+)',o);drv=dm.group(1) if dm else 'unknown';(print('cpu|none|'+drv) if not cm else (lambda mj,mn,cv:(print('cu126|'+cv+'|'+drv) if mj>12 or(mj==12 and mn>=6) else print('cu121|'+cv+'|'+drv) if mj==12 else print('cu118|'+cv+'|'+drv) if mj==11 and mn>=8 else print('cu113|'+cv+'|'+drv) if mj==11 and mn>=3 else print('old|'+cv+'|'+drv)))(int(cm.group(1)),int(cm.group(2)),cm.group(1)+'.'+cm.group(2)))" > "%TEMP%\yolo_cuda_detect.tmp" 2>nul
+REM Output format:  <torch_flavor>|<cuda_ver>|<driver_ver>|<python_ver>
+REM torch_flavor:   cu126 / cu121 / cu118 / cu113 / cu113_nopy / old / cpu
+REM cu113_nopy = CUDA 11.3-11.7 but Python>=3.11 (no cu113 wheel for that Python)
+python -c "import subprocess,re,sys;r=subprocess.run(['nvidia-smi'],capture_output=True,text=True,timeout=10);o=r.stdout;cm=re.search(r'CUDA Version: (\d+)\.(\d+)',o);dm=re.search(r'Driver Version: (\S+)',o);drv=dm.group(1) if dm else 'unknown';pv=f'{sys.version_info.major}.{sys.version_info.minor}';py311=(sys.version_info.major,sys.version_info.minor)>=(3,11);(print(f'cpu|none|{drv}|{pv}') if not cm else (lambda mj,mn,cv:(print(f'cu126|{cv}|{drv}|{pv}') if mj>12 or(mj==12 and mn>=6) else print(f'cu121|{cv}|{drv}|{pv}') if mj==12 else print(f'cu118|{cv}|{drv}|{pv}') if mj==11 and mn>=8 else print(f'cu113_nopy|{cv}|{drv}|{pv}') if mj==11 and mn>=3 and py311 else print(f'cu113|{cv}|{drv}|{pv}') if mj==11 and mn>=3 else print(f'old|{cv}|{drv}|{pv}')))(int(cm.group(1)),int(cm.group(2)),cm.group(1)+'.'+cm.group(2)))" > "%TEMP%\yolo_cuda_detect.tmp" 2>nul
 
 IF NOT EXIST "%TEMP%\yolo_cuda_detect.tmp" (
     ECHO [warn] nvidia-smi detection failed. Defaulting to CPU-only mode.
     SET "TORCH_FLAVOR=cpu"
     SET "CUDA_VER=none"
     SET "DRIVER_VER=unknown"
+    SET "PYTHON_VER=unknown"
     GOTO :pick_url
 )
 
-FOR /F "tokens=1,2,3 delims=|" %%A IN (%TEMP%\yolo_cuda_detect.tmp) DO (
+FOR /F "tokens=1,2,3,4 delims=|" %%A IN (%TEMP%\yolo_cuda_detect.tmp) DO (
     SET "TORCH_FLAVOR=%%A"
     SET "CUDA_VER=%%B"
     SET "DRIVER_VER=%%C"
+    SET "PYTHON_VER=%%D"
 )
 DEL "%TEMP%\yolo_cuda_detect.tmp" 2>nul
 
@@ -125,6 +128,48 @@ IF "%TORCH_FLAVOR%"=="cu113" (
     ECHO  then re-run this script -- it will auto-select torch cu118.
     ECHO.
 )
+
+REM ── Handle CUDA 11.3-11.7 + Python 3.11+ — no compatible GPU wheel ──────────
+REM torch cu113 (torch 1.12.x) only ships wheels for Python <=3.10.
+REM torch 2.x requires CUDA >=11.7 (driver >=515).  Neither works here.
+IF NOT "%TORCH_FLAVOR%"=="cu113_nopy" GOTO :after_cu113nopy_warn
+ECHO ================================================================
+ECHO  GPU NOT SUPPORTED — CUDA %CUDA_VER% + Python %PYTHON_VER%
+ECHO ================================================================
+ECHO.
+ECHO  Your GPU supports CUDA %CUDA_VER% ^(driver %DRIVER_VER%^), which maps
+ECHO  to PyTorch cu113 ^(torch 1.12.x^).  However, torch cu113 only ships
+ECHO  wheels for Python ^<= 3.10 — you are running Python %PYTHON_VER%.
+ECHO.
+ECHO  torch 2.x ^(which supports Python 3.11+^) requires CUDA ^>= 11.7
+ECHO  ^(driver ^>= 515^).  Your current driver does not reach that.
+ECHO.
+ECHO  To enable GPU acceleration, choose one of:
+ECHO.
+ECHO    Option A ^(recommended^) — Update NVIDIA driver:
+ECHO      Minimum: driver ^>= 522.06  ^(enables CUDA 11.8 / torch cu118^)
+ECHO      Better : driver ^>= 561.09  ^(enables CUDA 12.6 / torch cu126^)
+ECHO      Download: https://www.nvidia.com/Download/index.aspx
+ECHO      Then re-run this script — it will auto-select the right build.
+ECHO.
+ECHO    Option B — Install Python 3.10 alongside Python 3.11:
+ECHO      Download Python 3.10 from https://www.python.org/downloads/
+ECHO      Then re-run using:  py -3.10 scripts\setup_yolo_win.bat %DEPLOY%\
+ECHO      torch cu113 ^(torch 1.12.x^) will be installed with GPU support.
+ECHO.
+ECHO ================================================================
+ECHO.
+CHOICE /C YN /M "Continue with CPU-only mode (slower, no GPU)?"
+IF ERRORLEVEL 2 (
+    ECHO.
+    ECHO Aborted. Update driver ^>= 522.06 ^(CUDA 11.8^) or install Python 3.10
+    ECHO and re-run this script to get GPU acceleration.
+    EXIT /B 0
+)
+ECHO.
+SET "TORCH_FLAVOR=cpu"
+SET "CUDA_VER=none"
+:after_cu113nopy_warn
 
 REM ── Handle truly unsupported CUDA (10.x or 11.0-11.2) ────────────────────
 IF NOT "%TORCH_FLAVOR%"=="old" GOTO :after_old_warn
