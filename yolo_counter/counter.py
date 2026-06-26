@@ -838,7 +838,7 @@ class CameraState:
         effective_fps = self._effective_fps()
         white = (255, 255, 255)
         _font = cv2.FONT_HERSHEY_SIMPLEX
-        _fsc  = max(0.38, fw / 900)
+        _fsc  = max(0.19, fw / 1800)
 
         # Row 1: class breakdown (colored per vehicle type)
         class_parts = [
@@ -862,9 +862,9 @@ class CameraState:
         cv2.putText(dbg, status2, (4, text_y), _font, _fsc, (0, 0, 0), 2, cv2.LINE_AA)
         cv2.putText(dbg, status2, (4, text_y), _font, _fsc, white, 1, cv2.LINE_AA)
 
-        # Legend: dashed = chưa đếm, solid-filled = đã đếm
+        # Legend: [=] Counted (solid line), [.] Uncounted (dashed line)
         legend_x = fw - 4
-        for txt in ["▪ đã đếm", "┄ chưa đếm"][::-1]:
+        for txt in ["[=] Counted", "[.] Uncounted"][::-1]:
             (tw, _), _ = cv2.getTextSize(txt, _font, _fsc * 0.85, 1)
             legend_x -= tw + 8
             cv2.putText(dbg, txt, (legend_x, fh - 6), _font, _fsc * 0.85, (0, 0, 0), 2, cv2.LINE_AA)

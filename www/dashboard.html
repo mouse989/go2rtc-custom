@@ -288,8 +288,8 @@ function ttiFg(v)  { const t = ttiTier(v); return t ? t.color : '#9ca3af'; }
 
 async function loadTtiAppearance() {
   try {
-    const r = await fetch('/api/traveltime/appearance');
-    if (r.ok) _ttiAppearance = await r.json();
+    const r = await apiFetch('/api/traveltime/appearance');
+    if (r && r.tiers) _ttiAppearance = r;
   } catch(_) {}
   if (!_ttiAppearance || !(_ttiAppearance.tiers||[]).length) _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
 }
