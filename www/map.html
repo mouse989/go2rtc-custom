@@ -2135,13 +2135,14 @@ async function refreshStnCounts() {
   const today = localDateStr();
   const curH  = new Date().getHours();
   try {
-    // Fetch both: rolling15 for 15-min stations, summary for hourly stations.
+    // Fetch independently so a rolling15 failure doesn't block the summary update.
     const [summary, rolling] = await Promise.all([
-      apiFetch('/api/counting/summary?date=' + today),
-      apiFetch('/api/counting/rolling15'),
+      apiFetch('/api/counting/summary?date=' + today).catch(() => null),
+      apiFetch('/api/counting/rolling15').catch(() => null),
     ]);
-    applyStnSummary(Array.isArray(summary) ? summary : [], curH);
-    applyRolling15(Array.isArray(rolling) ? rolling : []);
+    if (summary !== null) applyStnSummary(Array.isArray(summary) ? summary : [], curH);
+    if (rolling !== null) applyRolling15(Array.isArray(rolling) ? rolling : []);
+    else if (summary === null) return; // both failed, nothing to update
   } catch (_) { return; }
   if (_stations.length === 0) return;
   const curM = new Date().getMinutes();
