@@ -127,8 +127,8 @@
 
     /* Debug view */
     .debug-box { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; }
-    .debug-legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:10px; font-size:0.78rem; }
-    .legend-dot { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+    .debug-legend { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:6px; font-size:0.39rem; }
+    .legend-dot { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:3px; vertical-align:middle; }
 
     /* Content scroll — both axes */
     .tab-content { overflow: auto; flex:1; -webkit-overflow-scrolling: touch; }
@@ -419,7 +419,7 @@
             📹 Live
           </button>
         </div>
-        <span id="debugStatus" style="font-size:.78rem;color:var(--text-secondary)"></span>
+        <span id="debugStatus" style="font-size:.39rem;color:var(--text-secondary)"></span>
       </div>
       <div id="yoloSvcStatus" style="padding:8px 12px;margin-bottom:8px;border-radius:6px;font-size:.78rem;background:var(--surface2)">Đang kiểm tra dịch vụ AI…</div>
 
@@ -448,12 +448,14 @@
           <canvas id="debugOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;border-radius:6px"></canvas>
         </div>
 
-        <div class="debug-legend" id="debugLegend" style="display:none;margin-top:8px">
-          <span><span class="legend-dot" style="background:#00C800"></span>Ô tô</span>
-          <span><span class="legend-dot" style="background:#C800C8"></span>Xe máy</span>
-          <span><span class="legend-dot" style="background:#00C8C8"></span>Xe buýt</span>
-          <span><span class="legend-dot" style="background:#C88C00"></span>Xe tải</span>
-          <span><span class="legend-dot" style="background:#FF6600"></span>Đường đếm</span>
+        <div class="debug-legend" id="debugLegend" style="display:none;margin-top:6px">
+          <span><span class="legend-dot" style="background:#00C800"></span>Car</span>
+          <span><span class="legend-dot" style="background:#C800C8"></span>Moto</span>
+          <span><span class="legend-dot" style="background:#00C8C8"></span>Bus</span>
+          <span><span class="legend-dot" style="background:#C88C00"></span>Truck</span>
+          <span><span class="legend-dot" style="background:#FF6600"></span>Count line</span>
+          <span style="opacity:.7">&#9135;&#9135; Uncounted</span>
+          <span>&#9644; Counted</span>
         </div>
       </div>
     </div>
@@ -1549,39 +1551,39 @@ function _drawOverlayLoop() {
       const bh  = (tr.y2 - tr.y1) * sy;
 
       if (tr.crossed) {
-        // Counted vehicle: solid thick border + semi-transparent fill
-        ctx.fillStyle = col + '28';           // ~16% opacity fill
+        // Counted: solid thick border + semi-transparent fill
+        ctx.fillStyle = col + '28';
         ctx.fillRect(bx, by, bw, bh);
         ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.setLineDash([]);
         ctx.strokeRect(bx, by, bw, bh);
 
-        // Solid label background (inverted — black text on class color)
-        ctx.font = 'bold 11px monospace';
+        // Label: "#id cls" on class-color background
+        ctx.font = 'bold 6px monospace';
         const label = `#${tr.id} ${tr.cls}`;
-        const lw = ctx.measureText(label).width + 6;
+        const lw = ctx.measureText(label).width + 4;
         ctx.fillStyle = col;
-        ctx.fillRect(bx, by - 16, lw, 15);
+        ctx.fillRect(bx, by - 8, lw, 7);
         ctx.fillStyle = '#000';
-        ctx.fillText(label, bx + 3, by - 4);
+        ctx.fillText(label, bx + 2, by - 2);
 
-        // "✓" counted indicator
-        ctx.font = 'bold 10px monospace';
+        // "v" counted indicator (ASCII — avoids Unicode font issues)
+        ctx.font = 'bold 5px monospace';
         ctx.fillStyle = col;
-        ctx.fillText('✓', bx + bw - 12, by + 12);
+        ctx.fillText('v', bx + bw - 7, by + 7);
       } else {
-        // Uncounted vehicle: dashed thin border
+        // Uncounted: dashed thin border
         ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
         ctx.strokeRect(bx, by, bw, bh);
         ctx.setLineDash([]);
 
-        // Label with semi-transparent background
-        ctx.font = '11px monospace';
+        // Label: "#id" with semi-transparent background
+        ctx.font = '6px monospace';
         const label = `#${tr.id}`;
-        const lw = ctx.measureText(label).width + 6;
+        const lw = ctx.measureText(label).width + 4;
         ctx.fillStyle = col + '99';
-        ctx.fillRect(bx, by - 15, lw, 14);
+        ctx.fillRect(bx, by - 8, lw, 7);
         ctx.fillStyle = '#fff';
-        ctx.fillText(label, bx + 3, by - 3);
+        ctx.fillText(label, bx + 2, by - 2);
       }
 
       // Centroid dot
@@ -1593,7 +1595,7 @@ function _drawOverlayLoop() {
     ctx.setLineDash([]);
 
     // ── Circle badge on each counting line midpoint ──
-    ctx.font = 'bold 12px monospace';
+    ctx.font = 'bold 6px monospace';
     for (const ln of _debugCamLines) {
       const mx = (ln.x1 + ln.x2) / 2 * W;
       const my = (ln.y1 + ln.y2) / 2 * H;
@@ -1602,57 +1604,57 @@ function _drawOverlayLoop() {
       if (ln.nameA) { const dt = counts[ln.nameA]; if(dt) cA = Object.values(dt).reduce((a,b)=>a+b,0); }
       if (ln.nameB) { const dt = counts[ln.nameB]; if(dt) cB = Object.values(dt).reduce((a,b)=>a+b,0); }
       const total = cA + cB;
-      const r = 18;
+      const r = 11;
       ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI*2);
       ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fill();
-      ctx.strokeStyle = '#FF6600'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.strokeStyle = '#FF6600'; ctx.lineWidth = 1.5; ctx.stroke();
       ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(total, mx, my);
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-      // Small A/B labels beside circle
       if (ln.nameA && cA > 0) {
-        ctx.font = '10px monospace'; ctx.fillStyle = '#FF6600';
-        ctx.fillText(`${ln.nameA}:${cA}`, mx + r + 3, my - 4);
+        ctx.font = '5px monospace'; ctx.fillStyle = '#FF6600';
+        ctx.fillText(`${ln.nameA}:${cA}`, mx + r + 2, my - 2);
       }
       if (ln.nameB && cB > 0) {
-        ctx.font = '10px monospace'; ctx.fillStyle = '#FF6600';
-        ctx.fillText(`${ln.nameB}:${cB}`, mx + r + 3, my + 10);
+        ctx.font = '5px monospace'; ctx.fillStyle = '#FF6600';
+        ctx.fillText(`${ln.nameB}:${cB}`, mx + r + 2, my + 6);
       }
-      ctx.font = 'bold 12px monospace';
+      ctx.font = 'bold 6px monospace';
     }
 
     // ── Count badge (top-right) — total + per-class + per-direction ──
-    const CLASS_EMOJI = {car:'🚗', motorcycle:'🏍️', bus:'🚌', truck:'🚛'};
+    // Use short ASCII names to avoid emoji/Unicode font issues on all platforms.
+    const CLASS_LBL = {car:'Car', motorcycle:'Moto', bus:'Bus', truck:'Truck'};
     const classTotals = d.class_totals || {};
     const counts = d.counts || {};
 
-    // Build lines for the badge
+    // Row 1: per-class breakdown  Row 2: total  then per-direction
     const badge = [];
-    badge.push({ text: `Tổng: ${d.total}`, color: '#fff', bold: true });
-    // Per-class row
-    const clsRow = Object.entries(CLASS_EMOJI)
-      .map(([cls, emoji]) => classTotals[cls] ? `${emoji}${classTotals[cls]}` : null)
-      .filter(Boolean).join('  ');
+    const clsRow = Object.entries(CLASS_LBL)
+      .map(([cls, lbl]) => classTotals[cls] ? `${lbl}:${classTotals[cls]}` : null)
+      .filter(Boolean).join(' ');
     if (clsRow) badge.push({ text: clsRow, color: '#ccc', bold: false });
-    // Per-direction
+    badge.push({ text: `Total:${d.total}`, color: '#fff', bold: true });
     for (const [dir, types] of Object.entries(counts)) {
       const s = Object.values(types).reduce((a,b)=>a+b,0);
-      if (s > 0) badge.push({ text: `${dir}: ${s}`, color: '#aaa', bold: false });
+      if (s > 0) badge.push({ text: `${dir}:${s}`, color: '#aaa', bold: false });
     }
 
-    const lh = 16, pad = 7;
-    ctx.font = 'bold 12px monospace';
-    const maxW = Math.max(...badge.map(b => { ctx.font=(b.bold?'bold ':'')+'12px monospace'; return ctx.measureText(b.text).width; })) + pad*2;
+    const fSz = 6, lh = fSz + 3, pad = 4;
+    const maxW = Math.max(...badge.map(b => {
+      ctx.font = (b.bold ? 'bold ' : '') + fSz + 'px monospace';
+      return ctx.measureText(b.text).width;
+    })) + pad * 2;
     const totalH = badge.length * lh + pad;
-    const bx0 = W - maxW - 4, by0 = 4;
+    const bx0 = W - maxW - 3, by0 = 3;
     ctx.fillStyle = 'rgba(0,0,0,0.72)';
     ctx.beginPath();
-    ctx.roundRect?.(bx0, by0, maxW, totalH, 5) || ctx.rect(bx0, by0, maxW, totalH);
+    ctx.roundRect?.(bx0, by0, maxW, totalH, 3) || ctx.rect(bx0, by0, maxW, totalH);
     ctx.fill();
     badge.forEach((line, i) => {
-      ctx.font = (line.bold ? 'bold ' : '') + '12px monospace';
+      ctx.font = (line.bold ? 'bold ' : '') + fSz + 'px monospace';
       ctx.fillStyle = line.color;
-      ctx.fillText(line.text, bx0 + pad, by0 + pad + lh * (i + 0.8));
+      ctx.fillText(line.text, bx0 + pad, by0 + pad + lh * (i + 0.85));
     });
   }
 

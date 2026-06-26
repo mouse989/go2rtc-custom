@@ -363,6 +363,8 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 // Returns the vehicle count for each camera in a true rolling 15-minute window
 // ending at the current time. Sums all 5-minute Slot5 entries whose window
 // overlaps [now-15min, now] — typically 3-4 slots per camera.
+// Remote worker slots are stored with prefix "workerID:camID"; they are resolved
+// to their canonical config camera ID (same logic as hourlySummary).
 func handleRolling15(w http.ResponseWriter, r *http.Request) {
 	if !requireStationView(w, r) {
 		return
@@ -376,9 +378,29 @@ func handleRolling15(w http.ResponseWriter, r *http.Request) {
 		To       string `json:"to"`   // "HH:MM"
 	}
 
+	// Build the same resolve() function as hourlySummary so remote worker slots
+	// (stored as "workerID:camID") map back to the canonical config camera ID.
+	c := getConfig()
+	configIDs := make(map[string]bool, len(c.Cameras))
+	for _, cam := range c.Cameras {
+		configIDs[cam.ID] = true
+	}
+	resolve := func(slotCam string) string {
+		if configIDs[slotCam] {
+			return slotCam
+		}
+		for _, cam := range c.Cameras {
+			if cam.ID != "" && strings.HasSuffix(slotCam, ":"+cam.ID) {
+				return cam.ID
+			}
+		}
+		return slotCam
+	}
+
 	dateStr := now.Format("2006-01-02")
 	slots, _ := mgr.store.getSlots(dateStr, "")
 
+	windowStart := now.Add(-15 * time.Minute)
 	camCount := make(map[string]int)
 	for _, sl := range slots {
 		var sh, sm int
@@ -388,12 +410,12 @@ func handleRolling15(w http.ResponseWriter, r *http.Request) {
 		slotStart := time.Date(now.Year(), now.Month(), now.Day(), sh, sm, 0, 0, now.Location())
 		slotEnd := slotStart.Add(5 * time.Minute)
 		// Include slot if it overlaps with [now-15min, now]
-		if slotEnd.After(now.Add(-15*time.Minute)) && !slotStart.After(now) {
-			camCount[sl.Cam] += sl.N
+		if slotEnd.After(windowStart) && !slotStart.After(now) {
+			camCount[resolve(sl.Cam)] += sl.N
 		}
 	}
 
-	fromStr := now.Add(-15 * time.Minute).Format("15:04")
+	fromStr := windowStart.Format("15:04")
 	toStr := now.Format("15:04")
 
 	results := make([]CamResult, 0, len(camCount))
