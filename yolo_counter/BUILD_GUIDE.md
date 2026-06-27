@@ -9,7 +9,8 @@
 | Windows | Yes | driver < 522 / CUDA ≤ 11.7 | Update driver → re-run | — |
 | Windows | Yes | driver 411 / CUDA 10.0 | Update driver → re-run | — |
 | Windows | Yes (old way) | driver ≥ 560 | `setup_yolo_win_gpu.bat` | Python venv (cu126) |
-| Linux | Any | — | CI / `build_yolo_linux.sh` | single `yolo_counter` |
+| Linux | Yes/No | driver ≥ 525 | `setup_yolo_linux_gpu.sh` (recommended) | Python venv (`yolo_counter` wrapper) |
+| Linux | Any | — | `build_yolo_linux.sh` (legacy) | single `yolo_counter` |
 
 > **Recommended path for all Windows machines:** `setup_yolo_win.bat` — it auto-detects your CUDA version and installs the correct PyTorch.
 
@@ -154,15 +155,79 @@ xcopy /E /Y dist\yolo_counter\* D:\GO_YO\
 
 ---
 
+## Linux — Python venv (recommended, no build needed)
+
+Same idea as the Windows venv method, but for Ubuntu 20.04+. No PyInstaller, no
+prebuilt binary: a small `yolo_counter` shell wrapper runs `counter.py` with a
+dedicated venv's Python. go2rtc auto-discovers any executable named
+`yolo_counter` in its folder and launches it directly.
+
+### Setup (run once on the deployment machine)
+
+```bash
+chmod +x scripts/setup_yolo_linux_gpu.sh
+scripts/setup_yolo_linux_gpu.sh /opt/go2rtc      # folder where the go2rtc binary lives
+```
+
+This:
+1. Picks a Python ≥ 3.9 (`python3.11`, `python3.10`, …).
+2. Creates `/opt/go2rtc/yolo_venv/` and installs `torch`, `torchvision`,
+   `ultralytics`, `fastapi`, `uvicorn` (CUDA 12.6 wheels by default).
+3. Verifies `torch.cuda.is_available()` and a real GPU tensor allocation.
+4. Copies `counter.py` and the wrapper to `/opt/go2rtc/`, deploying the wrapper
+   as an executable named **`yolo_counter`** (no extension).
+
+### Ubuntu 20.04 note
+
+20.04 ships Python 3.8, which is too old for current PyTorch wheels. Install 3.11:
+
+```bash
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt-get install -y python3.11 python3.11-venv
+```
+
+The setup script auto-detects and uses it.
+
+### Older / different CUDA, or CPU-only
+
+Override the PyTorch wheel index via `CUDA_INDEX`:
+
+```bash
+# CUDA 12.1 (driver < 525)
+CUDA_INDEX=https://download.pytorch.org/whl/cu121 scripts/setup_yolo_linux_gpu.sh /opt/go2rtc
+# CPU only
+CUDA_INDEX=https://download.pytorch.org/whl/cpu   scripts/setup_yolo_linux_gpu.sh /opt/go2rtc
+```
+
+### Updating counter.py after code changes
+
+```bash
+cp yolo_counter/counter.py /opt/go2rtc/counter.py
+```
+
+### Remove any old PyInstaller binary
+
+If a prebuilt `yolo_counter` from `build_yolo_linux.sh` is already in the folder,
+the setup script overwrites it with the wrapper — but if you keep both around,
+only one file named `yolo_counter` can exist. The wrapper is self-contained
+(just needs `yolo_venv/` + `counter.py` beside it).
+
+---
+
 ## How go2rtc discovers the launcher
 
-go2rtc searches for `yolo_counter` in this order:
+**Windows** — searches in this order:
 
 1. `yolo_counter.exe` — PyInstaller bundle or manual rename
 2. `yolo_counter.bat` — Python venv wrapper ← **used by setup_yolo_win.bat**
 3. `yolo_counter.cmd`
 
 If `.exe` exists, `.bat` is ignored. Always remove or rename an old `.exe` after switching to the venv method.
+
+**Linux** — looks for a single executable named `yolo_counter` (no extension) in
+go2rtc's folder and runs it directly. This is either the `build_yolo_linux.sh`
+PyInstaller binary **or** the `setup_yolo_linux_gpu.sh` venv wrapper — both use
+the same filename, so only one is present at a time.
 
 ---
 
