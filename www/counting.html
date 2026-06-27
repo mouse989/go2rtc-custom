@@ -390,9 +390,19 @@
       </div>
       <!-- Direction breakdown table (shown only when direction data exists) -->
       <div id="dirBreakdown" style="margin-top:16px;display:none">
-        <div style="font-size:.8rem;font-weight:600;margin-bottom:6px;color:var(--text-secondary)">Chi tiết theo hướng đếm</div>
+        <div style="font-size:.8rem;font-weight:600;margin-bottom:6px;color:var(--text-secondary)">Chi tiết theo hướng đếm (cả ngày)</div>
         <div style="overflow-x:auto">
           <table class="tbl" id="dirBreakdownTable" style="font-size:0.77rem;min-width:320px"></table>
+        </div>
+      </div>
+      <!-- Per-hour direction tree (collapsed=hour total+types; expand=per-direction with types) -->
+      <div id="dirTree" style="margin-top:16px;display:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="font-size:.8rem;font-weight:600;color:var(--text-secondary)">Lưu lượng theo giờ &amp; hướng</div>
+          <button class="btn btn-ghost btn-sm" id="btnTreeExpandAll" onclick="toggleTreeAll()" style="font-size:.72rem;padding:2px 8px">Bung tất cả</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tbl" id="dirTreeTable" style="font-size:0.77rem;min-width:340px"></table>
         </div>
       </div>
     </div>
@@ -2733,6 +2743,98 @@ function renderDirBreakdown(dirTotals, allDirs) {
   tbl.innerHTML = html;
 }
 
+// Per-hour tree: each hour is a collapsible node.
+//   Collapsed → hour total (all directions) + per-vehicle-type breakdown.
+//   Expanded  → one row per direction, each with its own per-type breakdown.
+const DIR_ORDER = ['down', 'up', 'left', 'right'];
+let _treeAllExpanded = false;
+
+function renderDirTree(hours, date) {
+  const wrap = document.getElementById('dirTree');
+  const tbl  = document.getElementById('dirTreeTable');
+  if (!wrap || !tbl) return;
+
+  // Only hours that have any direction-classified traffic.
+  const rows = [];
+  hours.forEach((h, i) => {
+    const dirs = Object.keys(h.dirTypes || {});
+    if (!dirs.length) return;
+    const total = (h.car||0) + (h.motorcycle||0) + (h.bus||0) + (h.truck||0);
+    if (total <= 0) return;
+    rows.push({ i, h, dirs });
+  });
+
+  if (!rows.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  _treeAllExpanded = false;
+  const btn = document.getElementById('btnTreeExpandAll');
+  if (btn) btn.textContent = 'Bung tất cả';
+
+  const p  = 'padding:3px 6px';
+  const pr = p + ';text-align:right';
+  const curH = new Date().getHours();
+  const isToday = (date === today());
+
+  let html = `<thead><tr>
+    <th style="${p}">Giờ / Hướng</th>
+    <th style="${pr}" title="Ô tô">🚗</th>
+    <th style="${pr}" title="Xe máy">🏍</th>
+    <th style="${pr}" title="Xe buýt">🚌</th>
+    <th style="${pr}" title="Xe tải">🚛</th>
+    <th style="${pr};color:var(--accent)" title="Tổng">∑</th>
+  </tr></thead><tbody>`;
+
+  const cell = (v, color) => `<td style="${pr}${color?';color:'+color:''}">${v||'—'}</td>`;
+
+  for (const { i, h, dirs } of rows) {
+    const isCur = (i === curH && isToday);
+    const hourTotal = h.n || (h.car + h.motorcycle + h.bus + h.truck);
+    const hStyle = 'cursor:pointer;font-weight:600' + (isCur ? ';background:var(--surface2)' : '');
+    // Hour node (collapsible)
+    html += `<tr class="tree-hour" data-h="${i}" onclick="toggleTreeHour(${i})" style="${hStyle}">
+      <td style="${p}"><span class="tree-caret" data-h="${i}" style="display:inline-block;width:12px;transition:transform .15s">▶</span> ${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
+      ${cell(h.car)}${cell(h.motorcycle)}${cell(h.bus)}${cell(h.truck)}
+      <td style="${pr};font-weight:700;color:var(--accent)">${hourTotal||'—'}</td>
+    </tr>`;
+    // Direction child rows (hidden until expanded)
+    const ordered = [...dirs].sort((a, b) => {
+      const ia = DIR_ORDER.indexOf(a), ib = DIR_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    for (const dir of ordered) {
+      const d = h.dirTypes[dir] || {};
+      const label = (DIR_LABEL[dir] || dir) + ' ' + (DIR_TITLE[dir] || '');
+      html += `<tr class="tree-dir tree-h-${i}" style="display:none">
+        <td style="${p};padding-left:26px;color:var(--text-secondary)">${esc(label.trim())}</td>
+        ${cell(d.car, '#00C800')}${cell(d.motorcycle, '#C800C8')}${cell(d.bus, '#00C8C8')}${cell(d.truck, '#C88C00')}
+        <td style="${pr};font-weight:600;color:var(--accent)">${d.n||'—'}</td>
+      </tr>`;
+    }
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+function toggleTreeHour(i) {
+  const kids = document.querySelectorAll('.tree-h-' + i);
+  const caret = document.querySelector('.tree-caret[data-h="' + i + '"]');
+  const show = kids.length && kids[0].style.display === 'none';
+  kids.forEach(k => k.style.display = show ? '' : 'none');
+  if (caret) caret.style.transform = show ? 'rotate(90deg)' : '';
+}
+
+function toggleTreeAll() {
+  _treeAllExpanded = !_treeAllExpanded;
+  document.querySelectorAll('#dirTreeTable .tree-dir').forEach(k => {
+    k.style.display = _treeAllExpanded ? '' : 'none';
+  });
+  document.querySelectorAll('#dirTreeTable .tree-caret').forEach(c => {
+    c.style.transform = _treeAllExpanded ? 'rotate(90deg)' : '';
+  });
+  const btn = document.getElementById('btnTreeExpandAll');
+  if (btn) btn.textContent = _treeAllExpanded ? 'Thu gọn tất cả' : 'Bung tất cả';
+}
+
 async function loadDetailTab() {
   const camId = document.getElementById('detailCamSel').value;
   const date  = document.getElementById('detailDate').value || today();
@@ -2748,6 +2850,8 @@ async function loadDetailTab() {
   _detailExportData = null;
   const dirWrap = document.getElementById('dirBreakdown');
   if (dirWrap) dirWrap.style.display = 'none';
+  const treeWrap = document.getElementById('dirTree');
+  if (treeWrap) treeWrap.style.display = 'none';
 
   let url = '/api/counting/data?date=' + date;
   if (camId) url += '&camera=' + encodeURIComponent(camId);
@@ -2831,6 +2935,7 @@ async function loadDetailTab() {
     btnExp.style.display = '';
     renderDetailChart(hours, date);
     renderDirBreakdown(dirTotals, allDirs);
+    renderDirTree(hours, date);
   } catch(e) {
     info.textContent = '';
     body.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr>`;
@@ -2867,14 +2972,14 @@ function exportDetailCSV() {
       h.truck || 0,
       rowTotal || 0,
     ];
-    const dirs = hasDirs ? allDirs.map(d => h.dirs[d] || 0) : [];
+    const dirs = hasDirs ? allDirs.map(d => (h.dirTypes[d] && h.dirTypes[d].n) || 0) : [];
     rows.push([...base, ...dirs]);
   });
 
   // Grand total row
   rows.push([]);
   rows.push(['Tổng ngày', grandCar, grandMoto, grandBus, grandTruck, grandN,
-    ...(hasDirs ? allDirs.map(d => hours.reduce((s,h)=>s+(h.dirs[d]||0),0)) : [])]);
+    ...(hasDirs ? allDirs.map(d => hours.reduce((s,h)=>s+((h.dirTypes[d]&&h.dirTypes[d].n)||0),0)) : [])]);
 
   const csv = rows.map(r => r.map(v => {
     const s = String(v ?? '');
