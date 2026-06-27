@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Panel – UTMC Camera</title>
+<title>Admin Panel – UTMC Platform</title>
 <link rel="stylesheet" href="app.css">
 <style>
 /* ── Table ── */
@@ -123,7 +123,7 @@ tr:hover td { background:var(--surface2); }
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
     <img src="logo.png" alt="UTMC">
-    <span><b>Camera</b></span>
+    <span><b>Platform</b></span>
   </div>
   <nav class="sidebar-nav">
     <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
@@ -2362,7 +2362,7 @@ function downloadDevTemplate() {
   const typeNames = allDeviceTypes.map(t => t.name);
   const typeList  = typeNames.length ? typeNames.join(', ') : 'Switch, Router, NVR, Camera IP';
   const lines = [
-    '# Template import thiết bị - UTMC Camera System',
+    '# Template import thiết bị - UTMC Platform System',
     `# Cột type (loại) dùng tên loại đã tạo trong hệ thống: ${typeList}`,
     '# Xóa các dòng ghi chú (#) trước khi import nếu cần',
     'name,ip,type',
