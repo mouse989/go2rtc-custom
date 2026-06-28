@@ -180,7 +180,7 @@ func HasTab(ctx context.Context, tab string) bool {
 // These are checked in addition to viewerDefaultPaths.
 var tabExtraPaths = map[string][]string{
 	TabMonitor:   {"/api/system/stats"},
-	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance"},
+	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast"},
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
 	TabCounting:  {"/api/counting"},

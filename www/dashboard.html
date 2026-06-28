@@ -264,6 +264,8 @@ let _histDate   = '';
 // last N same-weekdays. Foundation for week-over-week trend + short-term forecast.
 const BASELINE_WEEKS = 4;
 let _baseline = { day: '', weeks: 0, byRoute: {} }; // byRoute[id] = [96] of {tti,delay,n} | null
+// Phase-2 model forecast from /api/traveltime/forecast (Holt-Winters seasonal).
+let _forecast = { byRoute: {}, weeks: 0 }; // byRoute[id] = {bySlot:{slot:{tti,lo,hi}}, method}
 let _map        = null;
 let _mapInited  = false;
 let _skelBuilt  = false;
@@ -532,6 +534,20 @@ function updateRouteStatus(tt) {
       chips.push(`<span class="db-rs-chip" style="border-color:#ef4444;color:#ef4444" title="Cao hơn ≥25% so với mức bình thường cùng giờ">⚠ ${abnormal} bất thường</span>`);
     }
   }
+  // Forecast: how many routes are predicted to reach the worst tier in ~60 min.
+  if (_forecast.weeks > 0 && tiers.length) {
+    const curSlot = slotOfTs(new Date().toISOString());
+    const worst = tiers[tiers.length - 1];
+    let willJam = 0;
+    all.forEach(r => {
+      const sf = _forecast.byRoute[r.id];
+      const p = sf && sf.bySlot && sf.bySlot[curSlot + 4]; // +4 slots = +60 min
+      if (p && ttiTier(p.tti) === worst) willJam++;
+    });
+    if (willJam > 0) {
+      chips.push(`<span class="db-rs-chip" style="border-color:${worst.color};color:${worst.color}" title="Mô hình dự báo đạt mức '${escH(worst.label||'')}' trong ~60 phút">🔮 +60': ${willJam} tuyến dự báo ${escH(worst.label||'tắc')}</span>`);
+    }
+  }
   el.innerHTML = chips.length
     ? `<span style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700">Trạng thái mạng lưới:</span>` + chips.join('')
     : '<span style="font-size:.76rem;color:var(--text-muted)">Chưa có dữ liệu tuyến</span>';
@@ -571,6 +587,7 @@ async function loadDashboard() {
     _data = await apiFetch('/api/dashboard/summary');
     renderDashboard();
     loadBaseline(); // build typical-profile baseline in background, then refresh
+    loadForecast(); // fetch Holt-Winters model forecast, then refresh
   } catch (e) {
     document.getElementById('dbContent').innerHTML =
       `<div class="db-empty" style="margin-top:3rem">⚠️ Không tải được dữ liệu: ${escH(e.message)}</div>`;
@@ -618,6 +635,27 @@ async function loadBaseline() {
   }
 }
 function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
+
+// Fetch the server-side Holt-Winters forecast (next 2h) and refresh the chart.
+async function loadForecast() {
+  let list;
+  try { list = await apiFetch('/api/traveltime/forecast?horizon=8'); }
+  catch (_) { return; }
+  const byRoute = {};
+  let weeks = 0;
+  (list || []).forEach(rf => {
+    const bySlot = {};
+    (rf.points || []).forEach(p => { bySlot[p.slot] = { tti: p.tti, lo: p.lo, hi: p.hi }; });
+    byRoute[rf.routeId] = { bySlot, method: rf.method };
+    if (rf.weeksUsed > weeks) weeks = rf.weeksUsed;
+  });
+  _forecast = { byRoute, weeks };
+  if (_data) {
+    const tt = _data.travelTime || {};
+    updateRouteStatus(tt);
+    renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
+  }
+}
 
 async function loadHistory() {
   const dateEl = document.getElementById('histDate');
@@ -689,7 +727,7 @@ function buildSkeleton() {
       <div class="tti-axis-wrap" id="ttiAxis"></div>
       <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
         <div id="ttiLegend" class="tti-legend" style="flex:1"></div>
-        <span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;color:var(--text-muted);flex-shrink:0"><span class="tti-forecast" style="width:18px;height:11px;border-radius:2px;background-color:#64748b;display:inline-block"></span>dự báo (hồ sơ điển hình)</span>
+        <span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;color:var(--text-muted);flex-shrink:0"><span class="tti-forecast" style="width:18px;height:11px;border-radius:2px;background-color:#64748b;display:inline-block"></span>dự báo Holt-Winters (di chuột xem khoảng tin cậy)</span>
         ${(getUser()||{}).role==='admin' ? `<button id="btnTtiCfg" onclick="toggleTtiCfg()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:.68rem;padding:.12rem .45rem;cursor:pointer;font-family:inherit;flex-shrink:0">⚙ Màu TTI</button>` : ''}
       </div>
       <div id="ttiCfgPanel" style="display:none;margin-top:.55rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.65rem .8rem;font-size:.74rem"></div>
@@ -843,7 +881,16 @@ function renderTTIChart(routes, todayLogs, histLogs) {
     const todaySlots = buildSlots(todayLogs, r.id);
     const baseSlots  = baselineSlots(r.id);
     const trend      = routeTrend(todaySlots, baseSlots);
-    const forecast   = buildForecast(todaySlots, baseSlots, currentSlot);
+    let   forecast   = buildForecast(todaySlots, baseSlots, currentSlot);
+    // Overlay the server Holt-Winters model (with CI) onto the naive tail.
+    const sf = _forecast.byRoute[r.id];
+    if (sf && sf.bySlot) {
+      if (!forecast) forecast = Array.from({ length: TOTAL_SLOTS }, () => null);
+      Object.keys(sf.bySlot).forEach(slot => {
+        const p = sf.bySlot[slot];
+        forecast[+slot] = { tti: p.tti, lo: p.lo, hi: p.hi, model: true };
+      });
+    }
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
 
@@ -898,8 +945,10 @@ function renderSlotBar(slots, currentSlot, isHistory, forecast) {
       const f = forecast && forecast[i];
       if (f) {
         const fc = ttiColor(f.tti) || 'var(--surface2)';
-        const ftip = `🔮 Dự báo ${slotLabel(i)}\nTTI ≈ ${f.tti.toFixed(2)} — ${ttiLabel(f.tti)}\n(hồ sơ điển hình ${_baseline.weeks} tuần, hiệu chỉnh theo hôm nay)`;
-        return `<div class="tti-slot tti-forecast" style="flex:1;background-color:${fc};opacity:.55" data-tip="${escH(ftip)}"></div>`;
+        const ci = (f.lo != null && f.hi != null) ? `\nKhoảng tin cậy ~80%: ${f.lo.toFixed(2)}–${f.hi.toFixed(2)}` : '';
+        const src = f.model ? `mô hình Holt-Winters (${_forecast.weeks} tuần)` : `hồ sơ điển hình ${_baseline.weeks} tuần`;
+        const ftip = `🔮 Dự báo ${slotLabel(i)}\nTTI ≈ ${f.tti.toFixed(2)} — ${ttiLabel(f.tti)}${ci}\n(${src})`;
+        return `<div class="tti-slot tti-forecast" style="flex:1;background-color:${fc};opacity:${f.model?.7:.5}" data-tip="${escH(ftip)}"></div>`;
       }
       return `<div class="tti-slot" style="flex:1;background:var(--surface2);opacity:.18"></div>`;
     } else {
