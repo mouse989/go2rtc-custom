@@ -98,6 +98,11 @@
 .db-table tr:last-child td { border-bottom:none; }
 .db-table .num { text-align:right; font-variant-numeric:tabular-nums; }
 .db-tti-badge { display:inline-block; padding:.08rem .38rem; border-radius:4px; font-weight:700; font-size:.75rem; min-width:38px; text-align:center; }
+/* Route status breakdown (count by congestion tier) */
+.db-route-status { display:flex; flex-wrap:wrap; gap:.4rem .55rem; align-items:center; margin:.1rem 0 .6rem; }
+.db-rs-chip { display:inline-flex; align-items:center; gap:.32rem; font-size:.76rem; font-weight:600; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.16rem .6rem; }
+.db-rs-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.db-trend { font-size:.82rem; font-weight:700; line-height:1; display:inline-block; width:1em; text-align:center; }
 
 /* ── Map ── */
 #dashMap { width:100%; height:440px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); }
@@ -435,6 +440,56 @@ function buildSlots(logs, routeId) {
   return acc;
 }
 
+// Trend of a route today: compare its latest measured slot against a baseline
+// taken ~45+ min earlier. Returns {dir:'up'|'down'|'flat', delta, cur, base}.
+const TREND_EPS = 0.05;        // TTI change below this is "stable"
+const TREND_BACK_SLOTS = 3;    // 3 × 15-min = 45 min lookback
+function routeTrend(slots) {
+  let curIdx = -1;
+  for (let i = slots.length - 1; i >= 0; i--) { if (slots[i]) { curIdx = i; break; } }
+  if (curIdx < 0) return null;
+  const cur = slots[curIdx].tti;
+  let baseIdx = -1;
+  for (let i = curIdx - TREND_BACK_SLOTS; i >= 0; i--) { if (slots[i]) { baseIdx = i; break; } }
+  if (baseIdx < 0) return { dir: 'flat', delta: 0, cur, base: cur };
+  const base = slots[baseIdx].tti;
+  const delta = cur - base;
+  const dir = delta > TREND_EPS ? 'up' : (delta < -TREND_EPS ? 'down' : 'flat');
+  return { dir, delta, cur, base };
+}
+// Higher TTI = worse traffic, so ▲ (rising) is red/bad, ▼ (falling) is green/good.
+function trendArrow(tr) {
+  if (!tr) return '';
+  if (tr.dir === 'up')   return `<span class="db-trend" style="color:#ef4444" title="Đang xấu đi (+${tr.delta.toFixed(2)} TTI/45 phút)">▲</span>`;
+  if (tr.dir === 'down') return `<span class="db-trend" style="color:#22c55e" title="Đang cải thiện (${tr.delta.toFixed(2)} TTI/45 phút)">▼</span>`;
+  return `<span class="db-trend" style="color:var(--text-muted)" title="Ổn định">▬</span>`;
+}
+
+// Network status breakdown: how many routes sit in each congestion tier now.
+function updateRouteStatus(tt) {
+  const el = document.getElementById('dbRouteStatus');
+  if (!el) return;
+  const all     = tt.routes || [];
+  const measured = all.filter(r => r.latestTTI > 0);
+  const tiers   = _getTiers();
+  const counts  = tiers.map(() => 0);
+  measured.forEach(r => {
+    const idx = tiers.indexOf(ttiTier(r.latestTTI));
+    if (idx >= 0) counts[idx]++;
+  });
+  const noData = all.length - measured.length;
+  const chips = tiers.map((t, i) => counts[i] > 0
+    ? `<span class="db-rs-chip"><span class="db-rs-dot" style="background:${t.color}"></span>${counts[i]} ${escH(t.label || '')}</span>`
+    : '').filter(Boolean);
+  if (noData > 0) {
+    const nd = (_ttiAppearance || _ttiDefault).noDataColor || '#334155';
+    chips.push(`<span class="db-rs-chip"><span class="db-rs-dot" style="background:${nd}"></span>${noData} chưa có dữ liệu</span>`);
+  }
+  el.innerHTML = chips.length
+    ? `<span style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700">Trạng thái mạng lưới:</span>` + chips.join('')
+    : '<span style="font-size:.76rem;color:var(--text-muted)">Chưa có dữ liệu tuyến</span>';
+}
+
 // ── Tooltip ───────────────────────────────────────────────────────────────
 let _tipEl = null;
 function initTooltip() {
@@ -515,6 +570,7 @@ function renderDashboard() {
 
   updateStatusBar(tf, tt);
   updateKPIs(tf, tt);
+  updateRouteStatus(tt);
   renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
   updateTopRoutes(tt);
   updateMapData(tf);
@@ -538,6 +594,7 @@ function buildSkeleton() {
           <span id="histStatus" style="font-size:.72rem;color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0"></span>
         </div>
       </h3>
+      <div id="dbRouteStatus" class="db-route-status"></div>
       <div id="ttiChartBody" class="tti-chart-wrap"></div>
       <div class="tti-axis-wrap" id="ttiAxis"></div>
       <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
@@ -693,6 +750,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
 
   body.innerHTML = routes.map(r => {
     const todaySlots = buildSlots(todayLogs, r.id);
+    const trend      = routeTrend(todaySlots);
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
 
@@ -709,7 +767,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
 
     return `<div class="tti-chart-row" ${dragAttr}>
       <div class="tti-row-label">
-        <div style="display:flex;align-items:center">${dragHandle}<span class="tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
+        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}<span class="tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
       </div>
       <div class="tti-row-bars">
         <div class="tti-bar tti-bar-today">${todayBar}</div>
@@ -797,12 +855,14 @@ function updateTopRoutes(tt) {
   if (!el) return;
   const routes = [...(tt.routes||[])].filter(r => r.latestTTI > 0).sort((a,b) => b.latestTTI - a.latestTTI);
   if (!routes.length) { el.innerHTML = '<div class="db-empty">Chưa có dữ liệu</div>'; return; }
+  const logs = tt.todayLogs || [];
   el.innerHTML = `<table class="db-table"><thead><tr>
-    <th>Tuyến</th><th class="num">TTI</th><th class="num">Trễ</th><th class="num">Lúc</th>
+    <th>Tuyến</th><th class="num">TTI</th><th style="text-align:center">XH</th><th class="num">Trễ</th><th class="num">Lúc</th>
   </tr></thead><tbody>
   ${routes.slice(0,8).map(r => `<tr>
     <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong title="${escH(r.name)}">${escH(r.name)}</strong></td>
     <td class="num"><span class="db-tti-badge" style="background:${ttiBg(r.latestTTI)};color:${ttiFg(r.latestTTI)}">${r.latestTTI.toFixed(2)}</span></td>
+    <td style="text-align:center">${trendArrow(routeTrend(buildSlots(logs, r.id)))}</td>
     <td class="num" style="color:var(--text-muted)">${Math.round(r.latestDelaySec/60)} ph</td>
     <td class="num" style="color:var(--text-muted);font-size:.73rem">${r.timestamp ? fmtTime(r.timestamp) : '—'}</td>
   </tr>`).join('')}
