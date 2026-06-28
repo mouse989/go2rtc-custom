@@ -445,6 +445,25 @@ tr:hover td { background:var(--surface2); }
                 Danh sách IP camera
                 <span style="font-weight:400;color:var(--text-muted)">— mỗi dòng 1 IP</span>
               </label>
+              <!-- Pick from streaming cameras (go2rtc config) -->
+              <button type="button" class="btn btn-secondary" onclick="toggleStreamPicker()"
+                style="font-size:.74rem;padding:.27rem .55rem;margin-bottom:.4rem">📷 Chọn từ camera đang stream</button>
+              <div id="ccStreamPicker" style="display:none;border:1px solid var(--border);border-radius:6px;padding:.55rem;margin-bottom:.5rem;background:var(--surface2)">
+                <input type="text" id="ccStreamSearch" placeholder="Tìm theo tên / IP…" oninput="renderStreamPicker()"
+                  style="width:100%;box-sizing:border-box;margin-bottom:.4rem;padding:.32rem .55rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:.8rem;outline:none">
+                <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem">
+                  <label style="font-size:.74rem;display:flex;align-items:center;gap:.3rem;cursor:pointer"><input type="checkbox" id="ccStreamAll" onchange="toggleAllStreams(this.checked)"> Chọn tất cả</label>
+                  <span id="ccStreamCount" style="font-size:.72rem;color:var(--text-muted);margin-left:auto"></span>
+                </div>
+                <div id="ccStreamList" style="max-height:220px;overflow:auto;font-size:.8rem"></div>
+                <div style="display:flex;gap:.4rem;margin-top:.55rem">
+                  <button type="button" class="btn btn-primary" onclick="applyStreamPicker()" style="font-size:.74rem;padding:.3rem .6rem">➕ Thêm vào danh sách</button>
+                  <button type="button" class="btn btn-secondary" onclick="toggleStreamPicker()" style="font-size:.74rem;padding:.3rem .6rem">Đóng</button>
+                </div>
+                <p style="font-size:.7rem;color:var(--text-muted);margin:.45rem 0 0">
+                  IP, username &amp; password được lấy tự động từ link RTSP của camera trong cấu hình go2rtc.
+                </p>
+              </div>
               <textarea id="ccIpList" rows="10"
                 placeholder="180.1.2.12&#10;180.1.2.13 matkhau_rieng&#10;180.1.2.14"
                 style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.45rem .6rem;color:var(--text);font-size:.82rem;font-family:monospace;resize:vertical;outline:none;line-height:1.55"></textarea>
@@ -1115,6 +1134,90 @@ function showTab(tab) {
 // ════════════════════════════════════════════════════════
 //  CAMERA CONFIG
 // ════════════════════════════════════════════════════════
+// ── Pick cameras from go2rtc streaming list ──────────────────────
+let _ccStreams = []; // [{name, host, port, username, password}]
+
+async function toggleStreamPicker() {
+  const p = document.getElementById('ccStreamPicker');
+  if (p.style.display === 'none') {
+    p.style.display = '';
+    await loadCcStreams();
+  } else {
+    p.style.display = 'none';
+  }
+}
+
+async function loadCcStreams() {
+  const list = document.getElementById('ccStreamList');
+  list.innerHTML = '<div style="color:var(--text-muted)">Đang tải…</div>';
+  try {
+    _ccStreams = await apiFetch('/api/camera-config/streams') || [];
+  } catch (e) {
+    _ccStreams = [];
+    list.innerHTML = '<div style="color:var(--red)">Lỗi: ' + esc(e.message) + '</div>';
+    return;
+  }
+  const all = document.getElementById('ccStreamAll');
+  if (all) all.checked = false;
+  renderStreamPicker();
+}
+
+function renderStreamPicker() {
+  const list = document.getElementById('ccStreamList');
+  const q = (document.getElementById('ccStreamSearch').value || '').toLowerCase();
+  if (!_ccStreams.length) {
+    document.getElementById('ccStreamCount').textContent = '';
+    list.innerHTML = '<div style="color:var(--text-muted)">Không có camera RTSP nào trong cấu hình go2rtc</div>';
+    return;
+  }
+  const items = _ccStreams.filter(s =>
+    !q || (s.name || '').toLowerCase().includes(q) || (s.host || '').includes(q));
+  document.getElementById('ccStreamCount').textContent = items.length + '/' + _ccStreams.length + ' camera';
+  list.innerHTML = items.map(s => {
+    const i = _ccStreams.indexOf(s);
+    const mask = s.password ? ':' + '•'.repeat(Math.min(6, s.password.length)) : '';
+    const cred = s.username ? (esc(s.username) + mask + '@') : '';
+    return `<label style="display:flex;align-items:center;gap:.5rem;padding:.25rem 0;cursor:pointer">
+      <input type="checkbox" class="cc-stream-cb" value="${i}">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <strong>${esc(s.name)}</strong>
+        <span style="color:var(--text-muted);font-size:.72rem"> — ${cred}${esc(s.host)}${s.port ? ':' + esc(s.port) : ''}</span>
+      </span>
+    </label>`;
+  }).join('');
+}
+
+function toggleAllStreams(on) {
+  document.querySelectorAll('.cc-stream-cb').forEach(cb => cb.checked = on);
+}
+
+function applyStreamPicker() {
+  const chosen = [...document.querySelectorAll('.cc-stream-cb:checked')]
+    .map(cb => _ccStreams[parseInt(cb.value, 10)]).filter(Boolean);
+  if (!chosen.length) { toast('Chưa chọn camera nào', 'error'); return; }
+
+  const ta = document.getElementById('ccIpList');
+  const existing = (ta.value || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const hosts = new Set(existing.map(l => l.split(/\s+/)[0]));
+  const merged = existing.slice();
+  chosen.forEach(s => {
+    if (hosts.has(s.host)) return;
+    hosts.add(s.host);
+    // Each line carries its own RTSP password so per-camera credentials stay exact.
+    merged.push(s.password ? (s.host + ' ' + s.password) : s.host);
+  });
+  ta.value = merged.join('\n');
+
+  // Auto-fill username + shared password from the first selected camera.
+  const withUser = chosen.find(s => s.username);
+  if (withUser) document.getElementById('ccUsername').value = withUser.username;
+  const withPass = chosen.find(s => s.password);
+  const sp = document.getElementById('ccSharedPass');
+  if (withPass && !sp.value) sp.value = withPass.password;
+
+  document.getElementById('ccStreamPicker').style.display = 'none';
+}
+
 // ── Presets (loaded from /api/camera-config/presets) ─────────────
 let _ccPresets = []; // [{id, name, command, type, direction, num, payload}]
 

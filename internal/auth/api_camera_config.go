@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,60 @@ import (
 
 func registerCameraConfigHandler() {
 	http.HandleFunc("/api/camera-config/apply", cameraConfigApplyHandler)
+	http.HandleFunc("/api/camera-config/streams", cameraConfigStreamsHandler)
+}
+
+// camStreamInfo describes a configured go2rtc stream whose source is an rtsp://
+// URL, with host + credentials parsed out so the Camera Config UI can offer a
+// pick-list instead of manual IP entry.
+type camStreamInfo struct {
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     string `json:"port,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// GET /api/camera-config/streams — list go2rtc streams that have an rtsp source,
+// with ip/username/password extracted from rtsp://user:pass@host[:port]/...
+// Admin-only: it exposes camera credentials.
+func cameraConfigStreamsHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok || user.Role != RoleAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	out := make([]camStreamInfo, 0)
+	if getStreamNames != nil && getStreamSources != nil {
+		names := getStreamNames()
+		sort.Strings(names)
+		for _, name := range names {
+			for _, src := range getStreamSources(name) {
+				if !strings.HasPrefix(strings.ToLower(src), "rtsp://") {
+					continue
+				}
+				u, err := url.Parse(src)
+				if err != nil || u.Host == "" {
+					continue
+				}
+				host, port, splitErr := net.SplitHostPort(u.Host)
+				if splitErr != nil {
+					host, port = u.Host, ""
+				}
+				ci := camStreamInfo{Name: name, Host: host, Port: port}
+				if u.User != nil {
+					ci.Username = u.User.Username()
+					if pw, has := u.User.Password(); has {
+						ci.Password = pw
+					}
+				}
+				out = append(out, ci)
+				break // first rtsp source per stream is enough
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 type camConfigEntry struct {
