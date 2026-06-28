@@ -362,47 +362,30 @@
         <button class="btn btn-ghost btn-sm" id="btnExportCSV" onclick="exportDetailCSV()" style="display:none">⬇ Xuất CSV</button>
         <span id="detailInfo" style="font-size:.78rem;color:var(--text-secondary)"></span>
       </div>
-      <!-- Table + Chart side by side -->
+      <!-- Tree + Chart side by side -->
       <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-        <!-- Compact hourly table -->
-        <div id="detailSideTable" style="overflow-x:auto;flex-shrink:0;min-width:220px;max-width:340px">
-          <table class="tbl" id="detailTable" style="font-size:0.77rem">
-            <thead>
-              <tr>
-                <th style="padding:4px 6px">Giờ</th>
-                <th style="text-align:right;padding:4px 5px" title="Ô tô">🚗</th>
-                <th style="text-align:right;padding:4px 5px" title="Xe máy">🏍</th>
-                <th style="text-align:right;padding:4px 5px" title="Xe buýt">🚌</th>
-                <th style="text-align:right;padding:4px 5px" title="Xe tải">🚛</th>
-                <th style="text-align:right;padding:4px 6px;color:var(--accent)" title="Tổng">∑</th>
-              </tr>
-            </thead>
-            <tbody id="detailBody">
-              <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-secondary)">Chọn camera và ngày rồi nhấn Xem</td></tr>
-            </tbody>
-            <tfoot id="detailFoot"></tfoot>
-          </table>
+        <!-- Per-hour direction tree (collapsed=hour total+types; expand=per-direction with types) -->
+        <div id="detailSideTable" style="flex-shrink:0;min-width:300px;max-width:460px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="font-size:.8rem;font-weight:600;color:var(--text-secondary)">Lưu lượng theo giờ &amp; hướng</div>
+            <button class="btn btn-ghost btn-sm" id="btnTreeExpandAll" onclick="toggleTreeAll()" style="font-size:.72rem;padding:2px 8px;display:none">Bung tất cả</button>
+          </div>
+          <div id="dirTree" style="overflow-x:auto">
+            <table class="tbl" id="dirTreeTable" style="font-size:0.77rem;min-width:300px">
+              <tbody><tr><td style="text-align:center;padding:20px;color:var(--text-secondary)">Chọn camera và ngày rồi nhấn Xem</td></tr></tbody>
+            </table>
+          </div>
         </div>
         <!-- Line chart -->
         <div id="detailChartWrap" style="flex:1;min-width:280px;height:320px;position:relative">
           <canvas id="detailChart"></canvas>
         </div>
       </div>
-      <!-- Direction breakdown table (shown only when direction data exists) -->
+      <!-- Direction breakdown table (whole-day totals; shown only when direction data exists) -->
       <div id="dirBreakdown" style="margin-top:16px;display:none">
         <div style="font-size:.8rem;font-weight:600;margin-bottom:6px;color:var(--text-secondary)">Chi tiết theo hướng đếm (cả ngày)</div>
         <div style="overflow-x:auto">
           <table class="tbl" id="dirBreakdownTable" style="font-size:0.77rem;min-width:320px"></table>
-        </div>
-      </div>
-      <!-- Per-hour direction tree (collapsed=hour total+types; expand=per-direction with types) -->
-      <div id="dirTree" style="margin-top:16px;display:none">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <div style="font-size:.8rem;font-weight:600;color:var(--text-secondary)">Lưu lượng theo giờ &amp; hướng</div>
-          <button class="btn btn-ghost btn-sm" id="btnTreeExpandAll" onclick="toggleTreeAll()" style="font-size:.72rem;padding:2px 8px">Bung tất cả</button>
-        </div>
-        <div style="overflow-x:auto">
-          <table class="tbl" id="dirTreeTable" style="font-size:0.77rem;min-width:340px"></table>
         </div>
       </div>
     </div>
@@ -2749,32 +2732,41 @@ function renderDirBreakdown(dirTotals, allDirs) {
 const DIR_ORDER = ['down', 'up', 'left', 'right'];
 let _treeAllExpanded = false;
 
+// Renders the per-hour direction tree (side panel next to the chart) and
+// returns the day grand totals so the caller can cache them for CSV export.
 function renderDirTree(hours, date) {
-  const wrap = document.getElementById('dirTree');
-  const tbl  = document.getElementById('dirTreeTable');
-  if (!wrap || !tbl) return;
-
-  // Only hours that have any direction-classified traffic.
-  const rows = [];
-  hours.forEach((h, i) => {
-    const dirs = Object.keys(h.dirTypes || {});
-    if (!dirs.length) return;
-    const total = (h.car||0) + (h.motorcycle||0) + (h.bus||0) + (h.truck||0);
-    if (total <= 0) return;
-    rows.push({ i, h, dirs });
-  });
-
-  if (!rows.length) { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-  _treeAllExpanded = false;
+  const tbl = document.getElementById('dirTreeTable');
   const btn = document.getElementById('btnTreeExpandAll');
-  if (btn) btn.textContent = 'Bung tất cả';
+  const grand = {car:0, motorcycle:0, bus:0, truck:0, n:0};
+  if (!tbl) return grand;
 
   const p  = 'padding:3px 6px';
   const pr = p + ';text-align:right';
   const curH = new Date().getHours();
   const isToday = (date === today());
 
+  // Every hour that has any traffic. Hours with per-direction data are
+  // expandable; hours with only an unclassified total render as plain rows.
+  const rows = [];
+  hours.forEach((h, i) => {
+    const classified = (h.car||0) + (h.motorcycle||0) + (h.bus||0) + (h.truck||0);
+    const total = h.n || classified;
+    if (total <= 0) return;
+    grand.car += h.car||0; grand.motorcycle += h.motorcycle||0;
+    grand.bus += h.bus||0; grand.truck += h.truck||0; grand.n += total;
+    rows.push({ i, h, total, dirs: Object.keys(h.dirTypes || {}) });
+  });
+
+  _treeAllExpanded = false;
+  const hasExpandable = rows.some(r => r.dirs.length > 0);
+  if (btn) { btn.style.display = hasExpandable ? '' : 'none'; btn.textContent = 'Bung tất cả'; }
+
+  if (!rows.length) {
+    tbl.innerHTML = `<tbody><tr><td style="text-align:center;padding:20px;color:var(--text-secondary)">Không có dữ liệu</td></tr></tbody>`;
+    return grand;
+  }
+
+  const cell = (v, color) => `<td style="${pr}${color?';color:'+color:''}">${v||'—'}</td>`;
   let html = `<thead><tr>
     <th style="${p}">Giờ / Hướng</th>
     <th style="${pr}" title="Ô tô">🚗</th>
@@ -2784,19 +2776,21 @@ function renderDirTree(hours, date) {
     <th style="${pr};color:var(--accent)" title="Tổng">∑</th>
   </tr></thead><tbody>`;
 
-  const cell = (v, color) => `<td style="${pr}${color?';color:'+color:''}">${v||'—'}</td>`;
-
-  for (const { i, h, dirs } of rows) {
+  for (const { i, h, total, dirs } of rows) {
     const isCur = (i === curH && isToday);
-    const hourTotal = h.n || (h.car + h.motorcycle + h.bus + h.truck);
-    const hStyle = 'cursor:pointer;font-weight:600' + (isCur ? ';background:var(--surface2)' : '');
-    // Hour node (collapsible)
-    html += `<tr class="tree-hour" data-h="${i}" onclick="toggleTreeHour(${i})" style="${hStyle}">
-      <td style="${p}"><span class="tree-caret" data-h="${i}" style="display:inline-block;width:12px;transition:transform .15s">▶</span> ${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
+    const expandable = dirs.length > 0;
+    const hStyle = 'font-weight:600' + (expandable ? ';cursor:pointer' : '') + (isCur ? ';background:var(--surface2)' : '');
+    const caret = expandable
+      ? `<span class="tree-caret" data-h="${i}" style="display:inline-block;width:12px;transition:transform .15s">▶</span> `
+      : `<span style="display:inline-block;width:12px"></span> `;
+    const onclick = expandable ? ` onclick="toggleTreeHour(${i})"` : '';
+    // Hour node (collapsed = total across all directions, broken down by type)
+    html += `<tr class="tree-hour" data-h="${i}"${onclick} style="${hStyle}">
+      <td style="${p}">${caret}${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
       ${cell(h.car)}${cell(h.motorcycle)}${cell(h.bus)}${cell(h.truck)}
-      <td style="${pr};font-weight:700;color:var(--accent)">${hourTotal||'—'}</td>
+      <td style="${pr};font-weight:700;color:var(--accent)">${total||'—'}</td>
     </tr>`;
-    // Direction child rows (hidden until expanded)
+    // Direction child rows (hidden until the hour is expanded)
     const ordered = [...dirs].sort((a, b) => {
       const ia = DIR_ORDER.indexOf(a), ib = DIR_ORDER.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
@@ -2811,8 +2805,17 @@ function renderDirTree(hours, date) {
       </tr>`;
     }
   }
-  html += '</tbody>';
+  // Day total footer
+  html += `<tr style="border-top:2px solid var(--border);font-weight:700">
+    <td style="${p}">Tổng ngày</td>
+    <td style="${pr}">${grand.car.toLocaleString()}</td>
+    <td style="${pr}">${grand.motorcycle.toLocaleString()}</td>
+    <td style="${pr}">${grand.bus.toLocaleString()}</td>
+    <td style="${pr}">${grand.truck.toLocaleString()}</td>
+    <td style="${pr};color:var(--accent)">${grand.n.toLocaleString()}</td>
+  </tr></tbody>`;
   tbl.innerHTML = html;
+  return grand;
 }
 
 function toggleTreeHour(i) {
@@ -2839,19 +2842,15 @@ async function loadDetailTab() {
   const camId = document.getElementById('detailCamSel').value;
   const date  = document.getElementById('detailDate').value || today();
   const info  = document.getElementById('detailInfo');
-  const body  = document.getElementById('detailBody');
-  const foot  = document.getElementById('detailFoot');
+  const tbl   = document.getElementById('dirTreeTable');
   const btnExp = document.getElementById('btnExportCSV');
 
   info.textContent = 'Đang tải…';
-  body.innerHTML = '';
-  foot.innerHTML = '';
+  if (tbl) tbl.innerHTML = `<tbody><tr><td style="text-align:center;padding:20px;color:var(--text-secondary)">Đang tải…</td></tr></tbody>`;
   btnExp.style.display = 'none';
   _detailExportData = null;
   const dirWrap = document.getElementById('dirBreakdown');
   if (dirWrap) dirWrap.style.display = 'none';
-  const treeWrap = document.getElementById('dirTree');
-  if (treeWrap) treeWrap.style.display = 'none';
 
   let url = '/api/counting/data?date=' + date;
   if (camId) url += '&camera=' + encodeURIComponent(camId);
@@ -2861,7 +2860,6 @@ async function loadDetailTab() {
 
     // Aggregate: hours[0..23] → {car, motorcycle, bus, truck, n, dirTypes:{dir:{car,moto,bus,truck,n}}}
     const hours = Array.from({length:24}, () => ({car:0, motorcycle:0, bus:0, truck:0, n:0, dirTypes:{}}));
-    let grandCar=0, grandMoto=0, grandBus=0, grandTruck=0, grandN=0;
     // dirTotals: per-direction totals across all hours {dir: {car, motorcycle, bus, truck, n}}
     const dirTotals = {};
     const allDirs = new Set();
@@ -2896,49 +2894,21 @@ async function loadDetailTab() {
       }
     });
 
-    const curH = new Date().getHours();
     const camLabel = camId ? (cfg.cameras||[]).find(c=>c.id===camId)?.name || camId : 'Tất cả camera';
     info.textContent = `${camLabel} — ${date} — ${(slots||[]).length} ô 5 phút`;
 
-    body.innerHTML = hours.map((h, i) => {
-      const classified = h.car + h.motorcycle + h.bus + h.truck;
-      const rowTotal = h.n || classified;
-      grandCar   += h.car;
-      grandMoto  += h.motorcycle;
-      grandBus   += h.bus;
-      grandTruck += h.truck;
-      grandN     += rowTotal;
-      const isCur = (i === curH && date === today());
-      const rowStyle = isCur ? 'background:var(--surface2);font-weight:600' : '';
-      const p = 'padding:3px 5px';
-      return `<tr style="${rowStyle}">
-        <td style="${p}">${String(i).padStart(2,'0')}:00${isCur?' ◀':''}</td>
-        <td style="${p};text-align:right">${h.car       || '—'}</td>
-        <td style="${p};text-align:right">${h.motorcycle|| '—'}</td>
-        <td style="${p};text-align:right">${h.bus        || '—'}</td>
-        <td style="${p};text-align:right">${h.truck      || '—'}</td>
-        <td style="${p};text-align:right;font-weight:700;color:var(--accent)">${rowTotal || '—'}</td>
-      </tr>`;
-    }).join('');
-
-    foot.innerHTML = `<tr style="border-top:2px solid var(--border);font-weight:700">
-      <td style="padding:3px 6px">Tổng ngày</td>
-      <td style="padding:3px 5px;text-align:right">${grandCar.toLocaleString()}</td>
-      <td style="padding:3px 5px;text-align:right">${grandMoto.toLocaleString()}</td>
-      <td style="padding:3px 5px;text-align:right">${grandBus.toLocaleString()}</td>
-      <td style="padding:3px 5px;text-align:right">${grandTruck.toLocaleString()}</td>
-      <td style="padding:3px 6px;text-align:right;color:var(--accent)">${grandN.toLocaleString()}</td>
-    </tr>`;
-
-    // Cache for export
-    _detailExportData = {camLabel, date, hours, grandCar, grandMoto, grandBus, grandTruck, grandN, allDirs:[...allDirs], dirTotals};
-    btnExp.style.display = '';
     renderDetailChart(hours, date);
     renderDirBreakdown(dirTotals, allDirs);
-    renderDirTree(hours, date);
+    const grand = renderDirTree(hours, date); // also renders the day-total footer
+
+    // Cache for export
+    _detailExportData = {camLabel, date, hours,
+      grandCar: grand.car, grandMoto: grand.motorcycle, grandBus: grand.bus,
+      grandTruck: grand.truck, grandN: grand.n, allDirs:[...allDirs], dirTotals};
+    btnExp.style.display = '';
   } catch(e) {
     info.textContent = '';
-    body.innerHTML = `<tr><td colspan="6" style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr>`;
+    if (tbl) tbl.innerHTML = `<tbody><tr><td style="color:#dc2626;padding:12px">${esc(e.message)}</td></tr></tbody>`;
   }
 }
 

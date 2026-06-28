@@ -743,7 +743,8 @@ func handleDatasetImages(w http.ResponseWriter, r *http.Request) {
 	proxyGet(w, yoloURL+"/dataset/images")
 }
 
-// GET /api/counting/dataset-image?file=name.jpg — always from main server's local dataset.
+// GET    /api/counting/dataset-image?file=name.jpg — fetch image bytes (local dataset).
+// DELETE /api/counting/dataset-image?file=name.jpg — delete image + its label file.
 func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -752,6 +753,28 @@ func handleDatasetImage(w http.ResponseWriter, r *http.Request) {
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
+	}
+	if r.Method == http.MethodDelete {
+		if f == "" {
+			http.Error(w, "file required", http.StatusBadRequest)
+			return
+		}
+		req, err := http.NewRequest(http.MethodDelete, yoloURL+"/dataset/image/"+neturl.PathEscape(f), nil)
+		if err != nil {
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
 	}
 	proxyGetRaw(w, yoloURL+"/dataset/image/"+f)
 }
