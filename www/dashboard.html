@@ -103,6 +103,8 @@
 .db-rs-chip { display:inline-flex; align-items:center; gap:.32rem; font-size:.76rem; font-weight:600; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.16rem .6rem; }
 .db-rs-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
 .db-trend { font-size:.82rem; font-weight:700; line-height:1; display:inline-block; width:1em; text-align:center; }
+/* Forecast slots: diagonal hatch over the predicted-TTI colour */
+.tti-forecast { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.40) 0 1.5px, transparent 1.5px 4px); }
 
 /* ── Map ── */
 #dashMap { width:100%; height:440px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); }
@@ -258,8 +260,10 @@ const TOTAL_SLOTS = 96;          // 24h × 4 slots/h
 let _data       = null;
 let _histLogs   = [];
 let _histDate   = '';
-let _lastWeekLogs = []; // same weekday last week — baseline for week-over-week trend
-let _lastWeekDate = '';
+// Baseline "typical profile": average TTI per route per 15-min slot over the
+// last N same-weekdays. Foundation for week-over-week trend + short-term forecast.
+const BASELINE_WEEKS = 4;
+let _baseline = { day: '', weeks: 0, byRoute: {} }; // byRoute[id] = [96] of {tti,delay,n} | null
 let _map        = null;
 let _mapInited  = false;
 let _skelBuilt  = false;
@@ -467,14 +471,32 @@ function routeTrend(todaySlots, lastWeekSlots) {
   const dir = delta > TREND_EPS ? 'up' : (delta < -TREND_EPS ? 'down' : 'flat');
   return { dir, delta, cur, base };
 }
-// Higher TTI = worse traffic, so ▲ (worse than last week) is red, ▼ (better) is green.
+// Higher TTI = worse traffic, so ▲ (worse than normal) is red, ▼ (better) is green.
 function trendArrow(tr) {
   if (!tr) return '';
-  const wk = _lastWeekDate ? ` cùng giờ ${_lastWeekDate}` : ' tuần trước';
-  if (tr.dir === 'up')   return `<span class="db-trend" style="color:#ef4444" title="Tệ hơn${wk} (+${tr.delta.toFixed(2)} TTI)">▲</span>`;
-  if (tr.dir === 'down') return `<span class="db-trend" style="color:#22c55e" title="Tốt hơn${wk} (${tr.delta.toFixed(2)} TTI)">▼</span>`;
+  const wk = ` mức bình thường (TB ${_baseline.weeks||0} tuần cùng thứ)`;
+  if (tr.dir === 'up')   return `<span class="db-trend" style="color:#ef4444" title="Tệ hơn${wk}: +${tr.delta.toFixed(2)} TTI">▲</span>`;
+  if (tr.dir === 'down') return `<span class="db-trend" style="color:#22c55e" title="Tốt hơn${wk}: ${tr.delta.toFixed(2)} TTI">▼</span>`;
   if (tr.dir === 'flat') return `<span class="db-trend" style="color:var(--text-muted)" title="Tương đương${wk}">▬</span>`;
-  return `<span class="db-trend" style="color:var(--border)" title="Chưa có dữ liệu${wk} để so sánh">·</span>`;
+  return `<span class="db-trend" style="color:var(--border)" title="Chưa đủ dữ liệu lịch sử để so sánh">·</span>`;
+}
+
+// Short-term forecast for the REST of today: the typical profile scaled by how
+// far today is currently running above/below typical (seasonality × persistence).
+const FORECAST_RECENT = 8; // last 8 × 15-min = 2h used to estimate today's deviation
+function buildForecast(todaySlots, baseSlots, curSlot) {
+  if (!baseSlots || curSlot < 0) return null;
+  let rsum = 0, rn = 0;
+  for (let i = curSlot; i > curSlot - FORECAST_RECENT && i >= 0; i--) {
+    const t = todaySlots[i], b = baseSlots[i];
+    if (t && b && b.tti > 0) { rsum += t.tti / b.tti; rn++; }
+  }
+  const ratio = rn ? rsum / rn : 1;
+  const out = Array.from({ length: TOTAL_SLOTS }, () => null);
+  for (let i = curSlot + 1; i < TOTAL_SLOTS; i++) {
+    if (baseSlots[i]) out[i] = { tti: baseSlots[i].tti * ratio, base: baseSlots[i].tti };
+  }
+  return out;
 }
 
 // Network status breakdown: how many routes sit in each congestion tier now.
@@ -496,6 +518,19 @@ function updateRouteStatus(tt) {
   if (noData > 0) {
     const nd = (_ttiAppearance || _ttiDefault).noDataColor || '#334155';
     chips.push(`<span class="db-rs-chip"><span class="db-rs-dot" style="background:${nd}"></span>${noData} chưa có dữ liệu</span>`);
+  }
+  // Anomaly: routes running ≥25% above their typical level for this time slot.
+  if (_baseline.weeks > 0) {
+    const curSlot = slotOfTs(new Date().toISOString());
+    let abnormal = 0;
+    measured.forEach(r => {
+      const b = baselineSlots(r.id);
+      const bv = b ? avgSlotAround(b, curSlot) : null;
+      if (bv && r.latestTTI > bv * 1.25) abnormal++;
+    });
+    if (abnormal > 0) {
+      chips.push(`<span class="db-rs-chip" style="border-color:#ef4444;color:#ef4444" title="Cao hơn ≥25% so với mức bình thường cùng giờ">⚠ ${abnormal} bất thường</span>`);
+    }
   }
   el.innerHTML = chips.length
     ? `<span style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700">Trạng thái mạng lưới:</span>` + chips.join('')
@@ -535,29 +570,54 @@ async function loadDashboard() {
   try {
     _data = await apiFetch('/api/dashboard/summary');
     renderDashboard();
-    loadLastWeek(); // fetch week-ago baseline in background, then refresh trends
+    loadBaseline(); // build typical-profile baseline in background, then refresh
   } catch (e) {
     document.getElementById('dbContent').innerHTML =
       `<div class="db-empty" style="margin-top:3rem">⚠️ Không tải được dữ liệu: ${escH(e.message)}</div>`;
   }
 }
 
-// Load the same weekday last week as a baseline for week-over-week trend.
-async function loadLastWeek() {
-  const d = new Date(); d.setDate(d.getDate() - 7);
-  const date = d.toISOString().slice(0, 10);
-  if (_lastWeekDate === date && _lastWeekLogs.length) return;
-  try {
-    _lastWeekLogs = await apiFetch('/api/dashboard/history?date=' + date) || [];
-    _lastWeekDate = date;
-  } catch (_) { _lastWeekLogs = []; }
-  // Re-render the trend-dependent views now that the baseline is available.
+// Build the typical profile: average TTI per route per slot over the last
+// BASELINE_WEEKS same-weekdays. Cached per day so the 60s refresh doesn't refetch.
+async function loadBaseline() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (_baseline.day === todayStr && _baseline.weeks > 0) return;
+
+  const dates = [];
+  for (let w = 1; w <= BASELINE_WEEKS; w++) {
+    const d = new Date(); d.setDate(d.getDate() - 7 * w);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  const days = await Promise.all(dates.map(dt =>
+    apiFetch('/api/dashboard/history?date=' + dt).catch(() => null)));
+
+  // Accumulate per route per slot across the fetched days.
+  const acc = {}; // id → [96] of {sum,n}
+  const routeIds = ((_data?.travelTime?.routes) || []).map(r => r.id);
+  let weeksUsed = 0;
+  days.forEach(logs => {
+    if (!logs || !logs.length) return;
+    weeksUsed++;
+    routeIds.forEach(id => {
+      const slots = buildSlots(logs, id);
+      if (!acc[id]) acc[id] = Array.from({ length: TOTAL_SLOTS }, () => ({ sum: 0, n: 0, dsum: 0 }));
+      slots.forEach((s, i) => { if (s) { acc[id][i].sum += s.tti; acc[id][i].dsum += s.delay; acc[id][i].n++; } });
+    });
+  });
+  const byRoute = {};
+  Object.keys(acc).forEach(id => {
+    byRoute[id] = acc[id].map(c => c.n ? { tti: c.sum / c.n, delay: Math.round(c.dsum / c.n), n: c.n } : null);
+  });
+  _baseline = { day: todayStr, weeks: weeksUsed, byRoute };
+
   if (_data) {
     const tt = _data.travelTime || {};
+    updateRouteStatus(tt);
     renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
     updateTopRoutes(tt);
   }
 }
+function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
 
 async function loadHistory() {
   const dateEl = document.getElementById('histDate');
@@ -629,6 +689,7 @@ function buildSkeleton() {
       <div class="tti-axis-wrap" id="ttiAxis"></div>
       <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
         <div id="ttiLegend" class="tti-legend" style="flex:1"></div>
+        <span style="display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;color:var(--text-muted);flex-shrink:0"><span class="tti-forecast" style="width:18px;height:11px;border-radius:2px;background-color:#64748b;display:inline-block"></span>dự báo (hồ sơ điển hình)</span>
         ${(getUser()||{}).role==='admin' ? `<button id="btnTtiCfg" onclick="toggleTtiCfg()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:.68rem;padding:.12rem .45rem;cursor:pointer;font-family:inherit;flex-shrink:0">⚙ Màu TTI</button>` : ''}
       </div>
       <div id="ttiCfgPanel" style="display:none;margin-top:.55rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.65rem .8rem;font-size:.74rem"></div>
@@ -780,11 +841,13 @@ function renderTTIChart(routes, todayLogs, histLogs) {
 
   body.innerHTML = routes.map(r => {
     const todaySlots = buildSlots(todayLogs, r.id);
-    const trend      = routeTrend(todaySlots, _lastWeekLogs.length ? buildSlots(_lastWeekLogs, r.id) : null);
+    const baseSlots  = baselineSlots(r.id);
+    const trend      = routeTrend(todaySlots, baseSlots);
+    const forecast   = buildForecast(todaySlots, baseSlots, currentSlot);
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
 
-    const todayBar   = renderSlotBar(todaySlots, currentSlot, false);
+    const todayBar   = renderSlotBar(todaySlots, currentSlot, false, forecast);
     const histBar    = histSlots ? renderSlotBar(histSlots, -1, true) : '';
     const histLabel  = histSlots
       ? `<span style="font-size:.64rem;color:var(--text-muted)">${escH(_histDate)}${!hasHistData ? ' (không có dữ liệu)' : ''}</span>`
@@ -822,7 +885,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
 }
 
 // Render one row of 96 slots
-function renderSlotBar(slots, currentSlot, isHistory) {
+function renderSlotBar(slots, currentSlot, isHistory, forecast) {
   return slots.map((s, i) => {
     const isFuture = !isHistory && currentSlot >= 0 && i > currentSlot;
 
@@ -832,8 +895,13 @@ function renderSlotBar(slots, currentSlot, isHistory) {
       const prefix = isHistory ? (_histDate + ' ') : 'Hôm nay ';
       tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\nTrễ TB: ${Math.round(s.delay/60)} phút\n${s.n} lần đo`;
     } else if (isFuture) {
-      bg = 'var(--surface2)';
-      return `<div class="tti-slot" style="flex:1;background:${bg};opacity:.18"></div>`;
+      const f = forecast && forecast[i];
+      if (f) {
+        const fc = ttiColor(f.tti) || 'var(--surface2)';
+        const ftip = `🔮 Dự báo ${slotLabel(i)}\nTTI ≈ ${f.tti.toFixed(2)} — ${ttiLabel(f.tti)}\n(hồ sơ điển hình ${_baseline.weeks} tuần, hiệu chỉnh theo hôm nay)`;
+        return `<div class="tti-slot tti-forecast" style="flex:1;background-color:${fc};opacity:.55" data-tip="${escH(ftip)}"></div>`;
+      }
+      return `<div class="tti-slot" style="flex:1;background:var(--surface2);opacity:.18"></div>`;
     } else {
       bg = 'var(--surface2)';
     }
@@ -892,7 +960,7 @@ function updateTopRoutes(tt) {
   ${routes.slice(0,8).map(r => `<tr>
     <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong title="${escH(r.name)}">${escH(r.name)}</strong></td>
     <td class="num"><span class="db-tti-badge" style="background:${ttiBg(r.latestTTI)};color:${ttiFg(r.latestTTI)}">${r.latestTTI.toFixed(2)}</span></td>
-    <td style="text-align:center">${trendArrow(routeTrend(buildSlots(logs, r.id), _lastWeekLogs.length ? buildSlots(_lastWeekLogs, r.id) : null))}</td>
+    <td style="text-align:center">${trendArrow(routeTrend(buildSlots(logs, r.id), baselineSlots(r.id)))}</td>
     <td class="num" style="color:var(--text-muted)">${Math.round(r.latestDelaySec/60)} ph</td>
     <td class="num" style="color:var(--text-muted);font-size:.73rem">${r.timestamp ? fmtTime(r.timestamp) : '—'}</td>
   </tr>`).join('')}
