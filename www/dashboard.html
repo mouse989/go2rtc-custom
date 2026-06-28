@@ -258,6 +258,8 @@ const TOTAL_SLOTS = 96;          // 24h × 4 slots/h
 let _data       = null;
 let _histLogs   = [];
 let _histDate   = '';
+let _lastWeekLogs = []; // same weekday last week — baseline for week-over-week trend
+let _lastWeekDate = '';
 let _map        = null;
 let _mapInited  = false;
 let _skelBuilt  = false;
@@ -440,29 +442,39 @@ function buildSlots(logs, routeId) {
   return acc;
 }
 
-// Trend of a route today: compare its latest measured slot against a baseline
-// taken ~45+ min earlier. Returns {dir:'up'|'down'|'flat', delta, cur, base}.
-const TREND_EPS = 0.05;        // TTI change below this is "stable"
-const TREND_BACK_SLOTS = 3;    // 3 × 15-min = 45 min lookback
-function routeTrend(slots) {
+// Week-over-week trend: compare a route's current TTI (latest measured slot
+// today) against the SAME time slot on the SAME weekday last week. This flags
+// whether traffic right now is worse/better than the typical level for this
+// time — the foundation for baseline traffic forecasting.
+const TREND_EPS = 0.05; // TTI change below this is "≈ như tuần trước"
+function avgSlotAround(slots, idx) {
+  // robust baseline: average non-null TTI in [idx-1 .. idx+1]
+  let sum = 0, n = 0;
+  for (let j = idx - 1; j <= idx + 1; j++) {
+    if (j >= 0 && j < slots.length && slots[j]) { sum += slots[j].tti; n++; }
+  }
+  return n ? sum / n : null;
+}
+function routeTrend(todaySlots, lastWeekSlots) {
   let curIdx = -1;
-  for (let i = slots.length - 1; i >= 0; i--) { if (slots[i]) { curIdx = i; break; } }
+  for (let i = todaySlots.length - 1; i >= 0; i--) { if (todaySlots[i]) { curIdx = i; break; } }
   if (curIdx < 0) return null;
-  const cur = slots[curIdx].tti;
-  let baseIdx = -1;
-  for (let i = curIdx - TREND_BACK_SLOTS; i >= 0; i--) { if (slots[i]) { baseIdx = i; break; } }
-  if (baseIdx < 0) return { dir: 'flat', delta: 0, cur, base: cur };
-  const base = slots[baseIdx].tti;
+  const cur = todaySlots[curIdx].tti;
+  if (!lastWeekSlots) return { dir: 'nodata', cur };
+  const base = avgSlotAround(lastWeekSlots, curIdx);
+  if (base == null) return { dir: 'nodata', cur };
   const delta = cur - base;
   const dir = delta > TREND_EPS ? 'up' : (delta < -TREND_EPS ? 'down' : 'flat');
   return { dir, delta, cur, base };
 }
-// Higher TTI = worse traffic, so ▲ (rising) is red/bad, ▼ (falling) is green/good.
+// Higher TTI = worse traffic, so ▲ (worse than last week) is red, ▼ (better) is green.
 function trendArrow(tr) {
   if (!tr) return '';
-  if (tr.dir === 'up')   return `<span class="db-trend" style="color:#ef4444" title="Đang xấu đi (+${tr.delta.toFixed(2)} TTI/45 phút)">▲</span>`;
-  if (tr.dir === 'down') return `<span class="db-trend" style="color:#22c55e" title="Đang cải thiện (${tr.delta.toFixed(2)} TTI/45 phút)">▼</span>`;
-  return `<span class="db-trend" style="color:var(--text-muted)" title="Ổn định">▬</span>`;
+  const wk = _lastWeekDate ? ` cùng giờ ${_lastWeekDate}` : ' tuần trước';
+  if (tr.dir === 'up')   return `<span class="db-trend" style="color:#ef4444" title="Tệ hơn${wk} (+${tr.delta.toFixed(2)} TTI)">▲</span>`;
+  if (tr.dir === 'down') return `<span class="db-trend" style="color:#22c55e" title="Tốt hơn${wk} (${tr.delta.toFixed(2)} TTI)">▼</span>`;
+  if (tr.dir === 'flat') return `<span class="db-trend" style="color:var(--text-muted)" title="Tương đương${wk}">▬</span>`;
+  return `<span class="db-trend" style="color:var(--border)" title="Chưa có dữ liệu${wk} để so sánh">·</span>`;
 }
 
 // Network status breakdown: how many routes sit in each congestion tier now.
@@ -523,9 +535,27 @@ async function loadDashboard() {
   try {
     _data = await apiFetch('/api/dashboard/summary');
     renderDashboard();
+    loadLastWeek(); // fetch week-ago baseline in background, then refresh trends
   } catch (e) {
     document.getElementById('dbContent').innerHTML =
       `<div class="db-empty" style="margin-top:3rem">⚠️ Không tải được dữ liệu: ${escH(e.message)}</div>`;
+  }
+}
+
+// Load the same weekday last week as a baseline for week-over-week trend.
+async function loadLastWeek() {
+  const d = new Date(); d.setDate(d.getDate() - 7);
+  const date = d.toISOString().slice(0, 10);
+  if (_lastWeekDate === date && _lastWeekLogs.length) return;
+  try {
+    _lastWeekLogs = await apiFetch('/api/dashboard/history?date=' + date) || [];
+    _lastWeekDate = date;
+  } catch (_) { _lastWeekLogs = []; }
+  // Re-render the trend-dependent views now that the baseline is available.
+  if (_data) {
+    const tt = _data.travelTime || {};
+    renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
+    updateTopRoutes(tt);
   }
 }
 
@@ -750,7 +780,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
 
   body.innerHTML = routes.map(r => {
     const todaySlots = buildSlots(todayLogs, r.id);
-    const trend      = routeTrend(todaySlots);
+    const trend      = routeTrend(todaySlots, _lastWeekLogs.length ? buildSlots(_lastWeekLogs, r.id) : null);
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
 
@@ -862,7 +892,7 @@ function updateTopRoutes(tt) {
   ${routes.slice(0,8).map(r => `<tr>
     <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong title="${escH(r.name)}">${escH(r.name)}</strong></td>
     <td class="num"><span class="db-tti-badge" style="background:${ttiBg(r.latestTTI)};color:${ttiFg(r.latestTTI)}">${r.latestTTI.toFixed(2)}</span></td>
-    <td style="text-align:center">${trendArrow(routeTrend(buildSlots(logs, r.id)))}</td>
+    <td style="text-align:center">${trendArrow(routeTrend(buildSlots(logs, r.id), _lastWeekLogs.length ? buildSlots(_lastWeekLogs, r.id) : null))}</td>
     <td class="num" style="color:var(--text-muted)">${Math.round(r.latestDelaySec/60)} ph</td>
     <td class="num" style="color:var(--text-muted);font-size:.73rem">${r.timestamp ? fmtTime(r.timestamp) : '—'}</td>
   </tr>`).join('')}
