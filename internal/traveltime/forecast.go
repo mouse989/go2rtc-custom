@@ -16,8 +16,8 @@ import (
 //
 //	seasonal[slot] = typicalProfile[slot] / mean(typicalProfile)
 //	deseasonalised y'[t] = observed[t] / seasonal[slot(t)]
-//	Holt(level L, trend T) is smoothed over y' respecting slot spacing
-//	forecast(h) = (L + h·T) · seasonal[slot(now)+h]
+//	Holt(level L, damped trend T) is smoothed over y' respecting slot spacing
+//	forecast(h) = (L + (φ+…+φ^h)·T) · seasonal[slot(now)+h]
 //	band = forecast ± z · σ_resid · seasonal · √h     (≈80% interval)
 //
 // Everything runs in-process in Go (the travel-time logs live here), so no
@@ -33,7 +33,19 @@ const (
 	fcMinObs     = 3                   // need this many measured slots today to model
 	fcMaxHorizon = 8                   // cap forecast at 8 slots (2h)
 	fcTTIFloor   = 1.0                 // free-flow lower bound for TTI
+	fcPhi        = 0.9                 // damped-trend factor (traffic mean-reverts to the profile)
 )
+
+// dampedTrendSum returns φ + φ² + … + φ^h = φ(1-φ^h)/(1-φ). A damped trend
+// (Gardner–McKenzie) stops the linear trend from over-extrapolating at longer
+// horizons — important for traffic, which reverts toward its typical level
+// rather than rising without bound.
+func dampedTrendSum(h int) float64 {
+	if fcPhi >= 1 {
+		return float64(h)
+	}
+	return fcPhi * (1 - math.Pow(fcPhi, float64(h))) / (1 - fcPhi)
+}
 
 // ForecastPoint is a single predicted slot for a route.
 type ForecastPoint struct {
@@ -188,7 +200,7 @@ func forecastRoute(id, name string, todayMean [fcSlots]float64,
 		if slot >= fcSlots {
 			break
 		}
-		base := (level + float64(h)*trend) * seasonal(slot)
+		base := (level + dampedTrendSum(h)*trend) * seasonal(slot)
 		if base <= 0 {
 			continue
 		}

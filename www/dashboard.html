@@ -250,6 +250,7 @@
 </main>
 
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>
 <script>
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -636,6 +637,95 @@ async function loadBaseline() {
 }
 function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
 
+// ── Route detail modal: actual vs typical profile vs forecast (with CI) ──────
+let _fcChart = null;
+function slotHHMM(i) { const m = i * SLOT_MIN; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
+
+function openRouteDetail(routeId) {
+  const tt = (_data || {}).travelTime || {};
+  const r = (tt.routes || []).find(x => x.id === routeId);
+  if (!r) return;
+  const todaySlots = buildSlots(tt.todayLogs || [], routeId);
+  const baseSlots  = baselineSlots(routeId);
+  const sf         = _forecast.byRoute[routeId];
+  const curSlot    = slotOfTs(new Date().toISOString());
+
+  let ov = document.getElementById('fcOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'fcOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px';
+    ov.addEventListener('click', e => { if (e.target === ov) closeRouteDetail(); });
+    ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:880px;width:100%;max-height:92vh;overflow:auto;padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <h3 id="fcTitle" style="margin:0;font-size:1rem;flex:1"></h3>
+        <button onclick="closeRouteDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:.25rem .6rem;font-size:1rem">✕</button>
+      </div>
+      <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
+      <div style="position:relative;height:340px"><canvas id="fcCanvas"></canvas></div>
+      <div id="fcNote" style="font-size:.72rem;color:var(--text-muted);margin-top:10px;line-height:1.5"></div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  ov.style.display = 'flex';
+  document.getElementById('fcTitle').textContent = '📈 ' + (r.name || routeId);
+
+  const labels = [], actual = [], profile = [], fcast = [], lo = [], hi = [];
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    labels.push(slotHHMM(i));
+    actual.push(todaySlots[i] ? todaySlots[i].tti : null);
+    profile.push(baseSlots && baseSlots[i] ? baseSlots[i].tti : null);
+    const p = sf && sf.bySlot && sf.bySlot[i];
+    fcast.push(p ? p.tti : null); lo.push(p ? p.lo : null); hi.push(p ? p.hi : null);
+  }
+  if (curSlot >= 0 && actual[curSlot] != null) fcast[curSlot] = actual[curSlot]; // join lines
+
+  const cur     = todaySlots[curSlot] ? todaySlots[curSlot].tti : (r.latestTTI || 0);
+  const p15     = sf && sf.bySlot && sf.bySlot[curSlot + 1];
+  const p60     = sf && sf.bySlot && sf.bySlot[curSlot + 4];
+  const baseNow = baseSlots ? avgSlotAround(baseSlots, curSlot) : null;
+  const stat = (lbl, val, color) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem;min-width:120px">
+    <div style="font-size:.64rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+    <div style="font-weight:800;font-size:1.05rem;color:${color || 'var(--text)'}">${val}</div></div>`;
+  document.getElementById('fcStats').innerHTML =
+    stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
+    stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
+    stat('Dự báo +15′', p15 ? `${p15.tti.toFixed(2)} [${p15.lo.toFixed(2)}–${p15.hi.toFixed(2)}]` : '—', p15 ? ttiColor(p15.tti) : '') +
+    stat('Dự báo +60′', p60 ? `${p60.tti.toFixed(2)} [${p60.lo.toFixed(2)}–${p60.hi.toFixed(2)}]` : '—', p60 ? ttiColor(p60.tti) : '');
+
+  document.getElementById('fcNote').innerHTML = sf
+    ? `Phương pháp: <b>${sf.method === 'holt-seasonal' ? 'Holt-Winters có mùa vụ + xu thế giảm dần (damped)' : 'Hồ sơ điển hình (chưa đủ dữ liệu hôm nay)'}</b> · vùng cam mờ = khoảng tin cậy ~80% · đường xám nét đứt = mức bình thường (TB ${_baseline.weeks} tuần cùng thứ).`
+    : 'Chưa có dữ liệu dự báo cho tuyến này.';
+
+  const txt  = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+  const grid = 'rgba(128,128,128,.15)';
+  if (_fcChart) _fcChart.destroy();
+  _fcChart = new Chart(document.getElementById('fcCanvas'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'CI lo', data: lo, borderColor: 'transparent', pointRadius: 0, fill: false },
+      { label: 'Khoảng tin cậy', data: hi, borderColor: 'transparent', backgroundColor: 'rgba(245,158,11,.18)', pointRadius: 0, fill: '-1' },
+      { label: 'Mức bình thường', data: profile, borderColor: '#94a3b8', borderDash: [5,4], borderWidth: 1.5, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Thực tế hôm nay', data: actual, borderColor: '#2f81f7', borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Dự báo', data: fcast, borderColor: '#f59e0b', borderDash: [4,3], borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txt, filter: it => it.text !== 'CI lo', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { filter: it => it.dataset.label !== 'CI lo',
+          callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y != null ? c.parsed.y.toFixed(2) : '—'}` } },
+      },
+      scales: {
+        x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 9, font: { size: 10 } }, grid: { color: grid } },
+        y: { beginAtZero: false, ticks: { color: txt, font: { size: 10 } }, grid: { color: grid }, title: { display: true, text: 'TTI', color: txt } },
+      } },
+  });
+}
+function closeRouteDetail() {
+  const ov = document.getElementById('fcOverlay'); if (ov) ov.style.display = 'none';
+  if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
+}
+
 // Fetch the server-side Holt-Winters forecast (next 2h) and refresh the chart.
 async function loadForecast() {
   let list;
@@ -907,7 +997,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
 
     return `<div class="tti-chart-row" ${dragAttr}>
       <div class="tti-row-label">
-        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}<span class="tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
+        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}<span class="tti-rname" title="Bấm để xem chi tiết & dự báo: ${escH(r.name)}" style="cursor:pointer;text-decoration:underline dotted .5px" onclick="openRouteDetail('${escH(r.id)}')">${escH(r.name)}</span></div>
       </div>
       <div class="tti-row-bars">
         <div class="tti-bar tti-bar-today">${todayBar}</div>
@@ -1006,7 +1096,7 @@ function updateTopRoutes(tt) {
   el.innerHTML = `<table class="db-table"><thead><tr>
     <th>Tuyến</th><th class="num">TTI</th><th style="text-align:center">XH</th><th class="num">Trễ</th><th class="num">Lúc</th>
   </tr></thead><tbody>
-  ${routes.slice(0,8).map(r => `<tr>
+  ${routes.slice(0,8).map(r => `<tr style="cursor:pointer" onclick="openRouteDetail('${escH(r.id)}')" title="Bấm để xem chi tiết & dự báo">
     <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong title="${escH(r.name)}">${escH(r.name)}</strong></td>
     <td class="num"><span class="db-tti-badge" style="background:${ttiBg(r.latestTTI)};color:${ttiFg(r.latestTTI)}">${r.latestTTI.toFixed(2)}</span></td>
     <td style="text-align:center">${trendArrow(routeTrend(buildSlots(logs, r.id), baselineSlots(r.id)))}</td>
