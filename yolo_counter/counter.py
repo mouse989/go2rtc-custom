@@ -1284,6 +1284,38 @@ def dataset_image(filename: str):
     return Response(content=data, media_type="image/jpeg")
 
 
+@app.delete("/dataset/image/{filename}")
+def dataset_image_delete(filename: str):
+    """Delete a dataset image and its associated YOLO label file from disk.
+
+    Used by the annotate UI to discard unusable images. Removes both
+    dataset/images/<filename> and dataset/labels/<stem>.txt.
+    """
+    # Reject path traversal — only a bare filename may be deleted.
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(400, "invalid filename")
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    img_path = os.path.join(_images_dir(base), filename)
+    if not os.path.isfile(img_path):
+        raise HTTPException(404, "image not found")
+    removed = []
+    try:
+        os.remove(img_path)
+        removed.append("image")
+    except OSError as e:
+        raise HTTPException(500, f"could not delete image: {e}")
+    # Remove the matching label file, if present.
+    stem = os.path.splitext(filename)[0]
+    label_path = os.path.join(base, "dataset", "labels", stem + ".txt")
+    if os.path.isfile(label_path):
+        try:
+            os.remove(label_path)
+            removed.append("label")
+        except OSError:
+            pass
+    return {"ok": True, "removed": removed}
+
+
 @app.get("/dataset/export")
 def dataset_export():
     """Package dataset/images/ + dataset/labels/ as a zip for transfer to another server."""
