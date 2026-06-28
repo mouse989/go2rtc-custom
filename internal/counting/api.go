@@ -36,6 +36,9 @@ func registerAPI() {
 	api.HandleFunc("api/counting/yolo-status", handleYoloStatus)
 	api.HandleFunc("api/counting/collect", handleCollect)
 	api.HandleFunc("api/counting/train", handleTrain)
+	api.HandleFunc("api/counting/video-upload", handleVideoUpload)
+	api.HandleFunc("api/counting/video-analyze", handleVideoAnalyze)
+	api.HandleFunc("api/counting/video-status", handleVideoStatus)
 	api.HandleFunc("api/counting/dataset-images", handleDatasetImages)
 	api.HandleFunc("api/counting/dataset-image", handleDatasetImage)
 	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
@@ -729,6 +732,95 @@ func handleTrain(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
 	io.Copy(w, resp.Body)
+}
+
+// POST /api/counting/video-upload?ext=mp4[&worker=id]
+// Streams an uploaded video to the target server's yolo_counter, which saves it
+// and returns its first frame (base64) + metadata so the UI can draw counting
+// lines before analysis.
+func handleVideoUpload(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	ext := r.URL.Query().Get("ext")
+	if ext == "" {
+		ext = "mp4"
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		// NOTE: uploads to a remote worker are bounded by the worker HTTP
+		// timeout — best for short/medium clips. Large videos should run local.
+		proxyToWorker(w, wid, http.MethodPost,
+			"/api/counting/video-upload?ext="+neturl.QueryEscape(ext),
+			r.Body, "application/octet-stream")
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 30 * time.Minute}
+	resp, err := client.Post(yoloURL+"/video/upload?ext="+neturl.QueryEscape(ext),
+		"application/octet-stream", r.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+// POST /api/counting/video-analyze[?worker=id] — start counting a previously
+// uploaded video (referenced by token) with the chosen model + counting lines.
+func handleVideoAnalyze(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		body, _ := io.ReadAll(r.Body)
+		proxyToWorker(w, wid, http.MethodPost, "/api/counting/video-analyze",
+			bytes.NewReader(body), "application/json")
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(yoloURL+"/video/analyze", "application/json", r.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+// GET /api/counting/video-status[?worker=id] — poll progress / final result.
+func handleVideoStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodGet, "/api/counting/video-status", nil, "")
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	proxyGet(w, yoloURL+"/video/status")
 }
 
 // GET /api/counting/dataset-images — always returns images from main server's local dataset.
