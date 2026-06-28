@@ -20,6 +20,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/traveltime/scheduler/run-now", handleSchedulerRunNow)
 	http.HandleFunc("/api/traveltime/logs", handleLogs)
 	http.HandleFunc("/api/traveltime/logs/dates", handleLogDates)
+	http.HandleFunc("/api/traveltime/forecast", handleForecast)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
