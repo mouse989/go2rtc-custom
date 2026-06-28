@@ -12,6 +12,7 @@ Each camera gets a dedicated background thread that:
 
 import argparse
 import asyncio
+import base64
 import datetime
 import io
 import json
@@ -1438,6 +1439,236 @@ async def dataset_label(request: Request):
     with open(label_path, "w") as f:
         f.write("\n".join(lines))
     return {"ok": True, "saved": label_path, "boxes": len(boxes)}
+
+
+# ---------------------------------------------------------------------------
+# Offline video analysis — count vehicles in an uploaded video file.
+#
+# Reuses the exact same Tracker + line-crossing counting logic as live RTSP
+# counting (CameraState), but feeds frames from a local file instead of a
+# stream. Runs as a single background job (one at a time) with progress polling,
+# mirroring the training-job pattern.
+# ---------------------------------------------------------------------------
+_video_lock = threading.Lock()
+_video_state = {
+    "running": False,
+    "progress": 0.0,        # 0.0–1.0
+    "processed_frames": 0,  # frames actually run through YOLO (sampled)
+    "total_frames": 0,      # frames in the source video
+    "fps": 0.0,             # native fps of the video
+    "duration_sec": 0.0,
+    "error": "",
+    "result": None,         # snapshot dict once finished
+    "message": "idle",
+    "token": None,
+    "started_at": None,
+    "finished_at": None,
+}
+
+
+def _video_jobs_dir() -> str:
+    base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    d = os.path.join(base, "video_jobs")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _video_path_for(token: str) -> Optional[str]:
+    d = _video_jobs_dir()
+    for fn in os.listdir(d):
+        if fn.split(".")[0] == token:
+            p = os.path.join(d, fn)
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
+    """Background worker: stream the video through YOLO + the counting engine."""
+    job_model = _model
+    try:
+        # Use the already-loaded live model when the request didn't pick a
+        # different one; otherwise load the chosen weights for this job only.
+        if model_name and model_name != _args.model:
+            from ultralytics import YOLO
+            logger.info(f"[video] loading model for job: {model_name}")
+            job_model = YOLO(model_name)
+
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            raise RuntimeError("cannot open video (unsupported codec?)")
+        native_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if native_fps <= 0:
+            native_fps = 25.0
+        duration_sec = (total_frames / native_fps) if total_frames > 0 else 0.0
+        tfps = target_fps if target_fps and target_fps > 0 else 5.0
+        skip = max(1, int(round(native_fps / tfps)))
+
+        cam_cfg = CameraConfig(id=f"video_{token}", name="video",
+                               frameWidth=640, yoloConf=conf, lines=lines_cfg)
+        state = CameraState(config=cam_cfg)
+        class_map = _active_class_map()
+
+        with _video_lock:
+            _video_state.update(running=True, total_frames=total_frames, processed_frames=0,
+                                progress=0.0, fps=native_fps, duration_sec=duration_sec,
+                                error="", result=None, message="processing")
+
+        idx = 0
+        processed = 0
+        while True:
+            if not cap.grab():
+                break
+            if idx % skip == 0:
+                ok, frame = cap.retrieve()
+                if not ok:
+                    break
+                fw = cam_cfg.frameWidth
+                orig_h, orig_w = frame.shape[:2]
+                scale = fw / orig_w if orig_w > 0 else 1.0
+                fh = max(1, int(orig_h * scale))
+                resized = cv2.resize(frame, (fw, fh))
+                results = job_model(resized, conf=conf, verbose=False, device=_device)
+                detections = []
+                for result in results:
+                    for box in result.boxes:
+                        cls_id = int(box.cls[0])
+                        if cls_id not in class_map:
+                            continue
+                        x1, y1, x2, y2 = map(float, box.xyxy[0])
+                        if ((x2 - x1) * (y2 - y1)) / (fw * fh) > 0.5:
+                            continue
+                        cx = (x1 + x2) / 2.0
+                        cy = (y1 + y2) / 2.0
+                        detections.append((cx, cy, class_map[cls_id], x1, y1, x2, y2))
+                tracks = state.tracker.update(detections)
+                state._check_crossings(tracks, fw, fh)
+                state.framesProcessed += 1
+                processed += 1
+                if total_frames > 0:
+                    with _video_lock:
+                        _video_state["processed_frames"] = processed
+                        _video_state["progress"] = min(1.0, idx / max(1, total_frames))
+            idx += 1
+        cap.release()
+
+        snap = state.snapshot()
+        snap.update({
+            "duration_sec": duration_sec,
+            "video_fps": native_fps,
+            "sampled_fps": tfps,
+            "total_frames": total_frames,
+            "sampled_frames": processed,
+        })
+        with _video_lock:
+            _video_state.update(running=False, progress=1.0, result=snap,
+                                message="done", finished_at=time.time())
+        logger.info(f"[video] job {token} done: total={snap.get('total')} "
+                    f"duration={duration_sec:.1f}s sampled={processed} frames")
+    except Exception as e:
+        logger.exception("[video] job failed")
+        with _video_lock:
+            _video_state.update(running=False, error=str(e), message="error",
+                                finished_at=time.time())
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+@app.post("/video/upload")
+async def video_upload(request: Request, ext: str = "mp4"):
+    """Stream an uploaded video to disk, then return its first frame + metadata
+    so the UI can draw counting lines on it before analysis."""
+    ext = "".join(c for c in ext.lower() if c.isalnum()) or "mp4"
+    token = str(int(time.time() * 1000))
+    path = os.path.join(_video_jobs_dir(), f"{token}.{ext}")
+    with open(path, "wb") as f:
+        async for chunk in request.stream():
+            f.write(chunk)
+
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise HTTPException(400, "cannot open video (unsupported codec?)")
+    native_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    ok, frame = cap.read()
+    cap.release()
+    if not ok:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise HTTPException(400, "cannot read first frame")
+
+    h, w = frame.shape[:2]
+    pw = min(960, w)
+    ph = max(1, int(h * pw / w))
+    preview = cv2.resize(frame, (pw, ph))
+    okj, buf = cv2.imencode(".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    b64 = base64.b64encode(buf.tobytes()).decode() if okj else ""
+    if native_fps <= 0:
+        native_fps = 25.0
+    duration_sec = (total_frames / native_fps) if total_frames > 0 else 0.0
+    return {
+        "ok": True, "token": token, "ext": ext,
+        "width": w, "height": h, "fps": native_fps,
+        "frames": total_frames, "duration_sec": duration_sec,
+        "firstFrame": "data:image/jpeg;base64," + b64,
+    }
+
+
+@app.post("/video/analyze")
+async def video_analyze(request: Request):
+    """Start counting on a previously-uploaded video (by token)."""
+    body = await request.json()
+    token = str(body.get("token", ""))
+    if not token.isdigit():
+        raise HTTPException(400, "invalid token")
+    path = _video_path_for(token)
+    if not path:
+        raise HTTPException(404, "video not found — upload it first")
+
+    with _video_lock:
+        if _video_state.get("running"):
+            raise HTTPException(409, "a video analysis is already running")
+
+    model_name = (body.get("model") or "").strip()
+    conf = float(body.get("conf", 0.35) or 0.35)
+    target_fps = float(body.get("targetFps", 5) or 5)
+    raw_lines = body.get("lines", []) or []
+    lines_cfg = []
+    for ln in raw_lines:
+        lines_cfg.append(CountLineConfig(
+            id=str(ln.get("id", "")) or f"L{len(lines_cfg)+1}",
+            name=str(ln.get("name", "")),
+            x1=float(ln.get("x1", 0.0)), y1=float(ln.get("y1", 0.0)),
+            x2=float(ln.get("x2", 1.0)), y2=float(ln.get("y2", 0.0)),
+            nameA=str(ln.get("nameA", "A")), nameB=str(ln.get("nameB", "B")),
+        ))
+    if not lines_cfg:
+        raise HTTPException(400, "at least one counting line is required")
+
+    with _video_lock:
+        _video_state.update(running=True, progress=0.0, processed_frames=0,
+                            total_frames=0, error="", result=None, message="starting",
+                            token=token, started_at=time.time(), finished_at=None)
+    threading.Thread(target=_run_video_job,
+                     args=(token, path, model_name, conf, target_fps, lines_cfg),
+                     daemon=True).start()
+    return {"ok": True, "token": token}
+
+
+@app.get("/video/status")
+def video_status():
+    with _video_lock:
+        return dict(_video_state)
 
 
 # ---------------------------------------------------------------------------

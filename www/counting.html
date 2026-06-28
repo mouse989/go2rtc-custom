@@ -290,6 +290,7 @@
     <button class="tab-btn active" onclick="showTab('live',this)">Realtime</button>
     <button class="tab-btn" onclick="showTab('history',this)">Lịch sử</button>
     <button class="tab-btn" onclick="showTab('detail',this)">📊 Chi tiết lưu lượng</button>
+    <button class="tab-btn" onclick="showTab('video',this)">🎬 Phân tích video</button>
     <button class="tab-btn" onclick="showTab('debug',this)">🔬 Kiểm tra AI</button>
     <button class="tab-btn" onclick="showTab('workers',this)">Máy chủ phân tích</button>
     <button class="tab-btn" onclick="showTab('settings',this)">Cài đặt</button>
@@ -564,6 +565,70 @@
     </div>
   </div>
 
+  <!-- ══════════════ VIDEO ANALYSIS ══════════════ -->
+  <div id="tab-video" class="tab-content" style="display:none">
+    <div class="section">
+      <div class="sub-title">Phân tích lưu lượng từ video tải lên</div>
+
+      <!-- Step 1: server + model + upload -->
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+        <div class="form-row" style="min-width:170px">
+          <label>Máy chủ xử lý</label>
+          <select id="vidServer" onchange="loadVideoModels()"><option value="">Máy chủ chính (local)</option></select>
+        </div>
+        <div class="form-row" style="min-width:190px">
+          <label>Model AI</label>
+          <select id="vidModel"><option value="">(model mặc định máy chủ)</option></select>
+        </div>
+        <div class="form-row" style="width:120px">
+          <label>Lấy mẫu (fps)</label>
+          <input type="number" id="vidFps" value="5" min="1" max="30" step="1" title="Số khung/giây lấy mẫu để đếm">
+        </div>
+        <div class="form-row" style="width:100px">
+          <label>Conf</label>
+          <input type="number" id="vidConf" value="0.35" min="0.1" max="0.9" step="0.05">
+        </div>
+        <div class="form-row" style="min-width:200px">
+          <label>Tệp video (mp4, mkv…)</label>
+          <input type="file" id="vidFile" accept="video/*,.mkv,.mp4,.avi,.mov">
+        </div>
+        <button class="btn btn-primary btn-sm" id="vidUploadBtn" onclick="uploadVideo()">⬆ Tải lên</button>
+        <span id="vidUploadInfo" style="font-size:.78rem;color:var(--text-secondary)"></span>
+      </div>
+
+      <!-- Step 2: draw counting lines -->
+      <div id="vidStep2" style="display:none">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+          <div style="flex:1;min-width:300px">
+            <div style="font-size:.8rem;color:var(--text-secondary);margin-bottom:6px">
+              Kéo chuột để vẽ <strong>vạch đếm</strong> trên khung hình đầu. Mỗi vạch đếm xe qua theo 2 chiều (A/B).
+            </div>
+            <canvas id="vidCanvas" style="max-width:100%;border:1px solid var(--border);border-radius:6px;cursor:crosshair;touch-action:none"></canvas>
+          </div>
+          <div style="width:280px;flex-shrink:0">
+            <div style="font-weight:600;font-size:.82rem;margin-bottom:6px">Danh sách vạch</div>
+            <div id="vidLineList" style="font-size:.76rem"></div>
+            <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm" onclick="clearVideoLines()">Xóa hết vạch</button>
+              <button class="btn btn-primary btn-sm" id="vidAnalyzeBtn" onclick="analyzeVideo()">▶ Phân tích</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: progress -->
+      <div id="vidProgress" style="display:none;margin-top:16px;max-width:560px">
+        <div style="font-size:.82rem;margin-bottom:6px" id="vidProgressMsg">Đang xử lý…</div>
+        <div style="height:14px;background:var(--surface2);border-radius:7px;overflow:hidden">
+          <div id="vidProgressBar" style="height:100%;width:0%;background:var(--accent);transition:width .4s"></div>
+        </div>
+      </div>
+
+      <!-- Step 4: results -->
+      <div id="vidResult" style="display:none;margin-top:16px"></div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ══════════════ MODAL: Add/Edit Camera ══════════════ -->
@@ -811,7 +876,7 @@ let editingLineIndex = -1;   // ≥0 when editing canvasLines[i] via inline form
 const LINE_COLORS = ['#00e600','#00dcdc','#e6a000','#e600e6','#e60000','#0080ff'];
 
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
-const TABS  = ['live','history','detail','debug','workers','settings'];
+const TABS  = ['live','history','detail','video','debug','workers','settings'];
 const VEHICLE_TYPES = ['car','motorcycle','bus','truck'];
 const TYPE_ICON = {car:'🚗',motorcycle:'🏍',bus:'🚌',truck:'🚛'};
 const DIR_LABEL = {down:'↓',up:'↑',right:'→',left:'←'};
@@ -850,6 +915,7 @@ function showTab(name, btn) {
   if (btn) btn.classList.add('active');
   if (name === 'history') loadHistory();
   if (name === 'detail')  openDetailTab();
+  if (name === 'video')   openVideoTab();
   if (name === 'debug')   { openDebugTab(); checkYoloService(); }
   if (name !== 'debug')   stopDebugRefresh();
   if (name === 'workers') loadWorkersTab();
@@ -2963,6 +3029,209 @@ function exportDetailCSV() {
   a.download = `luuluong_${camLabel.replace(/[^a-z0-9]/gi,'_')}_${date}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// ════════════════════════════════════════════════════════
+// Video analysis tab — upload a clip, draw counting lines, count offline
+// ════════════════════════════════════════════════════════
+let vidToken = null, vidImg = null, vidLines = [], vidDraw = null, vidPollTimer = null;
+const VID_LINE_COLORS = ['#2f81f7','#16a34a','#d97706','#dc2626','#a21caf','#0e7490'];
+
+async function openVideoTab() {
+  await loadVideoServers();
+  await loadVideoModels();
+}
+
+async function loadVideoServers() {
+  const sel = document.getElementById('vidServer');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Máy chủ chính (local)</option>';
+  try {
+    const workers = await apiFetch('/api/workers');
+    (workers||[]).filter(w=>w.enabled).forEach(w=>{
+      const o=document.createElement('option'); o.value=w.id; o.textContent=w.name||w.id; sel.appendChild(o);
+    });
+  } catch(_){}
+  sel.value = cur;
+}
+
+async function loadVideoModels() {
+  const sel = document.getElementById('vidModel');
+  if (!sel) return;
+  const wid = document.getElementById('vidServer').value;
+  sel.innerHTML = '<option value="">(model mặc định máy chủ)</option>';
+  try {
+    const r = await apiFetch('/api/counting/models' + (wid?('?worker='+encodeURIComponent(wid)):''));
+    (r.custom||[]).forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
+  } catch(_){}
+  ['yolo11n.pt','yolo11s.pt','yolo11m.pt'].forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
+}
+
+function fmtDur(sec){
+  sec = Math.round(sec||0);
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+  return (h?h+'h ':'')+(m||h?m+'m ':'')+s+'s';
+}
+
+async function uploadVideo() {
+  const fileEl = document.getElementById('vidFile');
+  const info = document.getElementById('vidUploadInfo');
+  const f = fileEl.files[0];
+  if (!f) { info.textContent='Chọn tệp video trước'; return; }
+  const wid = document.getElementById('vidServer').value;
+  const ext = (f.name.split('.').pop()||'mp4').toLowerCase();
+  const btn = document.getElementById('vidUploadBtn');
+  btn.disabled = true; info.textContent = 'Đang tải lên & trích khung hình đầu…';
+  document.getElementById('vidResult').style.display='none';
+  document.getElementById('vidProgress').style.display='none';
+  document.getElementById('vidStep2').style.display='none';
+  try {
+    let url = '/api/counting/video-upload?ext=' + encodeURIComponent(ext);
+    if (wid) url += '&worker=' + encodeURIComponent(wid);
+    const token = localStorage.getItem('go2rtc_token')||'';
+    const res = await fetch(url, { method:'POST',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/octet-stream'}, body: f });
+    if (!res.ok) throw new Error(await res.text());
+    const d = await res.json();
+    vidToken = d.token; vidLines = [];
+    info.textContent = `${f.name} — ${fmtDur(d.duration_sec)} — ${d.width}×${d.height} — ${(d.fps||0).toFixed(1)} fps — ${d.frames} frame`;
+    vidImg = new Image();
+    vidImg.onload = () => { setupVideoCanvas(); renderVideoLineList(); document.getElementById('vidStep2').style.display=''; };
+    vidImg.src = d.firstFrame;
+  } catch(e) {
+    info.textContent = 'Lỗi: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setupVideoCanvas() {
+  const c = document.getElementById('vidCanvas');
+  c.width = vidImg.naturalWidth; c.height = vidImg.naturalHeight;
+  redrawVideoCanvas();
+  c.onmousedown = e => vidDown(vidPos(e));
+  c.onmousemove = e => vidMove(vidPos(e));
+  c.onmouseup   = () => vidUp();
+  c.ontouchstart= e => { e.preventDefault(); vidDown(vidPos(vidTouch(e))); };
+  c.ontouchmove = e => { e.preventDefault(); vidMove(vidPos(vidTouch(e))); };
+  c.ontouchend  = e => { e.preventDefault(); vidUp(); };
+}
+function vidTouch(e){ const t=e.touches[0]||e.changedTouches[0]; return {clientX:t.clientX, clientY:t.clientY}; }
+function vidPos(e){
+  const c=document.getElementById('vidCanvas'); const r=c.getBoundingClientRect();
+  return { x:(e.clientX-r.left)*(c.width/r.width), y:(e.clientY-r.top)*(c.height/r.height) };
+}
+function vidDown(p){ vidDraw = { p1:p, p2:p }; }
+function vidMove(p){ if(vidDraw){ vidDraw.p2=p; redrawVideoCanvas(); } }
+function vidUp(){
+  if(!vidDraw) return;
+  const c=document.getElementById('vidCanvas'); const {p1,p2}=vidDraw; vidDraw=null;
+  if(Math.hypot(p2.x-p1.x,p2.y-p1.y) < 15){ redrawVideoCanvas(); return; }
+  const n = vidLines.length;
+  vidLines.push({ id:'L'+(n+1),
+    x1:p1.x/c.width, y1:p1.y/c.height, x2:p2.x/c.width, y2:p2.y/c.height,
+    nameA:'Chiều '+(n*2+1), nameB:'Chiều '+(n*2+2) });
+  renderVideoLineList(); redrawVideoCanvas();
+}
+
+function redrawVideoCanvas(){
+  const c=document.getElementById('vidCanvas'); if(!c||!vidImg) return;
+  const ctx=c.getContext('2d');
+  ctx.drawImage(vidImg,0,0,c.width,c.height);
+  vidLines.forEach((ln,i)=> drawVidLine(ctx, ln.x1*c.width,ln.y1*c.height,ln.x2*c.width,ln.y2*c.height, VID_LINE_COLORS[i%VID_LINE_COLORS.length], ln.id));
+  if(vidDraw) drawVidLine(ctx, vidDraw.p1.x,vidDraw.p1.y,vidDraw.p2.x,vidDraw.p2.y,'#ffffff','');
+}
+function drawVidLine(ctx,x1,y1,x2,y2,col,label){
+  ctx.strokeStyle=col; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.fillStyle=col;
+  [[x1,y1],[x2,y2]].forEach(([x,y])=>{ ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill(); });
+  if(label){ ctx.font='bold 16px sans-serif'; ctx.fillText(label,(x1+x2)/2+6,(y1+y2)/2-6); }
+}
+
+function renderVideoLineList(){
+  const box=document.getElementById('vidLineList');
+  if(!vidLines.length){ box.innerHTML='<div style="color:var(--text-secondary)">Chưa có vạch nào — kéo chuột trên ảnh để vẽ</div>'; return; }
+  box.innerHTML = vidLines.map((ln,i)=>{
+    const col=VID_LINE_COLORS[i%VID_LINE_COLORS.length];
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:6px;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="width:12px;height:12px;border-radius:3px;background:${col};display:inline-block"></span>
+        <strong>${ln.id}</strong>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;padding:1px 6px" onclick="removeVideoLine(${i})">✕</button>
+      </div>
+      <label style="display:block;font-size:.72rem;color:var(--text-secondary)">Tên chiều A</label>
+      <input value="${esc(ln.nameA)}" oninput="vidLines[${i}].nameA=this.value" style="width:100%;margin-bottom:4px;font-size:.74rem;box-sizing:border-box">
+      <label style="display:block;font-size:.72rem;color:var(--text-secondary)">Tên chiều B</label>
+      <input value="${esc(ln.nameB)}" oninput="vidLines[${i}].nameB=this.value" style="width:100%;font-size:.74rem;box-sizing:border-box">
+    </div>`;
+  }).join('');
+}
+function removeVideoLine(i){ vidLines.splice(i,1); vidLines.forEach((l,j)=>l.id='L'+(j+1)); renderVideoLineList(); redrawVideoCanvas(); }
+function clearVideoLines(){ vidLines=[]; renderVideoLineList(); redrawVideoCanvas(); }
+
+async function analyzeVideo(){
+  if(!vidToken){ alert('Hãy tải video lên trước'); return; }
+  if(!vidLines.length){ alert('Vẽ ít nhất 1 vạch đếm'); return; }
+  const wid=document.getElementById('vidServer').value;
+  const model=document.getElementById('vidModel').value;
+  const conf=parseFloat(document.getElementById('vidConf').value)||0.35;
+  const targetFps=parseFloat(document.getElementById('vidFps').value)||5;
+  const btn=document.getElementById('vidAnalyzeBtn'); btn.disabled=true;
+  document.getElementById('vidResult').style.display='none';
+  try{
+    let url='/api/counting/video-analyze'+(wid?('?worker='+encodeURIComponent(wid)):'');
+    await apiFetch(url,{method:'POST',body:JSON.stringify({token:vidToken,model,conf,targetFps,lines:vidLines})});
+    document.getElementById('vidProgress').style.display='';
+    document.getElementById('vidProgressBar').style.width='0%';
+    document.getElementById('vidProgressMsg').textContent='Đang xử lý…';
+    startVideoPolling(wid);
+  }catch(e){ alert('Lỗi: '+e.message); btn.disabled=false; }
+}
+
+function startVideoPolling(wid){
+  if(vidPollTimer) clearInterval(vidPollTimer);
+  const poll=async()=>{
+    try{
+      const st=await apiFetch('/api/counting/video-status'+(wid?('?worker='+encodeURIComponent(wid)):''));
+      const pct=Math.round((st.progress||0)*100);
+      document.getElementById('vidProgressBar').style.width=pct+'%';
+      if(st.running){
+        document.getElementById('vidProgressMsg').textContent=`Đang xử lý… ${pct}% (${st.processed_frames||0} frame đã đếm)`;
+      } else {
+        clearInterval(vidPollTimer); vidPollTimer=null;
+        document.getElementById('vidAnalyzeBtn').disabled=false;
+        if(st.error){ document.getElementById('vidProgressMsg').textContent='Lỗi: '+st.error; }
+        else { document.getElementById('vidProgressMsg').textContent='Hoàn tất ✓'; if(st.result) renderVideoResult(st.result); }
+      }
+    }catch(e){}
+  };
+  vidPollTimer=setInterval(poll,2000); poll();
+}
+
+function renderVideoResult(res){
+  const box=document.getElementById('vidResult'); box.style.display='';
+  const dirs=res.dirTypeCounts||{};
+  const p='padding:4px 8px', pr=p+';text-align:right';
+  let rows=''; let g={car:0,motorcycle:0,bus:0,truck:0,n:0};
+  Object.keys(dirs).forEach(dir=>{
+    const d=dirs[dir]||{}; const c=d.car||0,m=d.motorcycle||0,b=d.bus||0,t=d.truck||0,n=c+m+b+t;
+    g.car+=c;g.motorcycle+=m;g.bus+=b;g.truck+=t;g.n+=n;
+    rows+=`<tr><td style="${p}">${esc(dir)}</td><td style="${pr}">${c||'—'}</td><td style="${pr}">${m||'—'}</td><td style="${pr}">${b||'—'}</td><td style="${pr}">${t||'—'}</td><td style="${pr};font-weight:700;color:var(--accent)">${n||'—'}</td></tr>`;
+  });
+  box.innerHTML=`
+    <div class="sub-title">Kết quả lưu lượng</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;font-size:.85rem">
+      <div><div style="color:var(--text-secondary);font-size:.74rem">Thời lượng video</div><strong>${fmtDur(res.duration_sec)}</strong></div>
+      <div><div style="color:var(--text-secondary);font-size:.74rem">Tổng lưu lượng</div><strong style="color:var(--accent);font-size:1.1rem">${res.total||0}</strong></div>
+      <div><div style="color:var(--text-secondary);font-size:.74rem">Frame đếm / tổng</div><strong>${res.sampled_frames||0} / ${res.total_frames||0}</strong></div>
+      <div><div style="color:var(--text-secondary);font-size:.74rem">FPS gốc / lấy mẫu</div><strong>${(res.video_fps||0).toFixed(1)} / ${res.sampled_fps||0}</strong></div>
+    </div>
+    <table class="tbl" style="font-size:.8rem;min-width:340px">
+      <thead><tr><th style="${p}">Chiều</th><th style="${pr}" title="Ô tô">🚗</th><th style="${pr}" title="Xe máy">🏍</th><th style="${pr}" title="Xe buýt">🚌</th><th style="${pr}" title="Xe tải">🚛</th><th style="${pr}">∑</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" style="padding:8px;text-align:center;color:var(--text-secondary)">Không có xe nào qua vạch</td></tr>'}</tbody>
+      ${Object.keys(dirs).length>1?`<tfoot><tr style="border-top:2px solid var(--border);font-weight:700"><td style="${p}">Tổng</td><td style="${pr}">${g.car}</td><td style="${pr}">${g.motorcycle}</td><td style="${pr}">${g.bus}</td><td style="${pr}">${g.truck}</td><td style="${pr};color:var(--accent)">${g.n}</td></tr></tfoot>`:''}
+    </table>`;
 }
 </script>
 </body>
