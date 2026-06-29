@@ -39,6 +39,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/video-upload", handleVideoUpload)
 	api.HandleFunc("api/counting/video-analyze", handleVideoAnalyze)
 	api.HandleFunc("api/counting/video-status", handleVideoStatus)
+	api.HandleFunc("api/counting/video-frame", handleVideoFrame)
 	api.HandleFunc("api/counting/dataset-images", handleDatasetImages)
 	api.HandleFunc("api/counting/dataset-image", handleDatasetImage)
 	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
@@ -821,6 +822,25 @@ func handleVideoStatus(w http.ResponseWriter, r *http.Request) {
 		yoloURL = "http://localhost:8765"
 	}
 	proxyGet(w, yoloURL+"/video/status")
+}
+
+// GET /api/counting/video-frame?token=xxx&idx=N[&worker=id] — serve a single annotated frame JPEG.
+func handleVideoFrame(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	token := r.URL.Query().Get("token")
+	idx := r.URL.Query().Get("idx")
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		u := "/api/counting/video-frame?token=" + neturl.QueryEscape(token) + "&idx=" + neturl.QueryEscape(idx)
+		proxyToWorker(w, wid, http.MethodGet, u, nil, "")
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	proxyGetRaw(w, yoloURL+"/video/frame?token="+neturl.QueryEscape(token)+"&idx="+neturl.QueryEscape(idx))
 }
 
 // GET /api/counting/dataset-images — always returns images from main server's local dataset.

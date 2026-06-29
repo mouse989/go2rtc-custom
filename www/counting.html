@@ -584,9 +584,9 @@
           <label>Lấy mẫu (fps)</label>
           <input type="number" id="vidFps" value="5" min="1" max="30" step="1" title="Số khung/giây lấy mẫu để đếm">
         </div>
-        <div class="form-row" style="width:100px">
+        <div class="form-row" style="width:110px">
           <label>Conf</label>
-          <input type="number" id="vidConf" value="0.35" min="0.1" max="0.9" step="0.05">
+          <input type="number" id="vidConf" value="0.35" min="0.1" max="0.9" step="0.05" style="width:100%;box-sizing:border-box">
         </div>
         <div class="form-row" style="min-width:200px">
           <label>Tệp video (mp4, mkv…)</label>
@@ -3035,6 +3035,7 @@ function exportDetailCSV() {
 // Video analysis tab — upload a clip, draw counting lines, count offline
 // ════════════════════════════════════════════════════════
 let vidToken = null, vidImg = null, vidLines = [], vidDraw = null, vidPollTimer = null;
+let _vidFrameToken = null, _vidFrameCount = 0, _vidFrameIdx = 0, _vidPlayTimer = null, _vidCrossings = [], _vidWid = '';
 const VID_LINE_COLORS = ['#2f81f7','#16a34a','#d97706','#dc2626','#a21caf','#0e7490'];
 
 async function openVideoTab() {
@@ -3219,7 +3220,52 @@ function renderVideoResult(res){
     g.car+=c;g.motorcycle+=m;g.bus+=b;g.truck+=t;g.n+=n;
     rows+=`<tr><td style="${p}">${esc(dir)}</td><td style="${pr}">${c||'—'}</td><td style="${pr}">${m||'—'}</td><td style="${pr}">${b||'—'}</td><td style="${pr}">${t||'—'}</td><td style="${pr};font-weight:700;color:var(--accent)">${n||'—'}</td></tr>`;
   });
-  box.innerHTML=`
+
+  const frameCount = res.frame_count || 0;
+  const hasFrames = frameCount > 0 && res.token;
+  const crossings = res.crossing_events || [];
+
+  let playerHtml = '';
+  if (hasFrames) {
+    playerHtml = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:14px">
+      <div style="font-weight:600;font-size:.82rem;margin-bottom:8px;color:var(--text-secondary)">PHÁT LẠI KHUNG HÌNH ĐÃ PHÂN TÍCH</div>
+      <div style="position:relative;text-align:center;background:#000;border-radius:6px;overflow:hidden;margin-bottom:8px">
+        <img id="vidPlayerImg" style="max-width:100%;max-height:420px;display:block;margin:0 auto" src="">
+        <div id="vidPlayerOverlay" style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.6));padding:6px 10px;font-size:.75rem;color:#fff;text-align:left">
+          <span id="vidFrameInfo"></span>
+        </div>
+      </div>
+      <!-- controls -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <button id="vidPlayBtn" onclick="toggleVidPlay()" style="min-width:36px;height:32px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:.9rem;color:var(--text)">▶</button>
+        <button onclick="stepVidFrame(-1)" style="min-width:28px;height:32px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:.8rem;color:var(--text)">◀</button>
+        <button onclick="stepVidFrame(1)" style="min-width:28px;height:32px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:.8rem;color:var(--text)">▶</button>
+        <input type="range" id="vidScrubber" min="0" max="${frameCount-1}" value="0" step="1" oninput="seekVidFrame(+this.value)" style="flex:1;min-width:120px;accent-color:var(--accent)">
+        <span id="vidFrameLabel" style="font-size:.75rem;color:var(--text-secondary);min-width:60px;text-align:right">0 / ${frameCount}</span>
+        <select id="vidSpeed" style="height:32px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:.78rem;padding:0 4px">
+          <option value="200">0.5×</option>
+          <option value="100" selected>1×</option>
+          <option value="50">2×</option>
+          <option value="25">4×</option>
+        </select>
+      </div>
+      <!-- crossing events timeline -->
+      ${crossings.length ? `<div style="margin-top:6px">
+        <div style="font-size:.72rem;color:var(--text-secondary);margin-bottom:4px">Sự kiện qua vạch (${crossings.length} lượt):</div>
+        <div style="position:relative;height:18px;background:var(--surface2);border-radius:4px;overflow:hidden" id="vidEventsBar">
+          ${crossings.map(ev=>{
+            const pct = frameCount > 1 ? (ev.frame/(frameCount-1)*100).toFixed(2) : '0';
+            const col = ev.cls==='car'?'#2f81f7':ev.cls==='motorcycle'?'#22c55e':ev.cls==='bus'?'#f59e0b':'#ef4444';
+            return `<div title="${esc(ev.dir)} ${esc(ev.cls)} (frame ${ev.frame})" onclick="seekVidFrame(${ev.frame})" style="position:absolute;top:2px;bottom:2px;left:${pct}%;width:3px;background:${col};border-radius:2px;cursor:pointer;transform:translateX(-50%)"></div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:.7rem;color:var(--text-secondary);margin-top:3px">Click mốc màu để nhảy đến frame đó</div>
+      </div>` : ''}
+    </div>`;
+  }
+
+  box.innerHTML = playerHtml + `
     <div class="sub-title">Kết quả lưu lượng</div>
     <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;font-size:.85rem">
       <div><div style="color:var(--text-secondary);font-size:.74rem">Thời lượng video</div><strong>${fmtDur(res.duration_sec)}</strong></div>
@@ -3232,6 +3278,69 @@ function renderVideoResult(res){
       <tbody>${rows||'<tr><td colspan="6" style="padding:8px;text-align:center;color:var(--text-secondary)">Không có xe nào qua vạch</td></tr>'}</tbody>
       ${Object.keys(dirs).length>1?`<tfoot><tr style="border-top:2px solid var(--border);font-weight:700"><td style="${p}">Tổng</td><td style="${pr}">${g.car}</td><td style="${pr}">${g.motorcycle}</td><td style="${pr}">${g.bus}</td><td style="${pr}">${g.truck}</td><td style="${pr};color:var(--accent)">${g.n}</td></tr></tfoot>`:''}
     </table>`;
+
+  if (hasFrames) {
+    _vidFrameToken = res.token;
+    _vidFrameCount = frameCount;
+    _vidCrossings = crossings;
+    _vidWid = document.getElementById('vidServer').value;
+    seekVidFrame(0);
+  }
+}
+
+function _vidFrameUrl(idx) {
+  let u = `/api/counting/video-frame?token=${encodeURIComponent(_vidFrameToken)}&idx=${idx}`;
+  if (_vidWid) u += `&worker=${encodeURIComponent(_vidWid)}`;
+  return u;
+}
+
+function seekVidFrame(idx) {
+  idx = Math.max(0, Math.min(_vidFrameCount - 1, +idx));
+  _vidFrameIdx = idx;
+  const img = document.getElementById('vidPlayerImg');
+  const scrubber = document.getElementById('vidScrubber');
+  const label = document.getElementById('vidFrameLabel');
+  const info = document.getElementById('vidFrameInfo');
+  if (!img) return;
+  img.src = _vidFrameUrl(idx);
+  if (scrubber) scrubber.value = idx;
+  if (label) label.textContent = `${idx + 1} / ${_vidFrameCount}`;
+  // Show crossing events at this frame
+  const evHere = _vidCrossings.filter(e => e.frame === idx);
+  if (info) {
+    info.textContent = evHere.length
+      ? `Frame ${idx + 1} — ${evHere.map(e=>`${e.dir} ${e.cls} (∑${e.total})`).join(', ')}`
+      : `Frame ${idx + 1}`;
+  }
+}
+
+function stepVidFrame(delta) {
+  seekVidFrame(_vidFrameIdx + delta);
+}
+
+function toggleVidPlay() {
+  if (_vidPlayTimer) {
+    clearInterval(_vidPlayTimer);
+    _vidPlayTimer = null;
+    const btn = document.getElementById('vidPlayBtn');
+    if (btn) btn.textContent = '▶';
+    return;
+  }
+  const btn = document.getElementById('vidPlayBtn');
+  if (btn) btn.textContent = '⏸';
+  const speed = () => parseInt(document.getElementById('vidSpeed')?.value || '100');
+  const step = () => {
+    if (_vidFrameIdx >= _vidFrameCount - 1) {
+      clearInterval(_vidPlayTimer); _vidPlayTimer = null;
+      if (btn) btn.textContent = '▶';
+      return;
+    }
+    seekVidFrame(_vidFrameIdx + 1);
+    // Re-schedule at current speed in case it changed
+    clearInterval(_vidPlayTimer);
+    _vidPlayTimer = setInterval(step, speed());
+  };
+  _vidPlayTimer = setInterval(step, speed());
 }
 </script>
 </body>

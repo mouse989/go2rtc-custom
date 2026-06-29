@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import os
+import shutil
 import sys
 import threading
 import time
@@ -1510,6 +1511,11 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
         state = CameraState(config=cam_cfg)
         class_map = _active_class_map()
 
+        # Directory for annotated frame JPEGs (one per sampled frame)
+        frames_dir = os.path.join(_video_jobs_dir(), f"{token}_frames")
+        os.makedirs(frames_dir, exist_ok=True)
+        crossing_events: list = []  # {frame, dir, cls, total}
+
         with _video_lock:
             _video_state.update(running=True, total_frames=total_frames, processed_frames=0,
                                 progress=0.0, fps=native_fps, duration_sec=duration_sec,
@@ -1531,6 +1537,7 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
                 resized = cv2.resize(frame, (fw, fh))
                 results = job_model(resized, conf=conf, verbose=False, device=_device)
                 detections = []
+                boxes_info = []
                 for result in results:
                     for box in result.boxes:
                         cls_id = int(box.cls[0])
@@ -1541,9 +1548,35 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
                             continue
                         cx = (x1 + x2) / 2.0
                         cy = (y1 + y2) / 2.0
-                        detections.append((cx, cy, class_map[cls_id], x1, y1, x2, y2))
+                        cls_name = class_map[cls_id]
+                        box_conf = float(box.conf[0])
+                        detections.append((cx, cy, cls_name, x1, y1, x2, y2))
+                        boxes_info.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2,
+                                           "cx": cx, "cy": cy, "cls": cls_name, "conf": box_conf})
+
+                with state.events_lock:
+                    prev_events_len = len(state.events)
                 tracks = state.tracker.update(detections)
                 state._check_crossings(tracks, fw, fh)
+
+                # Record any crossings that just occurred, tagged with this frame index
+                with state.events_lock:
+                    for ev in list(state.events)[prev_events_len:]:
+                        crossing_events.append({
+                            "frame": processed,
+                            "dir": ev["dir"],
+                            "cls": ev["vehicleClass"],
+                            "total": ev["total"],
+                        })
+
+                # Draw and save annotated frame to disk
+                state._save_debug_jpeg(resized, boxes_info, tracks, fw, fh)
+                with state.debug_lock:
+                    jpeg_data = state.debug_jpeg
+                if jpeg_data:
+                    with open(os.path.join(frames_dir, f"{processed:06d}.jpg"), "wb") as fp:
+                        fp.write(jpeg_data)
+
                 state.framesProcessed += 1
                 processed += 1
                 if total_frames > 0:
@@ -1560,6 +1593,9 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
             "sampled_fps": tfps,
             "total_frames": total_frames,
             "sampled_frames": processed,
+            "frame_count": processed,
+            "token": token,
+            "crossing_events": crossing_events,
         })
         with _video_lock:
             _video_state.update(running=False, progress=1.0, result=snap,
@@ -1638,6 +1674,12 @@ async def video_analyze(request: Request):
     with _video_lock:
         if _video_state.get("running"):
             raise HTTPException(409, "a video analysis is already running")
+        # Clean up annotated frames from any previous job
+        old_token = _video_state.get("token")
+        if old_token and old_token != token:
+            old_frames = os.path.join(_video_jobs_dir(), f"{old_token}_frames")
+            if os.path.isdir(old_frames):
+                shutil.rmtree(old_frames, ignore_errors=True)
 
     model_name = (body.get("model") or "").strip()
     conf = float(body.get("conf", 0.35) or 0.35)
@@ -1669,6 +1711,20 @@ async def video_analyze(request: Request):
 def video_status():
     with _video_lock:
         return dict(_video_state)
+
+
+@app.get("/video/frame")
+def video_frame(token: str, idx: int):
+    """Serve a single annotated frame JPEG by (token, 0-based index)."""
+    if not token.isdigit():
+        raise HTTPException(400, "invalid token")
+    path = os.path.join(_video_jobs_dir(), f"{token}_frames", f"{idx:06d}.jpg")
+    if not os.path.isfile(path):
+        raise HTTPException(404, "frame not found")
+    with open(path, "rb") as f:
+        data = f.read()
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "max-age=3600"})
 
 
 # ---------------------------------------------------------------------------
