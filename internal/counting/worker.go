@@ -124,6 +124,26 @@ func (w *CameraWorker) registerCamera() error {
 		"yoloConf":   conf,
 		"rtspBase":   w.cam.RTSPBase,
 	}
+	// Only forward tracker params that were explicitly set (non-zero).
+	// Zero means "not configured" — let Python keep its own defaults.
+	if w.cam.TrackIouMin > 0 {
+		body["trackIouMin"] = w.cam.TrackIouMin
+	}
+	if w.cam.TrackDistMax > 0 {
+		body["trackDistMax"] = w.cam.TrackDistMax
+	}
+	if w.cam.TrackMaxMissed > 0 {
+		body["trackMaxMissed"] = w.cam.TrackMaxMissed
+	}
+	if w.cam.TrackClassPenalty > 0 {
+		body["trackClassPenalty"] = w.cam.TrackClassPenalty
+	}
+	if w.cam.TrackVelocityWeight > 0 {
+		body["trackVelocityWeight"] = w.cam.TrackVelocityWeight
+	}
+	if w.cam.TrackMinHits > 0 {
+		body["trackMinHits"] = w.cam.TrackMinHits
+	}
 
 	data, _ := json.Marshal(body)
 	url := fmt.Sprintf("%s/cameras/%s", w.yoloBaseURL(), w.cam.ID)

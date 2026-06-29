@@ -74,6 +74,14 @@ type CameraConfig struct {
 	Tier     int    `json:"tier"`
 	WorkerID string `json:"workerId,omitempty"` // remote worker ID; empty = process locally
 	RTSPBase string `json:"rtspBase,omitempty"` // RTSP URL override sent to yolo_counter on the worker
+	// Per-camera tracker sensitivity (passed to yolo_counter via /cameras/{id}).
+	// Zero values mean "use yolo_counter's built-in defaults".
+	TrackIouMin        float64 `json:"trackIouMin,omitempty"`
+	TrackDistMax       float64 `json:"trackDistMax,omitempty"`
+	TrackMaxMissed     int     `json:"trackMaxMissed,omitempty"`
+	TrackClassPenalty  float64 `json:"trackClassPenalty,omitempty"`
+	TrackVelocityWeight float64 `json:"trackVelocityWeight,omitempty"`
+	TrackMinHits       int     `json:"trackMinHits,omitempty"`
 }
 
 // StorageConfig holds data retention settings.
