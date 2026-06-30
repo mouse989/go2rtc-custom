@@ -592,6 +592,7 @@ tr:hover td { background:var(--surface2); }
       <div class="inner-tabs" id="trafficInnerTabs">
         <button class="inner-tab active" data-inner="trafficMonitor" onclick="showTrafficInner('trafficMonitor')">Traffic Monitor</button>
         <button class="inner-tab" data-inner="travelTime" onclick="showTrafficInner('travelTime')">Travel Time</button>
+        <button class="inner-tab" data-inner="holidays" onclick="showTrafficInner('holidays')">📅 Kỳ nghỉ</button>
       </div>
 
       <!-- ══════ INNER: Traffic Monitor ══════ -->
@@ -699,12 +700,129 @@ tr:hover td { background:var(--surface2); }
 
       </div><!-- /travelTimePane -->
 
+      <!-- ══════ INNER: Kỳ nghỉ ══════ -->
+      <div id="holidaysPane" style="display:none">
+
+        <!-- Top bar: year filter + preview + add button -->
+        <div style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;margin-bottom:1rem">
+          <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;flex:1">Quản lý kỳ nghỉ &amp; ngoại lệ</div>
+          <select id="hdYear" class="input" style="width:110px;font-size:.82rem" onchange="loadHolidays()">
+            <!-- populated by JS -->
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="hdPreviewToday()">🔍 Kiểm tra hôm nay</button>
+          <button class="btn btn-primary btn-sm" onclick="openHdDlg(null)">+ Thêm mục</button>
+        </div>
+
+        <!-- Preview result -->
+        <div id="hdPreview" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.65rem 1rem;font-size:.83rem;margin-bottom:.85rem"></div>
+
+        <!-- Legend -->
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.75rem;font-size:.74rem">
+          <span style="padding:2px 7px;border-radius:4px;background:#ef44441a;color:#ef4444;border:1px solid #ef4444">Tết</span>
+          <span style="padding:2px 7px;border-radius:4px;background:#f59e0b1a;color:#f59e0b;border:1px solid #f59e0b">Lễ quốc gia</span>
+          <span style="padding:2px 7px;border-radius:4px;background:#38bdf81a;color:#38bdf8;border:1px solid #38bdf8">Nghỉ hè/học kỳ</span>
+          <span style="padding:2px 7px;border-radius:4px;background:#a78bfa1a;color:#a78bfa;border:1px solid #a78bfa">Trước kỳ nghỉ</span>
+          <span style="padding:2px 7px;border-radius:4px;background:#22c55e1a;color:#22c55e;border:1px solid #22c55e">Ngày làm bù</span>
+        </div>
+
+        <!-- Holiday table -->
+        <div class="card table-wrap" style="margin-bottom:1rem">
+          <table>
+            <thead><tr>
+              <th>Từ ngày</th><th>Đến ngày</th><th>Loại</th><th>Nhãn hiển thị</th><th>Ghi chú</th><th style="text-align:right">Thao tác</th>
+            </tr></thead>
+            <tbody id="hdTbody">
+              <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Đang tải…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Quick-fill section -->
+        <div class="card" style="padding:1rem 1.25rem;margin-bottom:1rem">
+          <div style="font-size:.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.65rem">Mẫu nhanh — Giỗ Tổ Hùng Vương (10/3 âm)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:.85rem">
+            <button class="btn btn-secondary btn-sm" onclick="hdQuick('2025-04-07','2025-04-07','national','Giỗ Tổ Hùng Vương 2025 (10/3 âm)','')">Hùng Vương 2025 (7/4)</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdQuick('2026-03-29','2026-03-29','national','Giỗ Tổ Hùng Vương 2026 (10/3 âm)','')">Hùng Vương 2026 (29/3)</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdQuick('2027-04-17','2027-04-17','national','Giỗ Tổ Hùng Vương 2027 (10/3 âm)','')">Hùng Vương 2027 (17/4)</button>
+            <button class="btn btn-secondary btn-sm" onclick="hdQuick('2028-04-05','2028-04-05','national','Giỗ Tổ Hùng Vương 2028 (10/3 âm)','')">Hùng Vương 2028 (5/4)</button>
+          </div>
+          <div style="font-size:.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.65rem">Mẫu nhanh — Nghỉ bù &amp; lịch linh hoạt</div>
+          <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+            <button class="btn btn-secondary btn-sm" onclick="openHdDlg({kind:'working_day',label:'Ngày làm bù'})">+ Ngày làm bù</button>
+            <button class="btn btn-secondary btn-sm" onclick="openHdDlg({kind:'national',label:'Nghỉ bù lễ'})">+ Nghỉ bù lễ</button>
+            <button class="btn btn-secondary btn-sm" onclick="openHdDlg({kind:'school_break',date_start:_curYear+'-06-01',date_end:_curYear+'-08-31',label:'Nghỉ hè '+_curYear})">+ Nghỉ hè năm nay</button>
+            <button class="btn btn-secondary btn-sm" onclick="openHdDlg({kind:'pre_holiday',label:'Chiều trước nghỉ lễ'})">+ Trước nghỉ lễ</button>
+          </div>
+        </div>
+
+        <!-- Info box -->
+        <div style="font-size:.77rem;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.65rem .9rem;line-height:1.55">
+          <strong>Cách hoạt động:</strong> Các mục ở đây <em>ghi đè</em> lịch cứng trong code. Mục khớp ngày sẽ được ưu tiên.
+          Dùng loại <em>"Ngày làm bù"</em> để ép hệ thống xử lý ngày cuối tuần như ngày thường (không giảm hệ số).
+          Dữ liệu lịch sử các ngày <em>Tết</em> và <em>Lễ quốc gia</em> bị loại khỏi baseline profile để tránh nhiễu.
+          Các ngày <em>Nghỉ hè</em> và <em>Trước kỳ nghỉ</em> không bị loại — chỉ áp dụng hệ số scale.
+        </div>
+
+      </div><!-- /holidaysPane -->
+
     </div><!-- /trafficSection -->
 
   </div>
 </main>
 
 <!-- ═══════════════════ Travel Time Route Dialog (with map) ═══════════════════ -->
+<!-- ═══════════════════ Holiday Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="hdDlg">
+  <div class="dlg" style="width:520px;max-width:97vw">
+    <h2 id="hdDlgTitle" style="font-size:1rem;margin:0 0 1rem">Thêm kỳ nghỉ</h2>
+
+    <form id="hdForm" onsubmit="submitHoliday(event)">
+      <input type="hidden" id="hd-id">
+
+      <div class="f2" style="margin-bottom:.75rem">
+        <div class="form-group">
+          <label>Từ ngày</label>
+          <input type="date" id="hd-start" class="input" required>
+        </div>
+        <div class="form-group">
+          <label>Đến ngày <span style="color:var(--text-muted);font-weight:400">(bỏ trống = 1 ngày)</span></label>
+          <input type="date" id="hd-end" class="input">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:.75rem">
+        <label>Loại kỳ nghỉ</label>
+        <select id="hd-kind" class="input" onchange="onHdKindChange()">
+          <option value="national">🟡 Lễ quốc gia (giảm lưu lượng ~25–30%)</option>
+          <option value="tet">🔴 Tết Nguyên Đán (giảm mạnh ~45–60%)</option>
+          <option value="school_break">🔵 Nghỉ hè / Nghỉ học (giảm nhẹ sáng sớm)</option>
+          <option value="pre_holiday">🟣 Trước ngày nghỉ (tăng chiều tối ~28%)</option>
+          <option value="working_day">🟢 Ngày làm bù (xử lý như ngày thường)</option>
+        </select>
+        <div id="hd-kind-hint" style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem"></div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:.75rem">
+        <label>Nhãn hiển thị (dashboard)</label>
+        <input type="text" id="hd-label" class="input" required autocomplete="off"
+          placeholder="vd: Giỗ Tổ Hùng Vương 2025">
+      </div>
+
+      <div class="form-group" style="margin-bottom:1rem">
+        <label>Ghi chú nội bộ <span style="color:var(--text-muted);font-weight:400">(không hiển thị)</span></label>
+        <input type="text" id="hd-note" class="input" autocomplete="off"
+          placeholder="Tuỳ chọn — chỉ admin thấy">
+      </div>
+
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeHdDlg()">Huỷ</button>
+        <button type="submit" class="btn btn-primary" id="hdDlgBtn">Lưu</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ Travel Time Route Dialog ═══════════════════ -->
 <div class="dlg-backdrop" id="ttRouteDlg">
   <div class="dlg" style="width:860px;max-width:97vw;max-height:94vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
     <!-- Header -->
@@ -2715,7 +2833,9 @@ function showTrafficInner(pane) {
   document.querySelectorAll('.inner-tab').forEach(t => t.classList.toggle('active', t.dataset.inner === pane));
   document.getElementById('trafficMonitorPane').style.display = pane === 'trafficMonitor' ? '' : 'none';
   document.getElementById('travelTimePane').style.display     = pane === 'travelTime'     ? '' : 'none';
+  document.getElementById('holidaysPane').style.display       = pane === 'holidays'        ? '' : 'none';
   if (pane === 'travelTime') loadTTPane();
+  if (pane === 'holidays')   loadHolidays();
 }
 
 async function loadTrafficTab() {
@@ -2952,6 +3072,168 @@ function exportTTLogs() {
   });
   a.click();
 }
+
+// ════════════════════════════════════════════════════════
+//  INNER: Kỳ nghỉ (Holidays)
+// ════════════════════════════════════════════════════════
+
+let _holidays = [];
+let _curYear  = new Date().getFullYear();
+
+const HD_KIND_HINTS = {
+  national:    'Giảm lưu lượng ~25–30%. Loại khỏi baseline (không dùng làm mẫu cho ngày thường).',
+  tet:         'Giảm mạnh ~45–60% toàn bộ khung giờ. Loại khỏi baseline.',
+  school_break:'Giảm nhẹ giờ sáng 6–8h (~20%) và chiều 15–16h (~12%). Giữ trong baseline.',
+  pre_holiday: 'Tăng hệ số chiều tối 14–19h (~28%), 20–21h (~12%). Giữ trong baseline.',
+  working_day: 'Buộc xử lý như ngày thường (ví dụ: ngày làm bù cuối tuần). Không áp hệ số nào.',
+};
+
+const HD_KIND_COLORS = {
+  national:    '#f59e0b',
+  tet:         '#ef4444',
+  school_break:'#38bdf8',
+  pre_holiday: '#a78bfa',
+  working_day: '#22c55e',
+};
+
+const HD_KIND_LABELS = {
+  national:    'Lễ quốc gia',
+  tet:         'Tết',
+  school_break:'Nghỉ hè/học',
+  pre_holiday: 'Trước kỳ nghỉ',
+  working_day: 'Ngày làm bù',
+};
+
+async function loadHolidays() {
+  // Populate year selector if empty
+  const sel = document.getElementById('hdYear');
+  if (!sel.options.length) {
+    const y = new Date().getFullYear();
+    for (let i = y - 1; i <= y + 3; i++) {
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = i;
+      if (i === y) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    _curYear = y;
+  }
+  _curYear = parseInt(sel.value, 10);
+  try {
+    _holidays = await apiFetch('/api/traveltime/holidays?year=' + _curYear) || [];
+  } catch(e) { _holidays = []; }
+  renderHolidayTable();
+}
+
+function renderHolidayTable() {
+  const tbody = document.getElementById('hdTbody');
+  if (!_holidays.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Không có mục nào cho năm ${_curYear}. Nhấn "+ Thêm mục" để bắt đầu.</td></tr>`;
+    return;
+  }
+  // Sort by date_start ascending
+  const sorted = [..._holidays].sort((a, b) => a.date_start.localeCompare(b.date_start));
+  tbody.innerHTML = sorted.map(e => {
+    const col = HD_KIND_COLORS[e.kind] || '#888';
+    const kindLbl = HD_KIND_LABELS[e.kind] || e.kind;
+    const sameDay = e.date_start === e.date_end;
+    return `<tr>
+      <td style="font-family:monospace;font-size:.82rem">${esc(e.date_start)}</td>
+      <td style="font-family:monospace;font-size:.82rem">${sameDay ? '<span style="color:var(--text-muted)">—</span>' : esc(e.date_end)}</td>
+      <td><span style="padding:2px 8px;border-radius:4px;font-size:.75rem;background:${col}1a;color:${col};border:1px solid ${col}">${esc(kindLbl)}</span></td>
+      <td>${esc(e.label)}</td>
+      <td style="font-size:.78rem;color:var(--text-muted)">${esc(e.note || '')}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openHdDlg(${JSON.stringify(e).replace(/"/g,'&quot;')})">Sửa</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteHoliday('${esc(e.id)}')">Xoá</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function hdPreviewToday() {
+  const ds = new Date().toISOString().slice(0, 10);
+  await hdPreviewDate(ds);
+}
+
+async function hdPreviewDate(ds) {
+  try {
+    const r = await apiFetch('/api/traveltime/holidays/preview?date=' + ds);
+    const box = document.getElementById('hdPreview');
+    box.style.display = '';
+    if (!r.kind || r.kind === 'none') {
+      box.innerHTML = `📅 <strong>${esc(ds)}</strong> — <span style="color:var(--green)">Ngày bình thường</span> (không áp hệ số kỳ nghỉ)`;
+    } else {
+      const col = HD_KIND_COLORS[r.kind] || '#888';
+      const kindLbl = HD_KIND_LABELS[r.kind] || r.kind;
+      box.innerHTML = `📅 <strong>${esc(ds)}</strong> → <span style="color:${col};font-weight:600">${esc(kindLbl)}</span>: ${esc(r.label)}<br>
+        <span style="font-size:.75rem;color:var(--text-muted)">${esc(HD_KIND_HINTS[r.kind] || '')}</span>`;
+    }
+  } catch(e) { toast('Lỗi preview: ' + e.message, 'error'); }
+}
+
+function openHdDlg(e) {
+  document.getElementById('hdDlgTitle').textContent = e?.id ? 'Sửa kỳ nghỉ' : 'Thêm kỳ nghỉ';
+  document.getElementById('hdDlgBtn').textContent   = e?.id ? 'Cập nhật' : 'Lưu';
+  document.getElementById('hd-id').value            = e?.id || '';
+  document.getElementById('hd-start').value         = e?.date_start || '';
+  document.getElementById('hd-end').value           = (e?.date_end && e.date_end !== e?.date_start) ? e.date_end : '';
+  document.getElementById('hd-kind').value          = e?.kind || 'national';
+  document.getElementById('hd-label').value         = e?.label || '';
+  document.getElementById('hd-note').value          = e?.note || '';
+  onHdKindChange();
+  document.getElementById('hdDlg').classList.add('open');
+}
+
+function closeHdDlg() { document.getElementById('hdDlg').classList.remove('open'); }
+
+function onHdKindChange() {
+  const k = document.getElementById('hd-kind').value;
+  document.getElementById('hd-kind-hint').textContent = HD_KIND_HINTS[k] || '';
+}
+
+function hdQuick(start, end, kind, label, note) {
+  openHdDlg({ date_start: start, date_end: end, kind, label, note });
+}
+
+async function submitHoliday(e) {
+  e.preventDefault();
+  const startVal = document.getElementById('hd-start').value;
+  const endVal   = document.getElementById('hd-end').value;
+  const body = {
+    id:         document.getElementById('hd-id').value || '',
+    date_start: startVal,
+    date_end:   endVal || startVal,
+    kind:       document.getElementById('hd-kind').value,
+    label:      document.getElementById('hd-label').value.trim(),
+    note:       document.getElementById('hd-note').value.trim(),
+  };
+  if (!body.label) { toast('Nhãn hiển thị là bắt buộc', 'error'); return; }
+  const btn = document.getElementById('hdDlgBtn');
+  btn.disabled = true; btn.textContent = 'Đang lưu…';
+  try {
+    await apiFetch('/api/traveltime/holidays', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    toast(body.id ? 'Đã cập nhật' : 'Đã thêm kỳ nghỉ', 'success');
+    closeHdDlg();
+    await loadHolidays();
+  } catch(err) { toast(err.message || 'Lỗi lưu', 'error'); }
+  finally { btn.disabled = false; btn.textContent = body.id ? 'Cập nhật' : 'Lưu'; }
+}
+
+async function deleteHoliday(id) {
+  if (!confirm('Xoá mục kỳ nghỉ này?')) return;
+  try {
+    await apiFetch('/api/traveltime/holidays?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    toast('Đã xoá', 'success');
+    await loadHolidays();
+  } catch(err) { toast(err.message || 'Lỗi xoá', 'error'); }
+}
+
+// Close holiday dialog on backdrop click
+document.getElementById('hdDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeHdDlg(); });
 
 // ────────────────────────────────────────────────────────────────
 //  ROUTE DIALOG  (map-based)

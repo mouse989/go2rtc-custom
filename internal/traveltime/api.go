@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
 )
@@ -21,6 +22,8 @@ func registerHandlers() {
 	http.HandleFunc("/api/traveltime/logs", handleLogs)
 	http.HandleFunc("/api/traveltime/logs/dates", handleLogDates)
 	http.HandleFunc("/api/traveltime/forecast", handleForecast)
+	http.HandleFunc("/api/traveltime/holidays", handleHolidays)
+	http.HandleFunc("/api/traveltime/holidays/preview", handleHolidayPreview)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -348,4 +351,98 @@ func handleLogDates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, dates)
+}
+
+// ── Holidays ─────────────────────────────────────────────────────────────────
+
+// GET    /api/traveltime/holidays?year=2026   → list entries (year=0 = all)
+// POST   /api/traveltime/holidays             → create/update (body: HolidayEntry JSON)
+// DELETE /api/traveltime/holidays?id=xxx      → delete entry
+func handleHolidays(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		year := 0
+		if ys := r.URL.Query().Get("year"); ys != "" {
+			if v, err := strconv.Atoi(ys); err == nil {
+				year = v
+			}
+		}
+		writeJSON(w, listHolidayEntries(year))
+
+	case http.MethodPost:
+		body, err := io.ReadAll(io.LimitReader(r.Body, 16<<10))
+		if err != nil {
+			http.Error(w, "read error: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var e HolidayEntry
+		if err := json.Unmarshal(body, &e); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := upsertHolidayEntry(&e); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, e)
+
+	case http.MethodDelete:
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+		if err := deleteHolidayEntry(id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// GET /api/traveltime/holidays/preview?date=2026-04-07
+// Returns how the system classifies a given date (custom + hardcoded merged).
+func handleHolidayPreview(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ds := r.URL.Query().Get("date")
+	var d time.Time
+	if ds == "" {
+		d = time.Now().In(loc())
+	} else {
+		var err error
+		d, err = time.ParseInLocation("2006-01-02", ds, loc())
+		if err != nil {
+			http.Error(w, "invalid date (expected YYYY-MM-DD)", http.StatusBadRequest)
+			return
+		}
+	}
+	kind, label := HolidayKind(d)
+	kindStr := "none"
+	switch kind {
+	case hkTet:
+		kindStr = "tet"
+	case hkNational:
+		kindStr = "national"
+	case hkSchoolBreak:
+		kindStr = "school_break"
+	case hkPreHoliday:
+		kindStr = "pre_holiday"
+	}
+	writeJSON(w, map[string]string{
+		"date":  d.Format("2006-01-02"),
+		"kind":  kindStr,
+		"label": label,
+	})
 }
