@@ -82,13 +82,16 @@ func Init() {
 
 	routesFile := "travel_routes.json"
 	logsDir := "travel_logs"
+	holidayFile := "holiday_overrides.json"
 	if app.ConfigPath != "" {
 		dir := filepath.Dir(app.ConfigPath)
 		routesFile = filepath.Join(dir, "travel_routes.json")
 		logsDir = filepath.Join(dir, "travel_logs")
+		holidayFile = filepath.Join(dir, "holiday_overrides.json")
 	}
 	initRoutes(routesFile)
 	initLogs(logsDir)
+	initHolidayStore(holidayFile)
 
 	registerHandlers()
 	registerVietmapHandlers()

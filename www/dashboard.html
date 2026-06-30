@@ -537,12 +537,15 @@ function updateRouteStatus(tt) {
     const worst = tiers[tiers.length - 1];
 
     // +15 min: routes predicted to move to a worse tier than they are now.
+    // Only count routes that have a current measurement — routes with no data
+    // would always trigger (curIdx = -1 < any tier index) giving false positives.
     let degrade15 = 0, worst15 = null;
     all.forEach(r => {
+      if (!(r.latestTTI > 0)) return; // skip: no current reading
       const sf = _forecast.byRoute[r.id];
       const p15 = sf && sf.bySlot && sf.bySlot[curSlot + 1]; // +1 slot = +15 min
       if (!p15) return;
-      const curIdx    = r.latestTTI > 0 ? tiers.indexOf(ttiTier(r.latestTTI)) : -1;
+      const curIdx    = tiers.indexOf(ttiTier(r.latestTTI));
       const futureIdx = tiers.indexOf(ttiTier(p15.tti));
       if (futureIdx > curIdx) {
         degrade15++;

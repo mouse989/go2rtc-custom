@@ -15,7 +15,14 @@ const (
 
 // HolidayKind returns the traffic-relevant holiday classification for a date
 // in the Asia/Ho_Chi_Minh timezone and a human-readable Vietnamese label.
+// Admin-configured entries (holiday_overrides.json) take priority over the
+// hardcoded calendar below.
 func HolidayKind(d time.Time) (hkKind, string) {
+	// Custom entries take priority — admin can override or add any date.
+	if k, label, ok := lookupCustomKind(d); ok {
+		return k, label
+	}
+
 	m, day := int(d.Month()), d.Day()
 
 	// ── Fixed national holidays ──────────────────────────────────────────────
