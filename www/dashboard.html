@@ -531,10 +531,29 @@ function updateRouteStatus(tt) {
       chips.push(`<span class="db-rs-chip" style="border-color:#ef4444;color:#ef4444" title="Cao hơn ≥25% so với mức bình thường cùng giờ">⚠ ${abnormal} bất thường</span>`);
     }
   }
-  // Forecast: how many routes are predicted to reach the worst tier in ~60 min.
+  // Forecast badges: +15 min (degrading routes) and +60 min (worst-tier routes).
   if (_forecast.weeks > 0 && tiers.length) {
     const curSlot = slotOfTs(new Date().toISOString());
     const worst = tiers[tiers.length - 1];
+
+    // +15 min: routes predicted to move to a worse tier than they are now.
+    let degrade15 = 0, worst15 = null;
+    all.forEach(r => {
+      const sf = _forecast.byRoute[r.id];
+      const p15 = sf && sf.bySlot && sf.bySlot[curSlot + 1]; // +1 slot = +15 min
+      if (!p15) return;
+      const curIdx    = r.latestTTI > 0 ? tiers.indexOf(ttiTier(r.latestTTI)) : -1;
+      const futureIdx = tiers.indexOf(ttiTier(p15.tti));
+      if (futureIdx > curIdx) {
+        degrade15++;
+        if (!worst15 || futureIdx > tiers.indexOf(worst15)) worst15 = tiers[futureIdx];
+      }
+    });
+    if (degrade15 > 0) {
+      chips.push(`<span class="db-rs-chip" style="border-color:${worst15.color};color:${worst15.color}" title="${degrade15} tuyến được dự báo chuyển xấu hơn trong 15 phút tới (mức tệ nhất: ${escH(worst15.label||'')})">🔮 +15': ${degrade15} tuyến → ${escH(worst15.label||'')}</span>`);
+    }
+
+    // +60 min: routes predicted to hit the worst tier.
     let willJam = 0;
     all.forEach(r => {
       const sf = _forecast.byRoute[r.id];
@@ -543,6 +562,12 @@ function updateRouteStatus(tt) {
     });
     if (willJam > 0) {
       chips.push(`<span class="db-rs-chip" style="border-color:${worst.color};color:${worst.color}" title="Mô hình dự báo đạt mức '${escH(worst.label||'')}' trong ~60 phút">🔮 +60': ${willJam} tuyến dự báo ${escH(worst.label||'tắc')}</span>`);
+    }
+
+    // Holiday/calendar context badge (from first route's holidayLabel).
+    const hlabel = _forecast.byRoute[Object.keys(_forecast.byRoute)[0]]?.holidayLabel;
+    if (hlabel) {
+      chips.push(`<span class="db-rs-chip" style="border-color:#38bdf8;color:#38bdf8" title="Mô hình dự báo đã điều chỉnh theo lịch hôm nay">📅 ${escH(hlabel)}</span>`);
     }
   }
   el.innerHTML = chips.length

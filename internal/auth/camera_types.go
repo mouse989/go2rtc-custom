@@ -36,6 +36,7 @@ type CameraType struct {
 	SnapshotPath string `json:"snapshot_path"` // e.g. /ISAPI/Streaming/channels/101/picture
 	HTTPPort     int    `json:"http_port"`      // 0 → default 80
 	ONVIF        bool   `json:"onvif"`          // auto-discover snapshot URL via ONVIF
+	RTSP         bool   `json:"rtsp"`           // grab frame from go2rtc's RTSP stream via loopback
 }
 
 type cameraTypesData struct {
@@ -211,6 +212,14 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 		return nil, nil // no type assigned → transparent fallthrough
 	}
 
+	// RTSP-only type: grab a keyframe from go2rtc's internal loopback API.
+	// go2rtc must already have the stream active (it always does for configured streams).
+	if ct.RTSP {
+		snapshotURL := fmt.Sprintf("http://%s/api/frame.jpeg?src=%s",
+			loopbackHost(), url.QueryEscape(streamName))
+		return fetchLoopbackJPEG(ctx, snapshotURL)
+	}
+
 	if getStreamSources == nil {
 		return nil, fmt.Errorf("stream source provider not available")
 	}
@@ -282,6 +291,35 @@ func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]b
 	// JPEG SOI marker.
 	if data[0] != 0xFF || data[1] != 0xD8 {
 		return nil, fmt.Errorf("response is not JPEG (got %02X%02X)", data[0], data[1])
+	}
+	return data, nil
+}
+
+// fetchLoopbackJPEG fetches a JPEG from a loopback go2rtc API endpoint,
+// bypassing auth middleware by adding the X-Internal header.
+func fetchLoopbackJPEG(ctx context.Context, rawURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Internal", "counting")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from loopback %s", resp.StatusCode, rawURL)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < 2 {
+		return nil, fmt.Errorf("loopback response too small (%d bytes)", len(data))
+	}
+	if data[0] != 0xFF || data[1] != 0xD8 {
+		return nil, fmt.Errorf("loopback response is not JPEG (got %02X%02X)", data[0], data[1])
 	}
 	return data, nil
 }

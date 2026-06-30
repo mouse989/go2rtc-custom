@@ -58,12 +58,13 @@ type ForecastPoint struct {
 
 // RouteForecast is the forecast bundle for one route.
 type RouteForecast struct {
-	RouteID     string          `json:"routeId"`
-	Name        string          `json:"name"`
-	CurrentSlot int             `json:"currentSlot"`
-	WeeksUsed   int             `json:"weeksUsed"`
-	Method      string          `json:"method"` // "holt-seasonal" | "profile" | "none"
-	Points      []ForecastPoint `json:"points"`
+	RouteID      string          `json:"routeId"`
+	Name         string          `json:"name"`
+	CurrentSlot  int             `json:"currentSlot"`
+	WeeksUsed    int             `json:"weeksUsed"`
+	Method       string          `json:"method"`        // "holt-seasonal" | "profile" | "none"
+	HolidayLabel string          `json:"holidayLabel,omitempty"` // non-empty on holiday/break days
+	Points       []ForecastPoint `json:"points"`
 }
 
 // slotOfTS converts an RFC3339(Nano) timestamp to a local-time 15-min slot.
@@ -252,17 +253,24 @@ func handleForecast(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().In(loc())
 	currentSlot := (now.Hour()*60 + now.Minute()) / fcSlotMin
 
+	// Tier A: Vietnam/HCMC holiday calendar — classify today.
+	todayKind, holidayLabel := HolidayKind(now)
+
 	// Load today + the last N same-weekdays (one file read each, reused across routes).
 	todayEntries, _ := getLogs(now.Format("2006-01-02"), 0)
-	pastDays := make([][]LogEntry, 0, fcBaseWeeks)
+	type pastDay struct {
+		date    time.Time
+		entries []LogEntry
+	}
+	pastDays := make([]pastDay, 0, fcBaseWeeks)
 	weeksUsed := 0
 	for wk := 1; wk <= fcBaseWeeks; wk++ {
-		d := now.AddDate(0, 0, -7*wk).Format("2006-01-02")
-		es, _ := getLogs(d, 0)
+		pd := now.AddDate(0, 0, -7*wk)
+		es, _ := getLogs(pd.Format("2006-01-02"), 0)
 		if len(es) > 0 {
 			weeksUsed++
 		}
-		pastDays = append(pastDays, es)
+		pastDays = append(pastDays, pastDay{date: pd, entries: es})
 	}
 
 	routes := listRoutes()
@@ -270,14 +278,19 @@ func handleForecast(w http.ResponseWriter, r *http.Request) {
 	for _, rt := range routes {
 		todayMean, _ := slotMeans(todayEntries, rt.ID)
 
-		// Typical profile = average across the past same-weekdays.
+		// Typical profile = average across past same-weekdays.
+		// Skip past holiday days so the baseline stays "normal weekday" traffic.
 		var pSum [fcSlots]float64
 		var pCnt [fcSlots]int
-		for _, es := range pastDays {
-			if len(es) == 0 {
+		for _, pd := range pastDays {
+			if len(pd.entries) == 0 {
 				continue
 			}
-			mean, n := slotMeans(es, rt.ID)
+			// Tier A: exclude past major-holiday days from the normal profile.
+			if IsHolidayDate(pd.date) {
+				continue
+			}
+			mean, n := slotMeans(pd.entries, rt.ID)
 			for i := 0; i < fcSlots; i++ {
 				if n[i] > 0 {
 					pSum[i] += mean[i]
@@ -292,7 +305,18 @@ func handleForecast(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		out = append(out, forecastRoute(rt.ID, rt.Name, todayMean, profile, pCnt, weeksUsed, currentSlot, horizon))
+		// Tier A: scale the profile for today's holiday/break context.
+		if todayKind != hkNone {
+			for i := 0; i < fcSlots; i++ {
+				if profile[i] > 0 {
+					profile[i] *= HolidayProfileScale(todayKind, i)
+				}
+			}
+		}
+
+		rf := forecastRoute(rt.ID, rt.Name, todayMean, profile, pCnt, weeksUsed, currentSlot, horizon)
+		rf.HolidayLabel = holidayLabel
+		out = append(out, rf)
 	}
 	writeJSON(w, out)
 }

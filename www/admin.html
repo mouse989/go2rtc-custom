@@ -353,7 +353,7 @@ tr:hover td { background:var(--surface2); }
           <span style="font-size:.77rem;color:var(--text-muted)">Define snapshot URL patterns per vendor/model family</span>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Snapshot Path</th><th>HTTP Port</th><th>ONVIF</th><th>Cameras</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Snapshot Path</th><th>HTTP Port</th><th>ONVIF</th><th>RTSP</th><th>Cameras</th><th>Actions</th></tr></thead>
           <tbody id="ctTbody"></tbody>
         </table>
       </div>
@@ -899,24 +899,36 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Snapshot Path</label>
-        <input type="text" id="ct-path" class="input" autocomplete="off" placeholder="/ISAPI/Streaming/channels/101/picture">
-        <div style="font-size:.73rem;color:var(--text-muted);margin-top:.25rem">
-          Leave blank for ONVIF auto-discovery. Used only when ONVIF is off.
+      <div id="ct-http-section">
+        <div class="form-group">
+          <label>Snapshot Path</label>
+          <input type="text" id="ct-path" class="input" autocomplete="off" placeholder="/ISAPI/Streaming/channels/101/picture">
+          <div style="font-size:.73rem;color:var(--text-muted);margin-top:.25rem">
+            Leave blank for ONVIF auto-discovery. Used only when ONVIF is off.
+          </div>
+        </div>
+
+        <div class="f2">
+          <div class="form-group">
+            <label>HTTP Port (0 = 80)</label>
+            <input type="number" id="ct-port" class="input" value="80" min="0" max="65535">
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;padding-bottom:.05rem">
+            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-bottom:.35rem;font-size:.85rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
+              <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
+              <span>ONVIF auto-discover snapshot URL</span>
+            </label>
+          </div>
         </div>
       </div>
 
-      <div class="f2">
-        <div class="form-group">
-          <label>HTTP Port (0 = 80)</label>
-          <input type="number" id="ct-port" class="input" value="80" min="0" max="65535">
-        </div>
-        <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;padding-bottom:.05rem">
-          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-bottom:.35rem;font-size:.85rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
-            <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtOnvifChange()">
-            <span>ONVIF auto-discover snapshot URL</span>
-          </label>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:normal;font-size:.85rem;">
+          <input type="checkbox" id="ct-rtsp" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
+          <span>RTSP only — lấy ảnh từ luồng RTSP qua go2rtc (không cần HTTP camera)</span>
+        </label>
+        <div style="font-size:.73rem;color:var(--text-muted);margin-top:.25rem">
+          Khi bật, Snapshot Path và HTTP Port bị bỏ qua. go2rtc tự lấy khung hình từ stream đang chạy.
         </div>
       </div>
 
@@ -924,11 +936,12 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
       <div class="form-group">
         <label>Quick Fill</label>
         <div style="display:flex;flex-wrap:wrap;gap:.35rem">
-          <button type="button" class="cam-tb-btn" onclick="ctFill('hikvision','Hikvision ISAPI','/ISAPI/Streaming/channels/101/picture',80,false)">Hikvision</button>
-          <button type="button" class="cam-tb-btn" onclick="ctFill('dahua','Dahua HTTP','/cgi-bin/snapshot.cgi',80,false)">Dahua</button>
-          <button type="button" class="cam-tb-btn" onclick="ctFill('axis','Axis VAPIX','/axis-cgi/jpg/image.cgi',80,false)">Axis</button>
-          <button type="button" class="cam-tb-btn" onclick="ctFill('reolink','Reolink','/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snapshot',80,false)">Reolink</button>
-          <button type="button" class="cam-tb-btn" onclick="ctFill('onvif-generic','ONVIF Generic','',80,true)">ONVIF Generic</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('hikvision','Hikvision ISAPI','/ISAPI/Streaming/channels/101/picture',80,false,false)">Hikvision</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('dahua','Dahua HTTP','/cgi-bin/snapshot.cgi',80,false,false)">Dahua</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('axis','Axis VAPIX','/axis-cgi/jpg/image.cgi',80,false,false)">Axis</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('reolink','Reolink','/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=snapshot',80,false,false)">Reolink</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('onvif-generic','ONVIF Generic','',80,true,false)">ONVIF Generic</button>
+          <button type="button" class="cam-tb-btn" onclick="ctFill('rtsp-only','RTSP Only','',80,false,true)">RTSP Only</button>
         </div>
       </div>
 
@@ -2008,6 +2021,7 @@ function renderCtTable() {
       <td><span style="font-family:monospace;font-size:.78rem">${esc(t.snapshot_path || '—')}</span></td>
       <td>${t.http_port || 80}</td>
       <td>${t.onvif ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
+      <td>${t.rtsp ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td><span class="cnt-badge">${assignedCount}</span></td>
       <td>
         <button class="btn btn-secondary btn-sm" data-ctact="edit" data-ctid="${esc(t.id)}">Edit</button>
@@ -2085,7 +2099,8 @@ function openAddCt() {
   document.getElementById('ct-path').value = '';
   document.getElementById('ct-port').value = '80';
   document.getElementById('ct-onvif').checked = false;
-  onCtOnvifChange();
+  document.getElementById('ct-rtsp').checked = false;
+  onCtTypeChange();
   document.getElementById('ctDlg').classList.add('open');
 }
 
@@ -2099,26 +2114,37 @@ function openEditCt(t) {
   document.getElementById('ct-path').value = t.snapshot_path || '';
   document.getElementById('ct-port').value = t.http_port || 80;
   document.getElementById('ct-onvif').checked = !!t.onvif;
-  onCtOnvifChange();
+  document.getElementById('ct-rtsp').checked = !!t.rtsp;
+  onCtTypeChange();
   document.getElementById('ctDlg').classList.add('open');
 }
 
 function closeCtDlg() { document.getElementById('ctDlg').classList.remove('open'); }
 
-function onCtOnvifChange() {
+function onCtTypeChange() {
   const isOnvif = document.getElementById('ct-onvif').checked;
-  document.getElementById('ct-path').disabled = isOnvif;
-  document.getElementById('ct-path').style.opacity = isOnvif ? '.45' : '';
+  const isRTSP  = document.getElementById('ct-rtsp').checked;
+  // When RTSP is selected, hide the HTTP section entirely; otherwise show it.
+  const httpSection = document.getElementById('ct-http-section');
+  httpSection.style.display = isRTSP ? 'none' : '';
+  // Within HTTP mode, grey out path when ONVIF is selected.
+  if (!isRTSP) {
+    document.getElementById('ct-path').disabled = isOnvif;
+    document.getElementById('ct-path').style.opacity = isOnvif ? '.45' : '';
+  }
+  // Mutual exclusion: checking RTSP unchecks ONVIF and vice-versa.
+  if (isRTSP && isOnvif) document.getElementById('ct-onvif').checked = false;
 }
 
-function ctFill(id, name, path, port, onvif) {
+function ctFill(id, name, path, port, onvif, rtsp) {
   const idEl = document.getElementById('ct-id');
   if (!idEl.disabled) idEl.value = id;
   document.getElementById('ct-name').value  = name;
   document.getElementById('ct-path').value  = path;
   document.getElementById('ct-port').value  = port;
-  document.getElementById('ct-onvif').checked = onvif;
-  onCtOnvifChange();
+  document.getElementById('ct-onvif').checked = !!onvif;
+  document.getElementById('ct-rtsp').checked  = !!rtsp;
+  onCtTypeChange();
 }
 
 async function submitCameraType(e) {
@@ -2129,10 +2155,11 @@ async function submitCameraType(e) {
   const path    = document.getElementById('ct-path').value.trim();
   const port    = parseInt(document.getElementById('ct-port').value, 10) || 80;
   const onvif   = document.getElementById('ct-onvif').checked;
+  const rtsp    = document.getElementById('ct-rtsp').checked;
 
   if (!id || !name) { toast('ID and Name are required', 'error'); return; }
 
-  const body = { id: origId || id, name, snapshot_path: path, http_port: port, onvif };
+  const body = { id: origId || id, name, snapshot_path: path, http_port: port, onvif, rtsp };
   const btn = document.getElementById('ctDlg-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
