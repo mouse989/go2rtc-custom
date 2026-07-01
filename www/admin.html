@@ -280,6 +280,28 @@ tr:hover td { background:var(--surface2); }
           </div>
         </div>
       </div>
+
+      <div class="card" style="max-width:520px;margin-top:1rem">
+        <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.95rem;font-weight:700">🔒 RTSP Server Security</h3>
+        </div>
+        <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            Cổng RTSP (mặc định 8554) yêu cầu username/password cho mọi kết nối từ bên ngoài
+            (không phải localhost) — quan trọng nếu bạn NAT/forward cổng này ra WAN.
+            Kết nối nội bộ (127.0.0.1) từ các worker cùng máy vẫn không cần xác thực.
+          </p>
+          <div id="rtspCredBox" style="font-size:.82rem;color:var(--text-muted)">Đang tải…</div>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="loadRtspCreds()">↺ Làm mới</button>
+            <button class="btn btn-danger btn-sm" onclick="rotateRtspCreds()">🔄 Đổi mật khẩu mới</button>
+          </div>
+          <p style="font-size:.72rem;color:var(--text-muted);margin:0">
+            Sau khi đổi, cập nhật lại URL RTSP (vd: <code>rtsp://USER:PASS@host:8554/stream</code>) trong mọi
+            worker từ xa (RTSPBase) hoặc ứng dụng xem ngoài đang dùng cổng này.
+          </p>
+        </div>
+      </div>
     </div>
 
     <!-- ── Devices section ── -->
@@ -1607,6 +1629,40 @@ async function loadSettings() {
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
   } catch (e) {}
+  loadRtspCreds();
+}
+
+async function loadRtspCreds() {
+  const box = document.getElementById('rtspCredBox');
+  box.textContent = 'Đang tải…';
+  try {
+    const c = await apiFetch('/api/rtsp/credentials');
+    box.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:.3rem;font-family:monospace;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.6rem .7rem">
+        <div>User: <strong>${esc(c.username)}</strong></div>
+        <div style="display:flex;align-items:center;gap:.4rem">Pass: <strong id="rtspPassVal">${esc(c.password)}</strong>
+          <button class="btn btn-ghost btn-sm" style="padding:.1rem .4rem" onclick="copyRtspCreds('${esc(c.username)}','${esc(c.password)}',${esc(c.port||'8554')})">📋 Copy URL</button>
+        </div>
+        <div style="color:var(--text-muted);font-size:.72rem">rtsp://${esc(c.username)}:${esc(c.password)}@&lt;host&gt;:${esc(c.port||'8554')}/&lt;stream&gt;</div>
+      </div>`;
+  } catch (e) {
+    box.textContent = 'Không tải được (RTSP server có thể đang tắt).';
+  }
+}
+
+async function rotateRtspCreds() {
+  if (!confirm('Đổi mật khẩu RTSP mới? Mọi client bên ngoài (worker từ xa, ứng dụng xem) đang dùng mật khẩu cũ sẽ mất kết nối cho đến khi cập nhật.')) return;
+  try {
+    await apiFetch('/api/rtsp/credentials/rotate', { method: 'POST' });
+    loadRtspCreds();
+  } catch (e) {
+    alert('Rotate failed: ' + e.message);
+  }
+}
+
+function copyRtspCreds(user, pass, port) {
+  const url = `rtsp://${user}:${pass}@${location.hostname}:${port}/`;
+  navigator.clipboard?.writeText(url).catch(() => {});
 }
 
 async function saveSettings() {
