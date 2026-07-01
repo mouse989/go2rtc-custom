@@ -1,11 +1,14 @@
 package rtsp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"github.com/AlexxIT/go2rtc/internal/auth"
@@ -56,6 +59,30 @@ func Init() {
 	_, Port, _ = net.SplitHostPort(address)
 	auth.SetRTSPListenPort(Port) // expose RTSP port to proxy layer for URL building
 
+	// Fail closed: an RTSP server with no credentials lets anyone with the
+	// stream URL (which is often just a short ID, not a real secret) pull
+	// video with zero authentication — even though the Web UI/API requires a
+	// JWT. If no rtsp.username is configured, auto-generate one and persist
+	// it so external (non-loopback) RTSP clients must authenticate.
+	if conf.Mod.Username == "" {
+		conf.Mod.Username = "go2rtc"
+		conf.Mod.Password = genRTSPSecret()
+		if err := app.PatchConfig([]string{"rtsp", "username"}, conf.Mod.Username); err != nil {
+			log.Warn().Err(err).Msg("[rtsp] failed to persist auto-generated username (will regenerate on next restart)")
+		}
+		if err := app.PatchConfig([]string{"rtsp", "password"}, conf.Mod.Password); err != nil {
+			log.Warn().Err(err).Msg("[rtsp] failed to persist auto-generated password (will regenerate on next restart)")
+		}
+		log.Warn().Str("username", conf.Mod.Username).Str("password", conf.Mod.Password).
+			Msg("[rtsp] no rtsp.username configured — auto-generated credentials for non-loopback RTSP clients; view/rotate them in Admin → Settings")
+	}
+
+	credMu.Lock()
+	currentUsername, currentPassword = conf.Mod.Username, conf.Mod.Password
+	credMu.Unlock()
+
+	registerHandlers()
+
 	log.Info().Str("addr", address).Msg("[rtsp] listen")
 
 	if query, err := url.ParseQuery(conf.Mod.DefaultQuery); err == nil {
@@ -71,13 +98,55 @@ func Init() {
 
 			c := rtsp.NewServer(conn)
 			c.PacketSize = conf.Mod.PacketSize
-			// skip check auth for localhost
-			if conf.Mod.Username != "" && !conn.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
-				c.Auth(conf.Mod.Username, conf.Mod.Password)
+			// skip check auth for localhost (same-host workers/services)
+			if !conn.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+				if u, p := CurrentCredentials(); u != "" {
+					c.Auth(u, p)
+				}
 			}
 			go tcpHandler(c)
 		}
 	}()
+}
+
+var (
+	credMu                           sync.RWMutex
+	currentUsername, currentPassword string
+)
+
+// CurrentCredentials returns the RTSP server's active Basic-auth
+// username/password required from non-loopback clients.
+func CurrentCredentials() (string, string) {
+	credMu.RLock()
+	defer credMu.RUnlock()
+	return currentUsername, currentPassword
+}
+
+// RotateCredentials generates a fresh random password (keeping the existing
+// username) and persists it, so it takes effect immediately for any new
+// connection without a server restart.
+func RotateCredentials() (string, string, error) {
+	credMu.Lock()
+	if currentUsername == "" {
+		currentUsername = "go2rtc"
+	}
+	currentPassword = genRTSPSecret()
+	username, password := currentUsername, currentPassword
+	credMu.Unlock()
+
+	if err := app.PatchConfig([]string{"rtsp", "username"}, username); err != nil {
+		return "", "", err
+	}
+	if err := app.PatchConfig([]string{"rtsp", "password"}, password); err != nil {
+		return "", "", err
+	}
+	return username, password, nil
+}
+
+func genRTSPSecret() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 type Handler func(conn *rtsp.Conn) bool
