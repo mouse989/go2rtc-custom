@@ -40,6 +40,8 @@ func registerAPI() {
 	api.HandleFunc("api/counting/video-analyze", handleVideoAnalyze)
 	api.HandleFunc("api/counting/video-status", handleVideoStatus)
 	api.HandleFunc("api/counting/video-frame", handleVideoFrame)
+	api.HandleFunc("api/counting/video-jobs", handleVideoJobs)
+	api.HandleFunc("api/counting/video-cancel", handleVideoCancel)
 	api.HandleFunc("api/counting/dataset-images", handleDatasetImages)
 	api.HandleFunc("api/counting/dataset-image", handleDatasetImage)
 	api.HandleFunc("api/counting/dataset-label", handleDatasetLabel)
@@ -751,21 +753,27 @@ func handleVideoUpload(w http.ResponseWriter, r *http.Request) {
 	if ext == "" {
 		ext = "mp4"
 	}
+	name := r.URL.Query().Get("name")
 	if wid := r.URL.Query().Get("worker"); wid != "" {
 		// NOTE: uploads to a remote worker are bounded by the worker HTTP
 		// timeout — best for short/medium clips. Large videos should run local.
-		proxyToWorker(w, wid, http.MethodPost,
-			"/api/counting/video-upload?ext="+neturl.QueryEscape(ext),
-			r.Body, "application/octet-stream")
+		u := "/api/counting/video-upload?ext=" + neturl.QueryEscape(ext)
+		if name != "" {
+			u += "&name=" + neturl.QueryEscape(name)
+		}
+		proxyToWorker(w, wid, http.MethodPost, u, r.Body, "application/octet-stream")
 		return
 	}
 	yoloURL := getConfig().YoloURL
 	if yoloURL == "" {
 		yoloURL = "http://localhost:8765"
 	}
+	uploadURL := yoloURL + "/video/upload?ext=" + neturl.QueryEscape(ext)
+	if name != "" {
+		uploadURL += "&name=" + neturl.QueryEscape(name)
+	}
 	client := &http.Client{Timeout: 30 * time.Minute}
-	resp, err := client.Post(yoloURL+"/video/upload?ext="+neturl.QueryEscape(ext),
-		"application/octet-stream", r.Body)
+	resp, err := client.Post(uploadURL, "application/octet-stream", r.Body)
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
@@ -841,6 +849,96 @@ func handleVideoFrame(w http.ResponseWriter, r *http.Request) {
 		yoloURL = "http://localhost:8765"
 	}
 	proxyGetRaw(w, yoloURL+"/video/frame?token="+neturl.QueryEscape(token)+"&idx="+neturl.QueryEscape(idx))
+}
+
+// GET    /api/counting/video-jobs           — list all completed jobs (newest first)
+// GET    /api/counting/video-jobs?token=xxx — full result for one job
+// DELETE /api/counting/video-jobs?token=xxx — delete a job's files
+func handleVideoJobs(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	wid := r.URL.Query().Get("worker")
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	token := r.URL.Query().Get("token")
+
+	switch r.Method {
+	case http.MethodGet:
+		if wid != "" {
+			u := "/api/counting/video-jobs"
+			if token != "" {
+				u += "?token=" + neturl.QueryEscape(token)
+			}
+			proxyToWorker(w, wid, http.MethodGet, u, nil, "")
+			return
+		}
+		if token != "" {
+			proxyGet(w, yoloURL+"/video/jobs/"+neturl.QueryEscape(token))
+		} else {
+			proxyGet(w, yoloURL+"/video/jobs")
+		}
+
+	case http.MethodDelete:
+		if token == "" {
+			http.Error(w, "token required", http.StatusBadRequest)
+			return
+		}
+		if wid != "" {
+			proxyToWorker(w, wid, http.MethodDelete,
+				"/api/counting/video-jobs?token="+neturl.QueryEscape(token), nil, "")
+			return
+		}
+		req, err := http.NewRequest(http.MethodDelete,
+			yoloURL+"/video/jobs/"+neturl.QueryEscape(token), nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// POST /api/counting/video-cancel[?worker=id] — request cancellation of the running job.
+func handleVideoCancel(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		proxyToWorker(w, wid, http.MethodPost, "/api/counting/video-cancel", nil, "")
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(yoloURL+"/video/cancel", "application/json", nil)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // GET /api/counting/dataset-images — always returns images from main server's local dataset.

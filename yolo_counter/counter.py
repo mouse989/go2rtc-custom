@@ -1465,6 +1465,7 @@ _video_state = {
     "started_at": None,
     "finished_at": None,
 }
+_video_cancel_flag = False  # set to True to request cancellation of running job
 
 
 def _video_jobs_dir() -> str:
@@ -1486,6 +1487,7 @@ def _video_path_for(token: str) -> Optional[str]:
 
 def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
     """Background worker: stream the video through YOLO + the counting engine."""
+    global _video_cancel_flag
     job_model = _model
     try:
         # Use the already-loaded live model when the request didn't pick a
@@ -1583,6 +1585,11 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
                     with _video_lock:
                         _video_state["processed_frames"] = processed
                         _video_state["progress"] = min(1.0, idx / max(1, total_frames))
+
+            # Check cancellation once per source frame (cheap)
+            if _video_cancel_flag:
+                _video_cancel_flag = False
+                raise RuntimeError("cancelled")
             idx += 1
         cap.release()
 
@@ -1600,12 +1607,23 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
         with _video_lock:
             _video_state.update(running=False, progress=1.0, result=snap,
                                 message="done", finished_at=time.time())
+        # Persist result so it survives page-reload / counter restart.
+        result_path = os.path.join(_video_jobs_dir(), f"{token}_result.json")
+        try:
+            with open(result_path, "w", encoding="utf-8") as rf:
+                json.dump(snap, rf, default=str)
+        except Exception as ex:
+            logger.warning(f"[video] could not save result JSON: {ex}")
         logger.info(f"[video] job {token} done: total={snap.get('total')} "
                     f"duration={duration_sec:.1f}s sampled={processed} frames")
     except Exception as e:
-        logger.exception("[video] job failed")
+        cancelled = str(e) == "cancelled"
+        logger.info(f"[video] job {'cancelled' if cancelled else 'failed'}: {e}")
+        if not cancelled:
+            logger.exception("[video] job failed")
         with _video_lock:
-            _video_state.update(running=False, error=str(e), message="error",
+            _video_state.update(running=False, error=str(e),
+                                message="cancelled" if cancelled else "error",
                                 finished_at=time.time())
     finally:
         try:
@@ -1615,7 +1633,7 @@ def _run_video_job(token, path, model_name, conf, target_fps, lines_cfg):
 
 
 @app.post("/video/upload")
-async def video_upload(request: Request, ext: str = "mp4"):
+async def video_upload(request: Request, ext: str = "mp4", name: str = ""):
     """Stream an uploaded video to disk, then return its first frame + metadata
     so the UI can draw counting lines on it before analysis."""
     ext = "".join(c for c in ext.lower() if c.isalnum()) or "mp4"
@@ -1652,6 +1670,21 @@ async def video_upload(request: Request, ext: str = "mp4"):
     if native_fps <= 0:
         native_fps = 25.0
     duration_sec = (total_frames / native_fps) if total_frames > 0 else 0.0
+    display_name = name or f"{token}.{ext}"
+    # Save lightweight metadata so the job list can display name/duration without
+    # waiting for analysis to complete.
+    meta = {
+        "token": token, "ext": ext, "name": display_name,
+        "width": w, "height": h, "fps": native_fps,
+        "frames": total_frames, "duration_sec": duration_sec,
+        "uploaded_at": time.time(),
+    }
+    meta_path = os.path.join(_video_jobs_dir(), f"{token}_meta.json")
+    try:
+        with open(meta_path, "w", encoding="utf-8") as mf:
+            json.dump(meta, mf)
+    except Exception as ex:
+        logger.warning(f"[video] could not save meta JSON: {ex}")
     return {
         "ok": True, "token": token, "ext": ext,
         "width": w, "height": h, "fps": native_fps,
@@ -1705,6 +1738,92 @@ async def video_analyze(request: Request):
                      args=(token, path, model_name, conf, target_fps, lines_cfg),
                      daemon=True).start()
     return {"ok": True, "token": token}
+
+
+@app.get("/video/jobs")
+def video_jobs_list():
+    """Return summary of all completed video analysis jobs (sorted newest first)."""
+    d = _video_jobs_dir()
+    jobs = []
+    try:
+        for fn in os.listdir(d):
+            if not fn.endswith("_result.json"):
+                continue
+            token = fn[:-len("_result.json")]
+            result_path = os.path.join(d, fn)
+            meta_path = os.path.join(d, f"{token}_meta.json")
+            try:
+                with open(result_path, encoding="utf-8") as f:
+                    result = json.load(f)
+                meta: dict = {}
+                if os.path.isfile(meta_path):
+                    with open(meta_path, encoding="utf-8") as mf:
+                        meta = json.load(mf)
+                # Build a compact summary (skip the large crossing_events list)
+                frames_dir = os.path.join(d, f"{token}_frames")
+                has_frames = os.path.isdir(frames_dir) and bool(os.listdir(frames_dir))
+                jobs.append({
+                    "token": token,
+                    "name": meta.get("name", f"{token}"),
+                    "duration_sec": result.get("duration_sec", meta.get("duration_sec", 0)),
+                    "total": result.get("total", 0),
+                    "counts": result.get("counts", {}),
+                    "frame_count": result.get("frame_count", 0),
+                    "uploaded_at": meta.get("uploaded_at"),
+                    "has_frames": has_frames,
+                    "crossing_count": len(result.get("crossing_events", [])),
+                })
+            except Exception as ex:
+                logger.debug(f"[video] skipping {fn}: {ex}")
+    except Exception as ex:
+        logger.warning(f"[video] jobs list error: {ex}")
+    # Newest first (token is ms-since-epoch)
+    jobs.sort(key=lambda x: int(x["token"]) if str(x["token"]).isdigit() else 0, reverse=True)
+    return jobs
+
+
+@app.get("/video/jobs/{token}")
+def video_job_detail(token: str):
+    """Return full result JSON (including crossing_events) for a past job."""
+    if not token.isdigit():
+        raise HTTPException(400, "invalid token")
+    result_path = os.path.join(_video_jobs_dir(), f"{token}_result.json")
+    if not os.path.isfile(result_path):
+        raise HTTPException(404, "job not found")
+    try:
+        with open(result_path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as ex:
+        raise HTTPException(500, str(ex))
+
+
+@app.delete("/video/jobs/{token}")
+def video_job_delete(token: str):
+    """Delete a past job's result, metadata, and annotated frames."""
+    if not token.isdigit():
+        raise HTTPException(400, "invalid token")
+    d = _video_jobs_dir()
+    for suffix in ("_result.json", "_meta.json"):
+        p = os.path.join(d, token + suffix)
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    frames_dir = os.path.join(d, f"{token}_frames")
+    if os.path.isdir(frames_dir):
+        shutil.rmtree(frames_dir, ignore_errors=True)
+    return {"ok": True}
+
+
+@app.post("/video/cancel")
+def video_cancel():
+    """Request cancellation of the currently running video analysis job."""
+    global _video_cancel_flag
+    with _video_lock:
+        if not _video_state.get("running"):
+            return {"ok": False, "message": "no job running"}
+        _video_cancel_flag = True
+    return {"ok": True}
 
 
 @app.get("/video/status")

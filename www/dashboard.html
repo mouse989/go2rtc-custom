@@ -263,6 +263,7 @@ const BASELINE_WEEKS = 4;
 let _baseline = { day: '', weeks: 0, byRoute: {} }; // byRoute[id] = [96] of {tti,delay,n} | null
 // Phase-2 model forecast from /api/traveltime/forecast (Holt-Winters seasonal).
 let _forecast = { byRoute: {}, weeks: 0 }; // byRoute[id] = {bySlot:{slot:{tti,lo,hi}}, method}
+let _abnormalRoutes = []; // routes currently ≥25% above their typical level; [{id,name,ratio}]
 let _map        = null;
 let _mapInited  = false;
 let _skelBuilt  = false;
@@ -498,6 +499,23 @@ function buildForecast(todaySlots, baseSlots, curSlot) {
   return out;
 }
 
+// Routes running ≥25% above their typical level for this time slot (right now).
+// Shared by the summary chip and the per-row ⚠ marker so both stay in sync.
+function computeAbnormalRoutes(tt) {
+  if (!(_baseline.weeks > 0)) return [];
+  const all = tt.routes || [];
+  const curSlot = slotOfTs(new Date().toISOString());
+  const out = [];
+  all.filter(r => r.latestTTI > 0).forEach(r => {
+    const b = baselineSlots(r.id);
+    const bv = b ? avgSlotAround(b, curSlot) : null;
+    if (bv && r.latestTTI > bv * 1.25) {
+      out.push({ id: r.id, name: r.name, ratio: r.latestTTI / bv });
+    }
+  });
+  return out;
+}
+
 // Network status breakdown: how many routes sit in each congestion tier now.
 function updateRouteStatus(tt) {
   const el = document.getElementById('dbRouteStatus');
@@ -519,17 +537,13 @@ function updateRouteStatus(tt) {
     chips.push(`<span class="db-rs-chip"><span class="db-rs-dot" style="background:${nd}"></span>${noData} chưa có dữ liệu</span>`);
   }
   // Anomaly: routes running ≥25% above their typical level for this time slot.
-  if (_baseline.weeks > 0) {
-    const curSlot = slotOfTs(new Date().toISOString());
-    let abnormal = 0;
-    measured.forEach(r => {
-      const b = baselineSlots(r.id);
-      const bv = b ? avgSlotAround(b, curSlot) : null;
-      if (bv && r.latestTTI > bv * 1.25) abnormal++;
-    });
-    if (abnormal > 0) {
-      chips.push(`<span class="db-rs-chip" style="border-color:#ef4444;color:#ef4444" title="Cao hơn ≥25% so với mức bình thường cùng giờ">⚠ ${abnormal} bất thường</span>`);
-    }
+  _abnormalRoutes = computeAbnormalRoutes(tt);
+  if (_abnormalRoutes.length > 0) {
+    const names = _abnormalRoutes
+      .slice().sort((a, b) => b.ratio - a.ratio)
+      .map(r => `${r.name} (+${Math.round((r.ratio - 1) * 100)}%)`)
+      .join('\n');
+    chips.push(`<span class="db-rs-chip" style="border-color:#ef4444;color:#ef4444;cursor:pointer" title="Cao hơn ≥25% so với mức bình thường cùng giờ:\n${escH(names)}" onclick="highlightAbnormalRoutes()">⚠ ${_abnormalRoutes.length} bất thường</span>`);
   }
   // Forecast badges: +15 min (degrading routes) and +60 min (worst-tier routes).
   if (_forecast.weeks > 0 && tiers.length) {
@@ -973,6 +987,20 @@ function updateKPIs(tf, tt) {
   `;
 }
 
+// Scroll to the TTI chart and briefly flash the rows currently flagged as abnormal.
+function highlightAbnormalRoutes() {
+  if (!_abnormalRoutes.length) return;
+  const chart = document.getElementById('ttiChartBody');
+  if (chart) chart.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  _abnormalRoutes.forEach(a => {
+    const row = document.getElementById('ttiRow-' + a.id);
+    if (!row) return;
+    row.style.transition = 'background-color .3s';
+    row.style.backgroundColor = 'rgba(239,68,68,.18)';
+    setTimeout(() => { row.style.backgroundColor = ''; }, 1800);
+  });
+}
+
 // ── TTI Combined Chart (full-width) ───────────────────────────────────────
 function renderTTIChart(routes, todayLogs, histLogs) {
   const body  = document.getElementById('ttiChartBody');
@@ -1019,9 +1047,14 @@ function renderTTIChart(routes, todayLogs, histLogs) {
       ? `<span style="cursor:grab;color:var(--text-muted);flex-shrink:0;margin-right:.15rem" title="Kéo để đổi thứ tự">⠿</span>`
       : '';
 
-    return `<div class="tti-chart-row" ${dragAttr}>
+    const abn = _abnormalRoutes.find(a => a.id === r.id);
+    const abnMark = abn
+      ? `<span title="Bất thường: cao hơn +${Math.round((abn.ratio - 1) * 100)}% so với mức bình thường cùng giờ" style="color:#ef4444;flex-shrink:0">⚠</span>`
+      : '';
+
+    return `<div class="tti-chart-row" id="ttiRow-${escH(r.id)}" ${dragAttr}>
       <div class="tti-row-label">
-        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}<span class="tti-rname" title="Bấm để xem chi tiết & dự báo: ${escH(r.name)}" style="cursor:pointer;text-decoration:underline dotted .5px" onclick="openRouteDetail('${escH(r.id)}')">${escH(r.name)}</span></div>
+        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}${abnMark}<span class="tti-rname" title="Bấm để xem chi tiết & dự báo: ${escH(r.name)}" style="cursor:pointer;text-decoration:underline dotted .5px" onclick="openRouteDetail('${escH(r.id)}')">${escH(r.name)}</span></div>
       </div>
       <div class="tti-row-bars">
         <div class="tti-bar tti-bar-today">${todayBar}</div>
