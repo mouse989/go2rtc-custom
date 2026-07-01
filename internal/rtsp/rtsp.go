@@ -100,9 +100,7 @@ func Init() {
 			c.PacketSize = conf.Mod.PacketSize
 			// skip check auth for localhost (same-host workers/services)
 			if !conn.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
-				if u, p := CurrentCredentials(); u != "" {
-					c.Auth(u, p)
-				}
+				c.AuthValidator(validateRTSPCredentials)
 			}
 			go tcpHandler(c)
 		}
@@ -147,6 +145,37 @@ func genRTSPSecret() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// validateRTSPCredentials accepts either the shared service credential
+// (CurrentCredentials, useful for remote workers/scripts that aren't tied to
+// one person) or any enabled account from Admin → Users — the very same
+// username/password used to log into the Web UI. Per-stream authorization
+// (viewers only see their assigned streams) is enforced separately in
+// tcpHandler via rtspStreamAllowed, using the authenticated username.
+func validateRTSPCredentials(user, pass, _ string) bool {
+	if su, sp := CurrentCredentials(); su != "" && user == su && pass == sp {
+		return true
+	}
+	_, ok := auth.Authenticate(user, pass)
+	return ok
+}
+
+// rtspStreamAllowed reports whether the connection (already authenticated,
+// or exempt via loopback) may access the given stream name.
+func rtspStreamAllowed(conn *rtsp.Conn, name string) bool {
+	username := conn.AuthUser()
+	if username == "" {
+		return true // loopback connection: no auth was required
+	}
+	if su, _ := CurrentCredentials(); su != "" && username == su {
+		return true // shared service credential: full access
+	}
+	u, ok := auth.GetUser(username)
+	if !ok {
+		return false
+	}
+	return auth.UserCanAccessStream(u, name)
 }
 
 type Handler func(conn *rtsp.Conn) bool
@@ -245,6 +274,11 @@ func tcpHandler(conn *rtsp.Conn) {
 				return
 			}
 
+			if !rtspStreamAllowed(conn, name) {
+				log.Warn().Str("stream", name).Str("user", conn.AuthUser()).Msg("[rtsp] forbidden stream")
+				return
+			}
+
 			log.Debug().Str("stream", name).Msg("[rtsp] new consumer")
 
 			conn.SessionName = app.UserAgent
@@ -308,6 +342,11 @@ func tcpHandler(conn *rtsp.Conn) {
 
 			stream := streams.GetByAny(name)
 			if stream == nil {
+				return
+			}
+
+			if !rtspStreamAllowed(conn, name) {
+				log.Warn().Str("stream", name).Str("user", conn.AuthUser()).Msg("[rtsp] forbidden stream")
 				return
 			}
 

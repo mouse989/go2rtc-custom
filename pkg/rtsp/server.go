@@ -33,6 +33,18 @@ func (c *Conn) Auth(username, password string) {
 	c.auth = tcp.NewAuth(info)
 }
 
+// AuthValidator sets a callback-based auth check: each request's Basic-auth
+// (username, password, request path) is passed to validator instead of
+// comparing against one fixed pair.
+func (c *Conn) AuthValidator(validator func(user, pass, path string) bool) {
+	c.auth = tcp.NewAuthValidator(validator)
+}
+
+// AuthUser returns the username that most recently passed AuthValidator.
+func (c *Conn) AuthUser() string {
+	return c.auth.User()
+}
+
 func (c *Conn) Accept() error {
 	for {
 		req, err := c.ReadRequest()

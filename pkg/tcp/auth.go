@@ -15,6 +15,25 @@ type Auth struct {
 	pass    string
 	header  string
 	h1nonce string
+
+	// Validator, when set, overrides the fixed (user, pass) comparison in
+	// Validate: the client-supplied Basic-auth username/password/request-path
+	// are handed to it, so callers can check credentials against a dynamic
+	// user store (and authorize per-path) instead of one static pair.
+	Validator func(user, pass, path string) bool
+
+	// lastAuthHeader/lastValid cache the previous Validator result so a
+	// long-lived RTSP session (OPTIONS/DESCRIBE/SETUP/PLAY/keepalive) doesn't
+	// re-run an expensive check (e.g. bcrypt) on every single request — only
+	// when the client's Authorization header actually changes.
+	lastAuthHeader string
+	lastValid      bool
+}
+
+// NewAuthValidator creates a server-side Auth that checks each request's
+// Basic-auth credentials via the given callback instead of a fixed pair.
+func NewAuthValidator(validator func(user, pass, path string) bool) *Auth {
+	return &Auth{Method: AuthBasic, Validator: validator}
 }
 
 const (
@@ -95,6 +114,37 @@ func (a *Auth) Validate(req *Request) (valid, empty bool) {
 		return false, true
 	}
 
+	if a.Validator != nil {
+		if header == a.lastAuthHeader {
+			return a.lastValid, false
+		}
+
+		const prefix = "Basic "
+		if !strings.HasPrefix(header, prefix) {
+			return false, false
+		}
+		raw, err := base64.StdEncoding.DecodeString(header[len(prefix):])
+		if err != nil {
+			return false, false
+		}
+		user, pass, ok := strings.Cut(string(raw), ":")
+		if !ok {
+			return false, false
+		}
+		var path string
+		if req.URL != nil {
+			path = req.URL.Path
+		}
+
+		a.lastAuthHeader = header
+		a.lastValid = a.Validator(user, pass, path)
+		if !a.lastValid {
+			return false, false
+		}
+		a.user = user
+		return true, false
+	}
+
 	if a.Method == AuthUnknown {
 		a.Method = AuthBasic
 		a.header = "Basic " + B64(a.user, a.pass)
@@ -114,6 +164,14 @@ func (a *Auth) ReadNone(res *Response) bool {
 
 func (a *Auth) UserInfo() *url.Userinfo {
 	return url.UserPassword(a.user, a.pass)
+}
+
+// User returns the username that last passed Validate (set by Validator mode).
+func (a *Auth) User() string {
+	if a == nil {
+		return ""
+	}
+	return a.user
 }
 
 func Between(s, sub1, sub2 string) string {

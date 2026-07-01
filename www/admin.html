@@ -287,18 +287,28 @@ tr:hover td { background:var(--surface2); }
         </div>
         <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
           <p style="font-size:.78rem;color:var(--text-muted);margin:0">
-            Cổng RTSP (mặc định 8554) yêu cầu username/password cho mọi kết nối từ bên ngoài
-            (không phải localhost) — quan trọng nếu bạn NAT/forward cổng này ra WAN.
-            Kết nối nội bộ (127.0.0.1) từ các worker cùng máy vẫn không cần xác thực.
+            Cổng RTSP (mặc định 8554) yêu cầu xác thực cho mọi kết nối từ bên ngoài (không phải
+            localhost) — quan trọng nếu bạn NAT/forward cổng này ra WAN. Kết nối nội bộ (127.0.0.1)
+            từ các worker cùng máy vẫn không cần xác thực.
+          </p>
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            <strong>Dùng tài khoản user (khuyến nghị):</strong> mỗi user ở tab <em>Users</em> có thể
+            xem RTSP bằng chính username/password đăng nhập Web UI của họ — quyền xem tuyến camera
+            (mục "Streams" khi sửa user) áp dụng luôn cho RTSP, viewer chỉ pull được các stream được
+            gán, admin xem được tất cả.
+          </p>
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            <strong>Tài khoản dịch vụ (tuỳ chọn):</strong> dùng cho worker/script không gắn với 1
+            người cụ thể — có toàn quyền mọi stream. Xem/đổi bên dưới.
           </p>
           <div id="rtspCredBox" style="font-size:.82rem;color:var(--text-muted)">Đang tải…</div>
           <div style="display:flex;gap:.5rem;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm" onclick="loadRtspCreds()">↺ Làm mới</button>
-            <button class="btn btn-danger btn-sm" onclick="rotateRtspCreds()">🔄 Đổi mật khẩu mới</button>
+            <button class="btn btn-danger btn-sm" onclick="rotateRtspCreds()">🔄 Đổi mật khẩu dịch vụ</button>
           </div>
           <p style="font-size:.72rem;color:var(--text-muted);margin:0">
             Sau khi đổi, cập nhật lại URL RTSP (vd: <code>rtsp://USER:PASS@host:8554/stream</code>) trong mọi
-            worker từ xa (RTSPBase) hoặc ứng dụng xem ngoài đang dùng cổng này.
+            worker từ xa (RTSPBase) hoặc ứng dụng xem ngoài đang dùng tài khoản dịch vụ này.
           </p>
         </div>
       </div>
