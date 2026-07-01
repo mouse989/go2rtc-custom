@@ -593,7 +593,14 @@
           <input type="file" id="vidFile" accept="video/*,.mkv,.mp4,.avi,.mov">
         </div>
         <button class="btn btn-primary btn-sm" id="vidUploadBtn" onclick="uploadVideo()">⬆ Tải lên</button>
+        <button class="btn btn-danger btn-sm" id="vidCancelUploadBtn" style="display:none" onclick="cancelUpload()">✕ Huỷ</button>
         <span id="vidUploadInfo" style="font-size:.78rem;color:var(--text-secondary)"></span>
+      </div>
+      <!-- Upload progress bar (shown during upload) -->
+      <div id="vidUploadProgress" style="display:none;max-width:560px;margin-bottom:10px">
+        <div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+          <div id="vidUploadBar" style="height:100%;width:0%;background:var(--accent);transition:width .25s"></div>
+        </div>
       </div>
 
       <!-- Step 2: draw counting lines -->
@@ -618,7 +625,10 @@
 
       <!-- Step 3: progress -->
       <div id="vidProgress" style="display:none;margin-top:16px;max-width:560px">
-        <div style="font-size:.82rem;margin-bottom:6px" id="vidProgressMsg">Đang xử lý…</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="font-size:.82rem;flex:1" id="vidProgressMsg">Đang xử lý…</div>
+          <button class="btn btn-danger btn-sm" id="vidCancelBtn" onclick="cancelAnalysis()">✕ Huỷ</button>
+        </div>
         <div style="height:14px;background:var(--surface2);border-radius:7px;overflow:hidden">
           <div id="vidProgressBar" style="height:100%;width:0%;background:var(--accent);transition:width .4s"></div>
         </div>
@@ -626,6 +636,15 @@
 
       <!-- Step 4: results -->
       <div id="vidResult" style="display:none;margin-top:16px"></div>
+
+      <!-- Past jobs history -->
+      <div id="vidHistory" style="margin-top:20px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="font-size:.78rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;flex:1">Kết quả đã lưu</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadVideoHistory()">↺ Làm mới</button>
+        </div>
+        <div id="vidHistoryList" style="font-size:.82rem;color:var(--text-secondary)">Đang tải…</div>
+      </div>
     </div>
   </div>
 
@@ -3034,13 +3053,14 @@ function exportDetailCSV() {
 // ════════════════════════════════════════════════════════
 // Video analysis tab — upload a clip, draw counting lines, count offline
 // ════════════════════════════════════════════════════════
-let vidToken = null, vidImg = null, vidLines = [], vidDraw = null, vidPollTimer = null;
+let vidToken = null, vidImg = null, vidLines = [], vidDraw = null, vidPollTimer = null, vidWorker = '';
 let _vidFrameToken = null, _vidFrameCount = 0, _vidFrameIdx = 0, _vidPlayTimer = null, _vidCrossings = [], _vidWid = '';
 const VID_LINE_COLORS = ['#2f81f7','#16a34a','#d97706','#dc2626','#a21caf','#0e7490'];
 
 async function openVideoTab() {
   await loadVideoServers();
   await loadVideoModels();
+  loadVideoHistory();
 }
 
 async function loadVideoServers() {
@@ -3075,36 +3095,163 @@ function fmtDur(sec){
   return (h?h+'h ':'')+(m||h?m+'m ':'')+s+'s';
 }
 
-async function uploadVideo() {
-  const fileEl = document.getElementById('vidFile');
-  const info = document.getElementById('vidUploadInfo');
-  const f = fileEl.files[0];
-  if (!f) { info.textContent='Chọn tệp video trước'; return; }
+function fmtBytes(b){
+  if(!b && b!==0) return '—';
+  if(b<1024) return b+'B';
+  if(b<1048576) return (b/1024).toFixed(1)+'KB';
+  if(b<1073741824) return (b/1048576).toFixed(1)+'MB';
+  return (b/1073741824).toFixed(2)+'GB';
+}
+
+async function cancelAnalysis(){
   const wid = document.getElementById('vidServer').value;
-  const ext = (f.name.split('.').pop()||'mp4').toLowerCase();
+  try{
+    await apiFetch('/api/counting/video-cancel'+(wid?('?worker='+encodeURIComponent(wid)):''),{method:'POST'});
+    document.getElementById('vidProgressMsg').textContent='Đã huỷ phân tích.';
+  }catch(e){
+    document.getElementById('vidProgressMsg').textContent='Không thể huỷ: '+e.message;
+  }
+}
+
+async function loadVideoHistory(){
+  const box = document.getElementById('vidHistoryList');
+  if(!box) return;
+  const wid = document.getElementById('vidServer').value;
+  box.textContent = 'Đang tải…';
+  try{
+    const jobs = await apiFetch('/api/counting/video-jobs'+(wid?('?worker='+encodeURIComponent(wid)):''));
+    renderVideoHistory(jobs||[]);
+  }catch(e){
+    box.innerHTML = '<span style="color:var(--text-secondary)">Không thể tải lịch sử.</span>';
+  }
+}
+
+function renderVideoHistory(jobs){
+  const box = document.getElementById('vidHistoryList');
+  if(!box) return;
+  if(!jobs.length){
+    box.innerHTML = '<span style="color:var(--text-secondary)">Chưa có kết quả nào được lưu.</span>';
+    return;
+  }
+  box.innerHTML = jobs.map(j => {
+    const name = esc(j.name || j.token);
+    const dur  = j.duration_sec != null ? fmtDur(j.duration_sec) : '—';
+    const total = j.total != null ? j.total : '—';
+    const dims  = (j.width && j.height) ? `${j.width}×${j.height}` : '';
+    const ts    = j.completed_at ? new Date(j.completed_at*1000).toLocaleString() : '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <div style="flex:1;min-width:120px">
+        <div style="font-weight:600;font-size:.8rem">${name}</div>
+        <div style="font-size:.72rem;color:var(--text-secondary)">${[dur, dims, ts].filter(Boolean).join(' · ')}</div>
+      </div>
+      <div style="font-size:.8rem;color:var(--accent);font-weight:700;min-width:48px;text-align:right">${total} xe</div>
+      <button class="btn btn-ghost btn-sm" onclick="viewHistoryJob('${esc(j.token)}')">Xem</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteHistoryJob('${esc(j.token)}')">🗑</button>
+    </div>`;
+  }).join('');
+}
+
+async function viewHistoryJob(token){
+  const wid = document.getElementById('vidServer').value;
+  try{
+    const res = await apiFetch('/api/counting/video-jobs?token='+encodeURIComponent(token)+(wid?('&worker='+encodeURIComponent(wid)):''));
+    if(res && res.result) renderVideoResult(res.result);
+    else if(res) renderVideoResult(res);
+    document.getElementById('vidResult').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){ alert('Không thể tải kết quả: '+e.message); }
+}
+
+async function deleteHistoryJob(token){
+  if(!confirm('Xoá kết quả này?')) return;
+  const wid = document.getElementById('vidServer').value;
+  try{
+    await apiFetch('/api/counting/video-jobs?token='+encodeURIComponent(token)+(wid?('&worker='+encodeURIComponent(wid)):''),{method:'DELETE'});
+    loadVideoHistory();
+  }catch(e){ alert('Không thể xoá: '+e.message); }
+}
+
+let _vidUploadXHR = null;
+
+function cancelUpload() {
+  if (_vidUploadXHR) { _vidUploadXHR.abort(); _vidUploadXHR = null; }
+}
+
+function uploadVideo() {
+  const fileEl = document.getElementById('vidFile');
+  const info   = document.getElementById('vidUploadInfo');
+  const f      = fileEl.files[0];
+  if (!f) { info.textContent = 'Chọn tệp video trước'; return; }
+  const wid = document.getElementById('vidServer').value;
+  const ext = (f.name.split('.').pop() || 'mp4').toLowerCase();
   const btn = document.getElementById('vidUploadBtn');
-  btn.disabled = true; info.textContent = 'Đang tải lên & trích khung hình đầu…';
-  document.getElementById('vidResult').style.display='none';
-  document.getElementById('vidProgress').style.display='none';
-  document.getElementById('vidStep2').style.display='none';
-  try {
-    let url = '/api/counting/video-upload?ext=' + encodeURIComponent(ext);
-    if (wid) url += '&worker=' + encodeURIComponent(wid);
-    const token = localStorage.getItem('go2rtc_token')||'';
-    const res = await fetch(url, { method:'POST',
-      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/octet-stream'}, body: f });
-    if (!res.ok) throw new Error(await res.text());
-    const d = await res.json();
+  const cancelBtn = document.getElementById('vidCancelUploadBtn');
+  const uploadBar = document.getElementById('vidUploadBar');
+  const uploadProg = document.getElementById('vidUploadProgress');
+
+  btn.disabled = true;
+  cancelBtn.style.display = '';
+  info.textContent = 'Đang tải lên…';
+  uploadProg.style.display = '';
+  uploadBar.style.width = '0%';
+  document.getElementById('vidResult').style.display = 'none';
+  document.getElementById('vidProgress').style.display = 'none';
+  document.getElementById('vidStep2').style.display = 'none';
+
+  const xhr = new XMLHttpRequest();
+  _vidUploadXHR = xhr;
+
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      uploadBar.style.width = pct + '%';
+      info.textContent = `Đang tải lên: ${pct}% (${fmtBytes(e.loaded)} / ${fmtBytes(e.total)})`;
+    }
+  };
+
+  xhr.onload = () => {
+    _vidUploadXHR = null;
+    btn.disabled = false;
+    cancelBtn.style.display = 'none';
+    uploadProg.style.display = 'none';
+    if (xhr.status !== 200) {
+      info.textContent = 'Lỗi upload: ' + (xhr.responseText || xhr.status);
+      return;
+    }
+    let d;
+    try { d = JSON.parse(xhr.responseText); } catch(e) { info.textContent = 'Lỗi parse JSON'; return; }
     vidToken = d.token; vidLines = [];
+    vidWorker = wid;
     info.textContent = `${f.name} — ${fmtDur(d.duration_sec)} — ${d.width}×${d.height} — ${(d.fps||0).toFixed(1)} fps — ${d.frames} frame`;
     vidImg = new Image();
-    vidImg.onload = () => { setupVideoCanvas(); renderVideoLineList(); document.getElementById('vidStep2').style.display=''; };
+    vidImg.onload = () => { setupVideoCanvas(); renderVideoLineList(); document.getElementById('vidStep2').style.display = ''; };
     vidImg.src = d.firstFrame;
-  } catch(e) {
-    info.textContent = 'Lỗi: ' + e.message;
-  } finally {
+  };
+
+  xhr.onerror = () => {
+    _vidUploadXHR = null;
     btn.disabled = false;
-  }
+    cancelBtn.style.display = 'none';
+    uploadProg.style.display = 'none';
+    info.textContent = 'Lỗi mạng khi tải lên';
+  };
+
+  xhr.onabort = () => {
+    _vidUploadXHR = null;
+    btn.disabled = false;
+    cancelBtn.style.display = 'none';
+    uploadProg.style.display = 'none';
+    info.textContent = 'Đã huỷ tải lên';
+    uploadBar.style.width = '0%';
+  };
+
+  let url = '/api/counting/video-upload?ext=' + encodeURIComponent(ext)
+    + '&name=' + encodeURIComponent(f.name);
+  if (wid) url += '&worker=' + encodeURIComponent(wid);
+  const authToken = localStorage.getItem('go2rtc_token') || '';
+  xhr.open('POST', url);
+  xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+  xhr.send(f);
 }
 
 function setupVideoCanvas() {
@@ -3203,7 +3350,7 @@ function startVideoPolling(wid){
         clearInterval(vidPollTimer); vidPollTimer=null;
         document.getElementById('vidAnalyzeBtn').disabled=false;
         if(st.error){ document.getElementById('vidProgressMsg').textContent='Lỗi: '+st.error; }
-        else { document.getElementById('vidProgressMsg').textContent='Hoàn tất ✓'; if(st.result) renderVideoResult(st.result); }
+        else { document.getElementById('vidProgressMsg').textContent='Hoàn tất ✓'; if(st.result) renderVideoResult(st.result); loadVideoHistory(); }
       }
     }catch(e){}
   };
