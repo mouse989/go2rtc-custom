@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
@@ -104,8 +105,34 @@ func Init() {
 	// RTSPS: same auth/authorization, just wrapped in TLS on its own port.
 	// Point NAT/firewall forwarding here (not the plain port) when exposing
 	// the stream to the WAN, so credentials aren't sent as near-plaintext.
-	if conf.Mod.TLSListen != "" && conf.Mod.TLSCert != "" && conf.Mod.TLSKey != "" {
-		go tlsServeRTSP(conf.Mod.TLSListen, conf.Mod.TLSCert, conf.Mod.TLSKey, conf.Mod.PacketSize)
+	if conf.Mod.TLSListen != "" {
+		var tlsCfg *tls.Config
+
+		switch {
+		case conf.Mod.TLSCert != "" && conf.Mod.TLSKey != "":
+			cert, err := loadRTSPCert(conf.Mod.TLSCert, conf.Mod.TLSKey)
+			if err != nil {
+				log.Error().Err(err).Msg("[rtsps] load certificate")
+			} else {
+				tlsCfg = &tls.Config{Certificates: []tls.Certificate{cert}}
+			}
+
+		case api.ACMEManager() != nil:
+			// No manual cert configured — reuse the same auto-renewing
+			// Let's Encrypt certificate already set up for the Web UI
+			// (api.acme_domain), so RTSPS "just works" with zero extra
+			// certificate management.
+			tlsCfg = api.ACMEManager().TLSConfig()
+			tlsCfg.MinVersion = tls.VersionTLS12
+			log.Info().Msg("[rtsps] reusing api.acme_domain certificate")
+
+		default:
+			log.Error().Msg("[rtsps] rtsp.tls_listen is set but no rtsp.tls_cert/tls_key and no api.acme_domain configured — RTSPS disabled")
+		}
+
+		if tlsCfg != nil {
+			go tlsServeRTSP(conf.Mod.TLSListen, tlsCfg, conf.Mod.PacketSize)
+		}
 	}
 }
 
@@ -131,21 +158,16 @@ func serveRTSP(ln net.Listener, packetSize uint16) {
 // (empty if RTSPS isn't configured).
 var TLSPort string
 
-func tlsServeRTSP(address, certFile, keyFile string, packetSize uint16) {
-	var cert tls.Certificate
-	var err error
+// loadRTSPCert accepts either a file path or raw inline PEM for cert/key,
+// same convention as api.tls_cert/api.tls_key.
+func loadRTSPCert(certFile, keyFile string) (tls.Certificate, error) {
 	if strings.IndexByte(certFile, '\n') < 0 && strings.IndexByte(keyFile, '\n') < 0 {
-		// file path
-		cert, err = tls.LoadX509KeyPair(certFile, keyFile)
-	} else {
-		// raw inline PEM
-		cert, err = tls.X509KeyPair([]byte(certFile), []byte(keyFile))
+		return tls.LoadX509KeyPair(certFile, keyFile)
 	}
-	if err != nil {
-		log.Error().Err(err).Msg("[rtsps] load certificate")
-		return
-	}
+	return tls.X509KeyPair([]byte(certFile), []byte(keyFile))
+}
 
+func tlsServeRTSP(address string, tlsCfg *tls.Config, packetSize uint16) {
 	ln, err := net.Listen("tcp", address)
 	if err != nil {
 		log.Error().Err(err).Msg("[rtsps] listen")
@@ -156,7 +178,7 @@ func tlsServeRTSP(address, certFile, keyFile string, packetSize uint16) {
 
 	log.Info().Str("addr", address).Msg("[rtsps] listen")
 
-	tlsLn := tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}})
+	tlsLn := tls.NewListener(ln, tlsCfg)
 	serveRTSP(tlsLn, packetSize)
 }
 

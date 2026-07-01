@@ -310,7 +310,7 @@ tr:hover td { background:var(--surface2); }
             Sau khi đổi, cập nhật lại URL RTSP (vd: <code>rtsp://USER:PASS@host:8554/stream</code>) trong mọi
             worker từ xa (RTSPBase) hoặc ứng dụng xem ngoài đang dùng tài khoản dịch vụ này.
           </p>
-          <details style="font-size:.78rem;color:var(--text-muted)">
+          <details style="font-size:.78rem;color:var(--text-muted)" open>
             <summary style="cursor:pointer;font-weight:600;color:var(--text)">🌐 Bật RTSPS (mã hoá TLS) để mở ra WAN</summary>
             <div style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem">
               <p style="margin:0">
@@ -319,19 +319,37 @@ tr:hover td { background:var(--surface2); }
                 trợ RTSPS (RTSP qua TLS) như một cổng lắng nghe độc lập, mã hoá toàn bộ kết nối — hãy NAT/forward
                 cổng RTSPS ra WAN thay vì cổng RTSP thường.
               </p>
-              <p style="margin:0">1) Lấy chứng chỉ TLS thật cho domain của bạn (miễn phí, Let's Encrypt), ví dụ dùng certbot ở chế độ standalone (cần mở tạm port 80 ra WAN lúc chạy lệnh):</p>
-              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">sudo certbot certonly --standalone -d dieuhanh.utmc.io.vn</pre>
-              <p style="margin:0">Chứng chỉ sẽ nằm ở <code>/etc/letsencrypt/live/dieuhanh.utmc.io.vn/fullchain.pem</code> và <code>privkey.pem</code>.</p>
-              <p style="margin:0">2) Thêm vào file config (<code>go2rtc.yaml</code>), mục <code>rtsp:</code>:</p>
-              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">rtsp:
+
+              <p style="margin:0;color:#4ade80"><strong>✓ Cách 1 — tự động, khuyến nghị (nếu đã cấu hình <code>api.acme_domain</code> cho HTTPS Web UI):</strong>
+                RTSP sẽ dùng chung luôn chứng chỉ Let's Encrypt mà go2rtc <em>tự xin và tự gia hạn</em> cho Web UI —
+                không cần certbot, không cần đường dẫn file chứng chỉ nào cả. Chỉ cần thêm <strong>một dòng</strong>
+                vào mục <code>rtsp:</code> trong <code>go2rtc.yaml</code>:</p>
+              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">api:
+  listen: ":1984"
+  tls_listen: ":443"
+  acme_domain: "dieuhanh.utmc.io.vn"
+  acme_email: "you@example.com"
+
+rtsp:
   listen: ":8554"          # giữ lại cho LAN (tuỳ chọn)
-  tls_listen: ":8555"      # cổng RTSPS mã hoá — NAT cổng này ra WAN
+  tls_listen: ":8555"      # ← chỉ cần thêm dòng này — RTSPS tự dùng chứng chỉ ACME ở trên</pre>
+              <p style="margin:0">Khởi động lại go2rtc (chỉ cần chạy file thực thi như bình thường) — cả HTTPS
+                (443) lẫn RTSPS (8555) đều tự có chứng chỉ hợp lệ, tự gia hạn định kỳ, không cần thao tác gì thêm.
+                Sau đó NAT/forward cả 2 cổng <strong>443</strong> và <strong>8555</strong> ra WAN (giữ 80 mở tạm thời/khi gia hạn cho thử thách ACME).
+                URL dùng bên ngoài: <code>rtsps://USER:PASS@dieuhanh.utmc.io.vn:8555/stream</code>.</p>
+
+              <p style="margin:.4rem 0 0">
+                <strong>Cách 2 — thủ công (nếu không dùng ACME cho Web UI):</strong> tự lấy chứng chỉ bằng certbot
+                và trỏ trực tiếp file cert/key:</p>
+              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">sudo certbot certonly --standalone -d dieuhanh.utmc.io.vn</pre>
+              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">rtsp:
+  listen: ":8554"
+  tls_listen: ":8555"
   tls_cert: "/etc/letsencrypt/live/dieuhanh.utmc.io.vn/fullchain.pem"
   tls_key: "/etc/letsencrypt/live/dieuhanh.utmc.io.vn/privkey.pem"</pre>
-              <p style="margin:0">3) Khởi động lại go2rtc, sau đó NAT/forward cổng <strong>8555 (TLS)</strong> ra WAN — không forward 8554.
-                URL dùng bên ngoài dạng: <code>rtsps://USER:PASS@dieuhanh.utmc.io.vn:8555/stream</code>.</p>
-              <p style="margin:0;color:var(--text-muted)">Lưu ý: certbot cần renew chứng chỉ mỗi ~90 ngày (crontab
-                <code>certbot renew</code> rồi restart go2rtc), hoặc dùng <code>certbot certonly --standalone --deploy-hook "systemctl restart go2rtc"</code>.</p>
+              <p style="margin:0;color:var(--text-muted)">Cách này cần tự renew chứng chỉ mỗi ~90 ngày (crontab
+                <code>certbot renew</code> + restart go2rtc, hoặc <code>--deploy-hook</code>). Cách 1 không có
+                nhược điểm này vì go2rtc tự gia hạn.</p>
             </div>
           </details>
         </div>

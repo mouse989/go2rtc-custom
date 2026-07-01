@@ -99,7 +99,10 @@ func Init() {
 
 	// ACME / Let's Encrypt auto-cert (takes priority over manual tls_cert/tls_key).
 	if cfg.Mod.ACMEDomain != "" {
-		go acmeListen(cfg.Mod.ACMEDomain, cfg.Mod.ACMEEmail, cfg.Mod.TLSListen)
+		if m := newACMEManager(cfg.Mod.ACMEDomain, cfg.Mod.ACMEEmail); m != nil {
+			acmeManager = m
+			go acmeListen(m, cfg.Mod.TLSListen)
+		}
 	}
 }
 
@@ -154,31 +157,43 @@ func tlsListen(network, address, certFile, keyFile string) {
 	}
 }
 
-// acmeListen obtains and auto-renews a Let's Encrypt certificate for domain,
-// serves HTTPS on httpsAddr (default ":443"), and runs a temporary HTTP server
-// on :80 solely to answer HTTP-01 ACME challenges.
-//
+// acmeManager is set once ACME is configured, so other TLS listeners in the
+// process (e.g. the RTSPS server) can reuse the same Let's Encrypt
+// account/cert cache/renewal instead of needing their own cert files.
+var acmeManager *autocert.Manager
+
+// ACMEManager returns the shared autocert.Manager if api.acme_domain is
+// configured, or nil otherwise.
+func ACMEManager() *autocert.Manager {
+	return acmeManager
+}
+
+// newACMEManager builds the autocert.Manager backing ACME auto-certs.
 // Certificates are cached in <config_dir>/certs/ so they survive restarts.
 // Renewal happens automatically in the background ~30 days before expiry.
-func acmeListen(domain, email, httpsAddr string) {
-	if httpsAddr == "" {
-		httpsAddr = ":443"
-	}
-
+func newACMEManager(domain, email string) *autocert.Manager {
 	cacheDir := "certs"
 	if d := app.ConfigPath; d != "" {
 		cacheDir = filepath.Join(filepath.Dir(d), "certs")
 	}
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
 		log.Error().Err(err).Msg("[acme] cannot create cert cache dir")
-		return
+		return nil
 	}
 
-	m := &autocert.Manager{
+	return &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
 		HostPolicy: autocert.HostWhitelist(domain),
 		Cache:      autocert.DirCache(cacheDir),
 		Email:      email,
+	}
+}
+
+// acmeListen serves HTTPS on httpsAddr (default ":443") using m, and runs a
+// temporary HTTP server on :80 solely to answer HTTP-01 ACME challenges.
+func acmeListen(m *autocert.Manager, httpsAddr string) {
+	if httpsAddr == "" {
+		httpsAddr = ":443"
 	}
 
 	// HTTP server on :80 — serves ONLY ACME challenge tokens; all other paths
@@ -189,7 +204,7 @@ func acmeListen(domain, email, httpsAddr string) {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		log.Info().Str("domain", domain).Msg("[acme] HTTP challenge listener :80")
+		log.Info().Msg("[acme] HTTP challenge listener :80")
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("[acme] HTTP :80 failed — ACME challenges will not work; ensure port 80 is open")
 		}
@@ -204,7 +219,7 @@ func acmeListen(domain, email, httpsAddr string) {
 		return
 	}
 
-	log.Info().Str("domain", domain).Str("addr", httpsAddr).Msg("[acme] HTTPS server ready")
+	log.Info().Str("addr", httpsAddr).Msg("[acme] HTTPS server ready")
 
 	srv := &http.Server{
 		Handler:           Handler,
@@ -284,7 +299,6 @@ func middlewareLog(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
 
 func middlewareCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
