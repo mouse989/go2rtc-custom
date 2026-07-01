@@ -2,6 +2,7 @@ package rtsp
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -27,6 +28,15 @@ func Init() {
 			Password     string `yaml:"password" json:"-"`
 			DefaultQuery string `yaml:"default_query" json:"default_query"`
 			PacketSize   uint16 `yaml:"pkt_size" json:"pkt_size,omitempty"`
+
+			// RTSPS (RTSP over TLS) — a separate, independent listener from
+			// Listen above, so a WAN-facing rtsps:// port can run alongside
+			// (or instead of) a LAN-only plain rtsp:// port. Cert/key accept
+			// either a file path or raw inline PEM, same convention as
+			// api.tls_cert/api.tls_key.
+			TLSListen string `yaml:"tls_listen" json:"tls_listen,omitempty"`
+			TLSCert   string `yaml:"tls_cert" json:"-"`
+			TLSKey    string `yaml:"tls_key" json:"-"`
 		} `yaml:"rtsp"`
 	}
 
@@ -89,22 +99,65 @@ func Init() {
 		defaultMedias = ParseQuery(query)
 	}
 
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
+	go serveRTSP(ln, conf.Mod.PacketSize)
 
-			c := rtsp.NewServer(conn)
-			c.PacketSize = conf.Mod.PacketSize
-			// skip check auth for localhost (same-host workers/services)
-			if !conn.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
-				c.AuthValidator(validateRTSPCredentials)
-			}
-			go tcpHandler(c)
+	// RTSPS: same auth/authorization, just wrapped in TLS on its own port.
+	// Point NAT/firewall forwarding here (not the plain port) when exposing
+	// the stream to the WAN, so credentials aren't sent as near-plaintext.
+	if conf.Mod.TLSListen != "" && conf.Mod.TLSCert != "" && conf.Mod.TLSKey != "" {
+		go tlsServeRTSP(conf.Mod.TLSListen, conf.Mod.TLSCert, conf.Mod.TLSKey, conf.Mod.PacketSize)
+	}
+}
+
+// serveRTSP runs the accept loop for either a plain or TLS-wrapped listener.
+func serveRTSP(ln net.Listener, packetSize uint16) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
 		}
-	}()
+
+		c := rtsp.NewServer(conn)
+		c.PacketSize = packetSize
+		// skip check auth for localhost (same-host workers/services)
+		if !conn.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+			c.AuthValidator(validateRTSPCredentials)
+		}
+		go tcpHandler(c)
+	}
+}
+
+// TLSPort is the RTSPS listen port, set once tlsServeRTSP starts successfully
+// (empty if RTSPS isn't configured).
+var TLSPort string
+
+func tlsServeRTSP(address, certFile, keyFile string, packetSize uint16) {
+	var cert tls.Certificate
+	var err error
+	if strings.IndexByte(certFile, '\n') < 0 && strings.IndexByte(keyFile, '\n') < 0 {
+		// file path
+		cert, err = tls.LoadX509KeyPair(certFile, keyFile)
+	} else {
+		// raw inline PEM
+		cert, err = tls.X509KeyPair([]byte(certFile), []byte(keyFile))
+	}
+	if err != nil {
+		log.Error().Err(err).Msg("[rtsps] load certificate")
+		return
+	}
+
+	ln, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Error().Err(err).Msg("[rtsps] listen")
+		return
+	}
+
+	_, TLSPort, _ = net.SplitHostPort(address)
+
+	log.Info().Str("addr", address).Msg("[rtsps] listen")
+
+	tlsLn := tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}})
+	serveRTSP(tlsLn, packetSize)
 }
 
 var (

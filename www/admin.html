@@ -310,6 +310,30 @@ tr:hover td { background:var(--surface2); }
             Sau khi đổi, cập nhật lại URL RTSP (vd: <code>rtsp://USER:PASS@host:8554/stream</code>) trong mọi
             worker từ xa (RTSPBase) hoặc ứng dụng xem ngoài đang dùng tài khoản dịch vụ này.
           </p>
+          <details style="font-size:.78rem;color:var(--text-muted)">
+            <summary style="cursor:pointer;font-weight:600;color:var(--text)">🌐 Bật RTSPS (mã hoá TLS) để mở ra WAN</summary>
+            <div style="margin-top:.5rem;display:flex;flex-direction:column;gap:.5rem">
+              <p style="margin:0">
+                RTSP thường (port 8554) gửi username/password gần như dạng plaintext (Base64) — chấp nhận
+                được trong LAN, nhưng <strong>không nên NAT cổng này thẳng ra Internet</strong>. go2rtc hỗ
+                trợ RTSPS (RTSP qua TLS) như một cổng lắng nghe độc lập, mã hoá toàn bộ kết nối — hãy NAT/forward
+                cổng RTSPS ra WAN thay vì cổng RTSP thường.
+              </p>
+              <p style="margin:0">1) Lấy chứng chỉ TLS thật cho domain của bạn (miễn phí, Let's Encrypt), ví dụ dùng certbot ở chế độ standalone (cần mở tạm port 80 ra WAN lúc chạy lệnh):</p>
+              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">sudo certbot certonly --standalone -d dieuhanh.utmc.io.vn</pre>
+              <p style="margin:0">Chứng chỉ sẽ nằm ở <code>/etc/letsencrypt/live/dieuhanh.utmc.io.vn/fullchain.pem</code> và <code>privkey.pem</code>.</p>
+              <p style="margin:0">2) Thêm vào file config (<code>go2rtc.yaml</code>), mục <code>rtsp:</code>:</p>
+              <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">rtsp:
+  listen: ":8554"          # giữ lại cho LAN (tuỳ chọn)
+  tls_listen: ":8555"      # cổng RTSPS mã hoá — NAT cổng này ra WAN
+  tls_cert: "/etc/letsencrypt/live/dieuhanh.utmc.io.vn/fullchain.pem"
+  tls_key: "/etc/letsencrypt/live/dieuhanh.utmc.io.vn/privkey.pem"</pre>
+              <p style="margin:0">3) Khởi động lại go2rtc, sau đó NAT/forward cổng <strong>8555 (TLS)</strong> ra WAN — không forward 8554.
+                URL dùng bên ngoài dạng: <code>rtsps://USER:PASS@dieuhanh.utmc.io.vn:8555/stream</code>.</p>
+              <p style="margin:0;color:var(--text-muted)">Lưu ý: certbot cần renew chứng chỉ mỗi ~90 ngày (crontab
+                <code>certbot renew</code> rồi restart go2rtc), hoặc dùng <code>certbot certonly --standalone --deploy-hook "systemctl restart go2rtc"</code>.</p>
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -1647,13 +1671,17 @@ async function loadRtspCreds() {
   box.textContent = 'Đang tải…';
   try {
     const c = await apiFetch('/api/rtsp/credentials');
+    const tlsRow = c.tls_port
+      ? `<div style="color:#4ade80;font-size:.72rem">rtsps://${esc(c.username)}:${esc(c.password)}@&lt;host&gt;:${esc(c.tls_port)}/&lt;stream&gt; (mã hoá — dùng khi mở ra WAN)</div>`
+      : `<div style="color:var(--text-muted);font-size:.72rem">RTSPS (mã hoá) chưa bật — xem hướng dẫn "Bật RTSPS cho WAN" bên dưới.</div>`;
     box.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:.3rem;font-family:monospace;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.6rem .7rem">
         <div>User: <strong>${esc(c.username)}</strong></div>
         <div style="display:flex;align-items:center;gap:.4rem">Pass: <strong id="rtspPassVal">${esc(c.password)}</strong>
-          <button class="btn btn-ghost btn-sm" style="padding:.1rem .4rem" onclick="copyRtspCreds('${esc(c.username)}','${esc(c.password)}',${esc(c.port||'8554')})">📋 Copy URL</button>
+          <button class="btn btn-ghost btn-sm" style="padding:.1rem .4rem" onclick="copyRtspCreds('${esc(c.username)}','${esc(c.password)}',${esc(c.port||'8554')})">📋 Copy RTSP</button>
         </div>
-        <div style="color:var(--text-muted);font-size:.72rem">rtsp://${esc(c.username)}:${esc(c.password)}@&lt;host&gt;:${esc(c.port||'8554')}/&lt;stream&gt;</div>
+        <div style="color:var(--text-muted);font-size:.72rem">rtsp://${esc(c.username)}:${esc(c.password)}@&lt;host&gt;:${esc(c.port||'8554')}/&lt;stream&gt; (không mã hoá — chỉ dùng trong LAN)</div>
+        ${tlsRow}
       </div>`;
   } catch (e) {
     box.textContent = 'Không tải được (RTSP server có thể đang tắt).';
