@@ -39,6 +39,7 @@ func handleCredentials(w http.ResponseWriter, r *http.Request) {
 		"username": username,
 		"password": password,
 		"port":     Port,
+		"tls_port": TLSPort,
 	})
 }
 
@@ -61,5 +62,6 @@ func handleRotateCredentials(w http.ResponseWriter, r *http.Request) {
 		"username": username,
 		"password": password,
 		"port":     Port,
+		"tls_port": TLSPort,
 	})
 }

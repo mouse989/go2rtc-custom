@@ -160,6 +160,15 @@ func CanAccessStream(ctx context.Context, streamName string) bool {
 	if !ok {
 		return false
 	}
+	return UserCanAccessStream(u, streamName)
+}
+
+// UserCanAccessStream reports whether u may view streamName, given u directly
+// rather than via a request context (e.g. for non-HTTP protocols like RTSP).
+func UserCanAccessStream(u *User, streamName string) bool {
+	if u == nil {
+		return false
+	}
 	if u.Role == RoleAdmin {
 		return true
 	}
@@ -300,4 +309,3 @@ func respondUnauthorized(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
-
