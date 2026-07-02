@@ -260,7 +260,11 @@ func validateRTSPCredentials(user, pass, _ string) bool {
 }
 
 // rtspStreamAllowed reports whether the connection (already authenticated,
-// or exempt via loopback) may access the given stream name.
+// or exempt via loopback) may access the given stream name. name may be
+// either the real stream name or a masked camera ID (streams.GetByAny
+// accepts both, e.g. the rtsp:// URLs the app itself hands out to viewers
+// via the masked-ID proxy endpoint use the masked form) — resolve it to the
+// real name first, since User.Streams is always stored with real names.
 func rtspStreamAllowed(conn *rtsp.Conn, name string) bool {
 	username := conn.AuthUser()
 	if username == "" {
@@ -268,6 +272,9 @@ func rtspStreamAllowed(conn *rtsp.Conn, name string) bool {
 	}
 	if su, _ := CurrentCredentials(); su != "" && username == su {
 		return true // shared service credential: full access
+	}
+	if realName, ok := auth.StreamNameByID(name); ok {
+		name = realName
 	}
 	u, ok := auth.GetUser(username)
 	if !ok {
