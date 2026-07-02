@@ -8,7 +8,9 @@ on:
     #   go2rtc binaries : scripts/build.sh (Linux/Mac) or scripts/build.cmd (Windows)
     #   yolo_counter    : scripts/build_yolo_linux.sh (Linux)
     #                     scripts/build_yolo_win.bat  (Windows CPU)
-    # NOTE: Windows GPU (CUDA) build is done locally only — see yolo_counter/BUILD_GUIDE.md
+    # NOTE: GPU (CUDA) builds are done locally only — see yolo_counter/BUILD_GUIDE.md
+    #   Windows GPU: scripts/setup_yolo_win.bat / setup_yolo_win_gpu.bat (venv)
+    #   Linux GPU  : scripts/setup_yolo_linux_gpu.sh (venv, recommended)
 
 jobs:
   build-binaries:
@@ -90,31 +92,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: yolo_counter_linux64
-          path: dist/yolo_counter
-
-  build-yolo-linux64-gpu:
-    name: Build yolo_counter (Linux x64, NVIDIA GPU)
-    runs-on: ubuntu-22.04
-    container:
-      image: python:3.11-slim-bullseye
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install system libs
-        run: apt-get update -y && apt-get install -y libglib2.0-0 libgl1 binutils
-
-      - name: Install CUDA-enabled PyTorch
-        run: pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu121
-
-      - name: Install ultralytics, opencv, web stack, PyInstaller
-        run: pip install --no-cache-dir ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
-
-      - name: Build yolo_counter
-        run: pyinstaller --onefile --name yolo_counter yolo_counter/counter.py
-
-      - name: Upload yolo_counter_linux64_gpu
-        uses: actions/upload-artifact@v4
-        with:
-          name: yolo_counter_linux64_gpu
           path: dist/yolo_counter
