@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/rtsp"
 	"github.com/AlexxIT/go2rtc/internal/workers"
 )
 
@@ -87,6 +88,11 @@ func remotePushCamera(cam CameraConfig) error {
 			cam.RTSPBase = base
 		}
 	}
+	// The remote worker connects to this server's RTSP port over the LAN
+	// (not loopback), which now requires auth — embed the shared service
+	// credentials automatically so existing worker configs keep working
+	// without every admin having to hand-edit RTSPBase after the upgrade.
+	cam.RTSPBase = rtsp.WithCredentials(cam.RTSPBase)
 	workerID := cam.WorkerID
 	cam.WorkerID = "" // Remote must process this camera locally, not re-delegate
 

@@ -195,6 +195,29 @@ func CurrentCredentials() (string, string) {
 	return currentUsername, currentPassword
 }
 
+// WithCredentials embeds the shared service credentials into base (an RTSP
+// base URL like "rtsp://main-server-ip:8554") if it doesn't already carry
+// userinfo, so callers building a pull URL for a non-loopback client (e.g. a
+// remote counting worker's RTSPBase) keep working without every admin having
+// to hand-edit each worker's config after auth became mandatory for
+// non-loopback RTSP connections. Returns base unchanged if it's empty,
+// already has "user:pass@", or the RTSP server has no credentials set yet.
+func WithCredentials(base string) string {
+	if base == "" {
+		return base
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.User != nil {
+		return base
+	}
+	user, pass := CurrentCredentials()
+	if user == "" {
+		return base
+	}
+	u.User = url.UserPassword(user, pass)
+	return u.String()
+}
+
 // RotateCredentials generates a fresh random password (keeping the existing
 // username) and persists it, so it takes effect immediately for any new
 // connection without a server restart.
