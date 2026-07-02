@@ -164,9 +164,20 @@ dedicated venv's Python. go2rtc auto-discovers any executable named
 
 ### Setup (run once on the deployment machine)
 
+> **Deploy dir must be a DIFFERENT folder from the repo checkout.** The script
+> copies the wrapper to `<deploy_dir>/yolo_counter` (a *file*, no extension).
+> If `<deploy_dir>` is the repo checkout itself, that path collides with the
+> repo's own `yolo_counter/` *source subfolder* of the same name — `cp` can't
+> replace a directory with a file there. go2rtc then finds a directory named
+> `yolo_counter` and fails to launch it with a confusing
+> `fork/exec: permission denied` (looks like a missing `+x` bit, but isn't).
+> The script now refuses to run and explains this if it detects the collision.
+
 ```bash
+# Run from inside your go2rtc-custom checkout, pointing at a SEPARATE
+# deployment folder (this example: /opt/GO_YO):
 chmod +x scripts/setup_yolo_linux_gpu.sh
-scripts/setup_yolo_linux_gpu.sh /opt/go2rtc      # folder where the go2rtc binary lives
+scripts/setup_yolo_linux_gpu.sh /opt/GO_YO
 ```
 
 This:
@@ -228,6 +239,14 @@ If `.exe` exists, `.bat` is ignored. Always remove or rename an old `.exe` after
 go2rtc's folder and runs it directly. This is either the `build_yolo_linux.sh`
 PyInstaller binary **or** the `setup_yolo_linux_gpu.sh` venv wrapper — both use
 the same filename, so only one is present at a time.
+
+go2rtc's launcher is defensive about two common Linux deploy mistakes:
+- If `yolo_counter` exists but is a **directory** (e.g. the repo's source
+  subfolder copied by mistake — see the deploy-dir warning above), it's
+  skipped with a clear log message instead of a confusing exec failure.
+- If `yolo_counter` exists but is missing the **execute bit** (common after
+  `unzip`/browser download on Unix), go2rtc `chmod +x`'s it automatically
+  before launching.
 
 ---
 

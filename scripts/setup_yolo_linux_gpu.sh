@@ -59,6 +59,29 @@ if [ ! -f "$REPO/yolo_counter/counter.py" ]; then
     exit 1
 fi
 
+# Deploying straight into the repo checkout collides the wrapper's target
+# filename ($DEPLOY/yolo_counter, a FILE) with the repo's own yolo_counter/
+# source SUBFOLDER of the same name at that same path — `cp` then either
+# fails or silently copies into the folder instead of replacing it, and
+# go2rtc ends up trying to exec() a directory (fails with a confusing
+# "permission denied" that looks like a missing +x bit). Deploy dir must be
+# a separate folder from the repo checkout.
+if [ "$DEPLOY" = "$REPO" ]; then
+    echo "ERROR: deploy dir ($DEPLOY) is the same as the repo checkout." >&2
+    echo "Keep them separate, e.g.:" >&2
+    echo "  scripts/setup_yolo_linux_gpu.sh /opt/GO_YO" >&2
+    echo "(run this from inside your go2rtc-custom repo checkout, pointing at a" >&2
+    echo " different folder where the go2rtc binary is/will be deployed)" >&2
+    exit 1
+fi
+if [ -d "$DEPLOY/yolo_counter" ]; then
+    echo "ERROR: $DEPLOY/yolo_counter already exists as a DIRECTORY, not a file." >&2
+    echo "This is usually caused by copying the repo's yolo_counter/ source folder" >&2
+    echo "directly into the deploy dir. Remove/rename it first, e.g.:" >&2
+    echo "  mv '$DEPLOY/yolo_counter' '$DEPLOY/yolo_counter.bak'" >&2
+    exit 1
+fi
+
 if [ ! -e "$DEPLOY/go2rtc" ] && [ -z "$(ls "$DEPLOY"/go2rtc* 2>/dev/null)" ]; then
     echo "WARNING: go2rtc binary not found in $DEPLOY"
     echo "Make sure you are pointing at the right deployment folder."

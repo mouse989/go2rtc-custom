@@ -71,16 +71,31 @@ func findYoloPath() (string, bool) {
 	}
 	for _, name := range candidates {
 		p := filepath.Join(dir, name)
-		if fi, err := os.Stat(p); err == nil {
-			// Downloaded/copied files commonly lose the execute bit on Unix
-			// (e.g. after `unzip`, or a browser/SFTP download), causing a
-			// confusing "fork/exec: permission denied" instead of a clear
-			// hint — fix it up front so auto-launch just works.
-			if runtime.GOOS != "windows" && fi.Mode()&0o111 == 0 {
-				_ = os.Chmod(p, fi.Mode()|0o755)
-			}
-			return p, true
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
 		}
+
+		if fi.IsDir() {
+			// A common deploy mistake: copying the repo's yolo_counter/
+			// source folder as-is next to go2rtc instead of running the
+			// setup script, which deploys a single executable file named
+			// "yolo_counter" (no extension). exec() on a directory fails
+			// with the same "permission denied" as a missing +x bit, which
+			// is confusing to debug — call it out explicitly instead.
+			log.Warn().Str("path", p).
+				Msg("[counting] found a directory named 'yolo_counter', not an executable — run scripts/setup_yolo_linux_gpu.sh (or setup_yolo_win.bat) to deploy it correctly; skipping")
+			continue
+		}
+
+		// Downloaded/copied files commonly lose the execute bit on Unix
+		// (e.g. after `unzip`, or a browser/SFTP download), causing a
+		// confusing "fork/exec: permission denied" instead of a clear
+		// hint — fix it up front so auto-launch just works.
+		if runtime.GOOS != "windows" && fi.Mode()&0o111 == 0 {
+			_ = os.Chmod(p, fi.Mode()|0o755)
+		}
+		return p, true
 	}
 	return "", false
 }
