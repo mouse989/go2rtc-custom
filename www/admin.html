@@ -332,11 +332,11 @@ tr:hover td { background:var(--surface2); }
 
 rtsp:
   listen: ":8554"          # giữ lại cho LAN (tuỳ chọn)
-  tls_listen: ":8555"      # ← chỉ cần thêm dòng này — RTSPS tự dùng chứng chỉ ACME ở trên</pre>
+  tls_listen: ":8556"      # ← chỉ cần thêm dòng này — RTSPS tự dùng chứng chỉ ACME ở trên</pre>
               <p style="margin:0">Khởi động lại go2rtc (chỉ cần chạy file thực thi như bình thường) — cả HTTPS
-                (443) lẫn RTSPS (8555) đều tự có chứng chỉ hợp lệ, tự gia hạn định kỳ, không cần thao tác gì thêm.
-                Sau đó NAT/forward cả 2 cổng <strong>443</strong> và <strong>8555</strong> ra WAN (giữ 80 mở tạm thời/khi gia hạn cho thử thách ACME).
-                URL dùng bên ngoài: <code>rtsps://USER:PASS@dieuhanh.utmc.io.vn:8555/stream</code>.</p>
+                (443) lẫn RTSPS (8556) đều tự có chứng chỉ hợp lệ, tự gia hạn định kỳ, không cần thao tác gì thêm.
+                Sau đó NAT/forward cả 2 cổng <strong>443</strong> và <strong>8556</strong> ra WAN (giữ 80 mở tạm thời/khi gia hạn cho thử thách ACME).
+                URL dùng bên ngoài: <code>rtsps://USER:PASS@dieuhanh.utmc.io.vn:8556/stream</code>.</p>
 
               <p style="margin:.4rem 0 0">
                 <strong>Cách 2 — thủ công (nếu không dùng ACME cho Web UI):</strong> tự lấy chứng chỉ bằng certbot
@@ -344,7 +344,7 @@ rtsp:
               <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">sudo certbot certonly --standalone -d dieuhanh.utmc.io.vn</pre>
               <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;overflow:auto;font-size:.72rem;margin:0">rtsp:
   listen: ":8554"
-  tls_listen: ":8555"
+  tls_listen: ":8556"
   tls_cert: "/etc/letsencrypt/live/dieuhanh.utmc.io.vn/fullchain.pem"
   tls_key: "/etc/letsencrypt/live/dieuhanh.utmc.io.vn/privkey.pem"</pre>
               <p style="margin:0;color:var(--text-muted)">Cách này cần tự renew chứng chỉ mỗi ~90 ngày (crontab

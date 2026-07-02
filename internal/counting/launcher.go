@@ -71,7 +71,14 @@ func findYoloPath() (string, bool) {
 	}
 	for _, name := range candidates {
 		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err == nil {
+		if fi, err := os.Stat(p); err == nil {
+			// Downloaded/copied files commonly lose the execute bit on Unix
+			// (e.g. after `unzip`, or a browser/SFTP download), causing a
+			// confusing "fork/exec: permission denied" instead of a clear
+			// hint — fix it up front so auto-launch just works.
+			if runtime.GOOS != "windows" && fi.Mode()&0o111 == 0 {
+				_ = os.Chmod(p, fi.Mode()|0o755)
+			}
 			return p, true
 		}
 	}
