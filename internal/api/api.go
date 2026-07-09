@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -59,6 +60,7 @@ func Init() {
 	log = app.GetLogger("api")
 
 	initStatic(cfg.Mod.StaticDir)
+	initReverseProxy()
 
 	HandleFunc("api", apiHandler)
 	HandleFunc("api/config", configHandler)
@@ -81,6 +83,11 @@ func Init() {
 		Handler = middlewareLog(Handler) // 1st
 	}
 
+	// Reverse proxy for other websites on this server sharing this server's
+	// ACME certificate — checked before auth/CORS since those are unrelated
+	// apps, not go2rtc pages. Outermost wrap = checked first.
+	Handler = reverseProxyMiddleware(Handler)
+
 	if cfg.Mod.Listen != "" {
 		_, port, _ := net.SplitHostPort(cfg.Mod.Listen)
 		Port, _ = strconv.Atoi(port)
@@ -99,6 +106,7 @@ func Init() {
 
 	// ACME / Let's Encrypt auto-cert (takes priority over manual tls_cert/tls_key).
 	if cfg.Mod.ACMEDomain != "" {
+		primaryACMEDomain = cfg.Mod.ACMEDomain
 		if m := newACMEManager(cfg.Mod.ACMEDomain, cfg.Mod.ACMEEmail); m != nil {
 			acmeManager = m
 			go acmeListen(m, cfg.Mod.TLSListen)
@@ -162,6 +170,11 @@ func tlsListen(network, address, certFile, keyFile string) {
 // account/cert cache/renewal instead of needing their own cert files.
 var acmeManager *autocert.Manager
 
+// primaryACMEDomain is the go2rtc Web UI's own ACME domain (api.acme_domain),
+// so reverse-proxy site config can refuse to shadow it — proxying the
+// admin's own domain to another backend would lock them out of this UI.
+var primaryACMEDomain string
+
 // ACMEManager returns the shared autocert.Manager if api.acme_domain is
 // configured, or nil otherwise.
 func ACMEManager() *autocert.Manager {
@@ -182,10 +195,24 @@ func newACMEManager(domain, email string) *autocert.Manager {
 	}
 
 	return &autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		HostPolicy: autocert.HostWhitelist(domain),
-		Cache:      autocert.DirCache(cacheDir),
-		Email:      email,
+		Prompt: autocert.AcceptTOS,
+		// Dynamic instead of a fixed autocert.HostWhitelist(domain): also
+		// allow every enabled reverse-proxy site's domain, re-checked live
+		// on each cert request/renewal, so adding a new site in Admin →
+		// Settings doesn't require a restart to get its certificate.
+		HostPolicy: func(_ context.Context, host string) error {
+			if host == domain {
+				return nil
+			}
+			for _, d := range proxyDomains() {
+				if host == d {
+					return nil
+				}
+			}
+			return fmt.Errorf("acme/autocert: host %q is not configured (api.acme_domain or an enabled reverse-proxy site)", host)
+		},
+		Cache: autocert.DirCache(cacheDir),
+		Email: email,
 	}
 }
 
