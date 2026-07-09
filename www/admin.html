@@ -354,6 +354,30 @@ rtsp:
           </details>
         </div>
       </div>
+
+      <div class="card" style="max-width:640px;margin-top:1rem">
+        <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.95rem;font-weight:700">🌐 Reverse Proxy — dùng chung SSL cho trang web khác</h3>
+        </div>
+        <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            Nếu server này còn chạy trang web khác (ở port riêng, HTTP nội bộ), khai báo domain riêng cho
+            từng trang tại đây — go2rtc sẽ nhận HTTPS (443) theo domain, tự xin/gia hạn chứng chỉ Let's
+            Encrypt cho domain đó (dùng chung cơ chế ACME đã cấu hình ở <code>api.acme_domain</code>), rồi
+            chuyển tiếp (proxy) vào cổng nội bộ tương ứng. Trang web đó không cần tự cấu hình SSL.
+            <strong>Yêu cầu:</strong> mỗi domain khai báo phải đã trỏ DNS (bản ghi A) về đúng IP server này.
+          </p>
+          <div id="rpTable" style="font-size:.82rem">Đang tải…</div>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);padding-top:.7rem">
+            <input type="text" id="rpDomainInput" placeholder="app1.dieuhanh.utmc.io.vn"
+                   style="flex:1;min-width:180px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.4rem .55rem;color:var(--text);font-size:.8rem;font-family:monospace">
+            <input type="text" id="rpTargetInput" placeholder="127.0.0.1:3000"
+                   style="width:160px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.4rem .55rem;color:var(--text);font-size:.8rem;font-family:monospace">
+            <button class="btn btn-primary btn-sm" onclick="addProxySite()">+ Thêm</button>
+          </div>
+          <span id="rpMsg" style="font-size:.78rem;display:none"></span>
+        </div>
+      </div>
     </div>
 
     <!-- ── Devices section ── -->
@@ -1682,6 +1706,96 @@ async function loadSettings() {
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
   } catch (e) {}
   loadRtspCreds();
+  loadProxySites();
+}
+
+async function loadProxySites() {
+  const box = document.getElementById('rpTable');
+  box.textContent = 'Đang tải…';
+  try {
+    const sites = await apiFetch('/api/reverse-proxy');
+    renderProxySites(sites || []);
+  } catch (e) {
+    box.textContent = 'Không tải được danh sách.';
+  }
+}
+
+function renderProxySites(sites) {
+  const box = document.getElementById('rpTable');
+  if (!sites.length) {
+    box.innerHTML = '<div style="color:var(--text-muted)">Chưa có trang nào được cấu hình.</div>';
+    return;
+  }
+  box.innerHTML = `<table class="tbl" style="width:100%">
+    <thead><tr>
+      <th style="text-align:left;padding:4px 6px">Domain</th>
+      <th style="text-align:left;padding:4px 6px">Target</th>
+      <th style="text-align:center;padding:4px 6px">Bật</th>
+      <th style="padding:4px 6px"></th>
+    </tr></thead>
+    <tbody>${sites.map(s => `
+      <tr>
+        <td style="padding:4px 6px;font-family:monospace">${esc(s.domain)}</td>
+        <td style="padding:4px 6px;font-family:monospace;color:var(--text-muted)">${esc(s.target)}</td>
+        <td style="padding:4px 6px;text-align:center">
+          <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleProxySite('${esc(s.id)}', this.checked)">
+        </td>
+        <td style="padding:4px 6px;text-align:right">
+          <button class="btn btn-danger btn-sm" style="padding:1px 6px" onclick="deleteProxySiteUI('${esc(s.id)}','${esc(s.domain)}')">✕</button>
+        </td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+async function addProxySite() {
+  const domain = document.getElementById('rpDomainInput').value.trim().toLowerCase();
+  const target = document.getElementById('rpTargetInput').value.trim();
+  const msg = document.getElementById('rpMsg');
+  if (!domain || !target) {
+    msg.style.display = ''; msg.style.color = '#f87171'; msg.textContent = 'Cần nhập cả domain và target';
+    return;
+  }
+  try {
+    await apiFetch('/api/reverse-proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, target, enabled: true }),
+    });
+    document.getElementById('rpDomainInput').value = '';
+    document.getElementById('rpTargetInput').value = '';
+    msg.style.display = ''; msg.style.color = '#4ade80'; msg.textContent = '✓ Đã thêm — chứng chỉ SSL sẽ tự cấp lần truy cập HTTPS đầu tiên';
+    setTimeout(() => { msg.style.display = 'none'; }, 4000);
+    loadProxySites();
+  } catch (e) {
+    msg.style.display = ''; msg.style.color = '#f87171'; msg.textContent = 'Lỗi: ' + e.message;
+  }
+}
+
+async function toggleProxySite(id, enabled) {
+  try {
+    const sites = await apiFetch('/api/reverse-proxy');
+    const s = (sites || []).find(x => x.id === id);
+    if (!s) return;
+    await apiFetch('/api/reverse-proxy', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: s.id, domain: s.domain, target: s.target, enabled }),
+    });
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
+    loadProxySites();
+  }
+}
+
+async function deleteProxySiteUI(id, domain) {
+  if (!confirm(`Xoá reverse proxy cho "${domain}"?`)) return;
+  try {
+    await apiFetch('/api/reverse-proxy?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    loadProxySites();
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
+  }
 }
 
 async function loadRtspCreds() {

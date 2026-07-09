@@ -684,7 +684,7 @@
       <!-- Canvas + multi-line editor -->
       <div style="margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <label style="font-size:.78rem;font-weight:600;color:var(--text-secondary)" id="canvasHint">Nhấp trên ảnh để vẽ đường đếm</label>
+          <label style="font-size:.78rem;font-weight:600;color:var(--text-secondary)" id="canvasHint">Nhấp trên ảnh để vẽ đường đếm — kéo điểm đầu/cuối hoặc giữa đường để sửa vị trí</label>
           <button class="btn btn-ghost btn-sm" onclick="refreshPreview()">↺ Refresh</button>
         </div>
         <canvas id="previewCanvas" style="max-height:220px;object-fit:contain;cursor:crosshair;border-radius:4px;border:1px solid var(--border)"></canvas>
@@ -892,7 +892,10 @@ let drawP1     = null; // {x, y} normalized, set after first click
 let pendingLine = null;      // {x1,y1,x2,y2} — line just drawn, awaiting naming
 let pendingFlipped = false;  // arrow is on left side instead of right
 let editingLineIndex = -1;   // ≥0 when editing canvasLines[i] via inline form
+let lineDrag = null; // {index, part:'p1'|'p2'|'line', startNorm:{x,y}, origLine} — active endpoint/line drag
 const LINE_COLORS = ['#00e600','#00dcdc','#e6a000','#e600e6','#e60000','#0080ff'];
+const LINE_HIT_RADIUS = 10; // px, in on-screen (CSS) pixel space
+const clamp01 = v => Math.max(0, Math.min(1, v));
 
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
 const TABS  = ['live','history','detail','video','debug','workers','settings'];
@@ -918,8 +921,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const canvas = document.getElementById('previewCanvas');
   canvas.addEventListener('click',     handleCanvasClick);
-  canvas.addEventListener('mousemove', handleCanvasHover);
-  canvas.addEventListener('touchstart', e => { e.preventDefault(); handleCanvasClick(e.touches[0]); }, {passive:false});
+  canvas.addEventListener('mousedown', handleCanvasMouseDown);
+  canvas.addEventListener('mousemove', handleCanvasMouseMove);
+  window.addEventListener('mouseup',   handleCanvasMouseUp);
+  canvas.addEventListener('touchstart', e => {
+    if (drawMode) { e.preventDefault(); handleCanvasClick(e.touches[0]); return; }
+    if (handleCanvasMouseDown(e.touches[0])) e.preventDefault();
+  }, {passive:false});
+  canvas.addEventListener('touchmove', e => {
+    if (lineDrag) { e.preventDefault(); handleCanvasMouseMove(e.touches[0]); }
+  }, {passive:false});
+  canvas.addEventListener('touchend', handleCanvasMouseUp);
 });
 
 // ════════════════════════════════════════════════════════
@@ -2063,6 +2075,75 @@ function handleCanvasHover(e) {
   if (!drawMode || !drawP1) return;
   hoverPoint = _canvasNorm(e);
   drawPreview();
+}
+
+// ── Drag-to-edit an already-drawn line (move an endpoint or the whole line) ──
+function _canvasClientPt(e) {
+  const canvas = document.getElementById('previewCanvas');
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top, w: rect.width, h: rect.height };
+}
+
+function _pointToSegmentDist(px, py, x1, y1, x2, y2) {
+  const dx = x2-x1, dy = y2-y1;
+  const lenSq = dx*dx + dy*dy;
+  let t = lenSq ? ((px-x1)*dx + (py-y1)*dy) / lenSq : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1+t*dx), py - (y1+t*dy));
+}
+
+// Returns {index, part:'p1'|'p2'|'line'} for the closest hit within LINE_HIT_RADIUS, or null.
+function hitTestLine(cp) {
+  const { x, y, w, h } = cp;
+  for (let i = 0; i < canvasLines.length; i++) {
+    const ln = canvasLines[i];
+    const x1 = ln.x1*w, y1 = ln.y1*h, x2 = ln.x2*w, y2 = ln.y2*h;
+    if (Math.hypot(x-x1, y-y1) <= LINE_HIT_RADIUS) return { index: i, part: 'p1' };
+    if (Math.hypot(x-x2, y-y2) <= LINE_HIT_RADIUS) return { index: i, part: 'p2' };
+    if (_pointToSegmentDist(x, y, x1, y1, x2, y2) <= LINE_HIT_RADIUS) return { index: i, part: 'line' };
+  }
+  return null;
+}
+
+// Returns true if a drag started (used by the touchstart handler to decide preventDefault).
+function handleCanvasMouseDown(e) {
+  if (drawMode || pendingLine) return false; // drawing/naming takes priority
+  const hit = hitTestLine(_canvasClientPt(e));
+  if (!hit) return false;
+  lineDrag = { index: hit.index, part: hit.part, startNorm: _canvasNorm(e), origLine: {...canvasLines[hit.index]} };
+  document.getElementById('previewCanvas').style.cursor = 'grabbing';
+  return true;
+}
+
+function handleCanvasMouseMove(e) {
+  if (lineDrag) {
+    const norm = _canvasNorm(e);
+    const ln = canvasLines[lineDrag.index];
+    if (!ln) { lineDrag = null; return; }
+    if (lineDrag.part === 'p1') {
+      ln.x1 = norm.x; ln.y1 = norm.y;
+    } else if (lineDrag.part === 'p2') {
+      ln.x2 = norm.x; ln.y2 = norm.y;
+    } else {
+      const dx = norm.x - lineDrag.startNorm.x, dy = norm.y - lineDrag.startNorm.y;
+      const o = lineDrag.origLine;
+      ln.x1 = clamp01(o.x1+dx); ln.y1 = clamp01(o.y1+dy);
+      ln.x2 = clamp01(o.x2+dx); ln.y2 = clamp01(o.y2+dy);
+    }
+    drawPreview();
+    return;
+  }
+  if (!drawMode) {
+    const hit = hitTestLine(_canvasClientPt(e));
+    document.getElementById('previewCanvas').style.cursor = hit ? (hit.part === 'line' ? 'move' : 'grab') : 'default';
+  }
+  handleCanvasHover(e);
+}
+
+function handleCanvasMouseUp() {
+  if (!lineDrag) return;
+  lineDrag = null;
+  document.getElementById('previewCanvas').style.cursor = 'default';
 }
 
 function startDrawingLine() {
