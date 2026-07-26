@@ -122,6 +122,10 @@ func isBlankRow(row []string) bool {
 	return true
 }
 
+// rowToIncident extracts one row's fields and applies the same required-field
+// rule as manual entry (validate, shared with Create/Update): Thời gian, Thể
+// loại, Nội dung, Đơn vị. Vị trí/Ghi chú are optional — a meaningful share of
+// the legacy data has no location (general/area-wide reports).
 func rowToIncident(row []string, col headerCols) (*Incident, error) {
 	t, err := parseExcelTime(cellAt(row, col.timeCol))
 	if err != nil {
@@ -135,17 +139,8 @@ func rowToIncident(row []string, col headerCols) (*Incident, error) {
 		Note:     cellAt(row, col.noteCol),
 		Location: cellAt(row, col.locationCol),
 	}
-	if in.Category == "" {
-		in.Category = "Sự cố khác"
-	}
-	if in.Unit == "" {
-		in.Unit = "Chưa rõ"
-	}
-	if in.Content == "" {
-		return nil, fmt.Errorf("thiếu nội dung sự việc")
-	}
-	if in.Location == "" {
-		return nil, fmt.Errorf("thiếu vị trí")
+	if err := validate(in); err != nil {
+		return nil, err
 	}
 	return in, nil
 }
