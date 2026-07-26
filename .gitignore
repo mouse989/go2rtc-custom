@@ -27,3 +27,5 @@ CLAUDE.md
 __pycache__/
 *.pyc
 .claude/
+
+/incidents_data/

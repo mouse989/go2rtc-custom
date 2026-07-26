@@ -105,6 +105,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_monitor_devices":   user.AllowMonitorDevices,
 		"allow_cam_snapshot":      user.AllowCamSnapshot,
 		"allow_cam_video":         user.AllowCamVideo,
+		"allow_incidents_import":  user.AllowIncidentsImport,
 		"tabs":                    user.EffectiveTabs(),
 	})
 }
@@ -158,6 +159,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices   bool     `json:"allow_monitor_devices"`
 			AllowCamSnapshot      bool     `json:"allow_cam_snapshot"`
 			AllowCamVideo         bool     `json:"allow_cam_video"`
+			AllowIncidentsImport  bool     `json:"allow_incidents_import"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -194,6 +196,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices:   req.AllowMonitorDevices,
 			AllowCamSnapshot:      req.AllowCamSnapshot,
 			AllowCamVideo:         req.AllowCamVideo,
+			AllowIncidentsImport:  req.AllowIncidentsImport,
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -232,6 +235,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices   *bool    `json:"allow_monitor_devices"`
 			AllowCamSnapshot      *bool    `json:"allow_cam_snapshot"`
 			AllowCamVideo         *bool    `json:"allow_cam_video"`
+			AllowIncidentsImport  *bool    `json:"allow_incidents_import"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -295,6 +299,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowCamVideo != nil {
 			existing.AllowCamVideo = *req.AllowCamVideo
+		}
+		if req.AllowIncidentsImport != nil {
+			existing.AllowIncidentsImport = *req.AllowIncidentsImport
 		}
 		if err := UpdateUser(existing, req.Password); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
