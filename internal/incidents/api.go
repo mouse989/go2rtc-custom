@@ -14,6 +14,31 @@ func registerHandlers() {
 	http.HandleFunc("/api/incidents/meta", handleMeta)
 	http.HandleFunc("/api/incidents/years", handleYears)
 	http.HandleFunc("/api/incidents/import", handleImport)
+	http.HandleFunc("/api/incidents/export", handleExport)
+}
+
+// parseListFilter reads the year/from/to/category/unit/q query params shared
+// by the list and export endpoints, so both always filter identically.
+func parseListFilter(r *http.Request) ListFilter {
+	year, err := strconv.Atoi(r.URL.Query().Get("year"))
+	if err != nil {
+		year = time.Now().Year()
+	}
+	f := ListFilter{
+		Year:     year,
+		Category: r.URL.Query().Get("category"),
+		Unit:     r.URL.Query().Get("unit"),
+		Q:        r.URL.Query().Get("q"),
+	}
+	if s := r.URL.Query().Get("from"); s != "" {
+		f.From, _ = time.Parse("2006-01-02", s)
+	}
+	if s := r.URL.Query().Get("to"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			f.To = t.Add(24*time.Hour - time.Second)
+		}
+	}
+	return f
 }
 
 // requireTab reports whether the caller has the incidents tab (or is admin),
@@ -77,25 +102,7 @@ func handleIncidents(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		year, err := strconv.Atoi(r.URL.Query().Get("year"))
-		if err != nil {
-			year = time.Now().Year()
-		}
-		f := ListFilter{
-			Year:     year,
-			Category: r.URL.Query().Get("category"),
-			Unit:     r.URL.Query().Get("unit"),
-			Q:        r.URL.Query().Get("q"),
-		}
-		if s := r.URL.Query().Get("from"); s != "" {
-			f.From, _ = time.Parse("2006-01-02", s)
-		}
-		if s := r.URL.Query().Get("to"); s != "" {
-			if t, err := time.Parse("2006-01-02", s); err == nil {
-				f.To = t.Add(24*time.Hour - time.Second)
-			}
-		}
-		list, err := List(f)
+		list, err := List(parseListFilter(r))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -192,4 +199,31 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, result)
+}
+
+// handleExport streams an .xlsx of the incidents matching the same
+// year/from/to/category/unit/q filters as the list view, so "export" always
+// means exactly what's currently on screen.
+func handleExport(w http.ResponseWriter, r *http.Request) {
+	if !requireTab(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	list, err := List(parseListFilter(r))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	filename := "su_co_giao_thong_" + time.Now().Format("20060102_150405") + ".xlsx"
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	if err := WriteExcel(w, list); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

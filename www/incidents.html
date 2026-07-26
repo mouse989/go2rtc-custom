@@ -133,6 +133,7 @@ table.inc-table { min-width:920px; }
       <button class="btn btn-ghost btn-sm" onclick="resetFilters()">↺ Hôm nay</button>
       <span class="spacer"></span>
       <span class="inc-count" id="incCount">—</span>
+      <button class="btn btn-ghost btn-sm" onclick="exportExcel(this)">⬇ Xuất Excel</button>
       <button class="btn btn-ghost btn-sm" id="btnImport" style="display:none" onclick="openImportModal()">⬆ Import Excel</button>
       <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Thêm sự cố</button>
     </div>
@@ -304,9 +305,10 @@ function resetFilters() {
   applyFilters();
 }
 
-async function applyFilters() {
-  const body = document.getElementById('incBody');
-  body.innerHTML = '<tr><td colspan="8" class="inc-empty">Đang tải…</td></tr>';
+// buildFilterParams reflects the current filter controls — used by both the
+// list view and the export button, so "export" always means exactly what's
+// currently on screen.
+function buildFilterParams() {
   const year = document.getElementById('fYear').value || currentYear;
   const params = new URLSearchParams({ year });
   const from = document.getElementById('fFrom').value;
@@ -319,12 +321,45 @@ async function applyFilters() {
   if (cat) params.set('category', cat);
   if (unit) params.set('unit', unit);
   if (q) params.set('q', q);
+  return params;
+}
 
+async function applyFilters() {
+  const body = document.getElementById('incBody');
+  body.innerHTML = '<tr><td colspan="8" class="inc-empty">Đang tải…</td></tr>';
   try {
-    const list = await apiFetch('/api/incidents?' + params.toString());
+    const list = await apiFetch('/api/incidents?' + buildFilterParams().toString());
     renderTable(list || []);
   } catch (e) {
     body.innerHTML = `<tr><td colspan="8" class="inc-empty">Lỗi tải dữ liệu: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+async function exportExcel(btn) {
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang xuất…'; }
+  try {
+    const token = localStorage.getItem('go2rtc_token') || '';
+    const res = await fetch('/api/incidents/export?' + buildFilterParams().toString(), {
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    let filename = 'su_co_giao_thong.xlsx';
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    if (m) filename = m[1];
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert('Lỗi xuất Excel: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
   }
 }
 
