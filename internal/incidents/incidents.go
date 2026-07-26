@@ -418,6 +418,9 @@ func validate(in *Incident) error {
 	in.Location = strings.TrimSpace(in.Location)
 	in.Note = strings.TrimSpace(in.Note)
 
+	// Required fields: Thời gian, Thể loại, Nội dung, Đơn vị. Vị trí/Ghi chú
+	// are optional — a meaningful share of the legacy data has no location
+	// (general/area-wide reports), so requiring it would reject valid rows.
 	switch {
 	case in.Time.IsZero():
 		return validationError("thời gian không được để trống")
@@ -427,8 +430,6 @@ func validate(in *Incident) error {
 		return validationError("nội dung sự việc không được để trống")
 	case in.Unit == "":
 		return validationError("đơn vị không được để trống")
-	case in.Location == "":
-		return validationError("vị trí không được để trống")
 	}
 	return nil
 }

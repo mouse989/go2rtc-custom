@@ -189,8 +189,8 @@ table.inc-table { min-width:920px; }
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Vị trí *</label>
-          <input class="form-input" id="fiLocation" list="dlLocation" placeholder="Tên đường / vị trí…">
+          <label class="form-label">Vị trí</label>
+          <input class="form-input" id="fiLocation" list="dlLocation" placeholder="Tên đường / vị trí… (tuỳ chọn)">
           <datalist id="dlLocation"></datalist>
         </div>
         <div class="form-group">
@@ -216,8 +216,9 @@ table.inc-table { min-width:920px; }
     </div>
     <div class="modal-body">
       <p style="font-size:.83rem;color:var(--text-muted);margin:0 0 .8rem">
-        Chọn file .xlsx theo đúng mẫu cột: <strong>Thời gian, Thể loại, Nội dung, Đơn vị, Ghi chú, Vị trí</strong>
-        (khớp theo tên cột, không cần đúng thứ tự — cột "Khung giờ" nếu có sẽ bị bỏ qua và tự tính lại).
+        Chọn file .xlsx theo đúng mẫu cột: <strong>Thời gian, Thể loại, Nội dung, Đơn vị</strong> (bắt buộc),
+        <strong>Ghi chú, Vị trí</strong> (tuỳ chọn) — khớp theo tên cột, không cần đúng thứ tự.
+        Cột "Khung giờ" nếu có sẽ bị bỏ qua và tự tính lại.
         File có nhiều sheet (mỗi năm 1 sheet) vẫn nhập được trong 1 lần — hệ thống tự phân theo năm dựa vào cột Thời gian.
       </p>
       <div class="imp-drop" id="impDrop" onclick="document.getElementById('impFile').click()">
