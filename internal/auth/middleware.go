@@ -193,6 +193,7 @@ var tabExtraPaths = map[string][]string{
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
 	TabCounting:  {"/api/counting"},
+	TabIncidents: {"/api/incidents"},
 }
 
 func extractToken(r *http.Request) string {

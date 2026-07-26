@@ -10,6 +10,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/counting"
 	"github.com/AlexxIT/go2rtc/internal/dashboard"
+	"github.com/AlexxIT/go2rtc/internal/incidents"
 	"github.com/AlexxIT/go2rtc/internal/workers"
 	"github.com/AlexxIT/go2rtc/internal/monitor"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
@@ -123,6 +124,7 @@ func main() {
 		{"", workers.Init},
 		{"", counting.Init},
 		{"", dashboard.Init},
+		{"", incidents.Init},
 		// Helper modules
 		{"debug", debug.Init},
 		{"ngrok", ngrok.Init},

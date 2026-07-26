@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sự cố giao thông – UTMC Platform</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.inc-toolbar { display:flex; align-items:center; gap:.5rem; margin-bottom:1rem; flex-wrap:wrap; }
+.inc-toolbar .spacer { flex:1; }
+.inc-toolbar select, .inc-toolbar input[type=date], .inc-toolbar input[type=search] {
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius);
+  color:var(--text); font-size:.82rem; padding:.4rem .6rem; outline:none;
+}
+.inc-toolbar select:focus, .inc-toolbar input:focus { border-color:var(--accent); }
+.inc-count { font-size:.78rem; color:var(--text-muted); white-space:nowrap; }
+
+.inc-table-wrap { overflow-x:auto; }
+table.inc-table { min-width:920px; }
+.inc-table td { font-size:.83rem; }
+.inc-cat { display:inline-block; font-size:.72rem; font-weight:700; padding:.1rem .5rem; border-radius:999px; white-space:nowrap; }
+.inc-cat-dong  { background:rgba(251,191,36,.15); color:#fbbf24; border:1px solid rgba(251,191,36,.3); }
+.inc-cat-vachaam { background:rgba(248,81,73,.15); color:var(--red); border:1px solid rgba(248,81,73,.3); }
+.inc-cat-khac  { background:rgba(139,148,158,.12); color:var(--text-muted); border:1px solid var(--border); }
+.inc-slot { font-size:.72rem; color:var(--text-muted); white-space:nowrap; }
+.inc-content { max-width:420px; white-space:pre-wrap; word-break:break-word; }
+.inc-actions { white-space:nowrap; text-align:right; }
+.inc-empty { text-align:center; color:var(--text-muted); padding:2.5rem; font-size:.85rem; }
+
+.inc-modal { max-width:640px; }
+.imp-modal { max-width:600px; }
+.imp-drop {
+  border:2px dashed var(--border); border-radius:var(--radius-lg);
+  padding:1.5rem; text-align:center; color:var(--text-muted); font-size:.85rem;
+  cursor:pointer; transition:border-color var(--transition);
+}
+.imp-drop:hover, .imp-drop.drag { border-color:var(--accent); color:var(--text); }
+.imp-result { margin-top:1rem; font-size:.85rem; }
+.imp-errlist { max-height:180px; overflow-y:auto; font-size:.76rem; color:var(--text-muted);
+  background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:.5rem .7rem; margin-top:.5rem; }
+.imp-errlist div { padding:.15rem 0; }
+
+@media (max-width:768px) {
+  .topbar { flex-wrap:wrap; height:auto !important; padding:8px 12px !important; gap:6px; }
+  .inc-toolbar { gap:.4rem; }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Platform</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/annotate.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm-1 4h1v2H4V9zm1 4H4v2h1v-2z" clip-rule="evenodd"/></svg>
+      Annotate
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/incidents.html" class="nav-item active" data-tab-require="incidents" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      Sự cố GT
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Admin Config
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Sự cố giao thông</h2>
+  </header>
+
+  <div class="content">
+    <div class="inc-toolbar">
+      <select id="fYear"></select>
+      <input type="date" id="fFrom" title="Từ ngày">
+      <input type="date" id="fTo" title="Đến ngày">
+      <select id="fCategory"><option value="">Tất cả thể loại</option></select>
+      <select id="fUnit"><option value="">Tất cả đơn vị</option></select>
+      <input type="search" id="fQ" placeholder="Tìm nội dung / vị trí…" style="min-width:180px">
+      <button class="btn btn-ghost btn-sm" onclick="applyFilters()">🔍 Lọc</button>
+      <button class="btn btn-ghost btn-sm" onclick="resetFilters()">↺ Hôm nay</button>
+      <span class="spacer"></span>
+      <span class="inc-count" id="incCount">—</span>
+      <button class="btn btn-ghost btn-sm" id="btnImport" style="display:none" onclick="openImportModal()">⬆ Import Excel</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Thêm sự cố</button>
+    </div>
+
+    <div class="card">
+      <div class="inc-table-wrap">
+        <table class="inc-table">
+          <thead><tr>
+            <th style="width:130px">Thời gian</th>
+            <th style="width:110px">Thể loại</th>
+            <th>Nội dung sự việc, tình trạng xử lý</th>
+            <th style="width:170px">Đơn vị</th>
+            <th style="width:150px">Vị trí</th>
+            <th style="width:110px">Khung giờ</th>
+            <th style="width:140px">Ghi chú</th>
+            <th style="width:90px"></th>
+          </tr></thead>
+          <tbody id="incBody"><tr><td colspan="8" class="inc-empty">Đang tải…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── Add/Edit modal ── -->
+<div class="modal-backdrop" id="incModalBackdrop">
+  <div class="modal inc-modal">
+    <div class="modal-header">
+      <h3 id="incModalTitle">Thêm sự cố</h3>
+      <button class="modal-close" onclick="closeIncModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Thời gian *</label>
+        <input type="datetime-local" class="form-input" id="fiTime" onchange="updateSlotPreview()">
+        <div class="form-hint">Khung giờ: <strong id="fiSlotPreview">—</strong> (tự tính, không cần nhập)</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Thể loại *</label>
+          <input class="form-input" id="fiCategory" list="dlCategory" placeholder="Đông xe / Va chạm / Sự cố khác…">
+          <datalist id="dlCategory"></datalist>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Đơn vị *</label>
+          <input class="form-input" id="fiUnit" list="dlUnit" placeholder="ĐỘI CSGT …">
+          <datalist id="dlUnit"></datalist>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nội dung sự việc, tình trạng xử lý *</label>
+        <textarea class="form-input" id="fiContent" rows="3" placeholder="Mô tả sự việc và tình trạng xử lý…"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Vị trí *</label>
+          <input class="form-input" id="fiLocation" list="dlLocation" placeholder="Tên đường / vị trí…">
+          <datalist id="dlLocation"></datalist>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ghi chú</label>
+          <input class="form-input" id="fiNote" placeholder="Tuỳ chọn">
+        </div>
+      </div>
+      <div id="fiMsg" style="font-size:.82rem;color:var(--red);display:none;margin-bottom:.6rem"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeIncModal()">Huỷ</button>
+        <button class="btn btn-primary" id="btnSaveIncident" onclick="saveIncident()">💾 Lưu</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Import modal ── -->
+<div class="modal-backdrop" id="impModalBackdrop">
+  <div class="modal imp-modal">
+    <div class="modal-header">
+      <h3>⬆ Import dữ liệu cũ từ Excel</h3>
+      <button class="modal-close" onclick="closeImportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.83rem;color:var(--text-muted);margin:0 0 .8rem">
+        Chọn file .xlsx theo đúng mẫu cột: <strong>Thời gian, Thể loại, Nội dung, Đơn vị, Ghi chú, Vị trí</strong>
+        (khớp theo tên cột, không cần đúng thứ tự — cột "Khung giờ" nếu có sẽ bị bỏ qua và tự tính lại).
+        File có nhiều sheet (mỗi năm 1 sheet) vẫn nhập được trong 1 lần — hệ thống tự phân theo năm dựa vào cột Thời gian.
+      </p>
+      <div class="imp-drop" id="impDrop" onclick="document.getElementById('impFile').click()">
+        📄 Bấm để chọn file .xlsx, hoặc kéo-thả vào đây
+        <div id="impFileName" style="margin-top:.4rem;font-weight:600;color:var(--text)"></div>
+      </div>
+      <input type="file" id="impFile" accept=".xlsx" style="display:none" onchange="onImportFileChosen()">
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem">
+        <button class="btn btn-ghost" id="btnImportPreview" onclick="runImport(true)" disabled>👁 Xem trước (không lưu)</button>
+        <button class="btn btn-primary" id="btnImportRun" onclick="runImport(false)" disabled>⬆ Import chính thức</button>
+      </div>
+      <div class="imp-result" id="impResult" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+let META = { categories: [], units: [], locations: [] };
+let editingYear = null; // year the incident currently being edited belongs to (for PUT routing)
+let currentYear = new Date().getFullYear();
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function pad2(n) { return String(n).padStart(2,'0'); }
+function toLocalInputValue(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function fmtDateTime(iso) {
+  const d = new Date(iso);
+  return `${pad2(d.getDate())}/${pad2(d.getMonth()+1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function catClass(cat) {
+  if (cat === 'Đông xe') return 'inc-cat-dong';
+  if (cat === 'Va chạm') return 'inc-cat-vachaam';
+  return 'inc-cat-khac';
+}
+// Client-side preview only — server recomputes authoritatively on save.
+function computeSlotPreview(d) {
+  const m = d.getHours()*60 + d.getMinutes();
+  if (m >= 360 && m < 510) return 'Cao điểm sáng';       // 06:00–08:30
+  if (m >= 990 && m < 1140) return 'Cao điểm chiều';     // 16:30–19:00
+  return 'Ngoài giờ cao điểm';
+}
+function updateSlotPreview() {
+  const v = document.getElementById('fiTime').value;
+  document.getElementById('fiSlotPreview').textContent = v ? computeSlotPreview(new Date(v)) : '—';
+}
+
+// ── Meta (dropdown/autocomplete lists) ──
+async function loadMeta() {
+  try {
+    META = await apiFetch('/api/incidents/meta');
+  } catch (e) { META = { categories: [], units: [], locations: [] }; }
+  const dlCat = document.getElementById('dlCategory');
+  const dlUnit = document.getElementById('dlUnit');
+  const dlLoc = document.getElementById('dlLocation');
+  dlCat.innerHTML = (META.categories||[]).map(c => `<option value="${esc(c)}">`).join('');
+  dlUnit.innerHTML = (META.units||[]).map(u => `<option value="${esc(u)}">`).join('');
+  dlLoc.innerHTML = (META.locations||[]).map(l => `<option value="${esc(l)}">`).join('');
+
+  const fCat = document.getElementById('fCategory');
+  const fUnit = document.getElementById('fUnit');
+  fCat.innerHTML = '<option value="">Tất cả thể loại</option>' + (META.categories||[]).map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  fUnit.innerHTML = '<option value="">Tất cả đơn vị</option>' + (META.units||[]).map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
+}
+
+async function loadYears() {
+  let years;
+  try { years = await apiFetch('/api/incidents/years'); } catch (e) { years = [currentYear]; }
+  const sel = document.getElementById('fYear');
+  sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  sel.value = currentYear;
+}
+
+function resetFilters() {
+  const today = new Date();
+  document.getElementById('fFrom').value = toLocalInputValue(today).slice(0,10);
+  document.getElementById('fTo').value = toLocalInputValue(today).slice(0,10);
+  document.getElementById('fCategory').value = '';
+  document.getElementById('fUnit').value = '';
+  document.getElementById('fQ').value = '';
+  document.getElementById('fYear').value = currentYear;
+  applyFilters();
+}
+
+async function applyFilters() {
+  const body = document.getElementById('incBody');
+  body.innerHTML = '<tr><td colspan="8" class="inc-empty">Đang tải…</td></tr>';
+  const year = document.getElementById('fYear').value || currentYear;
+  const params = new URLSearchParams({ year });
+  const from = document.getElementById('fFrom').value;
+  const to = document.getElementById('fTo').value;
+  const cat = document.getElementById('fCategory').value;
+  const unit = document.getElementById('fUnit').value;
+  const q = document.getElementById('fQ').value.trim();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (cat) params.set('category', cat);
+  if (unit) params.set('unit', unit);
+  if (q) params.set('q', q);
+
+  try {
+    const list = await apiFetch('/api/incidents?' + params.toString());
+    renderTable(list || []);
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="8" class="inc-empty">Lỗi tải dữ liệu: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+let currentList = [];
+
+function renderTable(list) {
+  currentList = list;
+  document.getElementById('incCount').textContent = list.length + ' sự cố';
+  const body = document.getElementById('incBody');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="8" class="inc-empty">Không có sự cố nào khớp bộ lọc.</td></tr>';
+    return;
+  }
+  body.innerHTML = list.map((inc, i) => `
+    <tr>
+      <td>${esc(fmtDateTime(inc.time))}</td>
+      <td><span class="inc-cat ${catClass(inc.category)}">${esc(inc.category)}</span></td>
+      <td class="inc-content">${esc(inc.content)}</td>
+      <td>${esc(inc.unit)}</td>
+      <td>${esc(inc.location)}</td>
+      <td class="inc-slot">${esc(inc.time_slot)}</td>
+      <td>${esc(inc.note || '')}</td>
+      <td class="inc-actions">
+        <button class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Sửa" onclick="openEditModal(${i})">✎</button>
+        <button class="btn btn-danger btn-sm" style="padding:2px 7px" title="Xoá" onclick="deleteIncident(${i})">✕</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── Add/Edit modal ──
+function openAddModal() {
+  editingYear = null;
+  document.getElementById('incModalTitle').textContent = 'Thêm sự cố';
+  document.getElementById('fiTime').value = toLocalInputValue(new Date());
+  document.getElementById('fiCategory').value = '';
+  document.getElementById('fiUnit').value = '';
+  document.getElementById('fiContent').value = '';
+  document.getElementById('fiLocation').value = '';
+  document.getElementById('fiNote').value = '';
+  document.getElementById('fiMsg').style.display = 'none';
+  document.getElementById('fiMsg').dataset.id = '';
+  updateSlotPreview();
+  document.getElementById('incModalBackdrop').classList.add('open');
+}
+
+function openEditModal(i) {
+  const inc = currentList[i];
+  editingYear = new Date(inc.time).getFullYear();
+  document.getElementById('incModalTitle').textContent = 'Sửa sự cố';
+  document.getElementById('fiTime').value = toLocalInputValue(new Date(inc.time));
+  document.getElementById('fiCategory').value = inc.category || '';
+  document.getElementById('fiUnit').value = inc.unit || '';
+  document.getElementById('fiContent').value = inc.content || '';
+  document.getElementById('fiLocation').value = inc.location || '';
+  document.getElementById('fiNote').value = inc.note || '';
+  document.getElementById('fiMsg').style.display = 'none';
+  document.getElementById('fiMsg').dataset.id = inc.id;
+  updateSlotPreview();
+  document.getElementById('incModalBackdrop').classList.add('open');
+}
+
+function closeIncModal() {
+  document.getElementById('incModalBackdrop').classList.remove('open');
+}
+
+async function saveIncident() {
+  const msg = document.getElementById('fiMsg');
+  const timeVal = document.getElementById('fiTime').value;
+  if (!timeVal) { msg.style.display=''; msg.textContent = 'Vui lòng nhập thời gian'; return; }
+
+  const payload = {
+    time: new Date(timeVal).toISOString(),
+    category: document.getElementById('fiCategory').value.trim(),
+    unit: document.getElementById('fiUnit').value.trim(),
+    content: document.getElementById('fiContent').value.trim(),
+    location: document.getElementById('fiLocation').value.trim(),
+    note: document.getElementById('fiNote').value.trim(),
+  };
+
+  const id = msg.dataset.id;
+  const btn = document.getElementById('btnSaveIncident');
+  btn.disabled = true;
+  try {
+    if (id) {
+      payload.id = id;
+      await apiFetch('/api/incidents?year=' + editingYear, { method:'PUT', body: payload });
+    } else {
+      await apiFetch('/api/incidents', { method:'POST', body: payload });
+    }
+    closeIncModal();
+    await loadMeta();
+    await applyFilters();
+  } catch (e) {
+    msg.style.display = '';
+    msg.textContent = 'Lỗi: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteIncident(i) {
+  const inc = currentList[i];
+  if (!confirm('Xoá sự cố này?')) return;
+  const year = new Date(inc.time).getFullYear();
+  try {
+    await apiFetch(`/api/incidents?year=${year}&id=${encodeURIComponent(inc.id)}`, { method: 'DELETE' });
+    await applyFilters();
+  } catch (e) {
+    alert('Lỗi xoá: ' + e.message);
+  }
+}
+
+// ── Import ──
+let impFile = null;
+
+function openImportModal() {
+  impFile = null;
+  document.getElementById('impFileName').textContent = '';
+  document.getElementById('impResult').style.display = 'none';
+  document.getElementById('btnImportPreview').disabled = true;
+  document.getElementById('btnImportRun').disabled = true;
+  document.getElementById('impModalBackdrop').classList.add('open');
+}
+function closeImportModal() {
+  document.getElementById('impModalBackdrop').classList.remove('open');
+}
+function onImportFileChosen() {
+  const f = document.getElementById('impFile').files[0];
+  if (!f) return;
+  impFile = f;
+  document.getElementById('impFileName').textContent = f.name;
+  document.getElementById('btnImportPreview').disabled = false;
+  document.getElementById('btnImportRun').disabled = false;
+}
+
+const impDrop = document.getElementById('impDrop');
+impDrop.addEventListener('dragover', e => { e.preventDefault(); impDrop.classList.add('drag'); });
+impDrop.addEventListener('dragleave', () => impDrop.classList.remove('drag'));
+impDrop.addEventListener('drop', e => {
+  e.preventDefault(); impDrop.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) { document.getElementById('impFile').files = e.dataTransfer.files; onImportFileChosen(); }
+});
+
+async function runImport(dryRun) {
+  if (!impFile) return;
+  const resBox = document.getElementById('impResult');
+  resBox.style.display = '';
+  resBox.innerHTML = dryRun ? 'Đang phân tích file…' : 'Đang import…';
+  document.getElementById('btnImportPreview').disabled = true;
+  document.getElementById('btnImportRun').disabled = true;
+
+  const fd = new FormData();
+  fd.append('file', impFile);
+  fd.append('dry_run', dryRun ? '1' : '0');
+
+  try {
+    const token = localStorage.getItem('go2rtc_token') || '';
+    const res = await fetch('/api/incidents/import', {
+      method: 'POST',
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+      body: fd,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const r = await res.json();
+    const errHtml = (r.errors && r.errors.length)
+      ? `<div class="imp-errlist">${r.errors.map(e => `<div>${esc(e)}</div>`).join('')}${r.skipped > r.errors.length ? `<div>… và ${r.skipped - r.errors.length} lỗi khác</div>` : ''}</div>`
+      : '';
+    resBox.innerHTML = `
+      <div style="font-weight:700;margin-bottom:.3rem">${dryRun ? '👁 Kết quả xem trước (chưa lưu):' : '✓ Đã import xong:'}</div>
+      <div>Tổng số dòng: <strong>${r.total_rows}</strong></div>
+      <div style="color:var(--green)">Hợp lệ${dryRun ? ' (sẽ import)' : ' (đã import)'}: <strong>${r.imported}</strong></div>
+      <div style="color:${r.skipped ? 'var(--red)' : 'var(--text-muted)'}">Bỏ qua (lỗi): <strong>${r.skipped}</strong></div>
+      ${errHtml}`;
+    document.getElementById('btnImportPreview').disabled = false;
+    document.getElementById('btnImportRun').disabled = false;
+    if (!dryRun && r.imported > 0) {
+      await loadMeta();
+      await loadYears();
+      await applyFilters();
+    }
+  } catch (e) {
+    resBox.innerHTML = `<span style="color:var(--red)">Lỗi: ${esc(e.message)}</span>`;
+    document.getElementById('btnImportPreview').disabled = false;
+    document.getElementById('btnImportRun').disabled = false;
+  }
+}
+
+document.getElementById('incModalBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeIncModal();
+});
+document.getElementById('impModalBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeImportModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  closeIncModal();
+  closeImportModal();
+});
+
+// ── Boot ──
+(async () => {
+  await initApp('incidents');
+  const u = getUser();
+  if (u && (u.role === 'admin' || u.allow_incidents_import)) {
+    document.getElementById('btnImport').style.display = '';
+  }
+  await loadYears();
+  await loadMeta();
+  resetFilters();
+})();
+</script>
+</body>
+</html>
