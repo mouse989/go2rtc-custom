@@ -135,6 +135,7 @@ table.inc-table { min-width:920px; }
       <span class="inc-count" id="incCount">—</span>
       <button class="btn btn-ghost btn-sm" onclick="exportExcel(this)">⬇ Xuất Excel</button>
       <button class="btn btn-ghost btn-sm" id="btnImport" style="display:none" onclick="openImportModal()">⬆ Import Excel</button>
+      <button class="btn btn-ghost btn-sm" id="btnSlotCfg" style="display:none" onclick="openSlotModal()">⏰ Khung giờ</button>
       <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Thêm sự cố</button>
     </div>
 
@@ -235,11 +236,54 @@ table.inc-table { min-width:920px; }
   </div>
 </div>
 
+<!-- ── Time-slot config modal (admin) ── -->
+<div class="modal-backdrop" id="slotModalBackdrop">
+  <div class="modal inc-modal">
+    <div class="modal-header">
+      <h3>⏰ Cấu hình khung giờ</h3>
+      <button class="modal-close" onclick="closeSlotModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.82rem;color:var(--text-muted);margin:0 0 .8rem">
+        Mỗi khung giờ khớp theo giờ:phút bắt đầu/kết thúc (giờ Việt Nam). Thời điểm không rơi vào khung nào
+        sẽ dùng nhãn mặc định bên dưới. Có thể thêm bao nhiêu khung tuỳ ý (không chỉ sáng/chiều).
+      </p>
+      <div id="slotRows"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addSlotRow()" style="margin-top:.4rem">+ Thêm khung giờ</button>
+
+      <div class="form-group" style="margin-top:1rem">
+        <label class="form-label">Nhãn mặc định (ngoài mọi khung giờ)</label>
+        <input class="form-input" id="slotDefaultLabel" placeholder="Ngoài giờ cao điểm">
+      </div>
+
+      <div id="slotMsg" style="font-size:.82rem;color:var(--red);display:none;margin:.5rem 0"></div>
+      <div style="display:flex;gap:.5rem;justify-content:space-between;align-items:center;margin-top:1rem;flex-wrap:wrap">
+        <button class="btn btn-danger btn-sm" onclick="recomputeSlots()">♻ Tính lại khung giờ cho toàn bộ dữ liệu</button>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-ghost" onclick="closeSlotModal()">Huỷ</button>
+          <button class="btn btn-primary" onclick="saveSlots()">💾 Lưu</button>
+        </div>
+      </div>
+      <div id="slotRecomputeMsg" style="font-size:.82rem;color:var(--text-muted);margin-top:.5rem"></div>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 <script>
 let META = { categories: [], units: [], locations: [] };
 let editingYear = null; // year the incident currently being edited belongs to (for PUT routing)
 let currentYear = new Date().getFullYear();
+let TIME_WINDOWS = [];
+let DEFAULT_SLOT_LABEL = 'Ngoài giờ cao điểm';
+
+async function loadTimeSlots() {
+  try {
+    const r = await apiFetch('/api/incidents/time-slots');
+    TIME_WINDOWS = r.windows || [];
+    DEFAULT_SLOT_LABEL = r.default_label || 'Ngoài giờ cao điểm';
+  } catch (e) {}
+}
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -258,11 +302,20 @@ function catClass(cat) {
   return 'inc-cat-khac';
 }
 // Client-side preview only — server recomputes authoritatively on save.
+// Uses the same admin-configured windows (TIME_WINDOWS/DEFAULT_SLOT_LABEL,
+// loaded via loadTimeSlots()) so the preview never drifts from the real rule.
+function hhmmToMin(s) {
+  const [h, m] = String(s || '0:0').split(':').map(Number);
+  return (h||0)*60 + (m||0);
+}
 function computeSlotPreview(d) {
   const m = d.getHours()*60 + d.getMinutes();
-  if (m >= 360 && m < 510) return 'Cao điểm sáng';       // 06:00–08:30
-  if (m >= 990 && m < 1140) return 'Cao điểm chiều';     // 16:30–19:00
-  return 'Ngoài giờ cao điểm';
+  for (const w of TIME_WINDOWS) {
+    const start = hhmmToMin(w.start), end = hhmmToMin(w.end);
+    if (start <= end) { if (m >= start && m < end) return w.name; }
+    else if (m >= start || m < end) return w.name; // wraps past midnight
+  }
+  return DEFAULT_SLOT_LABEL;
 }
 function updateSlotPreview() {
   const v = document.getElementById('fiTime').value;
@@ -549,16 +602,91 @@ async function runImport(dryRun) {
   }
 }
 
+// ── Time-slot config (admin) ──
+let slotRowsData = []; // [{name, start, end}] being edited
+
+function renderSlotRows() {
+  const box = document.getElementById('slotRows');
+  box.innerHTML = slotRowsData.map((w, i) => `
+    <div style="display:flex;gap:.4rem;align-items:center;margin-bottom:.4rem">
+      <input class="form-input" style="flex:1" placeholder="Tên khung giờ" value="${esc(w.name)}"
+             oninput="slotRowsData[${i}].name=this.value">
+      <input class="form-input" type="time" style="width:120px" value="${esc(w.start)}"
+             onchange="slotRowsData[${i}].start=this.value">
+      <span style="color:var(--text-muted)">–</span>
+      <input class="form-input" type="time" style="width:120px" value="${esc(w.end)}"
+             onchange="slotRowsData[${i}].end=this.value">
+      <button class="btn btn-danger btn-sm" style="padding:2px 8px" onclick="removeSlotRow(${i})">✕</button>
+    </div>`).join('');
+}
+function addSlotRow() {
+  slotRowsData.push({ name: '', start: '06:00', end: '08:00' });
+  renderSlotRows();
+}
+function removeSlotRow(i) {
+  slotRowsData.splice(i, 1);
+  renderSlotRows();
+}
+
+async function openSlotModal() {
+  const msg = document.getElementById('slotMsg');
+  msg.style.display = 'none';
+  document.getElementById('slotRecomputeMsg').textContent = '';
+  await loadTimeSlots();
+  slotRowsData = TIME_WINDOWS.map(w => ({...w}));
+  document.getElementById('slotDefaultLabel').value = DEFAULT_SLOT_LABEL;
+  renderSlotRows();
+  document.getElementById('slotModalBackdrop').classList.add('open');
+}
+function closeSlotModal() {
+  document.getElementById('slotModalBackdrop').classList.remove('open');
+}
+
+async function saveSlots() {
+  const msg = document.getElementById('slotMsg');
+  msg.style.display = 'none';
+  try {
+    const r = await apiFetch('/api/incidents/time-slots', {
+      method: 'PUT',
+      body: { windows: slotRowsData, default_label: document.getElementById('slotDefaultLabel').value },
+    });
+    TIME_WINDOWS = r.windows || [];
+    DEFAULT_SLOT_LABEL = r.default_label || DEFAULT_SLOT_LABEL;
+    closeSlotModal();
+    await applyFilters();
+  } catch (e) {
+    msg.style.display = '';
+    msg.textContent = 'Lỗi: ' + e.message;
+  }
+}
+
+async function recomputeSlots() {
+  if (!confirm('Tính lại Khung giờ cho TOÀN BỘ sự cố đã lưu (mọi năm) theo cấu hình hiện tại?\nThao tác này sửa trực tiếp dữ liệu đã lưu, không thể hoàn tác.')) return;
+  const out = document.getElementById('slotRecomputeMsg');
+  out.textContent = 'Đang xử lý…';
+  try {
+    const r = await apiFetch('/api/incidents/recompute-slots', { method: 'POST' });
+    out.textContent = `✓ Đã cập nhật ${r.updated} sự cố.`;
+    await applyFilters();
+  } catch (e) {
+    out.textContent = 'Lỗi: ' + e.message;
+  }
+}
+
 document.getElementById('incModalBackdrop').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeIncModal();
 });
 document.getElementById('impModalBackdrop').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeImportModal();
 });
+document.getElementById('slotModalBackdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeSlotModal();
+});
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   closeIncModal();
   closeImportModal();
+  closeSlotModal();
 });
 
 // ── Boot ──
@@ -568,8 +696,12 @@ document.addEventListener('keydown', e => {
   if (u && (u.role === 'admin' || u.allow_incidents_import)) {
     document.getElementById('btnImport').style.display = '';
   }
+  if (u && u.role === 'admin') {
+    document.getElementById('btnSlotCfg').style.display = '';
+  }
   await loadYears();
   await loadMeta();
+  await loadTimeSlots();
   resetFilters();
 })();
 </script>
