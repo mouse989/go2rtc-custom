@@ -15,6 +15,17 @@ func registerHandlers() {
 	http.HandleFunc("/api/incidents/years", handleYears)
 	http.HandleFunc("/api/incidents/import", handleImport)
 	http.HandleFunc("/api/incidents/export", handleExport)
+	http.HandleFunc("/api/incidents/time-slots", handleTimeSlots)
+	http.HandleFunc("/api/incidents/recompute-slots", handleRecomputeSlots)
+}
+
+func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok || user.Role != auth.RoleAdmin {
+		http.Error(w, "admin only", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 // parseListFilter reads the year/from/to/category/unit/q query params shared
@@ -226,4 +237,58 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+// handleTimeSlots: GET is readable by any tab holder (the entry form needs it
+// for its live Khung giờ preview); PUT (change the windows) is admin-only.
+func handleTimeSlots(w http.ResponseWriter, r *http.Request) {
+	if !requireTab(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		windows, defaultLabel := GetTimeWindows()
+		writeJSON(w, map[string]any{"windows": windows, "default_label": defaultLabel})
+
+	case http.MethodPut:
+		if !requireAdmin(w, r) {
+			return
+		}
+		var req struct {
+			Windows      []TimeWindow `json:"windows"`
+			DefaultLabel string       `json:"default_label"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := SetTimeWindows(req.Windows, req.DefaultLabel); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		windows, defaultLabel := GetTimeWindows()
+		writeJSON(w, map[string]any{"windows": windows, "default_label": defaultLabel})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleRecomputeSlots re-derives Khung giờ for every saved incident using
+// the current window config — needed after changing the windows (or fixing a
+// classification bug) so already-stored records aren't left stale.
+func handleRecomputeSlots(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	updated, err := RecomputeAllTimeSlots()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]int{"updated": updated})
 }

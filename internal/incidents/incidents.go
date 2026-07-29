@@ -39,33 +39,8 @@ type Incident struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
-// Time-of-day peak windows used to compute TimeSlot. Documented assumption —
-// the legacy spreadsheet computed this with a fragile formula (some rows had
-// #NAME?/#REF! errors); this is a clean, consistent replacement. Adjust here
-// if the real CSGT peak-hour definition differs.
-const (
-	SlotMorning   = "Cao điểm sáng"
-	SlotAfternoon = "Cao điểm chiều"
-	SlotOff       = "Ngoài giờ cao điểm"
-
-	peakMorningStart   = 6*60 + 0  // 06:00
-	peakMorningEnd     = 8*60 + 30 // 08:30
-	peakAfternoonStart = 16*60 + 30
-	peakAfternoonEnd   = 19 * 60
-)
-
-// ComputeTimeSlot derives Khung giờ from a timestamp.
-func ComputeTimeSlot(t time.Time) string {
-	m := t.Hour()*60 + t.Minute()
-	switch {
-	case m >= peakMorningStart && m < peakMorningEnd:
-		return SlotMorning
-	case m >= peakAfternoonStart && m < peakAfternoonEnd:
-		return SlotAfternoon
-	default:
-		return SlotOff
-	}
-}
+// Time-slot windows (Khung giờ) are admin-configurable — see timeslots.go for
+// ComputeTimeSlot, GetTimeWindows, SetTimeWindows.
 
 var log zerolog.Logger
 
@@ -109,6 +84,7 @@ func Init() {
 	}
 
 	loadMeta()
+	initTimeSlots()
 
 	// Eagerly load the current year so first request is fast.
 	_ = loadYear(time.Now().Year())
@@ -396,6 +372,38 @@ func Delete(year int, id string) error {
 	}
 	delete(years[year], id)
 	return saveYearLocked(year)
+}
+
+// RecomputeAllTimeSlots reloads every saved year and re-derives TimeSlot for
+// every incident using the current window config, saving any year that
+// changed. Use after editing the time-slot windows (or after fixing a
+// classification bug) so already-stored records reflect the new rule instead
+// of only new/edited ones.
+func RecomputeAllTimeSlots() (int, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	updated := 0
+	for _, year := range ListYears() {
+		if err := loadYearLocked(year); err != nil {
+			return updated, err
+		}
+		changed := false
+		for _, in := range years[year] {
+			newSlot := ComputeTimeSlot(in.Time)
+			if newSlot != in.TimeSlot {
+				in.TimeSlot = newSlot
+				changed = true
+				updated++
+			}
+		}
+		if changed {
+			if err := saveYearLocked(year); err != nil {
+				return updated, err
+			}
+		}
+	}
+	return updated, nil
 }
 
 // Meta returns the current dropdown/autocomplete value lists.
