@@ -661,7 +661,7 @@ async function saveSlots() {
 }
 
 async function recomputeSlots() {
-  if (!confirm('Tính lại Khung giờ cho TOÀN BỘ sự cố đã lưu (mọi năm) theo cấu hình hiện tại?\nThao tác này sửa trực tiếp dữ liệu đã lưu, không thể hoàn tác.')) return;
+  if (!confirm('Tính lại Khung giờ (và chuẩn hoá múi giờ lưu trữ) cho TOÀN BỘ sự cố đã lưu (mọi năm) theo cấu hình hiện tại?\nThao tác này sửa trực tiếp dữ liệu đã lưu, không thể hoàn tác.')) return;
   const out = document.getElementById('slotRecomputeMsg');
   out.textContent = 'Đang xử lý…';
   try {

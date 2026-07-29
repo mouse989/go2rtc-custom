@@ -40,7 +40,12 @@ func WriteExcel(w io.Writer, list []*Incident) error {
 			_ = f.SetCellValue(sheet, cell, v)
 		}
 		set(1, i+1)
-		set(2, in.Time)
+		// Excel has no timezone concept — it stores/displays whatever
+		// wall-clock time.Time carries. Convert explicitly to Vietnam time
+		// here rather than relying on in.Time already being VN-zoned, so
+		// export is correct even for older records saved before storage was
+		// unified (see validate() and RecomputeAllTimeSlots).
+		set(2, in.Time.In(vnLocation))
 		set(3, in.Category)
 		set(4, in.Content)
 		set(5, in.Unit)

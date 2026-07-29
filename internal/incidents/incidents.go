@@ -374,11 +374,17 @@ func Delete(year int, id string) error {
 	return saveYearLocked(year)
 }
 
-// RecomputeAllTimeSlots reloads every saved year and re-derives TimeSlot for
-// every incident using the current window config, saving any year that
-// changed. Use after editing the time-slot windows (or after fixing a
-// classification bug) so already-stored records reflect the new rule instead
-// of only new/edited ones.
+// RecomputeAllTimeSlots reloads every saved year and, for every incident:
+// (1) re-derives TimeSlot using the current window config, and (2) re-tags
+// Time onto vnLocation so storage stays unified even for records saved
+// before that normalization existed (validate() now does this for every new
+// write; this is the one-time catch-up for what's already on disk). Saves
+// any year that changed. Note: this can only correctly RE-LABEL an already
+// correct instant (e.g. records entered via the web form, which always
+// captured the right moment in time) — it cannot fix a record whose absolute
+// instant was itself wrong (e.g. an Excel import processed while the server
+// OS clock was not set to Vietnam time, before parseExcelTime pinned to
+// vnLocation explicitly); those need re-entry or re-import.
 func RecomputeAllTimeSlots() (int, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -390,8 +396,10 @@ func RecomputeAllTimeSlots() (int, error) {
 		}
 		changed := false
 		for _, in := range years[year] {
+			newTime := in.Time.In(vnLocation)
 			newSlot := ComputeTimeSlot(in.Time)
-			if newSlot != in.TimeSlot {
+			if newSlot != in.TimeSlot || !newTime.Equal(in.Time) || newTime.Location() != in.Time.Location() {
+				in.Time = newTime
 				in.TimeSlot = newSlot
 				changed = true
 				updated++
@@ -425,6 +433,16 @@ func validate(in *Incident) error {
 	in.Unit = strings.TrimSpace(in.Unit)
 	in.Location = strings.TrimSpace(in.Location)
 	in.Note = strings.TrimSpace(in.Note)
+
+	// Unify storage on Vietnam time: the web form sends UTC (browser
+	// `.toISOString()`), Excel import already parses as vnLocation — from
+	// here on every stored Incident.Time carries the same +07:00 offset, so
+	// anything that reads Time directly (e.g. Excel export, which has no
+	// timezone concept of its own) shows the correct wall-clock time without
+	// having to remember to convert at every call site.
+	if !in.Time.IsZero() {
+		in.Time = in.Time.In(vnLocation)
+	}
 
 	// Required fields: Thời gian, Thể loại, Nội dung, Đơn vị. Vị trí/Ghi chú
 	// are optional — a meaningful share of the legacy data has no location
