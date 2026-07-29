@@ -159,21 +159,30 @@ var timeLayouts = []string{
 	"01/02/2006 15:04",
 }
 
+// parseExcelTime always interprets the cell as Vietnam wall-clock time
+// (vnLocation), never time.Local — Excel/Google Sheets timestamps carry no
+// timezone info of their own, and time.Local depends on the server process's
+// OS timezone, which may not be Asia/Ho_Chi_Minh even though the data always
+// is (CSGT staff enter times in HCMC local time regardless of where go2rtc
+// happens to be hosted).
 func parseExcelTime(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, fmt.Errorf("để trống")
 	}
 	for _, layout := range timeLayouts {
-		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+		if t, err := time.ParseInLocation(layout, s, vnLocation); err == nil {
 			return t, nil
 		}
 	}
 	// Fallback: raw Excel serial date number (e.g. a cell excelize couldn't
-	// auto-format as text, returned as its underlying float).
+	// auto-format as text, returned as its underlying float). ExcelDateToTime
+	// returns the naive wall-clock value tagged UTC; re-tag as vnLocation
+	// (same wall-clock digits, correct zone) rather than treating it as UTC.
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
 		if t, err := excelize.ExcelDateToTime(f, false); err == nil {
-			return t, nil
+			wall := t.UTC()
+			return time.Date(wall.Year(), wall.Month(), wall.Day(), wall.Hour(), wall.Minute(), wall.Second(), wall.Nanosecond(), vnLocation), nil
 		}
 	}
 	return time.Time{}, fmt.Errorf("không nhận dạng được định dạng %q", s)
