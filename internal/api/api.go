@@ -67,6 +67,7 @@ func Init() {
 	HandleFunc("api/exit", exitHandler)
 	HandleFunc("api/restart", restartHandler)
 	HandleFunc("api/log", logHandler)
+	registerModuleHandlers()
 
 	Handler = http.DefaultServeMux // 4th
 
