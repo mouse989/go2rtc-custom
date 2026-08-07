@@ -379,7 +379,7 @@ func restartHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Debug().Msgf("[api] restart %s", path)
 
-	go syscall.Exec(path, os.Args, os.Environ())
+	go doRestart(path)
 }
 
 func logHandler(w http.ResponseWriter, r *http.Request) {
