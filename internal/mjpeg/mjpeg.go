@@ -12,6 +12,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/ffmpeg"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/ascii"
@@ -38,6 +39,10 @@ var log zerolog.Logger
 
 func handlerKeyframe(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	if src := query.Get("src"); src != "" && !auth.CanAccessStreamRequest(r, src) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	stream, _ := streams.GetOrPatch(query)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)
@@ -142,6 +147,10 @@ func handlerStream(w http.ResponseWriter, r *http.Request) {
 
 func outputMjpeg(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("src")
+	if !auth.CanAccessStreamRequest(r, src) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	stream := streams.Get(src)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)
@@ -178,6 +187,10 @@ func outputMjpeg(w http.ResponseWriter, r *http.Request) {
 
 func inputMjpeg(w http.ResponseWriter, r *http.Request) {
 	dst := r.URL.Query().Get("dst")
+	if !auth.CanAccessStreamRequest(r, dst) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	stream := streams.Get(dst)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)
@@ -223,6 +236,10 @@ func handlerWS(tr *ws.Transport, _ *ws.Message) error {
 
 func apiStreamY4M(w http.ResponseWriter, r *http.Request) {
 	src := r.URL.Query().Get("src")
+	if !auth.CanAccessStreamRequest(r, src) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	stream := streams.Get(src)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)

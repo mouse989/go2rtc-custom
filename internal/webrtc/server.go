@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/webrtc"
@@ -64,6 +65,10 @@ func syncHandler(w http.ResponseWriter, r *http.Request) {
 // 3. other - receive/response raw SDP
 func outputWebRTC(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("src")
+	if !auth.CanAccessStreamRequest(r, u) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	stream := streams.Get(u)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)
@@ -165,6 +170,10 @@ func outputWebRTC(w http.ResponseWriter, r *http.Request) {
 
 func inputWebRTC(w http.ResponseWriter, r *http.Request) {
 	dst := r.URL.Query().Get("dst")
+	if !auth.CanAccessStreamRequest(r, dst) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	stream := streams.Get(dst)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)

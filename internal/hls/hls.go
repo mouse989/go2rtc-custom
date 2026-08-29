@@ -8,6 +8,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/mp4"
@@ -50,6 +51,11 @@ func handlerStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	src := r.URL.Query().Get("src")
+	if !auth.CanAccessStreamRequest(r, src) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	stream := streams.Get(src)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)
