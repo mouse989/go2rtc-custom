@@ -79,7 +79,12 @@ func handlerKeyframe(w http.ResponseWriter, r *http.Request) {
 	cons.WithRequest(r)
 
 	if err := stream.AddConsumer(cons); err != nil {
-		log.Error().Err(err).Caller().Send()
+		// Expected/transient (source offline, reconnecting, refused, etc.) —
+		// this endpoint is polled frequently by UI thumbnails/snapshots, so
+		// logging at Error level here floods the log for a non-actionable
+		// per-camera connectivity condition rather than a code defect.
+		log.Warn().Err(err).Caller().Send()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -147,7 +152,8 @@ func outputMjpeg(w http.ResponseWriter, r *http.Request) {
 	cons.WithRequest(r)
 
 	if err := stream.AddConsumer(cons); err != nil {
-		log.Error().Err(err).Msg("[api.mjpeg] add consumer")
+		log.Warn().Err(err).Msg("[api.mjpeg] add consumer")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -227,7 +233,8 @@ func apiStreamY4M(w http.ResponseWriter, r *http.Request) {
 	cons.WithRequest(r)
 
 	if err := stream.AddConsumer(cons); err != nil {
-		log.Error().Err(err).Caller().Send()
+		log.Warn().Err(err).Caller().Send()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
