@@ -767,7 +767,8 @@ let _searchMode = false, _editMode = false, _editingID = null;
 let _ovWindows  = {};     // id → { el, lat, lon, pinned }
 let _snapshotTimer = null, _currentModalID = null;
 let _trafficOn = false, _trafficSourceIds = [], _trafficLayerIds = [];
-let _heatmapOn = false, _heatmapData = null, _heatmapCfg = null;
+let _heatmapOn = false, _heatmapData = null, _heatmapCfg = null, _heatmapTimer = null;
+const HEATMAP_REFRESH_MS = 60000; // server rescans every few minutes; this just keeps the layer from going stale while it's open
 let _clusterMarkers = new Map();  // cluster_id → {marker, el, count} — diff-based, avoids full rebuild every frame
 let _clusterUpdatePending = false;
 let _ovUpdatePending = false;
@@ -1990,10 +1991,23 @@ function _addHeatmapLayers() {
   }
 }
 
+async function _loadHeatmapData() {
+  const pts = await apiFetch('/api/traffic-heatmap');
+  _heatmapData = (Array.isArray(pts) ? pts : [])
+    .filter(p => p.lat && p.lng)
+    .map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: { jf: p.jf || 0, label: p.label || '', area: p.area || '' },
+    }));
+}
+
 async function toggleHeatmap() {
   _heatmapOn = !_heatmapOn;
   const btn = document.getElementById('btnHeatmap');
   btn.classList.toggle('active', _heatmapOn);
+
+  if (_heatmapTimer) { clearInterval(_heatmapTimer); _heatmapTimer = null; }
 
   if (!_heatmapOn) {
     try { if (map.getLayer('map-jams-dot'))  map.removeLayer('map-jams-dot');  } catch(_){}
@@ -2010,17 +2024,18 @@ async function toggleHeatmap() {
       const cfg = await apiFetch('/api/heatmap-cfg');
       _heatmapCfg = (cfg && typeof cfg === 'object') ? cfg : {};
     }
-    if (!_heatmapData) {
-      const pts = await apiFetch('/api/traffic-heatmap');
-      _heatmapData = (Array.isArray(pts) ? pts : [])
-        .filter(p => p.lat && p.lng)
-        .map(p => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-          properties: { jf: p.jf || 0, label: p.label || '', area: p.area || '' },
-        }));
-    }
+    // Always fetch the latest scan — caching this forever made the layer
+    // look "stuck" on old data until a full page reload.
+    await _loadHeatmapData();
     _addHeatmapLayers();
+    _heatmapTimer = setInterval(async () => {
+      try {
+        await _loadHeatmapData();
+        _addHeatmapLayers();
+      } catch (e) {
+        console.error('[heatmap] refresh', e);
+      }
+    }, HEATMAP_REFRESH_MS);
   } catch(e) {
     console.error('[heatmap]', e);
     _heatmapOn = false;
