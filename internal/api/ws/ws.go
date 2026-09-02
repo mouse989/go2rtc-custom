@@ -11,6 +11,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/pkg/creds"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
@@ -100,6 +101,22 @@ func initWS(origin string) {
 }
 
 func apiWS(w http.ResponseWriter, r *http.Request) {
+	// Every registered WS message type (mjpeg, hls, mse, mp4, webrtc...) reads
+	// its stream name from this same connection's "src"/"dst" query param
+	// rather than from the per-message payload, so gate it once here rather
+	// than in each handler — a viewer restricted to a subset of cameras must
+	// not be able to read (or push into, via "dst") another camera's stream
+	// just by opening this same path.
+	q := r.URL.Query()
+	if src := q.Get("src"); src != "" && !auth.CanAccessStreamRequest(r, src) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if dst := q.Get("dst"); dst != "" && !auth.CanAccessStreamRequest(r, dst) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	ws, err := wsUp.Upgrade(w, r, nil)
 	if err != nil {
 		origin := r.Header.Get("Origin")

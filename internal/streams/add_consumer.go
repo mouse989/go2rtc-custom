@@ -99,7 +99,7 @@ func (s *Stream) AddConsumer(cons core.Consumer) (err error) {
 	}
 
 	if len(prodStarts) == 0 {
-		return formatError(consMedias, prodMedias, prodErrors)
+		return formatError(consMedias, prodMedias, prodErrors, s.producers)
 	}
 
 	s.mu.Lock()
@@ -114,13 +114,13 @@ func (s *Stream) AddConsumer(cons core.Consumer) (err error) {
 	return nil
 }
 
-func formatError(consMedias, prodMedias []*core.Media, prodErrors []error) error {
+func formatError(consMedias, prodMedias []*core.Media, prodErrors []error, producers []*Producer) error {
 	// 1. Return errors if any not nil
 	var text string
 
-	for _, err := range prodErrors {
+	for i, err := range prodErrors {
 		if err != nil {
-			text = appendString(text, err.Error())
+			text = appendString(text, producers[i].url+": "+err.Error())
 		}
 	}
 

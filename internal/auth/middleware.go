@@ -163,6 +163,18 @@ func CanAccessStream(ctx context.Context, streamName string) bool {
 	return UserCanAccessStream(u, streamName)
 }
 
+// CanAccessStreamRequest reports whether r may view streamName. Unlike
+// CanAccessStream, it also honors the same internal-loopback bypass as
+// Middleware (X-Internal: counting from 127.0.0.1/::1) — such requests never
+// go through Middleware, so r.Context() carries no user — used by go2rtc's
+// own counting/snapshot subsystem to fetch a keyframe from the loopback API.
+func CanAccessStreamRequest(r *http.Request, streamName string) bool {
+	if r.Header.Get("X-Internal") == "counting" && isLoopback(r.RemoteAddr) {
+		return true
+	}
+	return CanAccessStream(r.Context(), streamName)
+}
+
 // UserCanAccessStream reports whether u may view streamName, given u directly
 // rather than via a request context (e.g. for non-HTTP protocols like RTSP).
 func UserCanAccessStream(u *User, streamName string) bool {
