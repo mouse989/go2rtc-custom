@@ -766,7 +766,9 @@ let _searchCenter = null; // [lng, lat]
 let _searchMode = false, _editMode = false, _editingID = null;
 let _ovWindows  = {};     // id → { el, lat, lon, pinned }
 let _snapshotTimer = null, _currentModalID = null;
-let _trafficOn = false, _trafficSourceIds = [], _trafficLayerIds = [];
+let _trafficOn = false, _trafficSourceIds = [], _trafficLayerIds = [], _trafficTimer = null;
+let _trafficTileTemplates = {}; // sourceId → original (un-cache-busted) tiles[] from VietMap's style.json
+const TRAFFIC_REFRESH_MS = 60000; // VietMap's CDN caches tile responses; without this the layer never visibly updates
 let _heatmapOn = false, _heatmapData = null, _heatmapCfg = null, _heatmapTimer = null;
 const HEATMAP_REFRESH_MS = 60000; // server rescans every few minutes; this just keeps the layer from going stale while it's open
 let _clusterMarkers = new Map();  // cluster_id → {marker, el, count} — diff-based, avoids full rebuild every frame
@@ -1530,11 +1532,31 @@ function haversine(lat1,lon1,lat2,lon2) {
 }
 
 // ── Traffic overlay ───────────────────────────────────────────
+// VietMap's CDN serves the "tf" style's vector tiles with caching headers,
+// and the tile URL template never changes between loads, so the browser
+// (and any CDN edge cache in front of VietMap) keeps reusing the same
+// cached tile responses — removing/re-adding the source doesn't help
+// because the request URL is identical. _bustUrl() appends a fresh
+// timestamp param so each fetch is a genuinely distinct URL.
+function _bustUrl(url) {
+  return url + (url.includes('?') ? '&' : '?') + '_cb=' + Date.now();
+}
+
+function _refreshTrafficTiles() {
+  for (const id of _trafficSourceIds) {
+    const tmpl = _trafficTileTemplates[id];
+    const src = map.getSource(id);
+    if (!tmpl || !src || typeof src.setTiles !== 'function') continue;
+    try { src.setTiles(tmpl.map(_bustUrl)); } catch (e) { console.error('[traffic] refresh', id, e); }
+  }
+}
+
 async function toggleTraffic() {
   if (_trafficOn) {
+    if (_trafficTimer) { clearInterval(_trafficTimer); _trafficTimer = null; }
     _trafficLayerIds.forEach(id => { try { map.removeLayer(id); } catch(_){} });
     _trafficSourceIds.forEach(id => { try { map.removeSource(id); } catch(_){} });
-    _trafficLayerIds = []; _trafficSourceIds = [];
+    _trafficLayerIds = []; _trafficSourceIds = []; _trafficTileTemplates = {};
     _trafficOn = false;
     document.getElementById('btnTraffic').classList.remove('active');
     return;
@@ -1543,11 +1565,18 @@ async function toggleTraffic() {
   btn.textContent = '⏳ Loading…';
   try {
     const tfStyle = await fetch(
-      `https://maps.vietmap.vn/maps/styles/tf/style.json?apikey=${_vietmapKey}`
+      `https://maps.vietmap.vn/maps/styles/tf/style.json?apikey=${_vietmapKey}`,
+      { cache: 'no-store' }
     ).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
 
     Object.entries(tfStyle.sources || {}).forEach(([id, src]) => {
-      if (!map.getSource(id)) { map.addSource(id, src); _trafficSourceIds.push(id); }
+      if (map.getSource(id)) return;
+      if (Array.isArray(src.tiles)) {
+        _trafficTileTemplates[id] = src.tiles;
+        src = { ...src, tiles: src.tiles.map(_bustUrl) };
+      }
+      map.addSource(id, src);
+      _trafficSourceIds.push(id);
     });
     (tfStyle.layers || []).forEach(layer => {
       if (!map.getLayer(layer.id)) {
@@ -1560,6 +1589,7 @@ async function toggleTraffic() {
     });
     _trafficOn = true;
     btn.classList.add('active');
+    _trafficTimer = setInterval(_refreshTrafficTiles, TRAFFIC_REFRESH_MS);
   } catch (err) {
     console.error('[traffic]', err);
     alert('Cannot load traffic data. Check your VietMap API key in Admin → Settings.');
