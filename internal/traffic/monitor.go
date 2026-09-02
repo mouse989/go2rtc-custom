@@ -41,17 +41,19 @@ type geoResult struct {
 var (
 	lastFilteredMu sync.RWMutex
 	lastFiltered   []Point
+	lastPersistent []Point
+	lastScannedAt  time.Time
 
 	geoCache   = map[string]geoResult{}
 	geoCacheMu sync.RWMutex
 
-	scanStateMu   sync.RWMutex
-	lastScanAt    time.Time
-	nextScanAt    time.Time
-	lastRawCnt    int
-	lastFilterCnt int
+	scanStateMu    sync.RWMutex
+	lastScanAt     time.Time
+	nextScanAt     time.Time
+	lastRawCnt     int
+	lastFilterCnt  int
 	lastPersistCnt int
-	lastErr       string
+	lastErr        string
 
 	logsMu     sync.Mutex
 	recentLogs []LogEntry
@@ -61,6 +63,17 @@ func setScanNext(t time.Time) {
 	scanStateMu.Lock()
 	nextScanAt = t
 	scanStateMu.Unlock()
+}
+
+// getLastPersistent returns the persistent jam points from the most recent
+// scan directly from memory (no disk round-trip), so callers always see
+// exactly what the live scanner last computed.
+func getLastPersistent() ([]Point, time.Time) {
+	lastFilteredMu.RLock()
+	defer lastFilteredMu.RUnlock()
+	pts := make([]Point, len(lastPersistent))
+	copy(pts, lastPersistent)
+	return pts, lastScannedAt
 }
 
 func getScanState() (last, next time.Time, raw, filtered, persistent int, errStr string, running bool) {
@@ -269,13 +282,13 @@ func parseFlatArray(arr []json.RawMessage) ([]segment, error) {
 	var segs []segment
 	for _, raw := range arr {
 		var item struct {
-			JamFactor  *float64        `json:"jam_factor"`
-			JamFactor2 *float64        `json:"jamFactor"`
-			Congestion *float64        `json:"congestion"`
-			Speed      float64         `json:"speed"`
-			CurSpeed   float64         `json:"current_speed"`
-			Lat        *float64        `json:"lat"`
-			Lng        *float64        `json:"lng"`
+			JamFactor  *float64 `json:"jam_factor"`
+			JamFactor2 *float64 `json:"jamFactor"`
+			Congestion *float64 `json:"congestion"`
+			Speed      float64  `json:"speed"`
+			CurSpeed   float64  `json:"current_speed"`
+			Lat        *float64 `json:"lat"`
+			Lng        *float64 `json:"lng"`
 			Geometry   *struct {
 				Type        string          `json:"type"`
 				Coordinates json.RawMessage `json:"coordinates"`
@@ -672,12 +685,16 @@ func runScan() error {
 		}
 	}
 
+	scanTime := time.Now()
+
 	lastFilteredMu.Lock()
 	lastFiltered = filtered
+	lastPersistent = persistent
+	lastScannedAt = scanTime
 	lastFilteredMu.Unlock()
 
 	scanStateMu.Lock()
-	lastScanAt = time.Now()
+	lastScanAt = scanTime
 	lastRawCnt = len(allRaw)
 	lastFilterCnt = len(filtered)
 	lastPersistCnt = len(persistent)
@@ -689,7 +706,7 @@ func runScan() error {
 
 	// Save scan data to local disk (traffic_data/ next to traffic.json)
 	if c.Storage.Enabled {
-		if err := saveScanData(c, time.Now(), allRaw, filtered, persistent); err != nil {
+		if err := saveScanData(c, scanTime, allRaw, filtered, persistent); err != nil {
 			addLog("warn", "storage error: "+err.Error())
 		}
 	}
@@ -701,8 +718,7 @@ func runScan() error {
 	}
 
 	if c.Sheets.Enabled && c.Sheets.URL != "" {
-		now := time.Now().Unix()
-		if err := sendSheetsLog(c.Sheets.URL, now, allRaw, filtered, persistent); err != nil {
+		if err := sendSheetsLog(c.Sheets.URL, scanTime.Unix(), allRaw, filtered, persistent); err != nil {
 			addLog("warn", "sheets error: "+err.Error())
 		}
 	}

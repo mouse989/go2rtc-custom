@@ -1,6 +1,6 @@
 package traffic
 
-import "encoding/json"
+import "time"
 
 // DashPoint is a jam cluster point for the dashboard map.
 type DashPoint struct {
@@ -23,44 +23,40 @@ type TrafficSnapshot struct {
 	Points     []DashPoint `json:"points"` // persistent points for map
 }
 
-// LatestSnapshot returns the most recent scan data for the dashboard summary API.
+// LatestSnapshot returns the most recent scan data for the dashboard summary
+// and map heatmap APIs. It reads directly from the live in-memory scan
+// result (updated at the end of every runScan), not from the on-disk daily
+// history — the history file only exists when Storage.Enabled is on and is
+// keyed by calendar day, so round-tripping through it made the map lag by
+// up to a full scan interval (or serve stale/empty data whenever storage
+// was off or a day file was missing), which looked like the layer was stuck
+// on cached data. Reading the live scan result removes that indirection
+// entirely; the on-disk history is still written and used separately for
+// the history/export APIs.
 func LatestSnapshot() TrafficSnapshot {
 	_, _, rawCount, filtCount, persCount, _, running := getScanState()
+	pts, scannedAt := getLastPersistent()
+
 	snap := TrafficSnapshot{
 		Running:    running,
 		Raw:        rawCount,
 		Filtered:   filtCount,
 		Persistent: persCount,
 	}
-
-	files, err := listScanFiles(1)
-	if err != nil || len(files) == 0 {
-		return snap
+	if !scannedAt.IsZero() {
+		snap.ScannedAt = scannedAt.Format(time.RFC3339)
 	}
-	data, err := readScanFile(files[0].Name)
-	if err != nil {
-		return snap
-	}
-	var rec dailyRecord
-	if err := json.Unmarshal(data, &rec); err != nil || len(rec.Scans) == 0 {
-		return snap
-	}
-	last := rec.Scans[len(rec.Scans)-1]
-	snap.ScannedAt = last.ScannedAt
-	snap.Raw = len(last.Raw)
-	snap.Filtered = len(last.Filtered)
-	snap.Persistent = len(last.Persistent)
-	for _, p := range last.Persistent {
+	for _, p := range pts {
 		if p.JamFactor >= 8 {
 			snap.Severe++
 		}
 		snap.Points = append(snap.Points, DashPoint{
-			Lat:    p.Lat,
-			Lng:    p.Lng,
+			Lat:       p.Lat,
+			Lng:       p.Lng,
 			JamFactor: p.JamFactor,
-			Label:  p.Label,
-			Area:   p.Area,
-			Region: p.Region,
+			Label:     p.Label,
+			Area:      p.Area,
+			Region:    p.RegionName,
 		})
 	}
 	return snap

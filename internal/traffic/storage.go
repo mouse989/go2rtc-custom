@@ -26,6 +26,21 @@ var storageMu sync.Mutex // serialises read-modify-write on the daily file
 
 var dailyFileRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.json$`)
 
+// vnLocation anchors the daily file's calendar day to Vietnam wall-clock
+// time, not whatever timezone the server process/OS happens to run in
+// (often UTC on cloud hosts) — see the same pattern in
+// internal/incidents/timeslots.go, which fixed the identical class of bug
+// for incident time-slot classification.
+var vnLocation = loadVNLocation()
+
+func loadVNLocation() *time.Location {
+	if loc, err := time.LoadLocation("Asia/Ho_Chi_Minh"); err == nil {
+		return loc
+	}
+	// Fallback for minimal containers without IANA tzdata installed.
+	return time.FixedZone("ICT", 7*3600)
+}
+
 // dataDir returns the directory where scan history files are stored
 // (a "traffic_data" folder next to traffic.json).
 func dataDir() string {
@@ -49,7 +64,7 @@ func saveScanData(c Config, scannedAt time.Time, raw, filtered, persistent []Poi
 		return err
 	}
 
-	day := scannedAt.Format("2006-01-02")
+	day := scannedAt.In(vnLocation).Format("2006-01-02")
 	path := filepath.Join(dir, day+".json")
 
 	// Load existing day file (if any) and append this scan
@@ -70,7 +85,7 @@ func saveScanData(c Config, scannedAt time.Time, raw, filtered, persistent []Poi
 
 	// Retention cleanup (best-effort, by date in filename)
 	if c.Storage.RetentionDays > 0 {
-		cutoff := time.Now().AddDate(0, 0, -c.Storage.RetentionDays).Format("2006-01-02")
+		cutoff := time.Now().In(vnLocation).AddDate(0, 0, -c.Storage.RetentionDays).Format("2006-01-02")
 		entries, err := os.ReadDir(dir)
 		if err == nil {
 			for _, e := range entries {
