@@ -41,7 +41,12 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing date parameter", http.StatusBadRequest)
 		return
 	}
-	entries, err := traveltime.GetLogsForDate(date, 2000)
+	// 0 = no limit: this is one calendar day's file, already bounded by
+	// route count × collection interval, not an unbounded query — a fixed
+	// cap here silently truncated the day from the front (oldest entries
+	// first), blanking out the start of the chart whenever a day's total
+	// exceeded it.
+	entries, err := traveltime.GetLogsForDate(date, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
