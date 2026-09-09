@@ -5,6 +5,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/mp4"
@@ -35,7 +36,11 @@ func handlerWSMSE(tr *ws.Transport, msg *ws.Message) error {
 
 	go cons.WriteTo(tr.Writer())
 
+	user, _ := auth.UserFromContext(tr.Request.Context())
+	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+
 	tr.OnClose(func() {
+		cancelLimit()
 		stream.RemoveConsumer(cons)
 	})
 
@@ -66,7 +71,11 @@ func handlerWSMP4(tr *ws.Transport, msg *ws.Message) error {
 
 	go cons.WriteTo(tr.Writer())
 
+	user, _ := auth.UserFromContext(tr.Request.Context())
+	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+
 	tr.OnClose(func() {
+		cancelLimit()
 		stream.RemoveConsumer(cons)
 	})
 

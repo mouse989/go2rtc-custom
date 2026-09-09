@@ -47,6 +47,12 @@ type User struct {
 	// Camera view sub-permissions (only meaningful when user has cameras tab)
 	AllowCamSnapshot bool `json:"allow_cam_snapshot"` // xem ảnh snapshot camera
 	AllowCamVideo    bool `json:"allow_cam_video"`    // xem video live (webrtc/mse/hls)
+	// View-session time limit (web viewers only — never applies to RTSP/RTSPS
+	// URLs). AllowUnlimitedViewing bypasses the limit entirely (always true
+	// for admins). Otherwise ViewLimitMinutes overrides the system default
+	// (AppSettings.DefaultViewLimitMinutes) when > 0; see auth.ViewSessionLimit.
+	AllowUnlimitedViewing bool `json:"allow_unlimited_view"`
+	ViewLimitMinutes      int  `json:"view_limit_minutes"`
 	// Incidents sub-permission (only meaningful when user has incidents tab)
 	AllowIncidentsImport bool `json:"allow_incidents_import"` // import hàng loạt từ Excel
 }

@@ -146,6 +146,13 @@ func handlerMP4(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 	}
 
+	user, _ := auth.UserFromContext(r.Context())
+	if limit := auth.ViewSessionLimit(user); limit > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, limit)
+		defer cancel()
+	}
+
 	go func() {
 		<-ctx.Done()
 		_ = cons.Stop()

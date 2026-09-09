@@ -4,10 +4,12 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/webrtc"
@@ -167,6 +169,8 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 	// protect from blocking on errors
 	defer sendAnswer.Done(nil)
 
+	var cancelViewLimit func()
+
 	conn := webrtc.NewConn(pc)
 	conn.Mode = mode
 	conn.Protocol = "ws"
@@ -179,6 +183,9 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 			}
 			switch mode {
 			case core.ModePassiveConsumer:
+				if cancelViewLimit != nil {
+					cancelViewLimit()
+				}
 				stream.RemoveConsumer(conn)
 			case core.ModePassiveProducer:
 				stream.RemoveProducer(conn)
@@ -212,6 +219,8 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 			_ = conn.Close()
 			return err
 		}
+		user, _ := auth.UserFromContext(tr.Request.Context())
+		cancelViewLimit = stream.LimitConsumer(conn, auth.ViewSessionLimit(user))
 	case core.ModePassiveProducer:
 		stream.AddProducer(conn)
 	}
@@ -239,12 +248,18 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 	return nil
 }
 
-func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent string) (answer string, err error) {
+// ExchangeSDP negotiates a new WebRTC connection to/from stream. viewLimit
+// force-closes a consumer connection after that long (0 = unlimited) — only
+// meaningful callers that resolved a real web-viewer user should pass
+// anything nonzero; non-web callers (webtorrent, Home Assistant) pass 0.
+func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent string, viewLimit time.Duration) (answer string, err error) {
 	pc, err := PeerConnection(false)
 	if err != nil {
 		log.Error().Err(err).Caller().Send()
 		return
 	}
+
+	var cancelViewLimit func()
 
 	// create new webrtc instance
 	conn := webrtc.NewConn(pc)
@@ -258,6 +273,9 @@ func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent string) (answer 
 				return
 			}
 			if conn.Mode == core.ModePassiveConsumer {
+				if cancelViewLimit != nil {
+					cancelViewLimit()
+				}
 				stream.RemoveConsumer(conn)
 			} else {
 				stream.RemoveProducer(conn)
@@ -282,6 +300,7 @@ func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent string) (answer 
 			_ = conn.Close()
 			return
 		}
+		cancelViewLimit = stream.LimitConsumer(conn, viewLimit)
 	} else {
 		conn.Mode = core.ModePassiveProducer
 

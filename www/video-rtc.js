@@ -130,6 +130,23 @@ export class VideoRTC extends HTMLElement {
         this.reconnectTID = 0;
 
         /**
+         * [internal] TimeoutID for the server-configured view-session limit
+         * (see `view-limit` WS message, web viewers only — never sent for
+         * RTSP/RTSPS access).
+         * @type {number}
+         */
+        this.viewLimitTID = 0;
+
+        /**
+         * [internal] Set once the view-session limit has fired, so onclose()
+         * and onwebrtc()'s failure handler don't auto-reconnect around it —
+         * the whole point is that the viewer must take a deliberate action
+         * (reload/reconnect) to keep watching. Cleared on the next onconnect().
+         * @type {boolean}
+         */
+        this.viewLimitExpired = false;
+
+        /**
          * [internal] Handler for receiving Binary from WebSocket.
          * @type {Function}
          */
@@ -226,6 +243,10 @@ export class VideoRTC extends HTMLElement {
                 clearTimeout(this.reconnectTID);
                 this.reconnectTID = 0;
             }
+            if (this.viewLimitTID) {
+                clearTimeout(this.viewLimitTID);
+                this.viewLimitTID = 0;
+            }
 
             this.disconnectTID = 0;
 
@@ -307,6 +328,8 @@ export class VideoRTC extends HTMLElement {
      * @return {boolean} true if the connection has started.
      */
     onconnect() {
+        this.viewLimitExpired = false;
+
         if (!this.isConnected || !this.wsURL || this.ws || this.pc) return false;
 
         // CLOSED or CONNECTING => CONNECTING
@@ -363,6 +386,15 @@ export class VideoRTC extends HTMLElement {
         this.ondata = null;
         this.onmessage = {};
 
+        // Server tells us up front (before any mode is negotiated) how long
+        // this view session may run; see internal/api/ws.apiWS(). Sent only
+        // for browser viewers who are time-limited — never for RTSP/RTSPS.
+        this.onmessage['viewlimit'] = msg => {
+            if (msg.type !== 'view-limit') return;
+            if (this.viewLimitTID) clearTimeout(this.viewLimitTID);
+            this.viewLimitTID = setTimeout(() => this.onviewlimit(), msg.value * 1000);
+        };
+
         const modes = [];
 
         if (this.mode.includes('mse') && ('MediaSource' in window || 'ManagedMediaSource' in window)) {
@@ -402,9 +434,17 @@ export class VideoRTC extends HTMLElement {
     onclose() {
         if (this.wsState === WebSocket.CLOSED) return false;
 
+        this.ws = null;
+
+        if (this.viewLimitExpired) {
+            // Don't auto-reconnect around a server-enforced view-session
+            // cutoff — the viewer must take a deliberate action to resume.
+            this.wsState = WebSocket.CLOSED;
+            return false;
+        }
+
         // CONNECTING, OPEN => CONNECTING
         this.wsState = WebSocket.CONNECTING;
-        this.ws = null;
 
         // reconnect no more than once every X seconds
         const delay = Math.max(this.RECONNECT_TIMEOUT - (Date.now() - this.connectTS), 0);
@@ -415,6 +455,18 @@ export class VideoRTC extends HTMLElement {
         }, delay);
 
         return true;
+    }
+
+    /**
+     * Called when the server's configured view-session time limit elapses
+     * (web viewers only; never fires for RTSP/RTSPS access). Stops the
+     * stream and suppresses auto-reconnect. Override to show a "reload to
+     * continue" prompt — call `onconnect()` (or re-set `.src`) to resume.
+     */
+    onviewlimit() {
+        this.viewLimitExpired = true;
+        this.viewLimitTID = 0;
+        this.ondisconnect();
     }
 
     onmse() {
@@ -526,7 +578,7 @@ export class VideoRTC extends HTMLElement {
                 this.pcState = WebSocket.CLOSED;
                 this.pc = null;
 
-                this.onconnect();
+                if (!this.viewLimitExpired) this.onconnect();
             }
         });
 

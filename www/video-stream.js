@@ -40,22 +40,68 @@ class VideoStream extends VideoRTC {
             justify-content: space-between;
             pointer-events: none;
         }
+        .viewlimit {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            background: rgba(0, 0, 0, .72);
+            color: white;
+            text-align: center;
+            padding: 16px;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+        .viewlimit.show {
+            display: flex;
+        }
+        .viewlimit .msg {
+            font-size: 14px;
+        }
+        .viewlimit .btn {
+            font-size: 13px;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, .5);
+            background: rgba(255, 255, 255, .12);
+        }
         </style>
         <div class="info">
             <div class="status"></div>
             <div class="mode"></div>
         </div>
+        <div class="viewlimit">
+            <div class="msg">⏱ Phiên xem đã hết hạn</div>
+            <div class="btn">↻ Bấm để xem tiếp</div>
+        </div>
         `;
 
         const info = this.querySelector('.info');
         this.insertBefore(this.video, info);
+
+        this.querySelector('.viewlimit').addEventListener('click', () => {
+            this.querySelector('.viewlimit').classList.remove('show');
+            this.onconnect();
+        });
     }
 
     onconnect() {
         console.debug('stream.onconnect');
         const result = super.onconnect();
-        if (result) this.divMode = 'loading';
+        if (result) {
+            this.divMode = 'loading';
+            this.querySelector('.viewlimit').classList.remove('show');
+        }
         return result;
+    }
+
+    onviewlimit() {
+        console.debug('stream.onviewlimit');
+        super.onviewlimit();
+        this.querySelector('.viewlimit').classList.add('show');
     }
 
     ondisconnect() {

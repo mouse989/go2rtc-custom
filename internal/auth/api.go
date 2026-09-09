@@ -105,6 +105,8 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_monitor_devices":   user.AllowMonitorDevices,
 		"allow_cam_snapshot":      user.AllowCamSnapshot,
 		"allow_cam_video":         user.AllowCamVideo,
+		"allow_unlimited_view":    user.AllowUnlimitedViewing,
+		"view_limit_minutes":      user.ViewLimitMinutes,
 		"allow_incidents_import":  user.AllowIncidentsImport,
 		"tabs":                    user.EffectiveTabs(),
 	})
@@ -159,6 +161,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices   bool     `json:"allow_monitor_devices"`
 			AllowCamSnapshot      bool     `json:"allow_cam_snapshot"`
 			AllowCamVideo         bool     `json:"allow_cam_video"`
+			AllowUnlimitedViewing bool     `json:"allow_unlimited_view"`
+			ViewLimitMinutes      int      `json:"view_limit_minutes"`
 			AllowIncidentsImport  bool     `json:"allow_incidents_import"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -196,6 +200,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices:   req.AllowMonitorDevices,
 			AllowCamSnapshot:      req.AllowCamSnapshot,
 			AllowCamVideo:         req.AllowCamVideo,
+			AllowUnlimitedViewing: req.AllowUnlimitedViewing,
+			ViewLimitMinutes:      req.ViewLimitMinutes,
 			AllowIncidentsImport:  req.AllowIncidentsImport,
 		}
 		if _, exists := GetUser(req.Username); exists {
@@ -235,6 +241,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices   *bool    `json:"allow_monitor_devices"`
 			AllowCamSnapshot      *bool    `json:"allow_cam_snapshot"`
 			AllowCamVideo         *bool    `json:"allow_cam_video"`
+			AllowUnlimitedViewing *bool    `json:"allow_unlimited_view"`
+			ViewLimitMinutes      *int     `json:"view_limit_minutes"`
 			AllowIncidentsImport  *bool    `json:"allow_incidents_import"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -299,6 +307,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowCamVideo != nil {
 			existing.AllowCamVideo = *req.AllowCamVideo
+		}
+		if req.AllowUnlimitedViewing != nil {
+			existing.AllowUnlimitedViewing = *req.AllowUnlimitedViewing
+		}
+		if req.ViewLimitMinutes != nil {
+			existing.ViewLimitMinutes = *req.ViewLimitMinutes
 		}
 		if req.AllowIncidentsImport != nil {
 			existing.AllowIncidentsImport = *req.AllowIncidentsImport
