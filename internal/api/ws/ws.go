@@ -135,6 +135,19 @@ func apiWS(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 
+	// Tell the client its view-session time limit (if any) up front, before
+	// any mode (webrtc/mse/hls/mjpeg) is negotiated, so it can count down
+	// and show a "reload to continue" prompt on its own — this is the only
+	// reliable way to notify a WebRTC viewer, since that mode closes this
+	// WS once its own media connection is up and won't hear anything sent
+	// later. The actual cutoff is still enforced server-side regardless of
+	// whether the client honors this notice.
+	if user, ok := auth.UserFromContext(r.Context()); ok {
+		if limit := auth.ViewSessionLimit(user); limit > 0 {
+			tr.Write(&Message{Type: "view-limit", Value: int(limit.Seconds())})
+		}
+	}
+
 	for {
 		msg := new(Message)
 		if err = ws.ReadJSON(msg); err != nil {

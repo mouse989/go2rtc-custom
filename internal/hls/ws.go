@@ -2,10 +2,10 @@ package hls
 
 import (
 	"errors"
-	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/pkg/mp4"
 )
@@ -29,19 +29,8 @@ func handlerWSHLS(tr *ws.Transport, msg *ws.Message) error {
 		return err
 	}
 
-	session := NewSession(cons)
-
-	session.alive = time.AfterFunc(keepalive, func() {
-		sessionsMu.Lock()
-		delete(sessions, session.id)
-		sessionsMu.Unlock()
-
-		stream.RemoveConsumer(cons)
-	})
-
-	sessionsMu.Lock()
-	sessions[session.id] = session
-	sessionsMu.Unlock()
+	user, _ := auth.UserFromContext(tr.Request.Context())
+	session := registerSession(stream, cons, auth.ViewSessionLimit(user))
 
 	go session.Run()
 

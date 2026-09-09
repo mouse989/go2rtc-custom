@@ -166,6 +166,9 @@ func outputMjpeg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, _ := auth.UserFromContext(r.Context())
+	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+
 	h := w.Header()
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Connection", "close")
@@ -182,6 +185,7 @@ func outputMjpeg(w http.ResponseWriter, r *http.Request) {
 		_, _ = cons.WriteTo(wr)
 	}
 
+	cancelLimit()
 	stream.RemoveConsumer(cons)
 }
 
@@ -227,7 +231,11 @@ func handlerWS(tr *ws.Transport, _ *ws.Message) error {
 
 	go cons.WriteTo(tr.Writer())
 
+	user, _ := auth.UserFromContext(tr.Request.Context())
+	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+
 	tr.OnClose(func() {
+		cancelLimit()
 		stream.RemoveConsumer(cons)
 	})
 
@@ -255,7 +263,11 @@ func apiStreamY4M(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, _ := auth.UserFromContext(r.Context())
+	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+
 	_, _ = cons.WriteTo(w)
 
+	cancelLimit()
 	stream.RemoveConsumer(cons)
 }

@@ -40,6 +40,37 @@ const keepalive = 5 * time.Second
 var sessions = map[string]*Session{}
 var sessionsMu sync.RWMutex
 
+// registerSession wraps cons in a Session and tracks it in the sessions
+// map. It's cleaned up either by the existing idle-timeout (no
+// playlist/segment request within `keepalive`) or, if limit > 0, by an
+// absolute view-session deadline (internal/auth.ViewSessionLimit) —
+// whichever comes first — both funneling through the same cleanup so it
+// only ever runs once.
+func registerSession(stream *streams.Stream, cons core.Consumer, limit time.Duration) *Session {
+	session := NewSession(cons)
+
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			sessionsMu.Lock()
+			delete(sessions, session.id)
+			sessionsMu.Unlock()
+			stream.RemoveConsumer(cons)
+		})
+	}
+
+	session.alive = time.AfterFunc(keepalive, cleanup)
+	if limit > 0 {
+		time.AfterFunc(limit, cleanup)
+	}
+
+	sessionsMu.Lock()
+	sessions[session.id] = session
+	sessionsMu.Unlock()
+
+	return session
+}
+
 func handlerStream(w http.ResponseWriter, r *http.Request) {
 	// CORS important for Chromecast
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -83,18 +114,8 @@ func handlerStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session := NewSession(cons)
-	session.alive = time.AfterFunc(keepalive, func() {
-		sessionsMu.Lock()
-		delete(sessions, session.id)
-		sessionsMu.Unlock()
-
-		stream.RemoveConsumer(cons)
-	})
-
-	sessionsMu.Lock()
-	sessions[session.id] = session
-	sessionsMu.Unlock()
+	user, _ := auth.UserFromContext(r.Context())
+	session := registerSession(stream, cons, auth.ViewSessionLimit(user))
 
 	go session.Run()
 

@@ -29,7 +29,12 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "admin only", http.StatusForbidden)
 			return
 		}
-		var s AppSettings
+		// Start from the current settings, not a zero value: callers (e.g.
+		// admin.html's basic "Save Settings" button) only ever send the
+		// fields they show, so decoding into an empty struct would silently
+		// wipe every other setting (heatmap_cfg, view-limit default, etc.)
+		// back to its zero value on every partial save.
+		s := GetSettings()
 		if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

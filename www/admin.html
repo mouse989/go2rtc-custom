@@ -278,6 +278,17 @@ tr:hover td { background:var(--surface2); }
               Bán kính vòng tròn tìm kiếm camera khi click lên bản đồ (tab Map). Áp dụng cho tất cả user, session.
             </p>
           </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Giới hạn phiên xem video mặc định (phút)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="viewLimitInput" min="1" step="1" value="15"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 15)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Áp dụng cho user bị giới hạn thời gian xem (không tick "Không giới hạn thời gian xem" và không đặt giá trị riêng ở form user). Hết thời gian, video dừng và người dùng phải bấm để xem tiếp. Không áp dụng cho link RTSP/RTSPS.
+            </p>
+          </div>
           <div style="display:flex;gap:.5rem">
             <button class="btn btn-primary" onclick="saveSettings()" style="font-size:.83rem">💾 Save Settings</button>
             <span id="settingsSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Saved</span>
@@ -1259,6 +1270,13 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Camera</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-snapshot"> 📷 Xem snapshot camera</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-video"> 🎥 Xem video live (WebRTC/HLS)</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-unlimited-view" onchange="toggleViewLimitInput()"> ⏱ Không giới hạn thời gian xem</label>
+          <label class="tab-perm-chip" id="view-limit-wrap" style="gap:.35rem">
+            Giới hạn phiên xem (phút)
+            <input type="number" id="f-view-limit-minutes" min="1" step="1" placeholder="mặc định hệ thống"
+                   style="width:78px;padding:.15rem .35rem;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:.75rem">
+          </label>
+          <div style="font-size:.7rem;color:var(--text-muted);margin:-.15rem 0 .3rem">Sau khi hết thời gian, video dừng lại và người dùng phải bấm để xem tiếp. Không áp dụng cho link RTSP/RTSPS. Để trống ô phút = dùng giá trị mặc định hệ thống (Settings).</div>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Sự cố giao thông</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-incidents-import"> ⬆ Import Excel hàng loạt</label>
         </div>
@@ -1732,6 +1750,7 @@ async function loadSettings() {
     document.getElementById('snapIntervalInput').value = s.snapshot_interval_sec || 15;
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
+    document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
   } catch (e) {}
   loadRtspCreds();
   loadProxySites();
@@ -1943,6 +1962,7 @@ async function saveSettings() {
   const interval    = parseInt(document.getElementById('snapIntervalInput').value, 10) || 15;
   const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
+  const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   try {
     await apiFetch('/api/settings', {
       method: 'POST',
@@ -1952,6 +1972,7 @@ async function saveSettings() {
         snapshot_interval_sec: interval,
         snapshot_concurrency: concurrency,
         map_search_radius_km: mapRadius,
+        default_view_limit_minutes: viewLimit,
       }),
     });
     const msg = document.getElementById('settingsSaveMsg');
@@ -2070,6 +2091,9 @@ function openEdit(u) {
   document.getElementById('f-allow-monitor-devices').checked  = !!u.allow_monitor_devices;
   document.getElementById('f-allow-cam-snapshot').checked = !!u.allow_cam_snapshot;
   document.getElementById('f-allow-cam-video').checked    = !!u.allow_cam_video;
+  document.getElementById('f-allow-unlimited-view').checked = !!u.allow_unlimited_view;
+  document.getElementById('f-view-limit-minutes').value = u.view_limit_minutes > 0 ? u.view_limit_minutes : '';
+  toggleViewLimitInput();
   document.getElementById('f-allow-incidents-import').checked = !!u.allow_incidents_import;
   setCamChecks(u.streams || []);
   updateCamCount(); onRoleChange();
@@ -2082,6 +2106,13 @@ function onRoleChange() {
   const isAdmin = document.getElementById('f-role').value === 'admin';
   document.getElementById('cam-section').style.display = isAdmin ? 'none' : '';
   document.getElementById('f-tabs-row').style.display = isAdmin ? 'none' : '';
+}
+
+function toggleViewLimitInput() {
+  const unlimited = document.getElementById('f-allow-unlimited-view').checked;
+  const input = document.getElementById('f-view-limit-minutes');
+  input.disabled = unlimited;
+  document.getElementById('view-limit-wrap').style.opacity = unlimited ? '.5' : '1';
 }
 
 // ════════════════════════════════════════════════════════
@@ -2209,8 +2240,10 @@ async function submitForm(e) {
   const allow_monitor_devices  = role === 'admin' ? true : document.getElementById('f-allow-monitor-devices').checked;
   const allow_cam_snapshot     = role === 'admin' ? true : document.getElementById('f-allow-cam-snapshot').checked;
   const allow_cam_video        = role === 'admin' ? true : document.getElementById('f-allow-cam-video').checked;
+  const allow_unlimited_view   = role === 'admin' ? true : document.getElementById('f-allow-unlimited-view').checked;
+  const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
-  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_incidents_import, tabs };
+  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
   if (password) body.password = password;
 
   const btn = document.getElementById('dlg-btn');
