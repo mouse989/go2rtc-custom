@@ -2,8 +2,10 @@ package auth
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // responseJSON writes v as JSON — local copy to avoid importing internal/api (would cycle)
@@ -24,6 +26,29 @@ func registerHandlers() {
 	http.HandleFunc("/api/users/", usersHandler) // with trailing username
 }
 
+// isRequestTLS reports whether r arrived over this server's own TLS listener
+// (ACME/TLSListen in internal/api). Deliberately does not trust
+// X-Forwarded-Proto — that's client-controllable, and wrongly marking the
+// cookie Secure on a plain-HTTP deployment would silently break cookie auth
+// (browsers refuse to send Secure cookies over HTTP), so only ever set it
+// when we can be sure from the connection itself.
+func isRequestTLS(r *http.Request) bool {
+	return r.TLS != nil
+}
+
+// respondLoginLocked returns 429 with the remaining lockout time so the
+// login page can show something more useful than "invalid credentials".
+func respondLoginLocked(w http.ResponseWriter, remaining time.Duration) {
+	mins := int(remaining.Round(time.Minute) / time.Minute)
+	if mins < 1 {
+		mins = 1
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	msg := fmt.Sprintf("too many failed attempts, try again in %dm", mins)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 // loginHandler POST /api/auth/login  {"username":"..","password":".."}
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -40,14 +65,32 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Brute-force protection: tracked separately by username and by IP so
+	// neither a spray-many-usernames-from-one-IP nor a
+	// spray-many-IPs-at-one-username attack dodges it.
+	userKey := "user:" + strings.ToLower(req.Username)
+	ipKey := "ip:" + clientIP(r)
+	if locked, remaining := loginLocked(userKey); locked {
+		respondLoginLocked(w, remaining)
+		return
+	}
+	if locked, remaining := loginLocked(ipKey); locked {
+		respondLoginLocked(w, remaining)
+		return
+	}
+
 	user, ok := Authenticate(req.Username, req.Password)
 	if !ok {
+		recordLoginFailure(userKey)
+		recordLoginFailure(ipKey)
 		// Use WriteHeader directly — http.Error() overrides Content-Type to text/plain
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":"invalid credentials"}`))
 		return
 	}
+	recordLoginSuccess(userKey)
+	recordLoginSuccess(ipKey)
 
 	token, err := GenerateToken(user)
 	if err != nil {
@@ -60,6 +103,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   isRequestTLS(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 	})
@@ -220,6 +264,10 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "username and password required", http.StatusBadRequest)
 			return
 		}
+		if len(req.Password) < 6 {
+			http.Error(w, "password must be at least 6 characters", http.StatusBadRequest)
+			return
+		}
 		if req.Role != RoleAdmin && req.Role != RoleViewer {
 			req.Role = RoleViewer
 		}
@@ -294,6 +342,10 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if req.Password != "" && len(req.Password) < 6 {
+			http.Error(w, "password must be at least 6 characters", http.StatusBadRequest)
 			return
 		}
 		existing, found := GetUser(targetUser)

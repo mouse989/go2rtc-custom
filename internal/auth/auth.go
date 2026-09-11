@@ -93,6 +93,8 @@ func Init() {
 		log.Warn().Err(err).Msg("[auth] cam presets load failed (continuing)")
 	}
 
+	startLoginThrottleSweeper()
+
 	registerHandlers()
 	registerProxyHandlers()
 	registerLocationHandlers()
