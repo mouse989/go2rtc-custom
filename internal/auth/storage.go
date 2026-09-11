@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/bcrypt"
@@ -109,6 +111,9 @@ func ListUsers() []*User {
 		cp.Password = ""
 		list = append(list, &cp)
 	}
+	sort.Slice(list, func(i, j int) bool {
+		return strings.ToLower(list[i].Username) < strings.ToLower(list[j].Username)
+	})
 	return list
 }
 
