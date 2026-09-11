@@ -17,6 +17,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/auth/login", loginHandler)
 	http.HandleFunc("/api/auth/logout", logoutHandler)
 	http.HandleFunc("/api/auth/me", meHandler)
+	http.HandleFunc("/api/auth/change-password", changePasswordHandler)
 
 	// Admin-only user management  (/api/users and /api/users/{name})
 	http.HandleFunc("/api/users", usersHandler)
@@ -64,10 +65,55 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	responseJSON(w, map[string]interface{}{
-		"token":    token,
-		"username": user.Username,
-		"role":     user.Role,
+		"token":                token,
+		"username":             user.Username,
+		"role":                 user.Role,
+		"must_change_password": user.MustChangePassword,
 	})
+}
+
+// changePasswordHandler POST /api/auth/change-password
+// {"current_password":"..","new_password":".."}
+// Available to any authenticated user, including one with MustChangePassword
+// set — this (plus /api/auth/me and /api/auth/logout) is exempt from that
+// gate in Middleware precisely so they have a way to satisfy it.
+func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		http.Error(w, "new password must be at least 6 characters", http.StatusBadRequest)
+		return
+	}
+	if _, ok := Authenticate(user.Username, req.CurrentPassword); !ok {
+		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+	existing, found := GetUser(user.Username)
+	if !found {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	existing.MustChangePassword = false
+	if err := UpdateUser(existing, req.NewPassword); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // logoutHandler POST /api/auth/logout
@@ -91,6 +137,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 	responseJSON(w, map[string]interface{}{
 		"username":                user.Username,
 		"role":                    user.Role,
+		"must_change_password":    user.MustChangePassword,
 		"streams":                 user.Streams,
 		"allow_traffic":           user.AllowTraffic,
 		"allow_heatmap":           user.AllowHeatmap,

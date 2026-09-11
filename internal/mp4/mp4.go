@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
@@ -151,6 +152,9 @@ func handlerMP4(w http.ResponseWriter, r *http.Request) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, limit)
 		defer cancel()
+	}
+	if user != nil {
+		accesslog.Record(user.Username, query.Get("src"), "mp4")
 	}
 
 	go func() {

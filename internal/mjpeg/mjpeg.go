@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
@@ -168,6 +169,13 @@ func outputMjpeg(w http.ResponseWriter, r *http.Request) {
 
 	user, _ := auth.UserFromContext(r.Context())
 	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		kind := "ascii"
+		if strings.HasSuffix(r.URL.Path, "mjpeg") {
+			kind = "mjpeg"
+		}
+		accesslog.Record(user.Username, src, kind)
+	}
 
 	h := w.Header()
 	h.Set("Cache-Control", "no-cache")
@@ -233,6 +241,9 @@ func handlerWS(tr *ws.Transport, _ *ws.Message) error {
 
 	user, _ := auth.UserFromContext(tr.Request.Context())
 	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		accesslog.Record(user.Username, tr.Request.URL.Query().Get("src"), "mjpeg-ws")
+	}
 
 	tr.OnClose(func() {
 		cancelLimit()
@@ -265,6 +276,9 @@ func apiStreamY4M(w http.ResponseWriter, r *http.Request) {
 
 	user, _ := auth.UserFromContext(r.Context())
 	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		accesslog.Record(user.Username, src, "y4m")
+	}
 
 	_, _ = cons.WriteTo(w)
 

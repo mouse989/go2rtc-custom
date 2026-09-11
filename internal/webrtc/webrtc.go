@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
@@ -221,6 +222,9 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 		}
 		user, _ := auth.UserFromContext(tr.Request.Context())
 		cancelViewLimit = stream.LimitConsumer(conn, auth.ViewSessionLimit(user))
+		if user != nil {
+			accesslog.Record(user.Username, query.Get("src"), "webrtc")
+		}
 	case core.ModePassiveProducer:
 		stream.AddProducer(conn)
 	}

@@ -3,6 +3,7 @@ package hls
 import (
 	"errors"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/auth"
@@ -31,6 +32,9 @@ func handlerWSHLS(tr *ws.Transport, msg *ws.Message) error {
 
 	user, _ := auth.UserFromContext(tr.Request.Context())
 	session := registerSession(stream, cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		accesslog.Record(user.Username, tr.Request.URL.Query().Get("src"), "hls-ws")
+	}
 
 	go session.Run()
 

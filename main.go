@@ -3,6 +3,7 @@ package main
 import (
 	"slices"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/alsa"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
@@ -71,6 +72,7 @@ func main() {
 	modules := []module{
 		{"", app.Init},            // init config and logs
 		{"", auth.Init},           // init auth before API (sets up JWT middleware) — always on, required by api
+		{"", accesslog.Init},      // camera access log (who viewed what/when) — always on
 		{"api", api.Init},         // init API before all others — always on if listed; hosts reverse-proxy too
 		{"monitor", monitor.Init}, // register /api/system/stats immediately after server starts
 		{"ws", ws.Init},           // init WS API endpoint

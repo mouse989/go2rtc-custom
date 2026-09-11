@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/streams"
@@ -135,6 +136,9 @@ func outputWebRTC(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Caller().Send()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if user != nil {
+		accesslog.Record(user.Username, u, "webrtc-http")
 	}
 
 	switch mediaType {

@@ -181,6 +181,14 @@ async function initApp(requiredTab) {
     return;
   }
 
+  // A user who must set their own password can't use any other page —
+  // the server blocks every other /api/ call for them anyway (Middleware),
+  // this just gets them there without a failed-request detour first.
+  if (getUser()?.must_change_password && location.pathname !== '/change-password.html') {
+    window.location.href = '/change-password.html';
+    return;
+  }
+
   // Tab guard: redirect viewer to their first permitted page if they lack access.
   if (requiredTab) {
     const u = getUser();
