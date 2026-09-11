@@ -75,7 +75,8 @@ func Init() {
 		Handler = middlewareCORS(Handler) // 3rd
 	}
 
-	Handler = auth.Middleware(Handler) // 2nd - JWT auth + permission
+	Handler = auth.Middleware(Handler)           // 2nd - JWT auth + permission
+	Handler = middlewareSecurityHeaders(Handler) // baseline hardening headers
 
 	// Tell proxy handlers where to forward loopback requests
 	auth.SetListenAddr(cfg.Mod.Listen)
@@ -324,6 +325,30 @@ var log zerolog.Logger
 func middlewareLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Trace().Msgf("[api] %s %s %s", r.Method, r.URL, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// middlewareSecurityHeaders sets a few baseline hardening headers on every
+// go2rtc-served response (not applied to other sites served via the
+// reverse-proxy feature — those are unrelated apps). A full
+// Content-Security-Policy isn't attempted here: the UI relies on inline
+// <script>/<style> throughout, which a strict CSP would break without a
+// much larger nonce/hash rollout across every page.
+func middlewareSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		// SAMEORIGIN, not DENY: admin.html embeds traffic.html in an iframe.
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		// strict-origin-when-cross-origin (already every modern browser's
+		// default, set explicitly rather than relied on): full URL — several
+		// endpoints carry ?token= — only ever goes same-origin; cross-origin
+		// requests (e.g. the map's direct calls to maps.vietmap.vn) still get
+		// just the origin, which is what a domain-restricted API key needs to
+		// verify against. The stricter "same-origin" would send no referrer
+		// at all cross-origin and could break that domain check.
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
 }
