@@ -33,6 +33,13 @@ type AppSettings struct {
 	MapSearchRadiusKm       float64        `json:"map_search_radius_km"`  // 0 → default 1 km
 	HeatmapCfg              *HeatmapConfig `json:"heatmap_cfg,omitempty"`
 	DefaultViewLimitMinutes int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
+
+	// Security-alert "normal login hours" window (Asia/Ho_Chi_Minh). When
+	// enabled, a successful login outside [LoginHourStart, LoginHourEnd)
+	// raises an off_hours_login alert — see security_alerts.go.
+	LoginHourRangeEnabled bool `json:"login_hour_range_enabled"`
+	LoginHourStart        int  `json:"login_hour_start"` // 0-23
+	LoginHourEnd          int  `json:"login_hour_end"`   // 0-23
 }
 
 var (

@@ -146,6 +146,7 @@ func Middleware(next http.Handler) http.Handler {
 
 		// Check path permission
 		if !userCanAccessPath(user, r.URL.Path) {
+			onUnauthorizedAccess(user.Username, clientIP(r), r.URL.Path)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -181,7 +182,13 @@ func CanAccessStreamRequest(r *http.Request, streamName string) bool {
 	if r.Header.Get("X-Internal") == "counting" && isLoopback(r.RemoteAddr) {
 		return true
 	}
-	return CanAccessStream(r.Context(), streamName)
+	if CanAccessStream(r.Context(), streamName) {
+		return true
+	}
+	if u, ok := UserFromContext(r.Context()); ok {
+		onUnauthorizedAccess(u.Username, clientIP(r), "stream:"+streamName)
+	}
+	return false
 }
 
 // UserCanAccessStream reports whether u may view streamName, given u directly

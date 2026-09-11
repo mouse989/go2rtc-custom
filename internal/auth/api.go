@@ -68,8 +68,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	// Brute-force protection: tracked separately by username and by IP so
 	// neither a spray-many-usernames-from-one-IP nor a
 	// spray-many-IPs-at-one-username attack dodges it.
+	ip := clientIP(r)
+	ua := r.Header.Get("User-Agent")
 	userKey := "user:" + strings.ToLower(req.Username)
-	ipKey := "ip:" + clientIP(r)
+	ipKey := "ip:" + ip
 	if locked, remaining := loginLocked(userKey); locked {
 		respondLoginLocked(w, remaining)
 		return
@@ -81,8 +83,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	user, ok := Authenticate(req.Username, req.Password)
 	if !ok {
-		recordLoginFailure(userKey)
-		recordLoginFailure(ipKey)
+		if recordLoginFailure(userKey) {
+			onLoginLockout("user", req.Username)
+		}
+		if recordLoginFailure(ipKey) {
+			onLoginLockout("ip", ip)
+		}
+		recordLoginHistory(req.Username, ip, ua, false, "invalid_credentials")
 		// Use WriteHeader directly — http.Error() overrides Content-Type to text/plain
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -91,6 +98,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	recordLoginSuccess(userKey)
 	recordLoginSuccess(ipKey)
+	recordLoginHistory(user.Username, ip, ua, true, "")
+	onLoginSuccess(user.Username, ip, ua)
 
 	token, err := GenerateToken(user)
 	if err != nil {

@@ -78,7 +78,13 @@ func loginLocked(key string) (locked bool, remaining time.Duration) {
 	return true, time.Until(s.lockedUntil)
 }
 
-func recordLoginFailure(key string) {
+// recordLoginFailure reports justLocked = true exactly once per lockout
+// episode: loginHandler only ever calls this when the key isn't currently
+// locked (it returns early via loginLocked otherwise), so reaching the
+// threshold here always means a lockout is being freshly (re-)armed —
+// callers use this to raise a security alert without spamming it on every
+// blocked attempt during the lockout window.
+func recordLoginFailure(key string) (justLocked bool) {
 	loginThrottleMu.Lock()
 	defer loginThrottleMu.Unlock()
 	s := loginThrottle[key]
@@ -90,7 +96,9 @@ func recordLoginFailure(key string) {
 	s.lastAttempt = time.Now()
 	if s.failures >= maxLoginFailures {
 		s.lockedUntil = time.Now().Add(loginLockoutWindow)
+		return true
 	}
+	return false
 }
 
 func recordLoginSuccess(key string) {
