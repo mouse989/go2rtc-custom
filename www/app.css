@@ -138,7 +138,12 @@ body.is-admin .nav-item.admin-only { display: flex; }
   border-top: 1px solid var(--border-soft);
   flex-shrink: 0; /* never shrink — always visible */
 }
-.user-info { display: flex; align-items: center; gap: .6rem; flex: 1; min-width: 0; }
+.user-info {
+  display: flex; align-items: center; gap: .6rem; flex: 1; min-width: 0;
+  cursor: pointer; border-radius: 6px; padding: .25rem; margin: -.25rem;
+  transition: background .15s;
+}
+.user-info:hover { background: var(--surface2); }
 .avatar {
   width: 32px; height: 32px;
   border-radius: 50%;
