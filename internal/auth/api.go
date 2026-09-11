@@ -139,8 +139,8 @@ func changePasswordHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if len(req.NewPassword) < 6 {
-		http.Error(w, "new password must be at least 6 characters", http.StatusBadRequest)
+	if err := validatePassword(req.NewPassword); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if _, ok := Authenticate(user.Username, req.CurrentPassword); !ok {
@@ -264,8 +264,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "username and password required", http.StatusBadRequest)
 			return
 		}
-		if len(req.Password) < 6 {
-			http.Error(w, "password must be at least 6 characters", http.StatusBadRequest)
+		if err := validatePassword(req.Password); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if req.Role != RoleAdmin && req.Role != RoleViewer {
@@ -345,9 +345,11 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if req.Password != "" && len(req.Password) < 6 {
-			http.Error(w, "password must be at least 6 characters", http.StatusBadRequest)
-			return
+		if req.Password != "" {
+			if err := validatePassword(req.Password); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		existing, found := GetUser(targetUser)
 		if !found {

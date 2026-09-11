@@ -21,6 +21,19 @@ function toast(msg, type = 'info') {
   setTimeout(() => t.remove(), 3500);
 }
 
+// Mirrors internal/auth/password_policy.go's validatePassword (\p{L}/\p{Nd}
+// so accented Vietnamese letters count as letters, not "special", same as
+// Go's unicode.IsLetter/IsDigit) — checked client-side too so the user sees
+// the rule immediately instead of only after a round trip to the server.
+// Returns '' when pw is valid, or a Vietnamese message to show otherwise.
+function passwordPolicyError(pw) {
+  const msg = 'Mật khẩu phải có ít nhất 8 ký tự, gồm 1 chữ số và 1 ký tự đặc biệt.';
+  if (pw.length < 8) return msg;
+  const hasDigit = /\p{Nd}/u.test(pw);
+  const hasSpecial = /[^\p{L}\p{Nd}]/u.test(pw);
+  return (hasDigit && hasSpecial) ? '' : msg;
+}
+
 // ─────────────────────────── Auth helpers ───────────────────────────
 function getToken() {
   return localStorage.getItem('go2rtc_token') || '';
@@ -175,11 +188,14 @@ function initChangePasswordModal() {
         </div>
         <div class="form-group">
           <label>Mật khẩu mới</label>
-          <input type="password" id="pwdNew1" class="input" autocomplete="new-password" minlength="6">
+          <input type="password" id="pwdNew1" class="input" autocomplete="new-password" minlength="8">
+          <p style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">
+            Tối thiểu 8 ký tự, gồm ít nhất 1 chữ số và 1 ký tự đặc biệt (ví dụ: ! @ # $ % ...).
+          </p>
         </div>
         <div class="form-group">
           <label>Nhập lại mật khẩu mới</label>
-          <input type="password" id="pwdNew2" class="input" autocomplete="new-password" minlength="6">
+          <input type="password" id="pwdNew2" class="input" autocomplete="new-password" minlength="8">
         </div>
         <div id="pwdModalErr" style="color:var(--red);font-size:.8rem;display:none;margin-bottom:.6rem"></div>
         <div style="display:flex;gap:.5rem;justify-content:flex-end">
@@ -211,7 +227,8 @@ function initChangePasswordModal() {
     const n2  = els('pwdNew2').value;
 
     if (!cur || !n1 || !n2) return showErr('Vui lòng nhập đủ các trường.');
-    if (n1.length < 6) return showErr('Mật khẩu mới phải có ít nhất 6 ký tự.');
+    const policyErr = passwordPolicyError(n1);
+    if (policyErr) return showErr(policyErr);
     if (n1 !== n2) return showErr('Mật khẩu mới nhập lại không khớp.');
     if (n1 === cur) return showErr('Mật khẩu mới phải khác mật khẩu hiện tại.');
 
