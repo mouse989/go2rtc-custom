@@ -135,6 +135,15 @@ func Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// A user who must still set their own password can only reach the
+		// handful of endpoints needed to do that (or to give up and log
+		// out) — everything else, including admin's own default access,
+		// is blocked until they change it.
+		if user.MustChangePassword && !mustChangePasswordAllowedPaths[r.URL.Path] {
+			http.Error(w, "password change required", http.StatusForbidden)
+			return
+		}
+
 		// Check path permission
 		if !userCanAccessPath(user, r.URL.Path) {
 			http.Error(w, "Forbidden", http.StatusForbidden)
@@ -291,6 +300,14 @@ func isLoopback(remoteAddr string) bool {
 		h = host
 	}
 	return h == "127.0.0.1" || h == "::1"
+}
+
+// mustChangePasswordAllowedPaths are reachable even while User.MustChangePassword
+// is set. /api/auth/login and /api/auth/logout need no entry here — they're
+// already in isPublicPath, checked before a user is even resolved.
+var mustChangePasswordAllowedPaths = map[string]bool{
+	"/api/auth/me":              true,
+	"/api/auth/change-password": true,
 }
 
 func isPublicPath(path string) bool {

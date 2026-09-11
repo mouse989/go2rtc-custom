@@ -25,19 +25,24 @@ var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabLog
 
 // User represents an application user
 type User struct {
-	Username            string   `json:"username"`
-	Password            string   `json:"password"`    // bcrypt hash
-	Role                string   `json:"role"`        // "admin" or "viewer"
-	Streams             []string `json:"streams"`     // allowed stream names (viewer); nil/empty for admin = all
-	AllowPaths          []string `json:"allow_paths"` // custom API paths; nil = role defaults
-	Tabs                []string `json:"tabs"`        // page-level permissions (viewer); must be granted explicitly
-	Enabled             bool     `json:"enabled"`
-	AllowTraffic        bool     `json:"allow_traffic"`         // can use traffic overlay on map
-	AllowHeatmap        bool     `json:"allow_heatmap"`         // can use heatmap overlay on map
-	AllowMapEdit        bool     `json:"allow_map_edit"`        // can edit camera locations on map
-	AllowCamNames       bool     `json:"allow_cam_names"`       // can see real camera names (like admin)
-	AllowViewStations   bool     `json:"allow_view_stations"`   // can view traffic counting station data on map
-	AllowConfigStations bool     `json:"allow_config_stations"` // can add/edit/delete stations and station types
+	Username   string   `json:"username"`
+	Password   string   `json:"password"`    // bcrypt hash
+	Role       string   `json:"role"`        // "admin" or "viewer"
+	Streams    []string `json:"streams"`     // allowed stream names (viewer); nil/empty for admin = all
+	AllowPaths []string `json:"allow_paths"` // custom API paths; nil = role defaults
+	Tabs       []string `json:"tabs"`        // page-level permissions (viewer); must be granted explicitly
+	Enabled    bool     `json:"enabled"`
+	// MustChangePassword forces the user to set their own password before
+	// using anything else. Set automatically when a new account is created
+	// (see storage.go CreateUser/seedAdmin); cleared by a successful
+	// POST /api/auth/change-password. Enforced in Middleware.
+	MustChangePassword  bool `json:"must_change_password"`
+	AllowTraffic        bool `json:"allow_traffic"`         // can use traffic overlay on map
+	AllowHeatmap        bool `json:"allow_heatmap"`         // can use heatmap overlay on map
+	AllowMapEdit        bool `json:"allow_map_edit"`        // can edit camera locations on map
+	AllowCamNames       bool `json:"allow_cam_names"`       // can see real camera names (like admin)
+	AllowViewStations   bool `json:"allow_view_stations"`   // can view traffic counting station data on map
+	AllowConfigStations bool `json:"allow_config_stations"` // can add/edit/delete stations and station types
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process
@@ -72,21 +77,22 @@ func (u *User) EffectiveTabs() []string {
 // viewerDefaultPaths are the API paths that viewers can always access.
 // HasPrefix matching: "/api/hls" covers "/api/hls/index.m3u8" etc.
 var viewerDefaultPaths = []string{
-	"/api/streams",          // list streams (filtered per user in streams/api.go)
-	"/api/ws",               // WebSocket hub (WebRTC / MSE / HLS via JS)
-	"/api/webrtc",           // WebRTC SDP exchange (REST fallback)
-	"/api/hls",              // HLS playlist + segments
-	"/api/mjpeg",            // MJPEG stream
-	"/api/mp4",              // MP4 stream / download
-	"/api/frame",            // snapshot JPEG
-	"/api/auth/me",          // own profile
-	"/api/proxy",            // masked-ID proxy endpoints
-	"/api/camera-locations", // map: read camera GPS coords
-	"/api/groups",           // camera groups (read-only for viewers)
-	"/api/settings",         // app settings (vietmap key; write guarded inside handler)
-	"/api/cameras",          // camera list with GPS coords (no stream URLs)
-	"/api/traffic-heatmap",  // map: jam points for heatmap overlay (read-only)
-	"/api/heatmap-cfg",      // map/dashboard: heatmap config (write guarded inside handler)
+	"/api/streams",              // list streams (filtered per user in streams/api.go)
+	"/api/ws",                   // WebSocket hub (WebRTC / MSE / HLS via JS)
+	"/api/webrtc",               // WebRTC SDP exchange (REST fallback)
+	"/api/hls",                  // HLS playlist + segments
+	"/api/mjpeg",                // MJPEG stream
+	"/api/mp4",                  // MP4 stream / download
+	"/api/frame",                // snapshot JPEG
+	"/api/auth/me",              // own profile
+	"/api/auth/change-password", // any authenticated user may change their own password
+	"/api/proxy",                // masked-ID proxy endpoints
+	"/api/camera-locations",     // map: read camera GPS coords
+	"/api/groups",               // camera groups (read-only for viewers)
+	"/api/settings",             // app settings (vietmap key; write guarded inside handler)
+	"/api/cameras",              // camera list with GPS coords (no stream URLs)
+	"/api/traffic-heatmap",      // map: jam points for heatmap overlay (read-only)
+	"/api/heatmap-cfg",          // map/dashboard: heatmap config (write guarded inside handler)
 }
 
 // Claims holds JWT payload fields

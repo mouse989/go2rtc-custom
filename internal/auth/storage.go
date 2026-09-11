@@ -59,10 +59,11 @@ func (s *userStore) seedAdmin() error {
 		return err
 	}
 	admin := &User{
-		Username: "admin",
-		Password: string(hash),
-		Role:     RoleAdmin,
-		Enabled:  true,
+		Username:           "admin",
+		Password:           string(hash),
+		Role:               RoleAdmin,
+		Enabled:            true,
+		MustChangePassword: true, // the seeded credentials (admin/admin) are public knowledge
 	}
 	s.users["admin"] = admin
 	return s.saveUnlocked()
@@ -120,6 +121,7 @@ func CreateUser(u *User, plainPassword string) error {
 	// Store an independent copy so the caller can do whatever with u after this.
 	stored := *u
 	stored.Password = string(hash)
+	stored.MustChangePassword = true // first login must set a password only the user knows
 
 	store.mu.Lock()
 	store.users[stored.Username] = &stored

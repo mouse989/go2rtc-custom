@@ -120,10 +120,15 @@
     <button class="sidebar-toggle" id="sidebarToggle">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
     </button>
-    <h2 class="page-title">Server Logs</h2>
+    <h2 class="page-title">Logs</h2>
   </header>
 
-  <div class="content">
+  <div class="page-tabs">
+    <button class="page-tab active" id="tabBtnServer">Server Logs</button>
+    <button class="page-tab" id="tabBtnAccess">Nhật ký truy cập camera</button>
+  </div>
+
+  <div class="content" id="tabServerLog">
     <div class="log-toolbar">
       <button class="btn btn-sm" id="btnAuto">⏸ Auto-update: ON</button>
       <button class="btn btn-sm" id="btnReverse">↕ Newest first: ON</button>
@@ -145,6 +150,30 @@
         <table class="log-table">
           <thead><tr><th class="log-time">Time</th><th class="log-level">Level</th><th>Message</th></tr></thead>
           <tbody id="logBody"><tr><td colspan="3" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="tabAccessLog" style="display:none">
+    <div class="log-toolbar">
+      <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
+        <input type="date" id="accFrom" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">Đến ngày
+        <input type="date" id="accTo" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <button class="btn btn-sm" id="btnAccFilter">🔍 Lọc</button>
+      <input type="text" id="accSearch" class="btn btn-sm" placeholder="Tìm user / camera…" style="min-width:160px">
+      <span class="spacer"></span>
+      <span class="log-count" id="accCount">—</span>
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="accScroll">
+        <table class="log-table">
+          <thead><tr><th class="log-time">Thời gian</th><th>User</th><th>Camera</th><th style="width:110px">Loại stream</th></tr></thead>
+          <tbody id="accBody"><tr><td colspan="4" class="log-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -239,11 +268,81 @@ document.getElementById('levelFilter').addEventListener('change', e => {
   reload();
 });
 
+// ── Camera access log (admin only) ──────────────────────────────
+let accEntries = [];
+
+function fmtAccTime(iso) {
+  try { return new Date(iso).toLocaleString('vi-VN', { hour12: false }); }
+  catch { return iso || '—'; }
+}
+
+function renderAccessLog() {
+  const q = (document.getElementById('accSearch').value || '').toLowerCase();
+  const rows = q
+    ? accEntries.filter(e => (e.user || '').toLowerCase().includes(q) || (e.stream || '').toLowerCase().includes(q))
+    : accEntries;
+
+  document.getElementById('accCount').textContent = rows.length + ' lượt truy cập';
+  document.getElementById('accBody').innerHTML = rows.length
+    ? rows.map(e => `<tr>
+        <td class="log-time">${escHtml(fmtAccTime(e.time))}</td>
+        <td>${escHtml(e.user || '')}</td>
+        <td>${escHtml(e.stream || '')}</td>
+        <td>${escHtml(e.kind || '')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" class="log-empty">Không có dữ liệu trong khoảng ngày đã chọn.</td></tr>';
+}
+
+async function loadAccessLog() {
+  document.getElementById('accBody').innerHTML = '<tr><td colspan="4" class="log-empty">Loading…</td></tr>';
+  try {
+    const from = document.getElementById('accFrom').value;
+    const to = document.getElementById('accTo').value;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const entries = await apiFetch('/api/access-log?' + params.toString());
+    // Newest first
+    accEntries = (entries || []).slice().reverse();
+    renderAccessLog();
+  } catch (e) {
+    document.getElementById('accBody').innerHTML =
+      `<tr><td colspan="4" class="log-empty">Cannot load access log: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('btnAccFilter').addEventListener('click', loadAccessLog);
+document.getElementById('accSearch').addEventListener('input', renderAccessLog);
+
+document.getElementById('tabBtnServer').addEventListener('click', () => {
+  document.getElementById('tabBtnServer').classList.add('active');
+  document.getElementById('tabBtnAccess').classList.remove('active');
+  document.getElementById('tabServerLog').style.display = '';
+  document.getElementById('tabAccessLog').style.display = 'none';
+});
+
+document.getElementById('tabBtnAccess').addEventListener('click', () => {
+  document.getElementById('tabBtnAccess').classList.add('active');
+  document.getElementById('tabBtnServer').classList.remove('active');
+  document.getElementById('tabServerLog').style.display = 'none';
+  document.getElementById('tabAccessLog').style.display = '';
+  if (!accEntries.length) loadAccessLog();
+});
+
 // ── Boot ──
 (async () => {
   await initApp('log');
   const user = getUser();
   if (!user || !hasTab('log')) { window.location.href = '/'; return; }
+
+  if (isAdmin()) {
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('accFrom').value = today;
+    document.getElementById('accTo').value = today;
+  } else {
+    document.getElementById('tabBtnAccess').style.display = 'none';
+  }
+
   await reload();
   setInterval(() => { if (autoUpdate) reload(); }, 5000);
 })();

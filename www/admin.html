@@ -1220,6 +1220,9 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
         <div class="form-group">
           <label id="f-pwd-lbl">Password *</label>
           <input type="password" id="f-pwd" class="input" autocomplete="new-password">
+          <p id="f-pwd-hint" style="font-size:.7rem;color:var(--text-muted);margin-top:.3rem">
+            User mới sẽ bắt buộc đổi mật khẩu này ngay lần đăng nhập đầu tiên.
+          </p>
         </div>
       </div>
 
@@ -2053,6 +2056,7 @@ function openAdd() {
   document.getElementById('dlg-title').textContent = 'Add User';
   document.getElementById('dlg-btn').textContent = 'Create';
   document.getElementById('f-pwd-lbl').textContent = 'Password *';
+  document.getElementById('f-pwd-hint').style.display = '';
   document.getElementById('f-user').value = '';
   document.getElementById('f-user').disabled = false;
   document.getElementById('f-pwd').value = '';
@@ -2069,6 +2073,7 @@ function openEdit(u) {
   document.getElementById('dlg-title').textContent = 'Edit User: ' + u.username;
   document.getElementById('dlg-btn').textContent = 'Save';
   document.getElementById('f-pwd-lbl').textContent = 'New Password (blank = keep)';
+  document.getElementById('f-pwd-hint').style.display = 'none';
   document.getElementById('f-user').value = u.username;
   document.getElementById('f-user').disabled = true;
   document.getElementById('f-pwd').value = '';

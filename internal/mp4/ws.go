@@ -3,6 +3,7 @@ package mp4
 import (
 	"errors"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/auth"
@@ -38,6 +39,9 @@ func handlerWSMSE(tr *ws.Transport, msg *ws.Message) error {
 
 	user, _ := auth.UserFromContext(tr.Request.Context())
 	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		accesslog.Record(user.Username, tr.Request.URL.Query().Get("src"), "mse")
+	}
 
 	tr.OnClose(func() {
 		cancelLimit()
@@ -73,6 +77,9 @@ func handlerWSMP4(tr *ws.Transport, msg *ws.Message) error {
 
 	user, _ := auth.UserFromContext(tr.Request.Context())
 	cancelLimit := stream.LimitConsumer(cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		accesslog.Record(user.Username, tr.Request.URL.Query().Get("src"), "mp4-ws")
+	}
 
 	tr.OnClose(func() {
 		cancelLimit()

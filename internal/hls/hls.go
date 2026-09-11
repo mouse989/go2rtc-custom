@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/accesslog"
 	"github.com/AlexxIT/go2rtc/internal/api"
 	"github.com/AlexxIT/go2rtc/internal/api/ws"
 	"github.com/AlexxIT/go2rtc/internal/app"
@@ -116,6 +117,9 @@ func handlerStream(w http.ResponseWriter, r *http.Request) {
 
 	user, _ := auth.UserFromContext(r.Context())
 	session := registerSession(stream, cons, auth.ViewSessionLimit(user))
+	if user != nil {
+		accesslog.Record(user.Username, src, "hls")
+	}
 
 	go session.Run()
 
