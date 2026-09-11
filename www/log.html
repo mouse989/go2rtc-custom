@@ -136,6 +136,7 @@
   <div class="page-tabs">
     <button class="page-tab active" id="tabBtnServer">Server Logs</button>
     <button class="page-tab" id="tabBtnAccess">Nhật ký truy cập camera</button>
+    <button class="page-tab" id="tabBtnSummary">Tổng hợp truy cập</button>
     <button class="page-tab" id="tabBtnLogin">Lịch sử đăng nhập</button>
     <button class="page-tab" id="tabBtnAlerts">⚠️ Cảnh báo bảo mật</button>
   </div>
@@ -176,7 +177,7 @@
         <input type="date" id="accTo" class="btn btn-sm" style="margin-left:.3rem">
       </label>
       <button class="btn btn-sm" id="btnAccFilter">🔍 Lọc</button>
-      <input type="text" id="accSearch" class="btn btn-sm" placeholder="Tìm user / camera…" style="min-width:160px">
+      <input type="text" id="accSearch" class="btn btn-sm" placeholder="Tìm user / camera…" autocomplete="off" style="min-width:160px">
       <span class="spacer"></span>
       <span class="log-count" id="accCount">—</span>
     </div>
@@ -191,6 +192,34 @@
     </div>
   </div>
 
+  <div class="content" id="tabSummary" style="display:none">
+    <div class="log-toolbar">
+      <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
+        <input type="date" id="summFrom" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">Đến ngày
+        <input type="date" id="summTo" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">User
+        <select id="summUser" class="btn btn-sm" style="margin-left:.3rem;cursor:pointer">
+          <option value="">Tất cả user</option>
+        </select>
+      </label>
+      <button class="btn btn-sm" id="btnSummFilter">🔍 Tổng hợp</button>
+      <span class="spacer"></span>
+      <span class="log-count" id="summCount">—</span>
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="summScroll">
+        <table class="log-table">
+          <thead><tr><th>User</th><th style="width:130px">Số camera đã xem</th><th>Danh sách camera</th></tr></thead>
+          <tbody id="summBody"><tr><td colspan="3" class="log-empty">Chọn khoảng ngày rồi bấm "Tổng hợp".</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="content" id="tabLoginLog" style="display:none">
     <div class="log-toolbar">
       <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
@@ -200,7 +229,7 @@
         <input type="date" id="loginTo" class="btn btn-sm" style="margin-left:.3rem">
       </label>
       <button class="btn btn-sm" id="btnLoginFilter">🔍 Lọc</button>
-      <input type="text" id="loginSearch" class="btn btn-sm" placeholder="Tìm user / IP…" style="min-width:160px">
+      <input type="text" id="loginSearch" class="btn btn-sm" placeholder="Tìm user / IP…" autocomplete="off" style="min-width:160px">
       <span class="spacer"></span>
       <span class="log-count" id="loginCount">—</span>
     </div>
@@ -224,7 +253,7 @@
         <input type="date" id="alertTo" class="btn btn-sm" style="margin-left:.3rem">
       </label>
       <button class="btn btn-sm" id="btnAlertFilter">🔍 Lọc</button>
-      <input type="text" id="alertSearch" class="btn btn-sm" placeholder="Tìm user / IP / loại…" style="min-width:160px">
+      <input type="text" id="alertSearch" class="btn btn-sm" placeholder="Tìm user / IP / loại…" autocomplete="off" style="min-width:160px">
       <span class="spacer"></span>
       <span class="log-count" id="alertCount">—</span>
     </div>
@@ -348,9 +377,17 @@ function renderAccessLog() {
         <td class="log-time">${escHtml(fmtAccTime(e.time))}</td>
         <td>${escHtml(e.user || '')}</td>
         <td>${escHtml(e.stream || '')}</td>
-        <td>${escHtml(e.kind || '')}</td>
+        <td>${escHtml(fmtKind(e.kind))}</td>
       </tr>`).join('')
     : '<tr><td colspan="4" class="log-empty">Không có dữ liệu trong khoảng ngày đã chọn.</td></tr>';
+}
+
+// A view that negotiated more than one protocol (e.g. webrtc falling back
+// to mse) is coalesced server-side into one entry with a comma-joined
+// kind — render that as "mse, webrtc" instead of the raw "mse,webrtc".
+function fmtKind(kind) {
+  if (!kind) return '';
+  return kind.split(',').join(', ');
 }
 
 async function loadAccessLog() {
@@ -373,6 +410,65 @@ async function loadAccessLog() {
 
 document.getElementById('btnAccFilter').addEventListener('click', loadAccessLog);
 document.getElementById('accSearch').addEventListener('input', renderAccessLog);
+
+// ── Access summary: per-user distinct-camera rollup (admin only) ─
+let summUsersLoaded = false;
+
+async function loadSummaryUsers() {
+  if (summUsersLoaded) return;
+  try {
+    const users = await apiFetch('/api/users');
+    const sel = document.getElementById('summUser');
+    (users || [])
+      .map(u => u.username)
+      .sort((a, b) => a.localeCompare(b))
+      .forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+    summUsersLoaded = true;
+  } catch (e) {}
+}
+
+async function loadSummary() {
+  const tbody = document.getElementById('summBody');
+  tbody.innerHTML = '<tr><td colspan="3" class="log-empty">Loading…</td></tr>';
+  try {
+    const from = document.getElementById('summFrom').value;
+    const to = document.getElementById('summTo').value;
+    const onlyUser = document.getElementById('summUser').value;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const entries = await apiFetch('/api/access-log?' + params.toString());
+
+    const byUser = new Map(); // username -> Set(stream)
+    for (const e of (entries || [])) {
+      if (onlyUser && e.user !== onlyUser) continue;
+      if (!byUser.has(e.user)) byUser.set(e.user, new Set());
+      byUser.get(e.user).add(e.stream);
+    }
+
+    const rows = [...byUser.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    document.getElementById('summCount').textContent = rows.length + ' user';
+    tbody.innerHTML = rows.length
+      ? rows.map(([user, cams]) => {
+          const list = [...cams].sort((a, b) => a.localeCompare(b));
+          return `<tr>
+            <td>${escHtml(user)}</td>
+            <td>${list.length}</td>
+            <td class="log-msg">${list.map(escHtml).join(', ')}</td>
+          </tr>`;
+        }).join('')
+      : '<tr><td colspan="3" class="log-empty">Không có dữ liệu trong khoảng ngày đã chọn.</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="3" class="log-empty">Cannot load summary: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('btnSummFilter').addEventListener('click', loadSummary);
 
 // ── Login history (admin only) ──────────────────────────────────
 let loginEntries = [];
@@ -470,10 +566,11 @@ document.getElementById('alertSearch').addEventListener('input', renderAlerts);
 
 function switchLogTab(name) {
   const tabs = {
-    server: ['tabBtnServer', 'tabServerLog'],
-    access: ['tabBtnAccess', 'tabAccessLog'],
-    login:  ['tabBtnLogin', 'tabLoginLog'],
-    alerts: ['tabBtnAlerts', 'tabAlerts'],
+    server:  ['tabBtnServer', 'tabServerLog'],
+    access:  ['tabBtnAccess', 'tabAccessLog'],
+    summary: ['tabBtnSummary', 'tabSummary'],
+    login:   ['tabBtnLogin', 'tabLoginLog'],
+    alerts:  ['tabBtnAlerts', 'tabAlerts'],
   };
   for (const key in tabs) {
     const [btnId, panelId] = tabs[key];
@@ -481,12 +578,14 @@ function switchLogTab(name) {
     document.getElementById(panelId).style.display = key === name ? '' : 'none';
   }
   if (name === 'access' && !accEntries.length) loadAccessLog();
+  if (name === 'summary') loadSummaryUsers();
   if (name === 'login' && !loginEntries.length) loadLoginLog();
   if (name === 'alerts' && !alertEntries.length) loadAlerts();
 }
 
 document.getElementById('tabBtnServer').addEventListener('click', () => switchLogTab('server'));
 document.getElementById('tabBtnAccess').addEventListener('click', () => switchLogTab('access'));
+document.getElementById('tabBtnSummary').addEventListener('click', () => switchLogTab('summary'));
 document.getElementById('tabBtnLogin').addEventListener('click', () => switchLogTab('login'));
 document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLogTab('alerts'));
 
@@ -500,12 +599,15 @@ document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLo
     const today = new Date().toISOString().slice(0, 10);
     document.getElementById('accFrom').value = today;
     document.getElementById('accTo').value = today;
+    document.getElementById('summFrom').value = today;
+    document.getElementById('summTo').value = today;
     document.getElementById('loginFrom').value = today;
     document.getElementById('loginTo').value = today;
     document.getElementById('alertFrom').value = today;
     document.getElementById('alertTo').value = today;
   } else {
     document.getElementById('tabBtnAccess').style.display = 'none';
+    document.getElementById('tabBtnSummary').style.display = 'none';
     document.getElementById('tabBtnLogin').style.display = 'none';
     document.getElementById('tabBtnAlerts').style.display = 'none';
   }

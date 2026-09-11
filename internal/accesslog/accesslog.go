@@ -32,6 +32,23 @@ var (
 	dir string
 )
 
+// A single "view" of a camera in the browser player often triggers more
+// than one protocol negotiation in quick succession (e.g. webrtc then a
+// fallback to mse), which would otherwise show up as several near-identical
+// rows for the same user+camera a few milliseconds apart. coalesceWindow
+// batches Record calls for the same (user, stream) pair arriving within it
+// into a single log line whose Kind lists every protocol that was tried,
+// comma-separated (e.g. "mse,webrtc").
+const coalesceWindow = 4 * time.Second
+
+type pendingEntry struct {
+	time  time.Time // of the first Record call in this batch
+	kinds []string  // insertion order, deduplicated
+	seen  map[string]bool
+}
+
+var pending = map[string]*pendingEntry{}
+
 // vnLocation anchors the daily file's calendar day (and each entry's
 // timestamp) to Vietnam wall-clock time regardless of the server process's
 // own timezone — same pattern as internal/incidents/timeslots.go and
@@ -58,18 +75,60 @@ func Init() {
 	http.HandleFunc("/api/access-log", handleQuery)
 }
 
-// Record appends one access-log entry. Best-effort: failures are silently
-// dropped rather than disrupting the stream request that triggered it.
+// Record schedules one access-log entry for (user, stream, kind). If another
+// call for the same user+stream arrives within coalesceWindow, its kind is
+// merged into the same pending entry instead of writing a second line — see
+// coalesceWindow's doc comment. Best-effort: failures are silently dropped
+// rather than disrupting the stream request that triggered it.
 func Record(user, stream, kind string) {
 	if user == "" || dir == "" {
 		return
 	}
-	now := time.Now()
+	key := user + "|" + stream
+
+	mu.Lock()
+	if p, ok := pending[key]; ok {
+		if !p.seen[kind] {
+			p.seen[kind] = true
+			p.kinds = append(p.kinds, kind)
+		}
+		mu.Unlock()
+		return
+	}
+	p := &pendingEntry{
+		time:  time.Now(),
+		kinds: []string{kind},
+		seen:  map[string]bool{kind: true},
+	}
+	pending[key] = p
+	mu.Unlock()
+
+	time.AfterFunc(coalesceWindow, func() { flush(key) })
+}
+
+// flush writes key's pending entry to disk and removes it from the map.
+func flush(key string) {
+	mu.Lock()
+	p, ok := pending[key]
+	if ok {
+		delete(pending, key)
+	}
+	mu.Unlock()
+	if !ok {
+		return
+	}
+
+	parts := strings.SplitN(key, "|", 2)
+	user, stream := parts[0], ""
+	if len(parts) == 2 {
+		stream = parts[1]
+	}
+
 	data, err := json.Marshal(Entry{
-		Time:   now.In(vnLocation).Format(time.RFC3339),
+		Time:   p.time.In(vnLocation).Format(time.RFC3339),
 		User:   user,
 		Stream: stream,
-		Kind:   kind,
+		Kind:   strings.Join(p.kinds, ","),
 	})
 	if err != nil {
 		return
@@ -78,7 +137,7 @@ func Record(user, stream, kind string) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	f, err := os.OpenFile(dayFile(now), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(dayFile(p.time), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return
 	}
