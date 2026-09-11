@@ -289,6 +289,26 @@ tr:hover td { background:var(--surface2); }
               Áp dụng cho user bị giới hạn thời gian xem (không tick "Không giới hạn thời gian xem" và không đặt giá trị riêng ở form user). Hết thời gian, video dừng và người dùng phải bấm để xem tiếp. Không áp dụng cho link RTSP/RTSPS.
             </p>
           </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">
+              <input type="checkbox" id="loginHourRangeEnabled" style="margin-right:.4rem;vertical-align:middle">
+              Cảnh báo đăng nhập ngoài khung giờ bình thường
+            </label>
+            <div style="display:flex;align-items:center;gap:.6rem;margin-top:.4rem">
+              <span style="font-size:.78rem;color:var(--text-muted)">Từ</span>
+              <input type="number" id="loginHourStart" min="0" max="23" step="1" value="6"
+                     style="width:70px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">giờ đến</span>
+              <input type="number" id="loginHourEnd" min="0" max="23" step="1" value="22"
+                     style="width:70px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">giờ (giờ Việt Nam)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Khi bật, mọi lượt đăng nhập thành công ngoài khung giờ này sẽ tạo cảnh báo bảo mật (xem tab Log → Cảnh báo bảo mật).
+              Ngoài ra hệ thống luôn tự động cảnh báo khi: tài khoản bị khóa do đăng nhập sai nhiều lần, đăng nhập từ IP mới,
+              hoặc đăng nhập từ nhiều IP khác nhau trong thời gian ngắn.
+            </p>
+          </div>
           <div style="display:flex;gap:.5rem">
             <button class="btn btn-primary" onclick="saveSettings()" style="font-size:.83rem">💾 Save Settings</button>
             <span id="settingsSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Saved</span>
@@ -1761,6 +1781,9 @@ async function loadSettings() {
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
+    document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
+    document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
+    document.getElementById('loginHourEnd').value = s.login_hour_end ?? 22;
   } catch (e) {}
   loadRtspCreds();
   loadProxySites();
@@ -1973,6 +1996,9 @@ async function saveSettings() {
   const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
+  const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
+  const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
+  const loginHourEnd   = parseInt(document.getElementById('loginHourEnd').value, 10) || 0;
   try {
     await apiFetch('/api/settings', {
       method: 'POST',
@@ -1983,6 +2009,9 @@ async function saveSettings() {
         snapshot_concurrency: concurrency,
         map_search_radius_km: mapRadius,
         default_view_limit_minutes: viewLimit,
+        login_hour_range_enabled: loginHourRangeEnabled,
+        login_hour_start: loginHourStart,
+        login_hour_end: loginHourEnd,
       }),
     });
     const msg = document.getElementById('settingsSaveMsg');

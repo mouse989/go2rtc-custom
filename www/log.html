@@ -37,6 +37,16 @@
 .lv.warn  { background:#92400e22; color:#fbbf24; }
 .lv.error, .lv.fatal, .lv.panic { background:#7f1d1d22; color:#f87171; }
 
+.sev {
+  display:inline-block; padding:.05rem .5rem; border-radius:4px;
+  font-size:.68rem; font-weight:700; text-transform:uppercase;
+}
+.sev.low    { background:#1d4ed822; color:#60a5fa; }
+.sev.medium { background:#92400e22; color:#fbbf24; }
+.sev.high   { background:#7f1d1d22; color:#f87171; }
+.res-ok  { color:var(--green,#3fb950); font-weight:600; }
+.res-bad { color:var(--red,#f85149); font-weight:600; }
+
 .log-scroll { max-height:calc(100vh - 210px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .log-empty { text-align:center; color:var(--text-muted); padding:2.5rem; font-size:.85rem; }
 @media (max-width:768px) {
@@ -126,6 +136,8 @@
   <div class="page-tabs">
     <button class="page-tab active" id="tabBtnServer">Server Logs</button>
     <button class="page-tab" id="tabBtnAccess">Nhật ký truy cập camera</button>
+    <button class="page-tab" id="tabBtnLogin">Lịch sử đăng nhập</button>
+    <button class="page-tab" id="tabBtnAlerts">⚠️ Cảnh báo bảo mật</button>
   </div>
 
   <div class="content" id="tabServerLog">
@@ -174,6 +186,54 @@
         <table class="log-table">
           <thead><tr><th class="log-time">Thời gian</th><th>User</th><th>Camera</th><th style="width:110px">Loại stream</th></tr></thead>
           <tbody id="accBody"><tr><td colspan="4" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="tabLoginLog" style="display:none">
+    <div class="log-toolbar">
+      <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
+        <input type="date" id="loginFrom" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">Đến ngày
+        <input type="date" id="loginTo" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <button class="btn btn-sm" id="btnLoginFilter">🔍 Lọc</button>
+      <input type="text" id="loginSearch" class="btn btn-sm" placeholder="Tìm user / IP…" style="min-width:160px">
+      <span class="spacer"></span>
+      <span class="log-count" id="loginCount">—</span>
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="loginScroll">
+        <table class="log-table">
+          <thead><tr><th class="log-time">Thời gian</th><th>User</th><th>IP</th><th>Kết quả</th><th>User-Agent</th></tr></thead>
+          <tbody id="loginBody"><tr><td colspan="5" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="tabAlerts" style="display:none">
+    <div class="log-toolbar">
+      <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
+        <input type="date" id="alertFrom" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">Đến ngày
+        <input type="date" id="alertTo" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <button class="btn btn-sm" id="btnAlertFilter">🔍 Lọc</button>
+      <input type="text" id="alertSearch" class="btn btn-sm" placeholder="Tìm user / IP / loại…" style="min-width:160px">
+      <span class="spacer"></span>
+      <span class="log-count" id="alertCount">—</span>
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="alertScroll">
+        <table class="log-table">
+          <thead><tr><th class="log-time">Thời gian</th><th style="width:90px">Mức độ</th><th>Loại</th><th>User</th><th>IP</th><th>Nội dung</th></tr></thead>
+          <tbody id="alertBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -314,20 +374,121 @@ async function loadAccessLog() {
 document.getElementById('btnAccFilter').addEventListener('click', loadAccessLog);
 document.getElementById('accSearch').addEventListener('input', renderAccessLog);
 
-document.getElementById('tabBtnServer').addEventListener('click', () => {
-  document.getElementById('tabBtnServer').classList.add('active');
-  document.getElementById('tabBtnAccess').classList.remove('active');
-  document.getElementById('tabServerLog').style.display = '';
-  document.getElementById('tabAccessLog').style.display = 'none';
-});
+// ── Login history (admin only) ──────────────────────────────────
+let loginEntries = [];
 
-document.getElementById('tabBtnAccess').addEventListener('click', () => {
-  document.getElementById('tabBtnAccess').classList.add('active');
-  document.getElementById('tabBtnServer').classList.remove('active');
-  document.getElementById('tabServerLog').style.display = 'none';
-  document.getElementById('tabAccessLog').style.display = '';
-  if (!accEntries.length) loadAccessLog();
-});
+function renderLoginLog() {
+  const q = (document.getElementById('loginSearch').value || '').toLowerCase();
+  const rows = q
+    ? loginEntries.filter(e => (e.username || '').toLowerCase().includes(q) || (e.ip || '').toLowerCase().includes(q))
+    : loginEntries;
+
+  document.getElementById('loginCount').textContent = rows.length + ' lượt đăng nhập';
+  document.getElementById('loginBody').innerHTML = rows.length
+    ? rows.map(e => `<tr>
+        <td class="log-time">${escHtml(fmtAccTime(e.time))}</td>
+        <td>${escHtml(e.username || '')}</td>
+        <td>${escHtml(e.ip || '')}</td>
+        <td>${e.success ? '<span class="res-ok">✓ Thành công</span>' : '<span class="res-bad">✗ Thất bại</span>'}</td>
+        <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.user_agent || '')}">${escHtml(e.user_agent || '')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="log-empty">Không có dữ liệu trong khoảng ngày đã chọn.</td></tr>';
+}
+
+async function loadLoginLog() {
+  document.getElementById('loginBody').innerHTML = '<tr><td colspan="5" class="log-empty">Loading…</td></tr>';
+  try {
+    const from = document.getElementById('loginFrom').value;
+    const to = document.getElementById('loginTo').value;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const entries = await apiFetch('/api/login-history?' + params.toString());
+    loginEntries = (entries || []).slice().reverse();
+    renderLoginLog();
+  } catch (e) {
+    document.getElementById('loginBody').innerHTML =
+      `<tr><td colspan="5" class="log-empty">Cannot load login history: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('btnLoginFilter').addEventListener('click', loadLoginLog);
+document.getElementById('loginSearch').addEventListener('input', renderLoginLog);
+
+// ── Security alerts (admin only) ────────────────────────────────
+let alertEntries = [];
+const SEV_LABEL = { low: 'Thấp', medium: 'Trung bình', high: 'Cao' };
+const TYPE_LABEL = {
+  login_lockout: 'Khóa đăng nhập',
+  new_ip: 'IP mới',
+  concurrent_ip: 'Đăng nhập trùng IP',
+  off_hours_login: 'Ngoài giờ',
+  unauthorized_access: 'Truy cập trái phép',
+};
+
+function renderAlerts() {
+  const q = (document.getElementById('alertSearch').value || '').toLowerCase();
+  const rows = q
+    ? alertEntries.filter(a =>
+        (a.username || '').toLowerCase().includes(q) ||
+        (a.ip || '').toLowerCase().includes(q) ||
+        (a.type || '').toLowerCase().includes(q))
+    : alertEntries;
+
+  document.getElementById('alertCount').textContent = rows.length + ' cảnh báo';
+  document.getElementById('alertBody').innerHTML = rows.length
+    ? rows.map(a => `<tr>
+        <td class="log-time">${escHtml(fmtAccTime(a.time))}</td>
+        <td><span class="sev ${escHtml(a.severity || 'low')}">${escHtml(SEV_LABEL[a.severity] || a.severity || '')}</span></td>
+        <td>${escHtml(TYPE_LABEL[a.type] || a.type || '')}</td>
+        <td>${escHtml(a.username || '')}</td>
+        <td>${escHtml(a.ip || '')}</td>
+        <td class="log-msg">${escHtml(a.message || '')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="log-empty">Không có cảnh báo trong khoảng ngày đã chọn.</td></tr>';
+}
+
+async function loadAlerts() {
+  document.getElementById('alertBody').innerHTML = '<tr><td colspan="6" class="log-empty">Loading…</td></tr>';
+  try {
+    const from = document.getElementById('alertFrom').value;
+    const to = document.getElementById('alertTo').value;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const entries = await apiFetch('/api/security-alerts?' + params.toString());
+    alertEntries = (entries || []).slice().reverse();
+    renderAlerts();
+  } catch (e) {
+    document.getElementById('alertBody').innerHTML =
+      `<tr><td colspan="6" class="log-empty">Cannot load security alerts: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('btnAlertFilter').addEventListener('click', loadAlerts);
+document.getElementById('alertSearch').addEventListener('input', renderAlerts);
+
+function switchLogTab(name) {
+  const tabs = {
+    server: ['tabBtnServer', 'tabServerLog'],
+    access: ['tabBtnAccess', 'tabAccessLog'],
+    login:  ['tabBtnLogin', 'tabLoginLog'],
+    alerts: ['tabBtnAlerts', 'tabAlerts'],
+  };
+  for (const key in tabs) {
+    const [btnId, panelId] = tabs[key];
+    document.getElementById(btnId).classList.toggle('active', key === name);
+    document.getElementById(panelId).style.display = key === name ? '' : 'none';
+  }
+  if (name === 'access' && !accEntries.length) loadAccessLog();
+  if (name === 'login' && !loginEntries.length) loadLoginLog();
+  if (name === 'alerts' && !alertEntries.length) loadAlerts();
+}
+
+document.getElementById('tabBtnServer').addEventListener('click', () => switchLogTab('server'));
+document.getElementById('tabBtnAccess').addEventListener('click', () => switchLogTab('access'));
+document.getElementById('tabBtnLogin').addEventListener('click', () => switchLogTab('login'));
+document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLogTab('alerts'));
 
 // ── Boot ──
 (async () => {
@@ -339,8 +500,14 @@ document.getElementById('tabBtnAccess').addEventListener('click', () => {
     const today = new Date().toISOString().slice(0, 10);
     document.getElementById('accFrom').value = today;
     document.getElementById('accTo').value = today;
+    document.getElementById('loginFrom').value = today;
+    document.getElementById('loginTo').value = today;
+    document.getElementById('alertFrom').value = today;
+    document.getElementById('alertTo').value = today;
   } else {
     document.getElementById('tabBtnAccess').style.display = 'none';
+    document.getElementById('tabBtnLogin').style.display = 'none';
+    document.getElementById('tabBtnAlerts').style.display = 'none';
   }
 
   await reload();

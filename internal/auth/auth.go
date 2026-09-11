@@ -95,6 +95,24 @@ func Init() {
 
 	startLoginThrottleSweeper()
 
+	// Login history (non-fatal — just a subdirectory next to users.json)
+	loginHistoryPath := filepath.Join(filepath.Dir(usersPath), "login_history")
+	if usersPath == "users.json" {
+		loginHistoryPath = "login_history"
+	}
+	initLoginHistory(loginHistoryPath)
+
+	// Security alerts + known-IPs store (non-fatal)
+	alertsPath := filepath.Join(filepath.Dir(usersPath), "security_alerts")
+	if usersPath == "users.json" {
+		alertsPath = "security_alerts"
+	}
+	knownIPsPath := filepath.Join(filepath.Dir(usersPath), "known_ips.json")
+	if usersPath == "users.json" {
+		knownIPsPath = "known_ips.json"
+	}
+	initSecurityAlerts(alertsPath, knownIPsPath)
+
 	registerHandlers()
 	registerProxyHandlers()
 	registerLocationHandlers()
@@ -105,6 +123,8 @@ func Init() {
 	registerDevicesHandler()
 	registerCameraConfigHandler()
 	registerCamPresetsHandler()
+	registerLoginHistoryHandler()
+	registerSecurityAlertsHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }
