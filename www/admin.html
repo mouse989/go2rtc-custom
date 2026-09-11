@@ -1223,6 +1223,10 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <p id="f-pwd-hint" style="font-size:.7rem;color:var(--text-muted);margin-top:.3rem">
             User mới sẽ bắt buộc đổi mật khẩu này ngay lần đăng nhập đầu tiên.
           </p>
+          <label id="f-force-pwd-wrap" class="tab-perm-chip" style="display:none;margin-top:.5rem">
+            <input type="checkbox" id="f-force-pwd-change">
+            🔒 Bắt buộc đổi mật khẩu ở lần đăng nhập tiếp theo
+          </label>
         </div>
       </div>
 
@@ -2057,6 +2061,7 @@ function openAdd() {
   document.getElementById('dlg-btn').textContent = 'Create';
   document.getElementById('f-pwd-lbl').textContent = 'Password *';
   document.getElementById('f-pwd-hint').style.display = '';
+  document.getElementById('f-force-pwd-wrap').style.display = 'none';
   document.getElementById('f-user').value = '';
   document.getElementById('f-user').disabled = false;
   document.getElementById('f-pwd').value = '';
@@ -2074,6 +2079,8 @@ function openEdit(u) {
   document.getElementById('dlg-btn').textContent = 'Save';
   document.getElementById('f-pwd-lbl').textContent = 'New Password (blank = keep)';
   document.getElementById('f-pwd-hint').style.display = 'none';
+  document.getElementById('f-force-pwd-wrap').style.display = '';
+  document.getElementById('f-force-pwd-change').checked = !!u.must_change_password;
   document.getElementById('f-user').value = u.username;
   document.getElementById('f-user').disabled = true;
   document.getElementById('f-pwd').value = '';
@@ -2250,6 +2257,7 @@ async function submitForm(e) {
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
   const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
   if (password) body.password = password;
+  if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 
   const btn = document.getElementById('dlg-btn');
   btn.disabled = true; btn.textContent = 'Saving…';

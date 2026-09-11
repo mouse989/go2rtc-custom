@@ -339,6 +339,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowUnlimitedViewing *bool    `json:"allow_unlimited_view"`
 			ViewLimitMinutes      *int     `json:"view_limit_minutes"`
 			AllowIncidentsImport  *bool    `json:"allow_incidents_import"`
+			MustChangePassword    *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -415,6 +416,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowIncidentsImport != nil {
 			existing.AllowIncidentsImport = *req.AllowIncidentsImport
+		}
+		if req.MustChangePassword != nil {
+			existing.MustChangePassword = *req.MustChangePassword
 		}
 		if err := UpdateUser(existing, req.Password); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

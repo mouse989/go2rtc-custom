@@ -148,6 +148,101 @@ function firstPermittedPage(u) {
   return '/login.html?err=no_access';
 }
 
+// initChangePasswordModal — wires up "click your name in the sidebar" to
+// open a self-service change-password dialog. Injected once (shared across
+// every page via app.js, since .user-info/#userName/#userRole/#avatar are
+// identical markup on every protected page) rather than duplicated per-page.
+function initChangePasswordModal() {
+  if (document.getElementById('pwdModalBackdrop')) return; // already wired (e.g. re-entrant initApp call)
+
+  const userInfo = document.querySelector('.user-info');
+  if (!userInfo) return;
+  userInfo.title = 'Đổi mật khẩu';
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'pwdModalBackdrop';
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:380px">
+      <div class="modal-header">
+        <h3>Đổi mật khẩu</h3>
+        <button class="modal-close" id="pwdModalClose" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Mật khẩu hiện tại</label>
+          <input type="password" id="pwdCurrent" class="input" autocomplete="current-password">
+        </div>
+        <div class="form-group">
+          <label>Mật khẩu mới</label>
+          <input type="password" id="pwdNew1" class="input" autocomplete="new-password" minlength="6">
+        </div>
+        <div class="form-group">
+          <label>Nhập lại mật khẩu mới</label>
+          <input type="password" id="pwdNew2" class="input" autocomplete="new-password" minlength="6">
+        </div>
+        <div id="pwdModalErr" style="color:var(--red);font-size:.8rem;display:none;margin-bottom:.6rem"></div>
+        <div style="display:flex;gap:.5rem;justify-content:flex-end">
+          <button class="btn btn-secondary" id="pwdModalCancel" type="button">Hủy</button>
+          <button class="btn btn-primary" id="pwdModalSave" type="button">Lưu</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const els = id => document.getElementById(id);
+  const showErr = msg => { const e = els('pwdModalErr'); e.textContent = msg; e.style.display = ''; };
+
+  const open = () => {
+    ['pwdCurrent', 'pwdNew1', 'pwdNew2'].forEach(id => { els(id).value = ''; });
+    els('pwdModalErr').style.display = 'none';
+    backdrop.classList.add('open');
+  };
+  const close = () => backdrop.classList.remove('open');
+
+  userInfo.addEventListener('click', open);
+  els('pwdModalClose').addEventListener('click', close);
+  els('pwdModalCancel').addEventListener('click', close);
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+
+  els('pwdModalSave').addEventListener('click', async () => {
+    const cur = els('pwdCurrent').value;
+    const n1  = els('pwdNew1').value;
+    const n2  = els('pwdNew2').value;
+
+    if (!cur || !n1 || !n2) return showErr('Vui lòng nhập đủ các trường.');
+    if (n1.length < 6) return showErr('Mật khẩu mới phải có ít nhất 6 ký tự.');
+    if (n1 !== n2) return showErr('Mật khẩu mới nhập lại không khớp.');
+    if (n1 === cur) return showErr('Mật khẩu mới phải khác mật khẩu hiện tại.');
+
+    const btn = els('pwdModalSave');
+    btn.disabled = true;
+    btn.textContent = 'Đang lưu…';
+    try {
+      // Plain fetch, not apiFetch: apiFetch treats any 401 as "session
+      // expired" and force-redirects to /login.html, but a wrong *current*
+      // password here also comes back as 401 — that's not an expired
+      // session, just a wrong answer, and should stay on this dialog.
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + getToken() },
+        body: JSON.stringify({ current_password: cur, new_password: n1 }),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(txt || res.statusText);
+      }
+      close();
+      toast('Đổi mật khẩu thành công.', 'success');
+    } catch (e) {
+      showErr(e.message || 'Đổi mật khẩu thất bại.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Lưu';
+    }
+  });
+}
+
 // initApp(requiredTab?) — call at top of every protected page.
 // requiredTab: the tab key this page requires (e.g. 'cameras', 'map').
 // If the user lacks that tab they are redirected to their first permitted page.
@@ -208,6 +303,8 @@ async function initApp(requiredTab) {
     if (roleEl)   roleEl.textContent   = user.role;
     if (avatarEl) avatarEl.textContent = user.username.charAt(0).toUpperCase();
   }
+
+  initChangePasswordModal();
 
   // Show admin-only nav items
   if (isAdmin()) document.body.classList.add('is-admin');
