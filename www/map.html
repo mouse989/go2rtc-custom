@@ -168,6 +168,37 @@ body.sb-collapsed           { --map-left:0; }
   pointer-events:none;
 }
 
+/* ── Snapshot preview markers ("Xem trước" toggle) ──────────── */
+/* Live thumbnail floating above each visible camera pin — clicking it opens
+   the camera, same as clicking the pin underneath. */
+.snap-preview {
+  width:148px;
+  background:#0b0e13;
+  border:1.5px solid #22c55e;
+  border-radius:6px;
+  overflow:hidden;
+  box-shadow:0 3px 14px rgba(0,0,0,.6);
+  cursor:pointer;
+  user-select:none;
+}
+.snap-preview:hover { border-color:#4ade80; }
+.snap-preview .sp-media { position:relative; background:#111; }
+.snap-preview img { width:100%; aspect-ratio:16/10; display:block; object-fit:cover; }
+.snap-preview .sp-badge {
+  position:absolute; top:.25rem; left:.35rem;
+  display:flex; align-items:center; gap:.22rem;
+  font-size:.58rem; font-weight:700; color:#fff;
+  background:rgba(220,38,38,.92); padding:.05rem .35rem; border-radius:3px;
+  text-transform:uppercase; letter-spacing:.03em;
+}
+.snap-preview .sp-dot { width:5px; height:5px; border-radius:50%; background:#fff; animation:sp-blink 1.4s infinite; }
+@keyframes sp-blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+.snap-preview .sp-label {
+  font-size:.64rem; padding:.22rem .4rem; color:#e6edf3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  background:rgba(0,0,0,.55);
+}
+
 /* ── Single-camera modal ────────────────────────────────────── */
 #modalBackdrop { z-index:600; }
 #playerWrap video-stream { width:100%;aspect-ratio:16/9;display:block;background:#000;border-radius:6px;overflow:hidden; }
@@ -483,6 +514,7 @@ body.sb-collapsed           { --map-left:0; }
   </button>
   <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
   <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
+  <button class="map-btn" id="btnSnapPreview" style="display:none" title="Bật/tắt hiển thị snapshot camera trực tiếp trên bản đồ">📷 Xem trước</button>
   <button class="map-btn active" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
   <!-- Map style toggle (single button, shows current mode) -->
   <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
@@ -1087,6 +1119,8 @@ async function initMap(apiKey) {
 
   // Cluster count HTML labels — update every render frame (throttled via rAF)
   map.on('render', scheduleClusterUpdate);
+  // Snapshot preview thumbnails — same throttled render hook (no-op unless enabled)
+  map.on('render', schedulePreviewUpdate);
 
   // Click events are registered once (survive style change)
   map.on('click', 'clusters', async e => {
@@ -1284,6 +1318,128 @@ function scheduleClusterUpdate() {
     updateClusterCounts();
   });
 }
+
+// ── Snapshot preview markers ("Xem trước" toggle) ───────────────
+// Shows a small live-refreshing snapshot thumbnail floating above every
+// individual (non-clustered) camera pin currently on screen — similar to
+// OSIRIS's CCTV preview layer. Only active above PREVIEW_MIN_ZOOM (below
+// that, cameras are still clustered anyway) and capped at PREVIEW_MAX_COUNT
+// concurrent thumbnails (closest to the viewport center) so a dense area
+// with hundreds of pins can't flood the browser with image requests.
+const PREVIEW_MIN_ZOOM   = 13;
+const PREVIEW_MAX_COUNT  = 24;
+const PREVIEW_REFRESH_MS = 10000;
+
+let _previewMode          = localStorage.getItem('map_snap_preview') === '1';
+let _previewMarkers       = new Map(); // id → { marker, el, img }
+let _previewUpdatePending = false;
+let _previewRefreshTimer  = null;
+
+function buildPreviewEl(id, label, s) {
+  const el = document.createElement('div');
+  el.className = 'snap-preview';
+  el.innerHTML = `
+    <div class="sp-media">
+      <img alt="">
+      <span class="sp-badge"><span class="sp-dot"></span>LIVE</span>
+    </div>
+    <div class="sp-label"></div>`;
+  el.querySelector('.sp-label').textContent = label;
+  el.querySelector('img').src = `${s.frame_url}&_t=${Date.now()}`;
+  // Clicking a preview thumbnail behaves the same as clicking the pin
+  // underneath it (open the camera, or draw a search circle in search mode).
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    const loc = _locByID[id];
+    if (_searchMode && loc) { runSearch({ lat: loc.lat, lng: loc.lon }, getRadiusKm()); return; }
+    openModal(id);
+  });
+  return el;
+}
+
+function clearPreviewMarkers() {
+  _previewMarkers.forEach(entry => entry.marker.remove());
+  _previewMarkers.clear();
+}
+
+function refreshPreviewImages() {
+  _previewMarkers.forEach((entry, id) => {
+    const s = _streamByID[id];
+    if (s) entry.img.src = `${s.frame_url}&_t=${Date.now()}`;
+  });
+}
+
+function updatePreviewMarkers() {
+  if (!_previewMode || _editMode || !map || !map.getLayer('unclustered-point') || map.getZoom() < PREVIEW_MIN_ZOOM) {
+    clearPreviewMarkers();
+    return;
+  }
+
+  const features = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
+
+  // Dedupe by id (a point can span multiple tiles at the seams)
+  const seen = new Map();
+  features.forEach(f => {
+    const id = f.properties.id;
+    if (!seen.has(id) && _streamByID[id]) seen.set(id, f);
+  });
+
+  let visible = [...seen.values()];
+  if (visible.length > PREVIEW_MAX_COUNT) {
+    const center = map.getCenter();
+    visible.sort((a, b) =>
+      haversine(center.lat, center.lng, a.geometry.coordinates[1], a.geometry.coordinates[0]) -
+      haversine(center.lat, center.lng, b.geometry.coordinates[1], b.geometry.coordinates[0]));
+    visible = visible.slice(0, PREVIEW_MAX_COUNT);
+  }
+  const visibleIds = new Set(visible.map(f => f.properties.id));
+
+  // Drop markers that left the viewport (or got clustered away)
+  for (const [id, entry] of _previewMarkers) {
+    if (!visibleIds.has(id)) {
+      entry.marker.remove();
+      _previewMarkers.delete(id);
+    }
+  }
+
+  // Add markers for newly-visible cameras
+  visible.forEach(f => {
+    const id = f.properties.id;
+    if (_previewMarkers.has(id)) return;
+    const s = _streamByID[id];
+    if (!s) return;
+    const el = buildPreviewEl(id, f.properties.name || id, s);
+    const marker = new vietmapgl.Marker({ element: el, anchor: 'bottom', offset: [0, -14] })
+      .setLngLat(f.geometry.coordinates).addTo(map);
+    _previewMarkers.set(id, { marker, el, img: el.querySelector('img') });
+  });
+}
+
+// Throttle preview updates to once per animation frame (mirrors scheduleClusterUpdate)
+function schedulePreviewUpdate() {
+  if (!_previewMode) return;
+  if (_previewUpdatePending) return;
+  _previewUpdatePending = true;
+  requestAnimationFrame(() => {
+    _previewUpdatePending = false;
+    updatePreviewMarkers();
+  });
+}
+
+function setPreviewMode(on) {
+  _previewMode = on;
+  localStorage.setItem('map_snap_preview', on ? '1' : '0');
+  document.getElementById('btnSnapPreview').classList.toggle('active', on);
+  if (on) {
+    updatePreviewMarkers();
+    if (!_previewRefreshTimer) _previewRefreshTimer = setInterval(refreshPreviewImages, PREVIEW_REFRESH_MS);
+  } else {
+    clearPreviewMarkers();
+    if (_previewRefreshTimer) { clearInterval(_previewRefreshTimer); _previewRefreshTimer = null; }
+  }
+}
+
+document.getElementById('btnSnapPreview').addEventListener('click', () => setPreviewMode(!_previewMode));
 
 // ── Search circle helpers ─────────────────────────────────────
 function drawSearchCircle(lat, lng, km) {
@@ -2754,10 +2910,17 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   if (canUseHeatmap()) {
     document.getElementById('btnHeatmap').style.display = '';
   }
+  const snapPreviewAllowed = canCamSnapshot();
+  if (snapPreviewAllowed) {
+    document.getElementById('btnSnapPreview').style.display = '';
+  } else {
+    _previewMode = false; // ignore a stale localStorage flag if permission was revoked
+  }
 
   try {
     await initMap(_vietmapKey);
     await reloadData();
+    if (snapPreviewAllowed && _previewMode) setPreviewMode(true);
     // Load counting stations + today's summary (only if user has view permission)
     if (canViewStations()) {
       document.getElementById('btnStnLayer').style.display = '';
