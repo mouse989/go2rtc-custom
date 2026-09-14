@@ -188,27 +188,28 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responseJSON(w, map[string]interface{}{
-		"username":                user.Username,
-		"role":                    user.Role,
-		"must_change_password":    user.MustChangePassword,
-		"streams":                 user.Streams,
-		"allow_traffic":           user.AllowTraffic,
-		"allow_heatmap":           user.AllowHeatmap,
-		"allow_map_edit":          user.AllowMapEdit,
-		"allow_cam_names":         user.AllowCamNames,
-		"allow_view_stations":     user.AllowViewStations,
-		"allow_config_stations":   user.AllowConfigStations,
-		"allow_monitor_workers":   user.AllowMonitorWorkers,
-		"allow_monitor_process":   user.AllowMonitorProcess,
-		"allow_monitor_streaming": user.AllowMonitorStreaming,
-		"allow_monitor_snapshot":  user.AllowMonitorSnapshot,
-		"allow_monitor_devices":   user.AllowMonitorDevices,
-		"allow_cam_snapshot":      user.AllowCamSnapshot,
-		"allow_cam_video":         user.AllowCamVideo,
-		"allow_unlimited_view":    user.AllowUnlimitedViewing,
-		"view_limit_minutes":      user.ViewLimitMinutes,
-		"allow_incidents_import":  user.AllowIncidentsImport,
-		"tabs":                    user.EffectiveTabs(),
+		"username":                   user.Username,
+		"role":                       user.Role,
+		"must_change_password":       user.MustChangePassword,
+		"streams":                    user.Streams,
+		"allow_traffic":              user.AllowTraffic,
+		"allow_heatmap":              user.AllowHeatmap,
+		"allow_map_edit":             user.AllowMapEdit,
+		"allow_cam_names":            user.AllowCamNames,
+		"allow_view_stations":        user.AllowViewStations,
+		"allow_config_stations":      user.AllowConfigStations,
+		"allow_monitor_workers":      user.AllowMonitorWorkers,
+		"allow_monitor_process":      user.AllowMonitorProcess,
+		"allow_monitor_streaming":    user.AllowMonitorStreaming,
+		"allow_monitor_snapshot":     user.AllowMonitorSnapshot,
+		"allow_monitor_devices":      user.AllowMonitorDevices,
+		"allow_cam_snapshot":         user.AllowCamSnapshot,
+		"allow_cam_video":            user.AllowCamVideo,
+		"allow_map_snapshot_preview": user.AllowMapSnapshotPreview,
+		"allow_unlimited_view":       user.AllowUnlimitedViewing,
+		"view_limit_minutes":         user.ViewLimitMinutes,
+		"allow_incidents_import":     user.AllowIncidentsImport,
+		"tabs":                       user.EffectiveTabs(),
 	})
 }
 
@@ -241,29 +242,30 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Username              string   `json:"username"`
-			Password              string   `json:"password"`
-			Role                  string   `json:"role"`
-			Streams               []string `json:"streams"`
-			AllowPaths            []string `json:"allow_paths"`
-			Tabs                  []string `json:"tabs"`
-			Enabled               *bool    `json:"enabled"`
-			AllowTraffic          bool     `json:"allow_traffic"`
-			AllowHeatmap          bool     `json:"allow_heatmap"`
-			AllowMapEdit          bool     `json:"allow_map_edit"`
-			AllowCamNames         bool     `json:"allow_cam_names"`
-			AllowViewStations     bool     `json:"allow_view_stations"`
-			AllowConfigStations   bool     `json:"allow_config_stations"`
-			AllowMonitorWorkers   bool     `json:"allow_monitor_workers"`
-			AllowMonitorProcess   bool     `json:"allow_monitor_process"`
-			AllowMonitorStreaming bool     `json:"allow_monitor_streaming"`
-			AllowMonitorSnapshot  bool     `json:"allow_monitor_snapshot"`
-			AllowMonitorDevices   bool     `json:"allow_monitor_devices"`
-			AllowCamSnapshot      bool     `json:"allow_cam_snapshot"`
-			AllowCamVideo         bool     `json:"allow_cam_video"`
-			AllowUnlimitedViewing bool     `json:"allow_unlimited_view"`
-			ViewLimitMinutes      int      `json:"view_limit_minutes"`
-			AllowIncidentsImport  bool     `json:"allow_incidents_import"`
+			Username                string   `json:"username"`
+			Password                string   `json:"password"`
+			Role                    string   `json:"role"`
+			Streams                 []string `json:"streams"`
+			AllowPaths              []string `json:"allow_paths"`
+			Tabs                    []string `json:"tabs"`
+			Enabled                 *bool    `json:"enabled"`
+			AllowTraffic            bool     `json:"allow_traffic"`
+			AllowHeatmap            bool     `json:"allow_heatmap"`
+			AllowMapEdit            bool     `json:"allow_map_edit"`
+			AllowCamNames           bool     `json:"allow_cam_names"`
+			AllowViewStations       bool     `json:"allow_view_stations"`
+			AllowConfigStations     bool     `json:"allow_config_stations"`
+			AllowMonitorWorkers     bool     `json:"allow_monitor_workers"`
+			AllowMonitorProcess     bool     `json:"allow_monitor_process"`
+			AllowMonitorStreaming   bool     `json:"allow_monitor_streaming"`
+			AllowMonitorSnapshot    bool     `json:"allow_monitor_snapshot"`
+			AllowMonitorDevices     bool     `json:"allow_monitor_devices"`
+			AllowCamSnapshot        bool     `json:"allow_cam_snapshot"`
+			AllowCamVideo           bool     `json:"allow_cam_video"`
+			AllowMapSnapshotPreview bool     `json:"allow_map_snapshot_preview"`
+			AllowUnlimitedViewing   bool     `json:"allow_unlimited_view"`
+			ViewLimitMinutes        int      `json:"view_limit_minutes"`
+			AllowIncidentsImport    bool     `json:"allow_incidents_import"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -285,28 +287,29 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			enabled = *req.Enabled
 		}
 		u := &User{
-			Username:              req.Username,
-			Role:                  req.Role,
-			Streams:               req.Streams,
-			AllowPaths:            req.AllowPaths,
-			Tabs:                  req.Tabs,
-			Enabled:               enabled,
-			AllowTraffic:          req.AllowTraffic,
-			AllowHeatmap:          req.AllowHeatmap,
-			AllowMapEdit:          req.AllowMapEdit,
-			AllowCamNames:         req.AllowCamNames,
-			AllowViewStations:     req.AllowViewStations,
-			AllowConfigStations:   req.AllowConfigStations,
-			AllowMonitorWorkers:   req.AllowMonitorWorkers,
-			AllowMonitorProcess:   req.AllowMonitorProcess,
-			AllowMonitorStreaming: req.AllowMonitorStreaming,
-			AllowMonitorSnapshot:  req.AllowMonitorSnapshot,
-			AllowMonitorDevices:   req.AllowMonitorDevices,
-			AllowCamSnapshot:      req.AllowCamSnapshot,
-			AllowCamVideo:         req.AllowCamVideo,
-			AllowUnlimitedViewing: req.AllowUnlimitedViewing,
-			ViewLimitMinutes:      req.ViewLimitMinutes,
-			AllowIncidentsImport:  req.AllowIncidentsImport,
+			Username:                req.Username,
+			Role:                    req.Role,
+			Streams:                 req.Streams,
+			AllowPaths:              req.AllowPaths,
+			Tabs:                    req.Tabs,
+			Enabled:                 enabled,
+			AllowTraffic:            req.AllowTraffic,
+			AllowHeatmap:            req.AllowHeatmap,
+			AllowMapEdit:            req.AllowMapEdit,
+			AllowCamNames:           req.AllowCamNames,
+			AllowViewStations:       req.AllowViewStations,
+			AllowConfigStations:     req.AllowConfigStations,
+			AllowMonitorWorkers:     req.AllowMonitorWorkers,
+			AllowMonitorProcess:     req.AllowMonitorProcess,
+			AllowMonitorStreaming:   req.AllowMonitorStreaming,
+			AllowMonitorSnapshot:    req.AllowMonitorSnapshot,
+			AllowMonitorDevices:     req.AllowMonitorDevices,
+			AllowCamSnapshot:        req.AllowCamSnapshot,
+			AllowCamVideo:           req.AllowCamVideo,
+			AllowMapSnapshotPreview: req.AllowMapSnapshotPreview,
+			AllowUnlimitedViewing:   req.AllowUnlimitedViewing,
+			ViewLimitMinutes:        req.ViewLimitMinutes,
+			AllowIncidentsImport:    req.AllowIncidentsImport,
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -326,29 +329,30 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Password              string   `json:"password"`
-			Role                  string   `json:"role"`
-			Streams               []string `json:"streams"`
-			AllowPaths            []string `json:"allow_paths"`
-			Tabs                  []string `json:"tabs"`
-			Enabled               *bool    `json:"enabled"`
-			AllowTraffic          *bool    `json:"allow_traffic"`
-			AllowHeatmap          *bool    `json:"allow_heatmap"`
-			AllowMapEdit          *bool    `json:"allow_map_edit"`
-			AllowCamNames         *bool    `json:"allow_cam_names"`
-			AllowViewStations     *bool    `json:"allow_view_stations"`
-			AllowConfigStations   *bool    `json:"allow_config_stations"`
-			AllowMonitorWorkers   *bool    `json:"allow_monitor_workers"`
-			AllowMonitorProcess   *bool    `json:"allow_monitor_process"`
-			AllowMonitorStreaming *bool    `json:"allow_monitor_streaming"`
-			AllowMonitorSnapshot  *bool    `json:"allow_monitor_snapshot"`
-			AllowMonitorDevices   *bool    `json:"allow_monitor_devices"`
-			AllowCamSnapshot      *bool    `json:"allow_cam_snapshot"`
-			AllowCamVideo         *bool    `json:"allow_cam_video"`
-			AllowUnlimitedViewing *bool    `json:"allow_unlimited_view"`
-			ViewLimitMinutes      *int     `json:"view_limit_minutes"`
-			AllowIncidentsImport  *bool    `json:"allow_incidents_import"`
-			MustChangePassword    *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
+			Password                string   `json:"password"`
+			Role                    string   `json:"role"`
+			Streams                 []string `json:"streams"`
+			AllowPaths              []string `json:"allow_paths"`
+			Tabs                    []string `json:"tabs"`
+			Enabled                 *bool    `json:"enabled"`
+			AllowTraffic            *bool    `json:"allow_traffic"`
+			AllowHeatmap            *bool    `json:"allow_heatmap"`
+			AllowMapEdit            *bool    `json:"allow_map_edit"`
+			AllowCamNames           *bool    `json:"allow_cam_names"`
+			AllowViewStations       *bool    `json:"allow_view_stations"`
+			AllowConfigStations     *bool    `json:"allow_config_stations"`
+			AllowMonitorWorkers     *bool    `json:"allow_monitor_workers"`
+			AllowMonitorProcess     *bool    `json:"allow_monitor_process"`
+			AllowMonitorStreaming   *bool    `json:"allow_monitor_streaming"`
+			AllowMonitorSnapshot    *bool    `json:"allow_monitor_snapshot"`
+			AllowMonitorDevices     *bool    `json:"allow_monitor_devices"`
+			AllowCamSnapshot        *bool    `json:"allow_cam_snapshot"`
+			AllowCamVideo           *bool    `json:"allow_cam_video"`
+			AllowMapSnapshotPreview *bool    `json:"allow_map_snapshot_preview"`
+			AllowUnlimitedViewing   *bool    `json:"allow_unlimited_view"`
+			ViewLimitMinutes        *int     `json:"view_limit_minutes"`
+			AllowIncidentsImport    *bool    `json:"allow_incidents_import"`
+			MustChangePassword      *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -418,6 +422,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowCamVideo != nil {
 			existing.AllowCamVideo = *req.AllowCamVideo
+		}
+		if req.AllowMapSnapshotPreview != nil {
+			existing.AllowMapSnapshotPreview = *req.AllowMapSnapshotPreview
 		}
 		if req.AllowUnlimitedViewing != nil {
 			existing.AllowUnlimitedViewing = *req.AllowUnlimitedViewing

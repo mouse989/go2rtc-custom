@@ -1305,6 +1305,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Camera</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-snapshot"> 📷 Xem snapshot camera</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-video"> 🎥 Xem video live (WebRTC/HLS)</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-snapshot-preview"> 🗺 Xem trước snapshot trên bản đồ</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-unlimited-view" onchange="toggleViewLimitInput()"> ⏱ Không giới hạn thời gian xem</label>
           <label class="tab-perm-chip" id="view-limit-wrap" style="gap:.35rem">
             Giới hạn phiên xem (phút)
@@ -2106,6 +2107,7 @@ function openAdd() {
   document.getElementById('f-enabled').checked = true;
   document.getElementById('f-orig').value = '';
   document.querySelectorAll('input[name="userTab"]').forEach(cb => { cb.checked = false; });
+  document.getElementById('f-allow-map-snapshot-preview').checked = false; // new users: off by default
   uncheckAll(); updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
 }
@@ -2140,6 +2142,7 @@ function openEdit(u) {
   document.getElementById('f-allow-monitor-devices').checked  = !!u.allow_monitor_devices;
   document.getElementById('f-allow-cam-snapshot').checked = !!u.allow_cam_snapshot;
   document.getElementById('f-allow-cam-video').checked    = !!u.allow_cam_video;
+  document.getElementById('f-allow-map-snapshot-preview').checked = !!u.allow_map_snapshot_preview;
   document.getElementById('f-allow-unlimited-view').checked = !!u.allow_unlimited_view;
   document.getElementById('f-view-limit-minutes').value = u.view_limit_minutes > 0 ? u.view_limit_minutes : '';
   toggleViewLimitInput();
@@ -2293,10 +2296,11 @@ async function submitForm(e) {
   const allow_monitor_devices  = role === 'admin' ? true : document.getElementById('f-allow-monitor-devices').checked;
   const allow_cam_snapshot     = role === 'admin' ? true : document.getElementById('f-allow-cam-snapshot').checked;
   const allow_cam_video        = role === 'admin' ? true : document.getElementById('f-allow-cam-video').checked;
+  const allow_map_snapshot_preview = role === 'admin' ? true : document.getElementById('f-allow-map-snapshot-preview').checked;
   const allow_unlimited_view   = role === 'admin' ? true : document.getElementById('f-allow-unlimited-view').checked;
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
-  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
+  const body = { role, enabled, streams, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 

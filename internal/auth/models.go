@@ -52,6 +52,9 @@ type User struct {
 	// Camera view sub-permissions (only meaningful when user has cameras tab)
 	AllowCamSnapshot bool `json:"allow_cam_snapshot"` // xem ảnh snapshot camera
 	AllowCamVideo    bool `json:"allow_cam_video"`    // xem video live (webrtc/mse/hls)
+	// AllowMapSnapshotPreview gates the "Xem trước" live-thumbnail overlay
+	// on the map (map.html) — off by default for new viewers, always on for admins.
+	AllowMapSnapshotPreview bool `json:"allow_map_snapshot_preview"`
 	// View-session time limit (web viewers only — never applies to RTSP/RTSPS
 	// URLs). AllowUnlimitedViewing bypasses the limit entirely (always true
 	// for admins). Otherwise ViewLimitMinutes overrides the system default
