@@ -2910,7 +2910,7 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   if (canUseHeatmap()) {
     document.getElementById('btnHeatmap').style.display = '';
   }
-  const snapPreviewAllowed = canCamSnapshot();
+  const snapPreviewAllowed = canMapSnapshotPreview();
   if (snapPreviewAllowed) {
     document.getElementById('btnSnapPreview').style.display = '';
   } else {
