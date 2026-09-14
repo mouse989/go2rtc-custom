@@ -515,7 +515,12 @@ rtsp:
       <div class="card" style="margin-bottom:1rem">
         <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
           <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">Stream Assignments</h3>
-          <input type="text" id="ctAssignSearch" placeholder="🔍 Filter streams…" oninput="renderCtAssignTable()"
+          <span id="ctUnassignedCount" style="font-size:.77rem;color:var(--text-muted)"></span>
+          <label style="font-size:.8rem;color:var(--text-muted);display:flex;align-items:center;gap:.35rem;cursor:pointer;user-select:none">
+            <input type="checkbox" id="ctAssignUnassignedOnly" onchange="renderCtAssignTable()">
+            Chỉ hiện chưa gán
+          </label>
+          <input type="text" id="ctAssignSearch" placeholder="🔍 Filter streams…" autocomplete="off" oninput="renderCtAssignTable()"
             style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.32rem .6rem;color:var(--text);font-size:.82rem;width:180px;outline:none">
           <button class="btn btn-primary btn-sm" onclick="saveCtAssignments()">💾 Save Assignments</button>
           <span id="ctAssignMsg" style="font-size:.8rem;color:var(--green);display:none">✓ Saved</span>
@@ -2569,10 +2574,17 @@ function renderCtTable() {
 function renderCtAssignTable() {
   const tbody  = document.getElementById('ctAssignTbody');
   const filter = (document.getElementById('ctAssignSearch').value || '').toLowerCase();
-  const cams   = filter ? allCams.filter(c => c.toLowerCase().includes(filter)) : allCams;
+  const unassignedOnly = document.getElementById('ctAssignUnassignedOnly').checked;
+
+  const unassignedCount = allCams.filter(c => !ctAssignments[c]).length;
+  document.getElementById('ctUnassignedCount').textContent =
+    allCams.length ? `${unassignedCount}/${allCams.length} chưa gán` : '';
+
+  let cams = filter ? allCams.filter(c => c.toLowerCase().includes(filter)) : allCams;
+  if (unassignedOnly) cams = cams.filter(c => !ctAssignments[c]);
 
   if (!cams.length) {
-    tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">${allCams.length ? 'No streams match' : 'No streams configured'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">${allCams.length ? (unassignedOnly ? 'Tất cả stream đã được gán loại camera 🎉' : 'No streams match') : 'No streams configured'}</td></tr>`;
     return;
   }
 
@@ -2592,6 +2604,7 @@ function renderCtAssignTable() {
       if (sel.value) ctAssignments[name] = sel.value;
       else delete ctAssignments[name];
       ctAssignDirty = true;
+      renderCtAssignTable(); // refresh unassigned count / filtered list
     });
     const tdName = document.createElement('td');
     tdName.textContent = name;
