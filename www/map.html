@@ -172,6 +172,7 @@ body.sb-collapsed           { --map-left:0; }
 /* Live thumbnail floating above each visible camera pin — clicking it opens
    the camera, same as clicking the pin underneath. */
 .snap-preview {
+  position:absolute;
   width:148px;
   background:#0b0e13;
   border:1.5px solid #22c55e;
@@ -180,6 +181,7 @@ body.sb-collapsed           { --map-left:0; }
   box-shadow:0 3px 14px rgba(0,0,0,.6);
   cursor:pointer;
   user-select:none;
+  pointer-events:all; /* #mapOverlays itself is pointer-events:none */
 }
 .snap-preview:hover { border-color:#4ade80; }
 .snap-preview .sp-media { position:relative; background:#111; }
@@ -1326,12 +1328,19 @@ function scheduleClusterUpdate() {
 // that, cameras are still clustered anyway) and capped at PREVIEW_MAX_COUNT
 // concurrent thumbnails (closest to the viewport center) so a dense area
 // with hundreds of pins can't flood the browser with image requests.
+//
+// Positioned as plain absolute-positioned elements in #mapOverlays (the
+// same container the PiP overlay windows use) rather than vietmapgl.Marker
+// instances, because nearby cameras need their boxes pushed apart to avoid
+// overlapping — same overlap-resolution approach as resolveOverlaps() for
+// ov-win, just sized for the smaller preview box.
 const PREVIEW_MIN_ZOOM   = 13;
 const PREVIEW_MAX_COUNT  = 24;
 const PREVIEW_REFRESH_MS = 10000;
+const PREVIEW_W = 148, PREVIEW_H = 116;
 
 let _previewMode          = localStorage.getItem('map_snap_preview') === '1';
-let _previewMarkers       = new Map(); // id → { marker, el, img }
+let _previewMarkers       = new Map(); // id → { el, img, lon, lat }
 let _previewUpdatePending = false;
 let _previewRefreshTimer  = null;
 
@@ -1358,7 +1367,7 @@ function buildPreviewEl(id, label, s) {
 }
 
 function clearPreviewMarkers() {
-  _previewMarkers.forEach(entry => entry.marker.remove());
+  _previewMarkers.forEach(entry => entry.el.remove());
   _previewMarkers.clear();
 }
 
@@ -1366,6 +1375,49 @@ function refreshPreviewImages() {
   _previewMarkers.forEach((entry, id) => {
     const s = _streamByID[id];
     if (s) entry.img.src = `${s.frame_url}&_t=${Date.now()}`;
+  });
+}
+
+// Pushes overlapping preview boxes apart — same pairwise-separation
+// algorithm as resolveOverlaps(), just parameterized for the preview box
+// size instead of OV_W/OV_H.
+function resolvePreviewOverlaps(items, cW, cH) {
+  const W = PREVIEW_W + OV_PAD, H = PREVIEW_H + OV_PAD;
+  for (let iter = 0; iter < 30; iter++) {
+    let moved = false;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i+1; j < items.length; j++) {
+        const a=items[i], b=items[j];
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const ox=W-Math.abs(dx), oy=H-Math.abs(dy);
+        if (ox>0 && oy>0) {
+          if (ox<oy){ const d=dx>=0?1:-1; a.x-=d; b.x+=d; }
+          else      { const d=dy>=0?1:-1; a.y-=d; b.y+=d; }
+          moved=true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  items.forEach(item => {
+    item.x = Math.max(0, Math.min(cW-PREVIEW_W, item.x));
+    item.y = Math.max(TOPBAR_H, Math.min(cH-PREVIEW_H, item.y));
+  });
+}
+
+function positionPreviewMarkers() {
+  if (!map || !_previewMarkers.size) return;
+  const cont = document.getElementById('mapOverlays');
+  const cW = cont.offsetWidth, cH = cont.offsetHeight;
+  const items = [];
+  _previewMarkers.forEach((entry, id) => {
+    const pt = map.project([entry.lon, entry.lat]);
+    items.push({ id, x: pt.x - PREVIEW_W/2, y: pt.y - PREVIEW_H - 14 });
+  });
+  resolvePreviewOverlaps(items, cW, cH);
+  items.forEach(item => {
+    const entry = _previewMarkers.get(item.id);
+    if (entry) { entry.el.style.left = item.x+'px'; entry.el.style.top = item.y+'px'; }
   });
 }
 
@@ -1397,22 +1449,27 @@ function updatePreviewMarkers() {
   // Drop markers that left the viewport (or got clustered away)
   for (const [id, entry] of _previewMarkers) {
     if (!visibleIds.has(id)) {
-      entry.marker.remove();
+      entry.el.remove();
       _previewMarkers.delete(id);
     }
   }
 
-  // Add markers for newly-visible cameras
+  // Add elements for newly-visible cameras
+  const cont = document.getElementById('mapOverlays');
   visible.forEach(f => {
     const id = f.properties.id;
     if (_previewMarkers.has(id)) return;
     const s = _streamByID[id];
     if (!s) return;
     const el = buildPreviewEl(id, f.properties.name || id, s);
-    const marker = new vietmapgl.Marker({ element: el, anchor: 'bottom', offset: [0, -14] })
-      .setLngLat(f.geometry.coordinates).addTo(map);
-    _previewMarkers.set(id, { marker, el, img: el.querySelector('img') });
+    cont.appendChild(el);
+    _previewMarkers.set(id, {
+      el, img: el.querySelector('img'),
+      lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+    });
   });
+
+  positionPreviewMarkers();
 }
 
 // Throttle preview updates to once per animation frame (mirrors scheduleClusterUpdate)
