@@ -15,14 +15,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"io"
 	"image/jpeg"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,9 +43,9 @@ const snapshotDir = "snapshots"
 // schedulerStats holds the most-recently-computed scheduler parameters for
 // display in /api/proxy/snapshot-stats.
 var (
-	schedulerMu    sync.RWMutex
-	schedulerDelayMs int  // ms between camera dispatches in current cycle
-	schedulerConc    int  // effective concurrency cap used in current cycle
+	schedulerMu      sync.RWMutex
+	schedulerDelayMs int // ms between camera dispatches in current cycle
+	schedulerConc    int // effective concurrency cap used in current cycle
 )
 
 // ── Snapshot health tracking ──────────────────────────────────────
@@ -159,14 +160,14 @@ func snapshotConcurrency() int {
 
 // SnapshotStatsResponse is the payload for GET /api/proxy/snapshot-stats.
 type SnapshotStatsResponse struct {
-	IntervalSec int                    `json:"interval_sec"`
-	Total       int                    `json:"total"`
-	OK          int                    `json:"ok"`
-	Fail        int                    `json:"fail"`
+	IntervalSec int                     `json:"interval_sec"`
+	Total       int                     `json:"total"`
+	OK          int                     `json:"ok"`
+	Fail        int                     `json:"fail"`
 	Failing     []SnapshotFailingCamera `json:"failing"`
 	// Scheduler stats
-	DelayMs     int `json:"delay_ms"`     // ms between camera dispatches
-	Concurrency int `json:"concurrency"`  // max concurrent fetches
+	DelayMs     int `json:"delay_ms"`    // ms between camera dispatches
+	Concurrency int `json:"concurrency"` // max concurrent fetches
 }
 
 type SnapshotFailingCamera struct {
@@ -273,14 +274,14 @@ func SetRTSPListenPort(port string) {
 
 func registerProxyHandlers() {
 	os.MkdirAll(snapshotDir, 0755) // ensure dir exists before any handler or worker runs
-	http.HandleFunc("/api/proxy/streams",        proxyStreamsHandler)
-	http.HandleFunc("/api/proxy/frame",          proxyFrameHandler)
+	http.HandleFunc("/api/proxy/streams", proxyStreamsHandler)
+	http.HandleFunc("/api/proxy/frame", proxyFrameHandler)
 	http.HandleFunc("/api/proxy/snapshot-stats", proxySnapshotStatsHandler)
-	http.HandleFunc("/api/proxy/hls",            proxyHLSHandler)
-	http.HandleFunc("/api/proxy/hls/",           proxyHLSSegmentHandler)
-	http.HandleFunc("/api/proxy/mp4",            proxyPassHandler("/api/mp4", "src"))
-	http.HandleFunc("/api/proxy/ws",             proxyWSHandler)
-	http.HandleFunc("/api/proxy/rtsp-url",       proxyRTSPURLHandler)
+	http.HandleFunc("/api/proxy/hls", proxyHLSHandler)
+	http.HandleFunc("/api/proxy/hls/", proxyHLSSegmentHandler)
+	http.HandleFunc("/api/proxy/mp4", proxyPassHandler("/api/mp4", "src"))
+	http.HandleFunc("/api/proxy/ws", proxyWSHandler)
+	http.HandleFunc("/api/proxy/rtsp-url", proxyRTSPURLHandler)
 	go startSnapshotWorker()
 }
 
@@ -346,8 +347,8 @@ func startSnapshotWorker() {
 // snapshotScheduler is a single goroutine that cycles through all cameras,
 // dispatching one fetch goroutine per camera with an even delay between each.
 //
-//   delay = interval / n_cameras
-//   e.g. 2000 cameras × 15 s → 1 fetch every 7.5 ms
+//	delay = interval / n_cameras
+//	e.g. 2000 cameras × 15 s → 1 fetch every 7.5 ms
 //
 // This guarantees flat bandwidth with no spikes at interval boundaries.
 // The camera list is re-read every cycle, so add/remove is picked up automatically.
@@ -469,6 +470,24 @@ func proxyStreamsHandler(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []streamInfo{}
 	}
+
+	// Order by declaration in go2rtc.yaml (not the random order Go's map
+	// iteration would otherwise give) so newly-appended cameras land at the
+	// end instead of scattered — see stream_order.go. Anything not found
+	// there (e.g. added through another config source) sorts after every
+	// known-order entry, alphabetically among themselves.
+	order := streamFileOrder()
+	sort.SliceStable(list, func(i, j int) bool {
+		oi, oki := order[list[i].Name]
+		oj, okj := order[list[j].Name]
+		if oki && okj {
+			return oi < oj
+		}
+		if oki != okj {
+			return oki
+		}
+		return list[i].Name < list[j].Name
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(list)
@@ -695,7 +714,8 @@ func proxyPassHandler(realPath, srcParam string) http.HandlerFunc {
 		}
 		// Forward extra query params (e.g. additional mp4 flags)
 		q := r.URL.Query()
-		q.Del("id"); q.Del("token")
+		q.Del("id")
+		q.Del("token")
 		if extra := q.Encode(); extra != "" {
 			target.RawQuery += "&" + extra
 		}

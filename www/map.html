@@ -1707,9 +1707,9 @@ function buildSidebar() {
   filterCamList();
 
   if (_isAdmin) {
-    const ups = _allStreams
-      .filter(s => !locatedIDs.has(s.id))
-      .sort((a,b) => (a.name||a.id).localeCompare(b.name||b.id));
+    // File order (not alphabetical) — new cameras are appended at the end
+    // of go2rtc.yaml, so this naturally surfaces them at the bottom.
+    const ups = _allStreams.filter(s => !locatedIDs.has(s.id));
     if (ups.length) {
       secUp.style.display='';
       document.getElementById('cntUnplaced').textContent = ups.length;
@@ -2052,13 +2052,26 @@ document.getElementById('modalBackdrop').addEventListener('click',e=>{ if(e.targ
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeModal();clearSearch();} });
 
 // ── Edit panel ────────────────────────────────────────────────
+// Kept in the order the server returns it (declaration order in
+// go2rtc.yaml — see internal/auth/stream_order.go), NOT alphabetical:
+// cameras get appended at the end of that file, so this keeps newly-added
+// ones at the end of the list instead of scattered alphabetically among
+// hundreds of others. Cameras without a saved location yet are marked
+// "🆕 chưa đặt vị trí" so they're identifiable regardless of position too
+// (a camera can be unplaced without being newly-added, or vice versa).
 function populateEditSelect(filter) {
   const sel=document.getElementById('editCamSelect'); const filt=(filter||'').toLowerCase();
   sel.innerHTML='';
-  [..._allStreams].sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id)).forEach(s=>{
+  const locatedIDs = new Set(_locations.map(l => l.id));
+  _allStreams.forEach(s=>{
     const name=s.name||s.id;
     if(filt&&!name.toLowerCase().includes(filt)) return;
-    const opt=document.createElement('option'); opt.value=s.id; opt.textContent=name;
+    const placed = locatedIDs.has(s.id);
+    const opt=document.createElement('option'); opt.value=s.id;
+    // Prefix (not suffix) so the "🆕 chưa đặt vị trí" marker stays visible
+    // even when the option is wide enough that its tail gets clipped.
+    opt.textContent = placed ? name : `🆕 [Chưa đặt vị trí] ${name}`;
+    if(!placed) opt.style.color = '#f59e0b';
     if(s.id===_editingID) opt.selected=true;
     sel.appendChild(opt);
   });
