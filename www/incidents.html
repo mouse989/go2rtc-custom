@@ -128,7 +128,7 @@ table.inc-table { min-width:920px; }
       <input type="date" id="fTo" title="Đến ngày">
       <select id="fCategory"><option value="">Tất cả thể loại</option></select>
       <select id="fUnit"><option value="">Tất cả đơn vị</option></select>
-      <input type="search" id="fQ" placeholder="Tìm nội dung / vị trí…" autocomplete="off" style="min-width:180px">
+      <input type="search" id="fQ" placeholder="Tìm nội dung / vị trí…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" style="min-width:180px">
       <button class="btn btn-ghost btn-sm" onclick="applyFilters()">🔍 Lọc</button>
       <button class="btn btn-ghost btn-sm" onclick="resetFilters()">↺ Hôm nay</button>
       <span class="spacer"></span>
