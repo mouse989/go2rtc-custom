@@ -113,6 +113,13 @@ func Init() {
 	}
 	initSecurityAlerts(alertsPath, knownIPsPath)
 
+	// User GPS-location history (non-fatal — just a subdirectory next to users.json)
+	userLocPath := filepath.Join(filepath.Dir(usersPath), "user_locations")
+	if usersPath == "users.json" {
+		userLocPath = "user_locations"
+	}
+	initUserLocations(userLocPath)
+
 	registerHandlers()
 	registerProxyHandlers()
 	registerLocationHandlers()
@@ -126,6 +133,7 @@ func Init() {
 	registerLoginHistoryHandler()
 	registerSecurityAlertsHandler()
 	registerConfigAuditHandler()
+	registerUserLocationHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }
