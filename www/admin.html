@@ -1380,7 +1380,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
       <div class="form-group" id="cam-section" style="margin-top:.75rem;">
         <label>Camera Access</label>
         <div class="cam-wrap">
-          <input type="text" class="cam-search" id="cam-q" placeholder="🔍 Search cameras…" autocomplete="off" oninput="filterCams()">
+          <input type="text" class="cam-search" id="cam-q" placeholder="🔍 Search cameras…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" oninput="filterCams()">
           <!-- Quick-select toolbar -->
           <div class="cam-toolbar">
             <button type="button" class="cam-tb-btn" onclick="selectAll()" title="Select all cameras">✓ All</button>
@@ -1421,7 +1421,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
       <div class="form-group" style="margin-top:.5rem;">
         <label>Cameras in this group</label>
         <div class="cam-wrap">
-          <input type="text" class="cam-search" id="g-cam-q" placeholder="🔍 Search cameras…" autocomplete="off" oninput="filterGroupCams()">
+          <input type="text" class="cam-search" id="g-cam-q" placeholder="🔍 Search cameras…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" oninput="filterGroupCams()">
           <div class="cam-toolbar">
             <button type="button" class="cam-tb-btn" onclick="gSelectAll()">✓ All</button>
             <button type="button" class="cam-tb-btn" onclick="gSelectFiltered()" id="g-btn-filtered" style="display:none">✓ Filtered</button>

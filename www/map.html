@@ -453,7 +453,7 @@ body.sb-collapsed           { --map-left:0; }
   <div class="cam-list" id="camList">
     <div class="list-section">On map (<span id="cntLocated">0</span>)</div>
     <div style="padding:.35rem .5rem .1rem">
-      <input type="text" id="camSearchInput" placeholder="🔍 Tìm tên camera…" autocomplete="off" oninput="filterCamList()"
+      <input type="text" id="camSearchInput" placeholder="🔍 Tìm tên camera…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" oninput="filterCamList()"
         style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .55rem;color:var(--text);font-size:.76rem;outline:none;transition:border-color .15s">
     </div>
     <div id="listLocated"></div>
@@ -566,7 +566,7 @@ body.sb-collapsed           { --map-left:0; }
   <h4 id="editTitle">📍 Set location</h4>
   <div>
     <label>Search camera</label>
-    <input type="search" id="editCamSearch" placeholder="Type to filter…" autocomplete="off">
+    <input type="search" id="editCamSearch" placeholder="Type to filter…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
   </div>
   <div>
     <label>Camera</label>
@@ -730,7 +730,7 @@ body.sb-collapsed           { --map-left:0; }
         <!-- Quick-add cameras -->
         <div style="display:flex;flex-direction:column;gap:.35rem;flex:1;min-height:0">
           <div style="font-size:.76rem;font-weight:700;color:var(--text)">📷 Thêm nhanh camera</div>
-          <input id="stmCamSearch" type="search" placeholder="Tìm tên camera…" autocomplete="off"
+          <input id="stmCamSearch" type="search" placeholder="Tìm tên camera…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"
                  style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .45rem;color:var(--text);font-size:.78rem;box-sizing:border-box;outline:none">
           <div id="stmCamList"
                style="flex:1;min-height:120px;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:.25rem .2rem;background:var(--bg)">

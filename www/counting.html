@@ -663,7 +663,7 @@
     <div id="step1">
       <div class="form-row">
         <label>Tìm stream</label>
-        <input type="text" id="streamSearch" placeholder="Lọc theo tên…" oninput="filterStreams()" autocomplete="off">
+        <input type="text" id="streamSearch" placeholder="Lọc theo tên…" oninput="filterStreams()" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
       </div>
       <div class="stream-list" id="streamList">
         <div class="empty-log">Đang tải danh sách stream…</div>
