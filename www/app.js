@@ -127,6 +127,34 @@ async function apiFetch(path, opts = {}) {
   }
 }
 
+// ──────────────────── Login-location capture ────────────────────
+// Best-effort, opt-in, once per login: login.html sets go2rtc_geo_pending
+// right after a successful sign-in (without waiting on it, so it never
+// delays the post-login redirect); the next authenticated page load here
+// consumes that flag and asks the browser for a GPS fix exactly once for
+// that login. If geolocation is unsupported, blocked by the browser, or
+// the user denies the permission prompt, this silently does nothing — no
+// retries, no nagging on future page loads until the next fresh login.
+function maybeCaptureLoginLocation() {
+  if (localStorage.getItem('go2rtc_geo_pending') !== '1') return;
+  localStorage.removeItem('go2rtc_geo_pending');
+  if (!('geolocation' in navigator)) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      apiFetch('/api/user-location', {
+        method: 'POST',
+        body: {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          accuracy: pos.coords.accuracy || 0,
+        },
+      }).catch(() => {});
+    },
+    () => {}, // denied / unavailable / timed out — nothing to do
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+  );
+}
+
 // ─────────────────────────── initApp ───────────────────────────
 // Call this at the top of every protected page.
 // Redirects to /login.html if not authenticated.
@@ -310,6 +338,8 @@ async function initApp(requiredTab) {
       return;
     }
   }
+
+  maybeCaptureLoginLocation();
 
   // Populate sidebar UI
   const user = getUser();

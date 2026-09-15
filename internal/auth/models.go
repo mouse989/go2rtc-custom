@@ -89,6 +89,7 @@ var viewerDefaultPaths = []string{
 	"/api/frame",                // snapshot JPEG
 	"/api/auth/me",              // own profile
 	"/api/auth/change-password", // any authenticated user may change their own password
+	"/api/user-location",        // POST own GPS fix after login (GET is admin-only, guarded inside handler)
 	"/api/proxy",                // masked-ID proxy endpoints
 	"/api/camera-locations",     // map: read camera GPS coords
 	"/api/groups",               // camera groups (read-only for viewers)

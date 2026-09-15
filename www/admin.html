@@ -206,6 +206,7 @@ tr:hover td { background:var(--surface2); }
     <button class="page-tab" data-tab="devices" onclick="showTab('devices')">Devices</button>
     <button class="page-tab" data-tab="camconfig" onclick="showTab('camconfig')">Camera Config</button>
     <button class="page-tab" data-tab="traffic" onclick="showTab('traffic')">Traffic</button>
+    <button class="page-tab" data-tab="audit" onclick="showTab('audit')">🔍 Đối soát Camera</button>
   </div>
 
   <div class="content">
@@ -926,6 +927,63 @@ rtsp:
 
     </div><!-- /trafficSection -->
 
+    <!-- ── Config Audit section ── -->
+    <div id="auditSection" style="display:none">
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">Đối soát cấu hình camera</h3>
+          <button class="btn btn-primary btn-sm" onclick="runConfigAudit()">🔄 Kiểm tra</button>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          So sánh camera khai báo trong <code>go2rtc.yaml</code> với camera thực sự đang chạy trên server, để phát hiện
+          camera bị khai báo sai cú pháp / URL (không load được) hoặc bị trùng tên (khai báo 2 lần, cái sau đè cái trước).
+          Muốn kiểm tra thêm camera nào <b>hoàn toàn chưa được khai báo</b> trong file config, dán danh sách tên camera
+          bạn đang quản lý vào ô bên dưới (mỗi tên một dòng) — không cần tick "Kiểm tra" lại, danh sách sẽ tự so khớp.
+        </div>
+        <div style="padding:0 1.1rem 1.1rem">
+          <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Danh sách camera đang quản lý (tùy chọn — mỗi tên một dòng)</label>
+          <textarea id="auditMasterList" rows="5" placeholder="Camera A&#10;Camera B&#10;..."
+            style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .6rem;color:var(--text);font-size:.8rem;font-family:monospace;resize:vertical"></textarea>
+        </div>
+      </div>
+
+      <div id="auditParseError" style="display:none;margin-bottom:1rem;border:1px solid var(--red);border-radius:var(--radius-lg);padding:.9rem 1.1rem;color:var(--red);font-size:.82rem;background:rgba(248,81,73,.08)"></div>
+
+      <div id="auditSummary" style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;color:var(--text-muted);font-size:.82rem">
+        Bấm "🔄 Kiểm tra" để bắt đầu.
+      </div>
+
+      <div class="card" id="auditDupCard" style="display:none;margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.88rem;font-weight:700;margin:0">⚠ Camera bị khai báo trùng tên trong config</h3>
+          <p style="font-size:.72rem;color:var(--text-muted);margin:.3rem 0 0">Mỗi tên dưới đây xuất hiện từ 2 lần trở lên dưới mục <code>streams:</code> — chỉ khai báo cuối cùng thực sự chạy, các khai báo trước đó bị ghi đè và mất camera.</p>
+        </div>
+        <div style="padding:.8rem 1.1rem" id="auditDupList"></div>
+      </div>
+
+      <div class="card" id="auditFailCard" style="display:none;margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.88rem;font-weight:700;margin:0">❌ Có trong config nhưng chưa thực sự chạy</h3>
+          <p style="font-size:.72rem;color:var(--text-muted);margin:.3rem 0 0">Đã khai báo dưới <code>streams:</code> nhưng server không nạp được — kiểm tra lại cú pháp YAML (thụt lề, dấu `:`) hoặc URL/nguồn stream của các camera này.</p>
+        </div>
+        <table>
+          <thead><tr><th>Tên camera (trong config)</th></tr></thead>
+          <tbody id="auditFailBody"></tbody>
+        </table>
+      </div>
+
+      <div class="card" id="auditMissingCard" style="display:none">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.88rem;font-weight:700;margin:0">🚫 Chưa có trong config go2rtc.yaml</h3>
+          <p style="font-size:.72rem;color:var(--text-muted);margin:.3rem 0 0">Có trong danh sách bạn dán ở trên, nhưng chưa được khai báo trong file config — camera này chưa từng được thêm vào hệ thống.</p>
+        </div>
+        <table>
+          <thead><tr><th>Tên camera (từ danh sách của bạn)</th></tr></thead>
+          <tbody id="auditMissingBody"></tbody>
+        </table>
+      </div>
+    </div><!-- /auditSection -->
+
   </div>
 </main>
 
@@ -1423,6 +1481,7 @@ function showTab(tab) {
   document.getElementById('devicesSection').style.display   = tab === 'devices'   ? '' : 'none';
   document.getElementById('camconfigSection').style.display = tab === 'camconfig' ? '' : 'none';
   document.getElementById('trafficSection').style.display   = tab === 'traffic'    ? '' : 'none';
+  document.getElementById('auditSection').style.display     = tab === 'audit'      ? '' : 'none';
   const btn = document.getElementById('topbarAddBtn');
   if (tab === 'users') {
     btn.textContent = '+ Add User'; btn.style.display = ''; btn.onclick = openAdd;
@@ -1440,6 +1499,7 @@ function showTab(tab) {
   if (tab === 'devices')   loadDevicesTab();
   if (tab === 'camconfig') loadCamPresets();
   if (tab === 'traffic')   loadTrafficTab();
+  if (tab === 'audit' && !_auditData) runConfigAudit();
 }
 
 // ════════════════════════════════════════════════════════
@@ -3957,6 +4017,101 @@ async function deleteCameraType(id) {
     await loadCameraTypes();
   } catch(err) { toast(err.message || 'Error deleting type', 'error'); }
 }
+
+// ════════════════════════════════════════════════════════
+//  CONFIG AUDIT — which cameras never made it into go2rtc
+// ════════════════════════════════════════════════════════
+let _auditData = null; // { parse_ok, parse_error, declared, duplicates, live }
+
+async function runConfigAudit() {
+  document.getElementById('auditParseError').style.display = 'none';
+  document.getElementById('auditSummary').innerHTML =
+    '<span style="color:var(--text-muted)">Đang kiểm tra…</span>';
+  document.getElementById('auditDupCard').style.display = 'none';
+  document.getElementById('auditFailCard').style.display = 'none';
+  document.getElementById('auditMissingCard').style.display = 'none';
+  try {
+    _auditData = await apiFetch('/api/config-audit');
+    renderConfigAudit();
+  } catch (e) {
+    _auditData = null;
+    document.getElementById('auditSummary').innerHTML = '';
+    document.getElementById('auditParseError').style.display = '';
+    document.getElementById('auditParseError').textContent = 'Lỗi tải dữ liệu: ' + e.message;
+  }
+}
+
+function auditTile(label, count, color) {
+  return `<div class="card" style="padding:.7rem 1rem;min-width:170px;flex:1;margin:0">
+    <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.3rem">${label}</div>
+    <div style="font-size:1.5rem;font-weight:700;color:${color}">${count}</div>
+  </div>`;
+}
+
+function renderConfigAudit() {
+  const data = _auditData;
+  if (!data) return;
+
+  if (!data.parse_ok) {
+    document.getElementById('auditParseError').style.display = '';
+    document.getElementById('auditParseError').textContent =
+      '⚠ Không đọc/parse được file config (go2rtc.yaml): ' + (data.parse_error || 'unknown error') +
+      ' — các số liệu bên dưới có thể không chính xác cho tới khi file được sửa.';
+  } else {
+    document.getElementById('auditParseError').style.display = 'none';
+  }
+
+  const declaredSet = new Set(data.declared || []);
+  const liveSet     = new Set(data.live || []);
+  const failList = [...declaredSet].filter(n => !liveSet.has(n)).sort((a,b) => a.localeCompare(b));
+  const dupList  = (data.duplicates || []).slice().sort((a,b) => a.localeCompare(b));
+
+  let tiles =
+    auditTile('📄 Khai báo trong config', declaredSet.size, 'var(--text)') +
+    auditTile('✅ Đang chạy thực tế', liveSet.size, 'var(--green)') +
+    auditTile('❌ Khai báo nhưng chưa chạy', failList.length, failList.length ? 'var(--red)' : 'var(--text-muted)') +
+    auditTile('⚠ Trùng tên trong config', dupList.length, dupList.length ? '#f59e0b' : 'var(--text-muted)');
+
+  if (dupList.length) {
+    document.getElementById('auditDupCard').style.display = '';
+    document.getElementById('auditDupList').innerHTML = dupList.map(n =>
+      `<span class="tab-perm-chip" style="margin:.15rem;border-color:#f59e0b;color:#f59e0b">${esc(n)}</span>`).join('');
+  } else {
+    document.getElementById('auditDupCard').style.display = 'none';
+  }
+
+  if (failList.length) {
+    document.getElementById('auditFailCard').style.display = '';
+    document.getElementById('auditFailBody').innerHTML =
+      failList.map(n => `<tr><td>${esc(n)}</td></tr>`).join('');
+  } else {
+    document.getElementById('auditFailCard').style.display = 'none';
+  }
+
+  // Optional: compare against the admin's own pasted "managed camera" list —
+  // this is the only category the server can't detect on its own, since it
+  // has no independent record of which cameras *should* exist.
+  const raw = (document.getElementById('auditMasterList').value || '')
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  if (raw.length) {
+    const uniqueRaw = [...new Set(raw)];
+    const missing = uniqueRaw.filter(n => !declaredSet.has(n)).sort((a,b) => a.localeCompare(b));
+    tiles += auditTile('🚫 Chưa có trong config', missing.length, missing.length ? 'var(--red)' : 'var(--text-muted)');
+    document.getElementById('auditMissingCard').style.display = missing.length ? '' : 'none';
+    document.getElementById('auditMissingBody').innerHTML =
+      missing.map(n => `<tr><td>${esc(n)}</td></tr>`).join('');
+  } else {
+    document.getElementById('auditMissingCard').style.display = 'none';
+  }
+
+  document.getElementById('auditSummary').innerHTML = tiles;
+}
+
+// Re-diff against the server's already-fetched lists as the admin types/
+// pastes into the textarea — no need to re-hit the API for this part.
+document.getElementById('auditMasterList').addEventListener('input', () => {
+  if (_auditData) renderConfigAudit();
+});
 </script>
 </body>
 </html>

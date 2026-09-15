@@ -144,6 +144,10 @@ document.getElementById('form').addEventListener('submit', async e => {
     if (res.ok) {
       const data = await res.json();
       localStorage.setItem('go2rtc_token', data.token);
+      // Flag this login for a one-time, best-effort GPS capture on the next
+      // authenticated page load (see app.js's maybeCaptureLoginLocation) —
+      // not done here so it never delays/blocks the redirect below.
+      localStorage.setItem('go2rtc_geo_pending', '1');
       // Fetch full profile (includes tabs) to determine redirect target.
       try {
         const meRes = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + data.token } });

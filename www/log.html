@@ -139,6 +139,7 @@
     <button class="page-tab" id="tabBtnSummary">Tổng hợp truy cập</button>
     <button class="page-tab" id="tabBtnLogin">Lịch sử đăng nhập</button>
     <button class="page-tab" id="tabBtnAlerts">⚠️ Cảnh báo bảo mật</button>
+    <button class="page-tab" id="tabBtnUserLoc" style="display:none">📍 Vị trí người dùng</button>
   </div>
 
   <div class="content" id="tabServerLog">
@@ -263,6 +264,37 @@
         <table class="log-table">
           <thead><tr><th class="log-time">Thời gian</th><th style="width:90px">Mức độ</th><th>Loại</th><th>User</th><th>IP</th><th>Nội dung</th></tr></thead>
           <tbody id="alertBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="tabUserLoc" style="display:none">
+    <div class="log-toolbar">
+      <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
+        <input type="date" id="ulFrom" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">Đến ngày
+        <input type="date" id="ulTo" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">User
+        <select id="ulUser" class="btn btn-sm" style="margin-left:.3rem;cursor:pointer">
+          <option value="">Tất cả user</option>
+        </select>
+      </label>
+      <button class="btn btn-sm" id="btnUlFilter">🔍 Lọc</button>
+      <span class="spacer"></span>
+      <span class="log-count" id="ulCount">—</span>
+    </div>
+    <div style="font-size:.72rem;color:var(--text-muted);padding:0 .2rem .5rem">
+      Vị trí GPS trình duyệt tự nguyện gửi sau mỗi lần đăng nhập (chỉ khi trình duyệt của user cho phép truy cập vị trí) — không phải mọi lượt đăng nhập đều có tọa độ.
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="ulScroll">
+        <table class="log-table">
+          <thead><tr><th class="log-time">Thời gian</th><th>User</th><th>Tọa độ</th><th style="width:90px">Sai số</th><th style="width:70px">Bản đồ</th></tr></thead>
+          <tbody id="ulBody"><tr><td colspan="5" class="log-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -411,14 +443,13 @@ async function loadAccessLog() {
 document.getElementById('btnAccFilter').addEventListener('click', loadAccessLog);
 document.getElementById('accSearch').addEventListener('input', renderAccessLog);
 
-// ── Access summary: per-user distinct-camera rollup (admin only) ─
-let summUsersLoaded = false;
-
-async function loadSummaryUsers() {
-  if (summUsersLoaded) return;
+// Populates a <select id="selectId"> with every username (plus whatever
+// "all" option is already there), used by any tab with a per-user filter.
+async function populateUserDropdown(selectId) {
+  const sel = document.getElementById(selectId);
+  if (sel.dataset.loaded) return;
   try {
     const users = await apiFetch('/api/users');
-    const sel = document.getElementById('summUser');
     (users || [])
       .map(u => u.username)
       .sort((a, b) => a.localeCompare(b))
@@ -428,8 +459,13 @@ async function loadSummaryUsers() {
         opt.textContent = name;
         sel.appendChild(opt);
       });
-    summUsersLoaded = true;
+    sel.dataset.loaded = '1';
   } catch (e) {}
+}
+
+// ── Access summary: per-user distinct-camera rollup (admin only) ─
+async function loadSummaryUsers() {
+  return populateUserDropdown('summUser');
 }
 
 async function loadSummary() {
@@ -564,6 +600,44 @@ async function loadAlerts() {
 document.getElementById('btnAlertFilter').addEventListener('click', loadAlerts);
 document.getElementById('alertSearch').addEventListener('input', renderAlerts);
 
+// ── User GPS locations (admin only, shown only if any data exists) ──
+let userLocEntries = null; // null = not fetched yet
+
+function renderUserLoc() {
+  const rows = (userLocEntries || []).slice().reverse();
+  document.getElementById('ulCount').textContent = rows.length + ' vị trí';
+  document.getElementById('ulBody').innerHTML = rows.length
+    ? rows.map(e => `<tr>
+        <td class="log-time">${escHtml(fmtAccTime(e.time))}</td>
+        <td>${escHtml(e.username || '')}</td>
+        <td style="font-family:monospace">${e.lat.toFixed(5)}, ${e.lon.toFixed(5)}</td>
+        <td>${e.accuracy ? Math.round(e.accuracy) + ' m' : '—'}</td>
+        <td><a href="https://www.google.com/maps?q=${e.lat},${e.lon}" target="_blank" rel="noopener" class="btn btn-sm">🗺</a></td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="log-empty">Không có dữ liệu vị trí trong khoảng ngày đã chọn.</td></tr>';
+}
+
+async function loadUserLoc() {
+  document.getElementById('ulBody').innerHTML = '<tr><td colspan="5" class="log-empty">Loading…</td></tr>';
+  try {
+    const from = document.getElementById('ulFrom').value;
+    const to = document.getElementById('ulTo').value;
+    const onlyUser = document.getElementById('ulUser').value;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (onlyUser) params.set('user', onlyUser);
+    userLocEntries = await apiFetch('/api/user-location?' + params.toString()) || [];
+    renderUserLoc();
+  } catch (e) {
+    userLocEntries = [];
+    document.getElementById('ulBody').innerHTML =
+      `<tr><td colspan="5" class="log-empty">Cannot load user locations: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('btnUlFilter').addEventListener('click', loadUserLoc);
+
 function switchLogTab(name) {
   const tabs = {
     server:  ['tabBtnServer', 'tabServerLog'],
@@ -571,6 +645,7 @@ function switchLogTab(name) {
     summary: ['tabBtnSummary', 'tabSummary'],
     login:   ['tabBtnLogin', 'tabLoginLog'],
     alerts:  ['tabBtnAlerts', 'tabAlerts'],
+    userloc: ['tabBtnUserLoc', 'tabUserLoc'],
   };
   for (const key in tabs) {
     const [btnId, panelId] = tabs[key];
@@ -581,6 +656,7 @@ function switchLogTab(name) {
   if (name === 'summary') loadSummaryUsers();
   if (name === 'login' && !loginEntries.length) loadLoginLog();
   if (name === 'alerts' && !alertEntries.length) loadAlerts();
+  if (name === 'userloc') { populateUserDropdown('ulUser'); if (!userLocEntries) loadUserLoc(); }
 }
 
 document.getElementById('tabBtnServer').addEventListener('click', () => switchLogTab('server'));
@@ -588,6 +664,7 @@ document.getElementById('tabBtnAccess').addEventListener('click', () => switchLo
 document.getElementById('tabBtnSummary').addEventListener('click', () => switchLogTab('summary'));
 document.getElementById('tabBtnLogin').addEventListener('click', () => switchLogTab('login'));
 document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLogTab('alerts'));
+document.getElementById('tabBtnUserLoc').addEventListener('click', () => switchLogTab('userloc'));
 
 // ── Boot ──
 (async () => {
@@ -605,6 +682,13 @@ document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLo
     document.getElementById('loginTo').value = today;
     document.getElementById('alertFrom').value = today;
     document.getElementById('alertTo').value = today;
+    // Left open-ended (all-time) by default, unlike the other tabs — GPS
+    // fixes are sparse (once per login, only when the browser grants
+    // permission), so "today" would usually show nothing.
+    try {
+      userLocEntries = await apiFetch('/api/user-location') || [];
+      if (userLocEntries.length) document.getElementById('tabBtnUserLoc').style.display = '';
+    } catch (e) { userLocEntries = null; }
   } else {
     document.getElementById('tabBtnAccess').style.display = 'none';
     document.getElementById('tabBtnSummary').style.display = 'none';

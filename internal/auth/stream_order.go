@@ -14,6 +14,7 @@ package auth
 // to recover the declaration order of the top-level "streams:" mapping.
 
 import (
+	"errors"
 	"os"
 	"sync"
 	"time"
@@ -21,6 +22,8 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"gopkg.in/yaml.v3"
 )
+
+var errNoConfigFile = errors.New("no config file")
 
 var (
 	streamOrderMu      sync.Mutex
@@ -52,22 +55,47 @@ func streamFileOrder() map[string]int {
 }
 
 func parseStreamOrder(path string) map[string]int {
-	order := map[string]int{}
+	names, _ := readDeclaredStreamNames(path)
+	order := make(map[string]int, len(names))
+	for i, name := range names {
+		// First occurrence wins the index — if a key is declared twice
+		// (see readDeclaredStreamNames), sorting by its first appearance is
+		// the least surprising behavior.
+		if _, exists := order[name]; !exists {
+			order[name] = i
+		}
+	}
+	return order
+}
+
+// readDeclaredStreamNames walks go2rtc.yaml's raw YAML node tree — which,
+// unlike the map[string]any go2rtc itself parses config into, preserves
+// both document order and duplicate keys — and returns every key declared
+// directly under the top-level "streams:" mapping, in file order, with
+// duplicates included exactly as they appear. Shared by parseStreamOrder
+// (the map's "Set location" picker sort) and the config-audit endpoint
+// (config_audit.go), which uses the duplicates to flag a common cause of
+// "camera in the file but never actually added": a copy-pasted key that
+// silently overwrites an earlier entry once parsed into a Go map.
+func readDeclaredStreamNames(path string) ([]string, error) {
 	if path == "" {
-		return order
+		return nil, errNoConfigFile
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return order
+		return nil, err
 	}
 
 	var root yaml.Node
-	if err = yaml.Unmarshal(data, &root); err != nil || len(root.Content) == 0 {
-		return order
+	if err = yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	if len(root.Content) == 0 {
+		return []string{}, nil
 	}
 	doc := root.Content[0]
 	if doc.Kind != yaml.MappingNode {
-		return order
+		return []string{}, nil
 	}
 
 	for i := 0; i+1 < len(doc.Content); i += 2 {
@@ -76,14 +104,13 @@ func parseStreamOrder(path string) map[string]int {
 		}
 		streamsNode := doc.Content[i+1]
 		if streamsNode.Kind != yaml.MappingNode {
-			break
+			return []string{}, nil
 		}
-		idx := 0
+		names := make([]string, 0, len(streamsNode.Content)/2)
 		for j := 0; j+1 < len(streamsNode.Content); j += 2 {
-			order[streamsNode.Content[j].Value] = idx
-			idx++
+			names = append(names, streamsNode.Content[j].Value)
 		}
-		break
+		return names, nil
 	}
-	return order
+	return []string{}, nil
 }
