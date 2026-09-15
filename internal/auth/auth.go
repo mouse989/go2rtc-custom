@@ -125,6 +125,7 @@ func Init() {
 	registerCamPresetsHandler()
 	registerLoginHistoryHandler()
 	registerSecurityAlertsHandler()
+	registerConfigAuditHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }
