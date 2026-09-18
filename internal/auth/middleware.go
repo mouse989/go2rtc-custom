@@ -200,8 +200,12 @@ func UserCanAccessStream(u *User, streamName string) bool {
 	if u.Role == RoleAdmin {
 		return true
 	}
-	// Empty stream list for viewer = no access
-	return slices.Contains(u.Streams, streamName)
+	// Explicit per-camera grant, or membership in one of the user's
+	// assigned regions ("địa bàn") — see regions.go.
+	if slices.Contains(u.Streams, streamName) {
+		return true
+	}
+	return userStreamInAnyRegion(u, streamName)
 }
 
 // HasTab reports whether the user in ctx has the given tab permission.

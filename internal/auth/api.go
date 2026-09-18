@@ -192,6 +192,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"role":                       user.Role,
 		"must_change_password":       user.MustChangePassword,
 		"streams":                    user.Streams,
+		"region_ids":                 user.RegionIDs,
 		"allow_traffic":              user.AllowTraffic,
 		"allow_heatmap":              user.AllowHeatmap,
 		"allow_map_edit":             user.AllowMapEdit,
@@ -246,6 +247,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			Password                string   `json:"password"`
 			Role                    string   `json:"role"`
 			Streams                 []string `json:"streams"`
+			RegionIDs               []string `json:"region_ids"`
 			AllowPaths              []string `json:"allow_paths"`
 			Tabs                    []string `json:"tabs"`
 			Enabled                 *bool    `json:"enabled"`
@@ -290,6 +292,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			Username:                req.Username,
 			Role:                    req.Role,
 			Streams:                 req.Streams,
+			RegionIDs:               req.RegionIDs,
 			AllowPaths:              req.AllowPaths,
 			Tabs:                    req.Tabs,
 			Enabled:                 enabled,
@@ -332,6 +335,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			Password                string   `json:"password"`
 			Role                    string   `json:"role"`
 			Streams                 []string `json:"streams"`
+			RegionIDs               []string `json:"region_ids"`
 			AllowPaths              []string `json:"allow_paths"`
 			Tabs                    []string `json:"tabs"`
 			Enabled                 *bool    `json:"enabled"`
@@ -374,6 +378,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Streams != nil {
 			existing.Streams = req.Streams
+		}
+		if req.RegionIDs != nil {
+			existing.RegionIDs = req.RegionIDs
 		}
 		if req.AllowPaths != nil {
 			existing.AllowPaths = req.AllowPaths

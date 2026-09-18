@@ -29,6 +29,7 @@ type User struct {
 	Password   string   `json:"password"`    // bcrypt hash
 	Role       string   `json:"role"`        // "admin" or "viewer"
 	Streams    []string `json:"streams"`     // allowed stream names (viewer); nil/empty for admin = all
+	RegionIDs  []string `json:"region_ids"`  // additional access: every camera inside these regions ("địa bàn") — see regions.go
 	AllowPaths []string `json:"allow_paths"` // custom API paths; nil = role defaults
 	Tabs       []string `json:"tabs"`        // page-level permissions (viewer); must be granted explicitly
 	Enabled    bool     `json:"enabled"`
