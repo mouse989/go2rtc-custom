@@ -52,6 +52,15 @@ func Init() {
 		log.Warn().Err(err).Msg("[auth] camera groups load failed (continuing)")
 	}
 
+	// Regions / "địa bàn" store (non-fatal)
+	regionsPath := filepath.Join(filepath.Dir(usersPath), "regions.json")
+	if usersPath == "users.json" {
+		regionsPath = "regions.json"
+	}
+	if err := initRegions(regionsPath); err != nil {
+		log.Warn().Err(err).Msg("[auth] regions load failed (continuing)")
+	}
+
 	// App settings store (non-fatal)
 	settingsPath := filepath.Join(filepath.Dir(usersPath), "settings.json")
 	if usersPath == "users.json" {
@@ -124,6 +133,7 @@ func Init() {
 	registerProxyHandlers()
 	registerLocationHandlers()
 	registerGroupHandlers()
+	registerRegionHandlers()
 	registerSettingsHandler()
 	registerCamerasHandler()
 	registerCameraTypesHandler()

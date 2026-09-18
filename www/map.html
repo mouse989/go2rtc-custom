@@ -255,6 +255,39 @@ body.sb-collapsed           { --map-left:0; }
   padding:.3rem .5rem; text-align:center;
 }
 
+/* ── Region ("Địa bàn") panel ────────────────────────────────── */
+#regionPanel {
+  position:fixed; left:calc(var(--map-left) + .8rem); top:80px;
+  z-index:400; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:.85rem;
+  width:320px; min-width:280px; max-width:480px;
+  display:none; flex-direction:column; gap:.6rem;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+  max-height:calc(100vh - 120px); overflow-y:auto;
+  transition:left var(--transition);
+}
+#regionPanel.show { display:flex; }
+#regionPanel h4 { font-size:.9rem; font-weight:700; margin:0; }
+#regionPanel label { font-size:.73rem; color:var(--text-muted); display:block; margin-bottom:.15rem; }
+#regionPanel input[type="text"] {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:6px; padding:.32rem .5rem; color:var(--text); font-size:.81rem;
+  box-sizing:border-box;
+}
+#regionPanel input[type="color"] {
+  width:100%; height:32px; padding:.15rem; border:1px solid var(--border);
+  border-radius:6px; background:var(--surface2); cursor:pointer;
+}
+.region-row {
+  display:flex; align-items:center; gap:.5rem; padding:.4rem .3rem;
+  border-bottom:1px solid var(--border); font-size:.8rem;
+}
+.region-row:last-child { border-bottom:none; }
+.region-color-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; border:1px solid rgba(255,255,255,.3); }
+.region-row .region-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.region-row .region-count { color:var(--text-muted); font-size:.73rem; white-space:nowrap; }
+.region-empty { font-size:.78rem; color:var(--text-muted); text-align:center; padding:1rem 0; }
+
 /* ── Camera marker HTML element (edit mode) ─────────────────── */
 .cam-marker-wrap {
   background:#2f81f7; border:2px solid rgba(255,255,255,.9); border-radius:50%;
@@ -524,6 +557,9 @@ body.sb-collapsed           { --map-left:0; }
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
     Edit locations
   </button>
+  <button class="map-btn admin-only" id="btnRegions" style="display:none" title="Vẽ vùng địa bàn để phân quyền camera theo khu vực">
+    🗺 Địa bàn
+  </button>
   <button class="map-btn admin-only" id="btnStnEdit" style="display:none" title="Thêm/sửa trạm đo đếm lưu lượng">
     📊 Trạm đo
   </button>
@@ -590,6 +626,50 @@ body.sb-collapsed           { --map-left:0; }
     <button class="btn btn-primary"   id="editSave"   style="flex:1;font-size:.8rem">💾 Save</button>
     <button class="btn btn-secondary" id="editCancel" style="font-size:.8rem">Cancel</button>
     <button class="btn btn-danger"    id="editDelete" style="font-size:.8rem;display:none">🗑</button>
+  </div>
+</div>
+
+<!-- ── Region ("Địa bàn") panel ─────────────────────────────────── -->
+<div id="regionPanel">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h4>🗺 Địa bàn</h4>
+    <button class="btn btn-secondary" id="regionPanelClose" style="font-size:.75rem;padding:.15rem .5rem">✕</button>
+  </div>
+
+  <div id="regionListView">
+    <p style="font-size:.72rem;color:var(--text-muted);margin:0 0 .3rem">
+      Vẽ vùng trên bản đồ để tự động lọc camera trong vùng — dùng để phân quyền xem theo địa bàn cho user (Admin Config → Users).
+    </p>
+    <button class="btn btn-primary" id="regionNewBtn" style="font-size:.8rem;width:100%">+ Vùng mới</button>
+    <div id="regionListWrap"></div>
+  </div>
+
+  <div id="regionEditView" style="display:none">
+    <div>
+      <label>Tên địa bàn</label>
+      <input type="text" id="regionName" placeholder="VD: Quận 1">
+    </div>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <div>
+        <label>Màu</label>
+        <input type="color" id="regionColor" value="#3b82f6">
+      </div>
+      <div style="flex:1;font-size:.8rem;color:var(--text);padding-top:1.1rem">
+        <span id="regionCamCount">0 camera</span>
+      </div>
+    </div>
+    <p style="font-size:.71rem;color:var(--text-muted);margin:0">
+      Click lên bản đồ để thêm điểm vẽ vùng. Địa bàn rời rạc/phức tạp? Bấm "Đóng vùng con" rồi vẽ tiếp một vùng khác — tất cả sẽ tính chung vào 1 địa bàn.
+    </p>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+      <button class="btn btn-secondary" id="regionUndoPoint" style="font-size:.76rem">↩ Hoàn tác điểm</button>
+      <button class="btn btn-secondary" id="regionCloseRing" style="font-size:.76rem">Đóng vùng con</button>
+    </div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.2rem">
+      <button class="btn btn-primary" id="regionSaveBtn" style="flex:1;font-size:.8rem">💾 Lưu địa bàn</button>
+      <button class="btn btn-secondary" id="regionCancelBtn" style="font-size:.8rem">Hủy</button>
+      <button class="btn btn-danger" id="regionDeleteBtn" style="font-size:.8rem;display:none">🗑</button>
+    </div>
   </div>
 </div>
 
@@ -1068,6 +1148,9 @@ function rebuildMapLayers() {
 
   // Re-add heatmap below cameras if it was active before style change
   if (_heatmapOn) _addHeatmapLayers();
+
+  // Re-add region-drawing layers if a region was being drawn/edited
+  if (_regionDrawing) { ensureRegionLayers(); updateRegionDraftLayers(); }
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -1126,6 +1209,7 @@ async function initMap(apiKey) {
 
   // Click events are registered once (survive style change)
   map.on('click', 'clusters', async e => {
+    if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     const feat  = e.features[0];
     const src   = map.getSource('cameras');
     const coord = feat.geometry.coordinates.slice();
@@ -1148,6 +1232,7 @@ async function initMap(apiKey) {
   });
 
   map.on('click', 'unclustered-point', e => {
+    if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     if (_editMode) return;
     const id = e.features[0].properties.id;
     if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
@@ -1157,6 +1242,7 @@ async function initMap(apiKey) {
   map.on('click', e => {
     const layers = ['unclustered-point','clusters'];
     if (map.queryRenderedFeatures(e.point, { layers }).length > 0) return;
+    if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
     if (_editMode) {
       document.getElementById('editLat').value = e.lngLat.lat.toFixed(6);
@@ -1177,10 +1263,10 @@ async function initMap(apiKey) {
 
   ['unclustered-point','clusters'].forEach(layer => {
     map.on('mouseenter', layer, () => {
-      if (!_editMode) map.getCanvas().style.cursor = 'pointer';
+      if (!_editMode && !_regionDrawing) map.getCanvas().style.cursor = 'pointer';
     });
     map.on('mouseleave', layer, () => {
-      map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
+      map.getCanvas().style.cursor = _regionDrawing ? 'crosshair' : (_searchMode ? 'crosshair' : '');
     });
   });
 
@@ -2162,6 +2248,280 @@ document.getElementById('editDelete').addEventListener('click', async()=>{
 });
 document.getElementById('editCancel').addEventListener('click',()=>{
   document.getElementById('editPanel').classList.remove('show'); _editingID=null;
+});
+
+// ── Regions ("Địa bàn") — admin-only polygon drawing tool ───────
+// Draw one or more disjoint polygons under one named region, then assign
+// that region to a viewer (Admin Config → Users) to grant access to every
+// camera whose location falls inside it. Resolution is live server-side
+// (internal/auth/regions.go) — this client-side copy of the same
+// point-in-polygon test is only for the instant visual feedback while
+// drawing, never the source of truth for access control.
+let _regionMode = false;      // panel open
+let _regionDrawing = false;   // map clicks add vertices
+let _regions = [];            // cached list from GET /api/regions
+let _editingRegionID = null;  // null = creating a new region
+let _draftRings = [];         // completed rings: [][ [lng,lat], ... ]
+let _draftCurrent = [];       // in-progress ring being clicked out
+
+function pointInRingJS(lon, lat, ring) {
+  const n = ring.length;
+  if (n < 3) return false;
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    if ((yi > lat) !== (yj > lat)) {
+      const slope = (xj - xi) * (lat - yi) / (yj - yi);
+      if (lon < xi + slope) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function pointInDraft(lon, lat) {
+  const rings = _draftCurrent.length >= 3 ? [..._draftRings, _draftCurrent] : _draftRings;
+  return rings.some(ring => pointInRingJS(lon, lat, ring));
+}
+
+function ensureRegionLayers() {
+  if (!map.getSource('region-draft-fill')) {
+    map.addSource('region-draft-fill', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'region-draft-fill-layer', type: 'fill', source: 'region-draft-fill',
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.22 },
+    });
+    map.addLayer({
+      id: 'region-draft-line-layer', type: 'line', source: 'region-draft-fill',
+      paint: { 'line-color': ['get', 'color'], 'line-width': 2.5 },
+    });
+  }
+  if (!map.getSource('region-draft-points')) {
+    map.addSource('region-draft-points', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'region-draft-points-layer', type: 'circle', source: 'region-draft-points',
+      paint: {
+        'circle-radius': 5, 'circle-color': '#fff',
+        'circle-stroke-width': 2, 'circle-stroke-color': ['get', 'color'],
+      },
+    });
+  }
+  if (!map.getSource('region-cam-highlight')) {
+    map.addSource('region-cam-highlight', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'region-cam-highlight-layer', type: 'circle', source: 'region-cam-highlight',
+      paint: {
+        'circle-radius': 11, 'circle-color': 'rgba(0,0,0,0)',
+        'circle-stroke-width': 3, 'circle-stroke-color': '#22c55e',
+      },
+    });
+  }
+}
+
+function removeRegionLayers() {
+  ['region-draft-fill-layer','region-draft-line-layer','region-draft-points-layer','region-cam-highlight-layer']
+    .forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  ['region-draft-fill','region-draft-points','region-cam-highlight']
+    .forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+}
+
+function currentRegionColor() {
+  return document.getElementById('regionColor').value || '#3b82f6';
+}
+
+function updateRegionDraftLayers() {
+  if (!map || !map.getSource('region-draft-fill')) return;
+  const color = currentRegionColor();
+
+  const polyFeatures = [];
+  _draftRings.forEach(ring => {
+    polyFeatures.push({ type:'Feature', properties:{ color }, geometry:{ type:'Polygon', coordinates:[[...ring, ring[0]]] } });
+  });
+  if (_draftCurrent.length >= 3) {
+    polyFeatures.push({ type:'Feature', properties:{ color }, geometry:{ type:'Polygon', coordinates:[[..._draftCurrent, _draftCurrent[0]]] } });
+  } else if (_draftCurrent.length >= 2) {
+    polyFeatures.push({ type:'Feature', properties:{ color }, geometry:{ type:'LineString', coordinates:_draftCurrent } });
+  }
+  map.getSource('region-draft-fill').setData({ type:'FeatureCollection', features:polyFeatures });
+
+  const pointFeatures = [..._draftRings.flat(), ..._draftCurrent]
+    .map(pt => ({ type:'Feature', properties:{ color }, geometry:{ type:'Point', coordinates:pt } }));
+  map.getSource('region-draft-points').setData({ type:'FeatureCollection', features:pointFeatures });
+
+  // Live-highlight cameras currently enclosed by the draft
+  const inside = _locations.filter(l => _streamByID[l.id] && pointInDraft(l.lon, l.lat));
+  map.getSource('region-cam-highlight').setData({
+    type:'FeatureCollection',
+    features: inside.map(l => ({ type:'Feature', geometry:{ type:'Point', coordinates:[l.lon,l.lat] } })),
+  });
+  document.getElementById('regionCamCount').textContent = inside.length + ' camera';
+}
+
+function startRegionDrawing() {
+  ensureRegionLayers();
+  _regionDrawing = true;
+  map.getCanvas().style.cursor = 'crosshair';
+  updateRegionDraftLayers();
+}
+
+function stopRegionDrawing() {
+  _regionDrawing = false;
+  if (map) map.getCanvas().style.cursor = '';
+}
+
+function addRegionPoint(lngLat) {
+  _draftCurrent.push([lngLat.lng, lngLat.lat]);
+  updateRegionDraftLayers();
+}
+
+function undoRegionPoint() {
+  if (_draftCurrent.length > 0) {
+    _draftCurrent.pop();
+  } else if (_draftRings.length > 0) {
+    _draftCurrent = _draftRings.pop();
+    _draftCurrent.pop();
+  }
+  updateRegionDraftLayers();
+}
+
+function closeRegionRing() {
+  if (_draftCurrent.length < 3) { toast('Cần ít nhất 3 điểm để đóng vùng.', 'error'); return; }
+  _draftRings.push(_draftCurrent);
+  _draftCurrent = [];
+  updateRegionDraftLayers();
+}
+
+function exitOtherMapModes() {
+  if (_searchMode) document.getElementById('btnSearch')?.click();
+  if (_editMode) document.getElementById('btnEdit')?.click();
+  if (_stnEditMode) document.getElementById('btnStnEdit')?.click();
+}
+
+function openRegionsPanel() {
+  exitOtherMapModes();
+  _regionMode = true;
+  document.getElementById('regionPanel').classList.add('show');
+  showRegionListView();
+  loadRegionsList();
+}
+
+function closeRegionsPanel() {
+  _regionMode = false;
+  cancelRegionEdit();
+  document.getElementById('regionPanel').classList.remove('show');
+}
+
+document.getElementById('btnRegions').addEventListener('click', () => {
+  _regionMode ? closeRegionsPanel() : openRegionsPanel();
+});
+document.getElementById('regionPanelClose').addEventListener('click', closeRegionsPanel);
+
+function showRegionListView() {
+  stopRegionDrawing();
+  removeRegionLayers();
+  document.getElementById('regionListView').style.display = '';
+  document.getElementById('regionEditView').style.display = 'none';
+}
+
+async function loadRegionsList() {
+  const wrap = document.getElementById('regionListWrap');
+  wrap.innerHTML = '<div class="region-empty">Đang tải…</div>';
+  try {
+    _regions = await apiFetch('/api/regions') || [];
+    renderRegionList();
+  } catch (e) {
+    wrap.innerHTML = `<div class="region-empty">Lỗi tải danh sách: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderRegionList() {
+  const wrap = document.getElementById('regionListWrap');
+  if (!_regions.length) {
+    wrap.innerHTML = '<div class="region-empty">Chưa có địa bàn nào.</div>';
+    return;
+  }
+  wrap.innerHTML = _regions.map(r => `
+    <div class="region-row">
+      <span class="region-color-dot" style="background:${escHtml(r.color || '#3b82f6')}"></span>
+      <span class="region-name" title="${escHtml(r.name)}">${escHtml(r.name)}</span>
+      <span class="region-count">${(r.cameras || []).length} cam</span>
+      <button class="btn btn-secondary" data-ract="edit" data-rid="${escHtml(r.id)}" style="font-size:.7rem;padding:.15rem .4rem">✏</button>
+      <button class="btn btn-danger" data-ract="del" data-rid="${escHtml(r.id)}" style="font-size:.7rem;padding:.15rem .4rem">🗑</button>
+    </div>`).join('');
+  wrap.querySelectorAll('[data-ract="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const r = _regions.find(x => x.id === btn.dataset.rid);
+      if (r) openRegionEditor(r);
+    }));
+  wrap.querySelectorAll('[data-ract="del"]').forEach(btn =>
+    btn.addEventListener('click', () => deleteRegionConfirm(btn.dataset.rid)));
+}
+
+function openRegionEditor(region) {
+  _editingRegionID = region ? region.id : null;
+  _draftRings = region ? region.polygons.map(ring => ring.map(pt => [pt[0], pt[1]])) : [];
+  _draftCurrent = [];
+  document.getElementById('regionName').value = region ? region.name : '';
+  document.getElementById('regionColor').value = region?.color || '#3b82f6';
+  document.getElementById('regionDeleteBtn').style.display = region ? '' : 'none';
+  document.getElementById('regionListView').style.display = 'none';
+  document.getElementById('regionEditView').style.display = '';
+  startRegionDrawing();
+}
+
+document.getElementById('regionNewBtn').addEventListener('click', () => openRegionEditor(null));
+document.getElementById('regionUndoPoint').addEventListener('click', undoRegionPoint);
+document.getElementById('regionCloseRing').addEventListener('click', closeRegionRing);
+document.getElementById('regionColor').addEventListener('input', updateRegionDraftLayers);
+
+function cancelRegionEdit() {
+  _editingRegionID = null;
+  _draftRings = [];
+  _draftCurrent = [];
+  showRegionListView();
+}
+document.getElementById('regionCancelBtn').addEventListener('click', cancelRegionEdit);
+
+document.getElementById('regionSaveBtn').addEventListener('click', async () => {
+  const name = document.getElementById('regionName').value.trim();
+  if (!name) { alert('Nhập tên địa bàn.'); return; }
+  const polygons = _draftCurrent.length >= 3 ? [..._draftRings, _draftCurrent] : _draftRings;
+  if (!polygons.length) { alert('Vẽ ít nhất một vùng (tối thiểu 3 điểm) trước khi lưu.'); return; }
+  const body = { name, color: currentRegionColor(), polygons };
+  try {
+    if (_editingRegionID) {
+      await apiFetch('/api/regions/' + encodeURIComponent(_editingRegionID), {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+      });
+    } else {
+      await apiFetch('/api/regions', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+      });
+    }
+    cancelRegionEdit();
+    await loadRegionsList();
+  } catch (e) {
+    alert('Lưu địa bàn thất bại: ' + e.message);
+  }
+});
+
+// Returns true iff the region was actually deleted (false if the admin
+// cancelled the confirm dialog or the request failed).
+async function deleteRegionConfirm(id) {
+  const r = _regions.find(x => x.id === id);
+  if (!confirm(`Xóa địa bàn "${r ? r.name : id}"? User đang được gán địa bàn này sẽ mất quyền xem các camera thuộc vùng đó.`)) return false;
+  try {
+    await apiFetch('/api/regions/' + encodeURIComponent(id), { method:'DELETE' });
+    await loadRegionsList();
+    return true;
+  } catch (e) {
+    alert('Xóa thất bại: ' + e.message);
+    return false;
+  }
+}
+document.getElementById('regionDeleteBtn').addEventListener('click', async () => {
+  if (!_editingRegionID) return;
+  if (await deleteRegionConfirm(_editingRegionID)) cancelRegionEdit();
 });
 
 // ── Data ──────────────────────────────────────────────────────

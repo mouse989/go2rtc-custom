@@ -83,16 +83,16 @@ func camerasHandler(w http.ResponseWriter, r *http.Request) {
 	// ── Camera response item ──────────────────────────────────────────
 	type cameraItem struct {
 		ID    string   `json:"id"`
-		Name  string   `json:"name,omitempty"`  // admin only
+		Name  string   `json:"name,omitempty"` // admin only
 		Label string   `json:"label,omitempty"`
-		Lat   *float64 `json:"lat"`             // null when no coordinates
-		Lon   *float64 `json:"lon"`             // null when no coordinates
+		Lat   *float64 `json:"lat"` // null when no coordinates
+		Lon   *float64 `json:"lon"` // null when no coordinates
 	}
 
 	result := make([]cameraItem, 0, len(allStreams))
 	for _, s := range allStreams {
-		// Permission check
-		if !isAdmin && !contains(user.Streams, s.name) {
+		// Permission check (explicit grant or region membership — see regions.go)
+		if !UserCanAccessStream(user, s.name) {
 			continue
 		}
 

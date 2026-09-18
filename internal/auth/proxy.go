@@ -453,7 +453,7 @@ func proxyStreamsHandler(w http.ResponseWriter, r *http.Request) {
 	token := extractToken(r)
 	var list []streamInfo
 	for id, name := range all {
-		if user.Role != RoleAdmin && !contains(user.Streams, name) {
+		if !UserCanAccessStream(user, name) {
 			continue
 		}
 		si := streamInfo{
@@ -819,17 +819,6 @@ func proxyRTSPURLHandler(w http.ResponseWriter, r *http.Request) {
 		"rtsp_port": rtspListenPort,
 		"note":      "If RTSP authentication is configured in go2rtc, add credentials: rtsp://user:pass@HOST:PORT/STREAM_ID",
 	})
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-func contains(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // listenAddr is the configured API listen address (e.g. ":1984").

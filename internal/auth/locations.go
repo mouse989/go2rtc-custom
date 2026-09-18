@@ -91,7 +91,7 @@ func locationHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		result := make([]entry, 0, len(locMap))
 		for _, loc := range locMap {
-			if user.Role != RoleAdmin && !contains(user.Streams, loc.Name) {
+			if !UserCanAccessStream(user, loc.Name) {
 				continue
 			}
 			e := entry{
@@ -159,6 +159,20 @@ func locationHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// AllCameraLocations returns every stored camera location (defensive
+// copies) — used by regions.go to test which cameras fall inside a
+// region's drawn polygon(s).
+func AllCameraLocations() []*CameraLocation {
+	locMu.RLock()
+	defer locMu.RUnlock()
+	out := make([]*CameraLocation, 0, len(locMap))
+	for _, loc := range locMap {
+		cp := *loc
+		out = append(out, &cp)
+	}
+	return out
 }
 
 // HaversineKm returns the great-circle distance in km between two points.
