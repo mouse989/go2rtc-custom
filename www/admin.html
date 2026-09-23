@@ -35,7 +35,7 @@ tr:hover td { background:var(--surface2); }
   display:flex; flex-direction:column;
 }
 .dlg h2 { flex-shrink:0; margin-bottom:1.1rem; font-size:1.1rem; }
-.dlg form { flex:1; display:flex; flex-direction:column; min-height:0; }
+.dlg form { display:flex; flex-direction:column; }
 .dlg h2 { margin:0 0 1.25rem; font-size:1.1rem; }
 .f2 { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
 
@@ -91,10 +91,14 @@ tr:hover td { background:var(--surface2); }
 .tf-running .tf-pill-dot { animation:_pulse 2s ease-in-out infinite; }
 @keyframes _pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-/* cam-section & cam-wrap: flex-grow so they fill the dialog height */
-#cam-section { flex:1; display:flex; flex-direction:column; min-height:0; }
+/* cam-section & cam-wrap: plain block stacking — sized to content, never
+   force-shrunk. .cam-list's own max-height:340px + overflow-y:auto (above)
+   already bounds the camera list; letting .dlg's overflow:auto handle any
+   remaining overflow (rather than squeezing these flex items below their
+   natural size) avoids nearby sections getting crushed and overlapping. */
+#cam-section { display:flex; flex-direction:column; flex-shrink:0; }
 #cam-section label { flex-shrink:0; }
-.cam-wrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+.cam-wrap { display:flex; flex-direction:column; }
 /* hint text under cam-list */
 .cam-resize-hint { font-size:.68rem; color:var(--text-muted); text-align:right;
   padding:.1rem .4rem; flex-shrink:0; }
@@ -1475,9 +1479,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderCamList();
 });
 
-// Close dialogs on backdrop click
-document.getElementById('dlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeDlg(); });
-document.getElementById('grpDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeGroupDlg(); });
+// Dialogs close only via their explicit ✕/Cancel button — not on backdrop
+// click, which used to fire (and lose in-progress edits) while dragging the
+// dialog's resize handle if the pointer momentarily left the dialog box.
 
 // ════════════════════════════════════════════════════════
 //  TAB SWITCHING
@@ -2574,8 +2578,6 @@ let allCameraTypes   = [];   // [{id, name, snapshot_path, http_port, onvif}]
 let ctAssignments    = {};   // {streamName: typeID}  — pending (not yet saved)
 let ctAssignDirty    = false;
 
-document.getElementById('ctDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeCtDlg(); });
-
 async function loadCameraTypes() {
   try {
     const [types, assigns] = await Promise.all([
@@ -2831,9 +2833,6 @@ async function submitCameraType(e) {
 let allDeviceTypes  = [];        // [{id, name}]
 let allDevices      = [];        // [{id, name, ip, type_id}]
 let _selectedDevIds = new Set(); // IDs đang được chọn
-
-document.getElementById('devTypeDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeDevTypeDlg(); });
-document.getElementById('deviceDlg').addEventListener('click',  e => { if (e.target === e.currentTarget) closeDeviceDlg(); });
 
 async function loadDevicesTab() {
   try {
@@ -3353,10 +3352,6 @@ async function executeDevImport() {
   else toast(`Import ${ok} thành công, ${fail} lỗi`, fail > ok ? 'error' : 'success');
 }
 
-document.getElementById('devImportDlg').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeDevImport();
-});
-
 // ════════════════════════════════════════════════════════
 //  TRAFFIC TAB  (inner: Traffic Monitor + Travel Time)
 // ════════════════════════════════════════════════════════
@@ -3764,9 +3759,6 @@ async function deleteHoliday(id) {
   } catch(err) { toast(err.message || 'Lỗi xoá', 'error'); }
 }
 
-// Close holiday dialog on backdrop click
-document.getElementById('hdDlg').addEventListener('click', e => { if (e.target === e.currentTarget) closeHdDlg(); });
-
 // ────────────────────────────────────────────────────────────────
 //  ROUTE DIALOG  (map-based)
 // ────────────────────────────────────────────────────────────────
@@ -3800,9 +3792,6 @@ function closeTTRouteDlg() {
   document.getElementById('ttRouteDlg').classList.remove('open');
   document.getElementById('ttCtxMenu').style.display = 'none';
 }
-document.getElementById('ttRouteDlg').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeTTRouteDlg();
-});
 
 async function submitTTRoute(e) {
   e.preventDefault();
