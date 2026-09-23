@@ -3152,9 +3152,8 @@ document.getElementById('btnStnTypes').addEventListener('click', async () => {
 document.getElementById('stnTypeMgrClose').addEventListener('click', () => {
   document.getElementById('stnTypeBackdrop').classList.remove('open');
 });
-document.getElementById('stnTypeBackdrop').addEventListener('click', e => {
-  if (e.target === e.currentTarget) document.getElementById('stnTypeBackdrop').classList.remove('open');
-});
+// Closes only via ✕ above — not on backdrop click, which used to fire (and
+// lose in-progress edits) while dragging the dialog's resize handle.
 
 // ── Station chart modal ────────────────────────────────────────
 function slotsToHourly(slots) {
