@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,17 +95,55 @@ func handlerKeyframe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Wait for the first keyframe, but never forever: a camera that is
+	// connected yet not sending video (or reconnecting in a loop) used to
+	// park this goroutine indefinitely, keeping the consumer attached and
+	// therefore the RTSP connection to the camera open. With ~1500 cameras
+	// polled for snapshots these leaked sessions piled up until the whole
+	// process stalled. Now the wait is bounded by the client's context and
+	// a hard timeout; removing the consumer closes its WriteBuffer, which
+	// releases WriteTo and lets the producer disconnect.
 	once := &core.OnceBuffer{} // init and first frame
-	_, _ = cons.WriteTo(once)
-	b = once.Buffer()
+	done := make(chan struct{})
+	go func() {
+		_, _ = cons.WriteTo(once)
+		close(done)
+	}()
+
+	timer := time.NewTimer(keyframeTimeout(query))
+	var waitErr string
+	select {
+	case <-done:
+	case <-r.Context().Done():
+		waitErr = "client gone"
+	case <-timer.C:
+		waitErr = "keyframe timeout"
+	}
+	timer.Stop()
 
 	stream.RemoveConsumer(cons)
+	<-done
+
+	if waitErr != "" {
+		log.Debug().Str("src", query.Get("src")).Msgf("[mjpeg] %s", waitErr)
+		http.Error(w, waitErr, http.StatusGatewayTimeout)
+		return
+	}
+
+	b = once.Buffer()
+	if len(b) == 0 {
+		http.Error(w, "no keyframe", http.StatusBadGateway)
+		return
+	}
 
 	switch cons.CodecName() {
 	case core.CodecH264, core.CodecH265:
+		if r.Context().Err() != nil {
+			return // caller gave up; don't spend an ffmpeg slot on it
+		}
 		ts := time.Now()
 		var err error
-		if b, err = ffmpeg.JPEGWithQuery(b, query); err != nil {
+		if b, err = ffmpeg.JPEGWithQueryContext(r.Context(), b, query); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -114,6 +153,23 @@ func handlerKeyframe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJPEGResponse(w, b)
+}
+
+// keyframeTimeout bounds how long /api/frame.jpeg waits for a keyframe.
+// Default 15s (covers cameras with long GOPs); callers may lower or raise
+// it with ?timeout=10s (clamped to 1s..60s).
+func keyframeTimeout(query url.Values) time.Duration {
+	if s := query.Get("timeout"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil {
+			if d < time.Second {
+				d = time.Second
+			} else if d > time.Minute {
+				d = time.Minute
+			}
+			return d
+		}
+	}
+	return 15 * time.Second
 }
 
 var cache map[string]cacheEntry

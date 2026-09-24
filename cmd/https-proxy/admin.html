@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HTTPS Proxy</title>
+<style>
+:root{--bg:#0f172a;--surface:#1e293b;--surface2:#273449;--border:#334155;--text:#e2e8f0;--muted:#94a3b8;--accent:#3b82f6;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:.75rem;padding:.8rem 1.2rem;background:var(--surface);border-bottom:1px solid var(--border)}
+header h1{font-size:1.05rem;margin:0}
+.spacer{flex:1}
+main{max-width:1100px;margin:0 auto;padding:1rem;display:flex;flex-direction:column;gap:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.card-h{display:flex;align-items:center;gap:.5rem;padding:.8rem 1rem;border-bottom:1px solid var(--border)}
+.card-h h2{font-size:.95rem;margin:0}
+.card-b{padding:.9rem 1rem}
+.btn{border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:6px;padding:.38rem .75rem;font-size:.82rem;cursor:pointer}
+.btn:hover{filter:brightness(1.15)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-danger{background:#7f1d1d;border-color:#991b1b;color:#fecaca}
+.btn-sm{padding:.2rem .5rem;font-size:.76rem}
+input[type=text],input[type=password],input[type=email],input[type=number],select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .55rem;color:var(--text);font-size:.85rem}
+input.mono{font-family:ui-monospace,Consolas,monospace}
+label.f{display:flex;flex-direction:column;gap:.25rem;font-size:.78rem;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.75rem}
+.hint{font-size:.74rem;color:var(--muted);margin:0}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+th,td{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--border);vertical-align:middle}
+th{color:var(--muted);font-weight:600;font-size:.74rem;text-transform:uppercase}
+td.mono{font-family:ui-monospace,Consolas,monospace;font-size:.78rem}
+.dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.35rem;vertical-align:middle}
+.up{background:var(--ok)}.down{background:var(--bad)}.unk{background:var(--muted)}
+.tag{display:inline-block;padding:.05rem .4rem;border-radius:4px;background:var(--surface2);border:1px solid var(--border);font-size:.7rem}
+.alert{padding:.6rem .8rem;border-radius:8px;font-size:.82rem}
+.alert-bad{background:#450a0a;border:1px solid #991b1b;color:#fecaca}
+.alert-warn{background:#422006;border:1px solid #a16207;color:#fde68a}
+.muted{color:var(--muted)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+pre.log{margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,Consolas,monospace;white-space:pre-wrap;color:#cbd5e1}
+.dlg-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:1rem;z-index:10}
+.dlg-backdrop.open{display:flex}
+.dlg{background:var(--surface);border:1px solid var(--border);border-radius:10px;width:100%;max-width:560px;max-height:92vh;overflow:auto}
+.dlg .card-b{display:flex;flex-direction:column;gap:.7rem}
+.dlg-f{display:flex;gap:.5rem;justify-content:flex-end;padding:.8rem 1rem;border-top:1px solid var(--border)}
+.x{background:none;border:0;color:var(--muted);font-size:1.3rem;cursor:pointer;margin-left:auto}
+.chk{display:flex;gap:.45rem;align-items:flex-start;font-size:.82rem}
+.chk input{margin-top:.2rem}
+#login{max-width:340px;margin:12vh auto}
+.err{color:var(--bad);font-size:.8rem;min-height:1em}
+.toast{position:fixed;right:1rem;bottom:1rem;background:var(--surface2);border:1px solid var(--border);padding:.6rem .9rem;border-radius:8px;display:none;z-index:20}
+@media (max-width:760px){.hide-sm{display:none}}
+</style>
+</head>
+<body>
+
+<div id="login" class="card" style="display:none">
+  <div class="card-h"><h2>🔐 HTTPS Proxy — đăng nhập</h2></div>
+  <form class="card-b" style="display:flex;flex-direction:column;gap:.7rem" onsubmit="doLogin(event)">
+    <label class="f">Tên đăng nhập<input type="text" id="lUser" autocomplete="username" value="admin"></label>
+    <label class="f">Mật khẩu<input type="password" id="lPass" autocomplete="current-password"></label>
+    <div class="err" id="lErr"></div>
+    <button class="btn btn-primary" type="submit">Đăng nhập</button>
+    <p class="hint">Lần chạy đầu tiên, mật khẩu được ghi trong file <code>https-proxy-initial-password.txt</code> cạnh file chương trình.</p>
+  </form>
+</div>
+
+<div id="app" style="display:none">
+<header>
+  <h1>🌐 HTTPS Proxy</h1>
+  <span class="muted" id="hdrInfo" style="font-size:.78rem"></span>
+  <span class="spacer"></span>
+  <button class="btn btn-sm" onclick="openPw()">🔑 Đổi mật khẩu</button>
+  <button class="btn btn-sm" onclick="logout()">Đăng xuất</button>
+</header>
+<main>
+  <div id="alerts" style="display:flex;flex-direction:column;gap:.5rem"></div>
+
+  <div class="card">
+    <div class="card-h">
+      <h2>Các trang web</h2>
+      <span class="spacer"></span>
+      <button class="btn btn-sm" onclick="openImport()">⇪ Nhập từ go2rtc</button>
+      <button class="btn btn-primary btn-sm" onclick="openSite()">+ Thêm trang</button>
+    </div>
+    <div class="card-b" style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Tên / Domain</th><th>Chuyển tới</th><th class="hide-sm">HTTPS</th>
+          <th>Máy chủ phía sau</th><th class="hide-sm">Chứng chỉ</th><th>Bật</th><th></th>
+        </tr></thead>
+        <tbody id="sites"><tr><td colspan="7" class="muted">Đang tải…</td></tr></tbody>
+      </table>
+      <p class="hint" style="margin-top:.6rem">Mỗi domain phải có bản ghi DNS (A) trỏ về IP máy chủ này, và cổng 80/443 phải được mở trên tường lửa/router để Let's Encrypt cấp chứng chỉ.
+        Chứng chỉ được tự xin ở lượt truy cập HTTPS đầu tiên và tự gia hạn trước khi hết hạn ~30 ngày.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h2>Cài đặt chung</h2></div>
+    <form class="card-b" style="display:flex;flex-direction:column;gap:.8rem" onsubmit="saveSettings(event)">
+      <div class="grid">
+        <label class="f">Cổng HTTPS<input type="text" class="mono" id="sHttps" placeholder=":443"></label>
+        <label class="f">Cổng HTTP (cấp chứng chỉ + chuyển sang HTTPS)<input type="text" class="mono" id="sHttp" placeholder=":80"></label>
+        <label class="f">Trang quản trị này<input type="text" class="mono" id="sAdmin" placeholder="127.0.0.1:8090"></label>
+      </div>
+      <p class="hint">Nhiều cổng cách nhau bằng dấu phẩy, ví dụ <code>:443,:8443</code>. Trang quản trị để <code>127.0.0.1:8090</code> nghĩa là chỉ mở được trên chính máy chủ; đổi thành <code>:8090</code> để mở từ mạng LAN.</p>
+      <div class="grid">
+        <label class="f">Email Let's Encrypt (nhận thông báo hết hạn)<input type="email" id="sEmail" placeholder="admin@example.com"></label>
+        <label class="f">Thư mục lưu chứng chỉ<input type="text" class="mono" id="sCertDir" placeholder="certs"></label>
+        <label class="f">Domain cho trang quản trị (tuỳ chọn, qua HTTPS)<input type="text" class="mono" id="sAdminDomain" placeholder="proxy.example.com"></label>
+      </div>
+      <label class="f">Trang mặc định (khi truy cập bằng IP hoặc domain chưa khai báo)
+        <select id="sDefault"></select></label>
+      <p class="hint">Để dùng lại chứng chỉ go2rtc đã xin trước đây, chép thư mục <code>certs</code> của go2rtc vào thư mục chứng chỉ ở trên.</p>
+      <div style="display:flex;gap:.6rem;align-items:center">
+        <button class="btn btn-primary" type="submit">💾 Lưu cài đặt</button>
+        <span id="sMsg" style="font-size:.8rem"></span>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><h2>Nhật ký</h2><span class="spacer"></span><button class="btn btn-sm" onclick="loadLog()">↻</button></div>
+    <div class="card-b"><pre class="log" id="log"></pre></div>
+  </div>
+  <p class="hint" id="cfgPath" style="text-align:center"></p>
+</main>
+</div>
+
+<!-- site dialog -->
+<div class="dlg-backdrop" id="dlgSite">
+  <form class="dlg" onsubmit="saveSite(event)">
+    <div class="card-h"><h2 id="dlgSiteTitle">Trang web</h2><button type="button" class="x" onclick="closeDlg('dlgSite')">×</button></div>
+    <div class="card-b">
+      <input type="hidden" id="fId">
+      <label class="f">Tên gợi nhớ<input type="text" id="fName" placeholder="go2rtc camera"></label>
+      <label class="f">Domain *<input type="text" class="mono" id="fDomain" placeholder="cam.example.com" required></label>
+      <label class="f">Chuyển tới (địa chỉ nội bộ của trang web) *<input type="text" class="mono" id="fTarget" placeholder="http://127.0.0.1:1984" required></label>
+      <p class="hint">Ví dụ go2rtc: <code>http://127.0.0.1:1984</code>; IIS/Apache/Node trên cổng 3000: <code>http://127.0.0.1:3000</code>; máy khác trong LAN: <code>http://192.168.1.20:8080</code>.</p>
+      <label class="f">Chứng chỉ HTTPS
+        <select id="fTls" onchange="tlsChanged()">
+          <option value="acme">Let's Encrypt — tự động (khuyến nghị)</option>
+          <option value="manual">File chứng chỉ có sẵn (.crt/.pem + .key)</option>
+          <option value="none">Không dùng HTTPS (chỉ HTTP)</option>
+        </select></label>
+      <div id="fManual" class="grid" style="display:none">
+        <label class="f">File chứng chỉ (fullchain)<input type="text" class="mono" id="fCert" placeholder="C:\certs\site.crt"></label>
+        <label class="f">File khoá riêng<input type="text" class="mono" id="fKey" placeholder="C:\certs\site.key"></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="fEnabled" checked> Bật</label>
+      <label class="chk"><input type="checkbox" id="fAllowHttp"> Cho phép truy cập HTTP thường (không tự chuyển sang HTTPS)</label>
+      <details>
+        <summary class="muted" style="cursor:pointer;font-size:.8rem">Nâng cao</summary>
+        <div style="display:flex;flex-direction:column;gap:.6rem;margin-top:.6rem">
+          <label class="chk"><input type="checkbox" id="fRewriteHost"> Gửi Host của địa chỉ nội bộ thay vì domain (cần cho một số IIS/ứng dụng chỉ nhận đúng host nội bộ)</label>
+          <label class="chk"><input type="checkbox" id="fInsecure"> Bỏ qua kiểm tra chứng chỉ khi địa chỉ nội bộ là https:// (chứng chỉ tự ký)</label>
+          <label class="f">Thời gian chờ phản hồi tối đa (giây, 0 = 120)<input type="number" id="fTimeout" min="0" max="3600" value="0"></label>
+        </div>
+      </details>
+      <div class="err" id="fErr"></div>
+    </div>
+    <div class="dlg-f">
+      <button type="button" class="btn" onclick="closeDlg('dlgSite')">Huỷ</button>
+      <button type="submit" class="btn btn-primary">Lưu</button>
+    </div>
+  </form>
+</div>
+
+<!-- password dialog -->
+<div class="dlg-backdrop" id="dlgPw">
+  <form class="dlg" style="max-width:400px" onsubmit="savePw(event)">
+    <div class="card-h"><h2>Đổi mật khẩu quản trị</h2><button type="button" class="x" onclick="closeDlg('dlgPw')">×</button></div>
+    <div class="card-b">
+      <label class="f">Tên đăng nhập<input type="text" id="pUser" autocomplete="username"></label>
+      <label class="f">Mật khẩu hiện tại<input type="password" id="pOld" autocomplete="current-password"></label>
+      <label class="f">Mật khẩu mới (≥ 8 ký tự)<input type="password" id="pNew" autocomplete="new-password"></label>
+      <label class="f">Nhập lại mật khẩu mới<input type="password" id="pNew2" autocomplete="new-password"></label>
+      <div class="err" id="pErr"></div>
+    </div>
+    <div class="dlg-f">
+      <button type="button" class="btn" onclick="closeDlg('dlgPw')">Huỷ</button>
+      <button type="submit" class="btn btn-primary">Lưu</button>
+    </div>
+  </form>
+</div>
+
+<!-- import dialog -->
+<div class="dlg-backdrop" id="dlgImport">
+  <form class="dlg" style="max-width:480px" onsubmit="doImport(event)">
+    <div class="card-h"><h2>Nhập danh sách trang từ go2rtc</h2><button type="button" class="x" onclick="closeDlg('dlgImport')">×</button></div>
+    <div class="card-b">
+      <p class="hint">go2rtc phiên bản cũ lưu các trang reverse proxy trong file <code>reverse_proxy.json</code> cạnh <code>go2rtc.yaml</code>.</p>
+      <label class="f">Đường dẫn file<input type="text" class="mono" id="iPath" placeholder="D:\go2rtc\reverse_proxy.json"></label>
+      <div class="err" id="iErr"></div>
+    </div>
+    <div class="dlg-f">
+      <button type="button" class="btn" onclick="closeDlg('dlgImport')">Huỷ</button>
+      <button type="submit" class="btn btn-primary">Nhập</button>
+    </div>
+  </form>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let CFG = null, STATUS = {};
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function $(id) { return document.getElementById(id); }
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3000);
+}
+async function api(path, opts = {}) {
+  const o = { method: opts.method || 'GET', headers: { 'X-HP': '1' }, credentials: 'same-origin' };
+  if (opts.body !== undefined) { o.body = JSON.stringify(opts.body); o.headers['Content-Type'] = 'application/json'; }
+  const r = await fetch(path, o);
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  if (r.status === 401 && path !== '/api/login') { showLogin(); throw new Error('chưa đăng nhập'); }
+  if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+  return data;
+}
+
+function showLogin() { $('app').style.display = 'none'; $('login').style.display = ''; $('lPass').focus(); }
+async function doLogin(e) {
+  e.preventDefault(); $('lErr').textContent = '';
+  try {
+    await api('/api/login', { method: 'POST', body: { user: $('lUser').value, password: $('lPass').value } });
+    $('lPass').value = ''; boot();
+  } catch (err) { $('lErr').textContent = err.message; }
+}
+async function logout() { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); }
+
+async function boot() {
+  try {
+    const me = await api('/api/me');
+    $('login').style.display = 'none'; $('app').style.display = '';
+    $('hdrInfo').textContent = 'Đăng nhập: ' + me.user;
+    window._initialPw = me.initial_password;
+    await loadConfig(); loadStatus(); loadLog();
+  } catch (e) { showLogin(); }
+}
+
+async function loadConfig() {
+  CFG = await api('/api/config');
+  $('sHttps').value = CFG.https_listen || '';
+  $('sHttp').value = CFG.http_listen || '';
+  $('sAdmin').value = CFG.admin_listen || '';
+  $('sEmail').value = CFG.acme_email || '';
+  $('sCertDir').value = CFG.cert_dir || '';
+  $('sAdminDomain').value = CFG.admin_domain || '';
+  $('sDefault').innerHTML = '<option value="">(không — trả lỗi 404)</option>' +
+    (CFG.sites || []).map(s => `<option value="${esc(s.id)}" ${s.id === CFG.default_site ? 'selected' : ''}>${esc(s.name || s.domain)} — ${esc(s.domain)}</option>`).join('');
+  $('cfgPath').textContent = 'File cấu hình: ' + CFG.config_path;
+  renderSites();
+}
+
+function renderSites() {
+  const sites = CFG.sites || [];
+  if (!sites.length) {
+    $('sites').innerHTML = '<tr><td colspan="7" class="muted">Chưa có trang nào. Bấm “+ Thêm trang”, ví dụ domain camera → http://127.0.0.1:1984 (go2rtc).</td></tr>';
+    return;
+  }
+  const tlsName = { acme: "Let's Encrypt", manual: 'File', none: 'Không' };
+  $('sites').innerHTML = sites.map(s => {
+    const st = STATUS[s.id];
+    let be = '<span class="dot unk"></span><span class="muted">…</span>';
+    if (st) be = st.up ? `<span class="dot up"></span><span class="ok">Hoạt động</span> <span class="muted">${st.latency_ms} ms</span>`
+                       : `<span class="dot down"></span><span class="bad" title="${esc(st.error)}">Không kết nối được</span>`;
+    let cert = '<span class="muted">—</span>';
+    if (s.tls !== 'none' && st) {
+      if (st.cert_until) {
+        const days = Math.round((new Date(st.cert_until) - new Date()) / 864e5);
+        cert = `<span class="${days < 14 ? 'warn' : 'ok'}">đến ${esc(st.cert_until)}</span>`;
+      } else if (st.cert_error) cert = `<span class="muted" title="${esc(st.cert_error)}">${s.tls === 'acme' ? 'chưa cấp' : '<span class=bad>lỗi</span>'}</span>`;
+    }
+    const isDef = s.id === CFG.default_site ? ' <span class="tag">mặc định</span>' : '';
+    return `<tr>
+      <td><div>${esc(s.name || '')}${isDef}</div><div class="mono muted" style="font-family:ui-monospace,Consolas,monospace;font-size:.78rem">${s.tls === 'none' ? 'http' : 'https'}://${esc(s.domain)}</div></td>
+      <td class="mono">${esc(s.target)}</td>
+      <td class="hide-sm"><span class="tag">${tlsName[s.tls] || s.tls}</span>${s.allow_http ? ' <span class="tag">+HTTP</span>' : ''}</td>
+      <td>${be}</td>
+      <td class="hide-sm">${cert}</td>
+      <td><input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSite('${esc(s.id)}', this.checked)"></td>
+      <td style="white-space:nowrap;text-align:right">
+        <button class="btn btn-sm" onclick="openSite('${esc(s.id)}')">Sửa</button>
+        <button class="btn btn-sm btn-danger" onclick="delSite('${esc(s.id)}')">Xoá</button>
+      </td></tr>`;
+  }).join('');
+}
+
+async function loadStatus() {
+  try {
+    const st = await api('/api/status');
+    STATUS = {}; (st.sites || []).forEach(s => STATUS[s.id] = s);
+    renderSites();
+    const alerts = [];
+    if (window._initialPw) alerts.push('<div class="alert alert-warn">⚠ Bạn đang dùng mật khẩu khởi tạo — hãy <a href="#" style="color:inherit" onclick="openPw();return false">đổi mật khẩu</a>.</div>');
+    (st.listeners || []).filter(l => l.error).forEach(l => alerts.push(
+      `<div class="alert alert-bad">✕ Không mở được cổng <b>${esc(l.addr)}</b> (${esc(l.kind)}): ${esc(l.error)}<br>
+       <span style="font-size:.76rem">Thường do chương trình khác (go2rtc cũ, IIS, Skype…) đang dùng cổng này. Tắt chương trình đó / bỏ <code>acme_domain</code>, <code>tls_listen</code> trong go2rtc.yaml, rồi bấm “Lưu cài đặt” để thử lại.</span></div>`));
+    $('alerts').innerHTML = alerts.join('');
+  } catch (e) {}
+}
+
+async function loadLog() {
+  try {
+    const lines = await api('/api/log');
+    const el = $('log'); el.textContent = (lines || []).join('');
+    el.scrollTop = el.scrollHeight;
+  } catch (e) {}
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const m = $('sMsg'); m.className = 'muted'; m.textContent = 'Đang lưu…';
+  const body = {
+    https_listen: $('sHttps').value.trim(), http_listen: $('sHttp').value.trim(),
+    admin_listen: $('sAdmin').value.trim(), acme_email: $('sEmail').value.trim(),
+    cert_dir: $('sCertDir').value.trim(), admin_domain: $('sAdminDomain').value.trim(),
+    default_site: $('sDefault').value,
+  };
+  const adminMoved = body.admin_listen !== CFG.admin_listen;
+  try {
+    await api('/api/settings', { method: 'PUT', body });
+    m.className = 'ok'; m.textContent = '✓ Đã lưu và áp dụng';
+    if (adminMoved) { m.textContent += ' — trang quản trị đã chuyển sang ' + body.admin_listen; return; }
+    await loadConfig(); setTimeout(() => { loadStatus(); loadLog(); }, 1200);
+  } catch (err) { m.className = 'bad'; m.textContent = err.message; }
+}
+
+function tlsChanged() { $('fManual').style.display = $('fTls').value === 'manual' ? '' : 'none'; }
+function openDlg(id) { $(id).classList.add('open'); }
+function closeDlg(id) { $(id).classList.remove('open'); }
+
+function openSite(id) {
+  const s = (CFG.sites || []).find(x => x.id === id) || { enabled: true, tls: 'acme' };
+  $('dlgSiteTitle').textContent = id ? 'Sửa trang web' : 'Thêm trang web';
+  $('fId').value = s.id || ''; $('fName').value = s.name || ''; $('fDomain').value = s.domain || '';
+  $('fTarget').value = s.target || ''; $('fTls').value = s.tls || 'acme';
+  $('fCert').value = s.cert_file || ''; $('fKey').value = s.key_file || '';
+  $('fEnabled').checked = !!s.enabled; $('fAllowHttp').checked = !!s.allow_http;
+  $('fRewriteHost').checked = !!s.rewrite_host; $('fInsecure').checked = !!s.insecure_skip_verify;
+  $('fTimeout').value = s.timeout_sec || 0; $('fErr').textContent = '';
+  tlsChanged(); openDlg('dlgSite'); $('fDomain').focus();
+}
+
+async function saveSite(e) {
+  e.preventDefault(); $('fErr').textContent = '';
+  const id = $('fId').value;
+  const body = {
+    id, name: $('fName').value.trim(), domain: $('fDomain').value.trim(), target: $('fTarget').value.trim(),
+    tls: $('fTls').value, cert_file: $('fCert').value.trim(), key_file: $('fKey').value.trim(),
+    enabled: $('fEnabled').checked, allow_http: $('fAllowHttp').checked,
+    rewrite_host: $('fRewriteHost').checked, insecure_skip_verify: $('fInsecure').checked,
+    timeout_sec: parseInt($('fTimeout').value, 10) || 0,
+  };
+  try {
+    await api('/api/sites', { method: id ? 'PUT' : 'POST', body });
+    closeDlg('dlgSite'); toast('✓ Đã lưu'); await loadConfig(); loadStatus(); loadLog();
+  } catch (err) { $('fErr').textContent = err.message; }
+}
+
+async function toggleSite(id, enabled) {
+  const s = (CFG.sites || []).find(x => x.id === id); if (!s) return;
+  try { await api('/api/sites', { method: 'PUT', body: { ...s, enabled } }); await loadConfig(); loadStatus(); }
+  catch (err) { alert(err.message); loadConfig(); }
+}
+
+async function delSite(id) {
+  const s = (CFG.sites || []).find(x => x.id === id); if (!s) return;
+  if (!confirm(`Xoá trang ${s.domain}?`)) return;
+  try { await api('/api/sites?id=' + encodeURIComponent(id), { method: 'DELETE' }); toast('Đã xoá'); await loadConfig(); loadStatus(); }
+  catch (err) { alert(err.message); }
+}
+
+function openPw() {
+  $('pUser').value = CFG ? CFG.admin_user : 'admin';
+  ['pOld', 'pNew', 'pNew2'].forEach(i => $(i).value = ''); $('pErr').textContent = '';
+  openDlg('dlgPw'); $('pOld').focus();
+}
+async function savePw(e) {
+  e.preventDefault(); $('pErr').textContent = '';
+  if ($('pNew').value !== $('pNew2').value) { $('pErr').textContent = 'Mật khẩu nhập lại không khớp'; return; }
+  try {
+    await api('/api/password', { method: 'POST', body: { user: $('pUser').value.trim(), old: $('pOld').value, new: $('pNew').value } });
+    closeDlg('dlgPw'); toast('✓ Đã đổi mật khẩu'); window._initialPw = false; loadConfig(); loadStatus();
+  } catch (err) { $('pErr').textContent = err.message; }
+}
+
+function openImport() { $('iErr').textContent = ''; openDlg('dlgImport'); $('iPath').focus(); }
+async function doImport(e) {
+  e.preventDefault(); $('iErr').textContent = '';
+  try {
+    await api('/api/import', { method: 'POST', body: { path: $('iPath').value.trim() } });
+    closeDlg('dlgImport'); toast('✓ Đã nhập'); await loadConfig(); loadStatus(); loadLog();
+  } catch (err) { $('iErr').textContent = err.message; }
+}
+
+setInterval(() => { if ($('app').style.display !== 'none') { loadStatus(); loadLog(); } }, 10000);
+boot();
+</script>
+</body>
+</html>

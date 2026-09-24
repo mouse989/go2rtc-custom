@@ -42,6 +42,7 @@ type Connection struct {
 	URL        string `json:"url,omitempty"`
 	SDP        string `json:"sdp,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`
+	User       string `json:"user,omitempty"` // logged-in web user who opened it (if known)
 
 	Medias    []*Media    `json:"medias,omitempty"`
 	Receivers []*Receiver `json:"receivers,omitempty"`
@@ -122,6 +123,19 @@ func (c *Connection) WithRequest(r *http.Request) {
 	}
 
 	c.UserAgent = r.UserAgent()
+	c.User = RequestUser(r)
+}
+
+// RequestUserFunc resolves the logged-in user name for a request; set by
+// the auth module so connections can show who is viewing. Nil = unknown.
+var RequestUserFunc func(r *http.Request) string
+
+// RequestUser returns the logged-in user name for r, or "".
+func RequestUser(r *http.Request) string {
+	if RequestUserFunc == nil || r == nil {
+		return ""
+	}
+	return RequestUserFunc(r)
 }
 
 func (c *Connection) GetSource() string {

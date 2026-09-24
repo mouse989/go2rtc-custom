@@ -1129,6 +1129,12 @@ function _fmtIP(remoteAddr) {
   return m ? m[1] : remoteAddr;
 }
 
+let _actUserFilter = null; // null = all users; '' = unknown/system; else username
+
+function _sessUser(sess) {
+  return sess.user || '';
+}
+
 function renderActSessions() {
   const streams = _actData?.streams || [];
   const body    = document.getElementById('actModalBody');
@@ -1139,49 +1145,91 @@ function renderActSessions() {
     body.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text-muted);font-size:.85rem">Không có viewing session nào đang hoạt động.</div>';
     return;
   }
+
+  // Flatten to rows and group by user → set of cameras
+  const rows = [];
+  const byUser = new Map(); // user → Set(camera)
+  active.forEach(s => {
+    const sessions = s.sessions || [];
+    const count = Math.max(s.consumers, sessions.length);
+    for (let i = 0; i < count; i++) {
+      const sess = sessions[i] || {};
+      const user = _sessUser(sess);
+      rows.push({ cam: s.name, sess, user });
+      if (!byUser.has(user)) byUser.set(user, new Set());
+      byUser.get(user).add(s.name);
+    }
+  });
+  if (_actUserFilter !== null && !byUser.has(_actUserFilter)) _actUserFilter = null;
+
+  const users = [...byUser.keys()].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+  const userLabel = u => u ? escHtml(u) : '<i>không đăng nhập / hệ thống</i>';
+  const chip = (key, label, n, active) => `<button onclick="setActUserFilter(${escHtml(JSON.stringify(key))})"
+      style="border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};background:${active ? 'var(--accent)' : 'var(--surface2)'};color:${active ? '#fff' : 'var(--text)'};border-radius:14px;padding:.2rem .65rem;font-size:.76rem;cursor:pointer">
+      ${label} <span style="opacity:.75">· ${n}</span></button>`;
+
   let html = `<div style="padding:.65rem .85rem;font-size:.8rem;color:var(--text-muted);border-bottom:1px solid var(--border)">
-    Tổng <strong style="color:var(--text)">${totalSessions}</strong> viewing session trên <strong style="color:var(--text)">${active.length}</strong> camera
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+    Tổng <strong style="color:var(--text)">${totalSessions}</strong> viewing session trên <strong style="color:var(--text)">${active.length}</strong> camera,
+    <strong style="color:var(--text)">${users.filter(u => u).length}</strong> user đang xem
+    <div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem">
+      ${chip(null, 'Tất cả', active.length + ' camera', _actUserFilter === null)}
+      ${users.map(u => chip(u, userLabel(u), byUser.get(u).size + ' camera', _actUserFilter === u)).join('')}
+    </div>
+  </div>`;
+
+  // Per-user camera list (compact "who is watching what")
+  const shownUsers = _actUserFilter === null ? users : [_actUserFilter];
+  html += `<div style="padding:.55rem .85rem;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:.35rem">
+    ${shownUsers.map(u => `<div style="font-size:.8rem;line-height:1.5">
+      <span style="font-weight:700;color:var(--text)">👤 ${userLabel(u)}</span>
+      <span style="color:var(--text-muted)">(${byUser.get(u).size} camera):</span>
+      <span style="color:var(--text)">${[...byUser.get(u)].map(c => escHtml(c)).join(', ')}</span>
+    </div>`).join('')}
+  </div>`;
+
+  html += `<table style="width:100%;border-collapse:collapse;font-size:.83rem">
     <thead style="position:sticky;top:0;background:var(--surface2)"><tr>
       <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">#</th>
       <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Camera</th>
+      <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">User</th>
       <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Giao thức</th>
       <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ IP</th>
       <th style="padding:.5rem .85rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">User-Agent</th>
     </tr></thead><tbody>`;
 
-  let idx = 1;
-  active.forEach(s => {
-    const sessions = s.sessions || [];
-    // Render each known session with full details
-    const count = Math.max(s.consumers, sessions.length);
-    for (let i = 0; i < count; i++) {
-      const sess = sessions[i] || {};
-      const proto = _fmtProtocol(sess);
-      const ip    = sess.remote_addr || '—';
-      const ua    = sess.user_agent  || '—';
-      const isFirst = i === 0;
-      html += `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:.42rem .85rem;color:var(--text-muted);font-size:.8rem">${idx++}</td>
-        <td style="padding:.42rem .85rem;font-weight:${isFirst ? '700' : '400'};color:${isFirst ? 'var(--text)' : 'transparent'}">
-          ${isFirst ? '📹 ' + escHtml(s.name) : '└'}
-          ${isFirst && s.consumers > 1 ? `<span style="font-size:.7rem;font-weight:400;color:var(--text-muted);margin-left:.4rem">(${s.consumers} sessions)</span>` : ''}
-        </td>
-        <td style="padding:.42rem .85rem">
-          <span style="background:rgba(0,0,0,.15);color:${proto.color};border:1px solid ${proto.color}33;border-radius:4px;padding:.07rem .45rem;font-size:.73rem;font-weight:700">${proto.label}</span>
-        </td>
-        <td style="padding:.42rem .85rem;font-family:monospace;font-size:.81rem;color:var(--text)">
-          ${escHtml(ip)}
-        </td>
-        <td style="padding:.42rem .85rem;font-size:.75rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(ua)}">
-          ${escHtml(ua.length > 60 ? ua.slice(0,60) + '…' : ua)}
-        </td>
-      </tr>`;
-    }
+  let idx = 1, prevCam = null;
+  rows.filter(r => _actUserFilter === null || r.user === _actUserFilter).forEach(r => {
+    const proto = _fmtProtocol(r.sess);
+    const ip    = r.sess.remote_addr || '—';
+    const ua    = r.sess.user_agent  || '—';
+    const isFirst = r.cam !== prevCam;
+    prevCam = r.cam;
+    html += `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:.42rem .85rem;color:var(--text-muted);font-size:.8rem">${idx++}</td>
+      <td style="padding:.42rem .85rem;font-weight:${isFirst ? '700' : '400'};color:${isFirst ? 'var(--text)' : 'var(--text-muted)'}">
+        ${isFirst ? '📹 ' + escHtml(r.cam) : '└'}
+      </td>
+      <td style="padding:.42rem .85rem;white-space:nowrap">
+        ${r.user ? `<span style="font-weight:600;color:var(--accent)">👤 ${escHtml(r.user)}</span>` : '<span style="color:var(--text-muted)">—</span>'}
+      </td>
+      <td style="padding:.42rem .85rem">
+        <span style="background:rgba(0,0,0,.15);color:${proto.color};border:1px solid ${proto.color}33;border-radius:4px;padding:.07rem .45rem;font-size:.73rem;font-weight:700">${proto.label}</span>
+      </td>
+      <td style="padding:.42rem .85rem;font-family:monospace;font-size:.81rem;color:var(--text)">
+        ${escHtml(ip)}
+      </td>
+      <td style="padding:.42rem .85rem;font-size:.75rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(ua)}">
+        ${escHtml(ua.length > 60 ? ua.slice(0,60) + '…' : ua)}
+      </td>
+    </tr>`;
   });
   html += '</tbody></table>';
   body.innerHTML = html;
+}
+
+function setActUserFilter(u) {
+  _actUserFilter = u;
+  renderActSessions();
 }
 
 function renderActSnapshots() {

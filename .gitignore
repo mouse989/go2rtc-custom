@@ -29,3 +29,11 @@ __pycache__/
 .claude/
 
 /incidents_data/
+
+# standalone https-proxy runtime files
+https-proxy.json
+https-proxy.json.tmp
+https-proxy.log*
+https-proxy-initial-password.txt
+/https-proxy
+/https-proxy.exe

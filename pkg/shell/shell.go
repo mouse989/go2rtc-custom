@@ -5,6 +5,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func QuoteSplit(s string) []string {
@@ -39,5 +40,9 @@ func QuoteSplit(s string) []string {
 func RunUntilSignal() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	println("exit with signal:", (<-sigs).String())
+	sig := <-sigs
+	// Returning from main exits the process, but printing to a frozen
+	// console (Windows QuickEdit) could block that forever. Guarantee exit.
+	time.AfterFunc(2*time.Second, func() { os.Exit(1) })
+	println("exit with signal:", sig.String())
 }

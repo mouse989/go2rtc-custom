@@ -131,7 +131,7 @@ func outputWebRTC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, _ := auth.UserFromContext(r.Context())
-	answer, err := ExchangeSDP(stream, offer, desc, r.UserAgent(), auth.ViewSessionLimit(user))
+	answer, err := ExchangeSDP(stream, offer, desc, r.UserAgent(), core.RequestUser(r), auth.ViewSessionLimit(user))
 	if err != nil {
 		log.Error().Err(err).Caller().Send()
 		http.Error(w, err.Error(), http.StatusInternalServerError)

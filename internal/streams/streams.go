@@ -216,6 +216,7 @@ type SessionDetail struct {
 	FormatName string `json:"format_name"` // rtsp, webrtc, mp4, mjpeg…
 	Protocol   string `json:"protocol"`    // tcp, udp, http, ws…
 	UserAgent  string `json:"user_agent"`
+	User       string `json:"user,omitempty"` // logged-in web user, "" if unknown (RTSP client, internal)
 }
 
 // StreamDetail holds per-stream info for the activity API.

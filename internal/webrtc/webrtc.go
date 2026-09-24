@@ -176,6 +176,7 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 	conn.Mode = mode
 	conn.Protocol = "ws"
 	conn.UserAgent = tr.Request.UserAgent()
+	conn.User = core.RequestUser(tr.Request)
 	conn.Listen(func(msg any) {
 		switch msg := msg.(type) {
 		case pion.PeerConnectionState:
@@ -256,7 +257,7 @@ func asyncHandler(tr *ws.Transport, msg *ws.Message) (err error) {
 // force-closes a consumer connection after that long (0 = unlimited) — only
 // meaningful callers that resolved a real web-viewer user should pass
 // anything nonzero; non-web callers (webtorrent, Home Assistant) pass 0.
-func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent string, viewLimit time.Duration) (answer string, err error) {
+func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent, userName string, viewLimit time.Duration) (answer string, err error) {
 	pc, err := PeerConnection(false)
 	if err != nil {
 		log.Error().Err(err).Caller().Send()
@@ -269,6 +270,7 @@ func ExchangeSDP(stream *streams.Stream, offer, desc, userAgent string, viewLimi
 	conn := webrtc.NewConn(pc)
 	conn.FormatName = desc
 	conn.UserAgent = userAgent
+	conn.User = userName
 	conn.Protocol = "http"
 	conn.Listen(func(msg any) {
 		switch msg := msg.(type) {
