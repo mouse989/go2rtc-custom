@@ -83,9 +83,14 @@ func (w *WriteBuffer) add() {
 }
 
 func (w *WriteBuffer) done() {
-	if w.state == start {
+	switch w.state {
+	case start:
 		w.state = end
 		w.wg.Done()
+	case none:
+		// closed before anyone called WriteTo: mark finished so a later
+		// WriteTo returns immediately instead of waiting forever
+		w.state = end
 	}
 }
 

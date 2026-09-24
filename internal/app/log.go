@@ -46,8 +46,10 @@ func initLogger() {
 	switch output, path, _ := strings.Cut(modules["output"], ":"); output {
 	case "stderr":
 		writer = os.Stderr
+		disableQuickEdit()
 	case "stdout":
 		writer = os.Stdout
+		disableQuickEdit()
 	case "file":
 		if path == "" {
 			path = "go2rtc.log"
@@ -86,7 +88,11 @@ func initLogger() {
 			writer = console
 		}
 
-		writer = zerolog.MultiLevelWriter(writer, MemoryLog)
+		// Never let a slow or frozen console/file stall the program: on
+		// Windows, clicking into the console window (QuickEdit) pauses all
+		// writes to it, which used to block every goroutine that logged —
+		// streams, API, snapshot scheduler — until someone pressed a key.
+		writer = zerolog.MultiLevelWriter(newAsyncWriter(writer), MemoryLog)
 	} else {
 		writer = MemoryLog
 	}

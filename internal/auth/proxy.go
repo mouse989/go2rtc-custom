@@ -53,6 +53,8 @@ var (
 type cameraHealth struct {
 	OK        bool
 	FailSince time.Time // zero value = healthy
+	Fails     int       // consecutive failures
+	NextTry   time.Time // scheduler skips the camera until then (backoff)
 }
 
 var (
@@ -71,11 +73,34 @@ func recordHealth(name string, ok bool) {
 	if ok {
 		h.OK = true
 		h.FailSince = time.Time{}
-	} else if h.OK || h.FailSince.IsZero() {
+		h.Fails = 0
+		h.NextTry = time.Time{}
+		return
+	}
+	if h.OK || h.FailSince.IsZero() {
 		// First failure: record start time.
 		h.OK = false
 		h.FailSince = time.Now()
 	}
+	// Back off offline cameras so they don't occupy fetch slots (and RTSP
+	// dial attempts) every cycle: skip 1, 2, 4 … cycles, capped at 5 min.
+	h.Fails++
+	backoff := snapshotInterval() << min(h.Fails-1, 5)
+	if backoff > 5*time.Minute {
+		backoff = 5 * time.Minute
+	}
+	if h.Fails >= 2 {
+		h.NextTry = time.Now().Add(backoff)
+	}
+}
+
+// snapshotBackedOff reports whether the scheduler should skip name this
+// cycle because it failed recently.
+func snapshotBackedOff(name string) bool {
+	healthMu.RLock()
+	defer healthMu.RUnlock()
+	h := healthMap[name]
+	return h != nil && !h.NextTry.IsZero() && time.Now().Before(h.NextTry)
 }
 
 // ── Snapshot access log ───────────────────────────────────────────
@@ -380,6 +405,9 @@ func snapshotScheduler() {
 
 		for _, name := range names {
 			name := name
+			if snapshotBackedOff(name) {
+				continue
+			}
 			sem <- struct{}{} // blocks when conc goroutines are already in-flight
 			wg.Add(1)
 			go func() {
