@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"net/http"
 	"path/filepath"
 
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/rs/zerolog"
 )
 
@@ -12,6 +14,14 @@ var log zerolog.Logger
 // Init initialises the auth module.
 func Init() {
 	log = app.GetLogger("auth")
+
+	// let stream connections record which logged-in user opened them
+	core.RequestUserFunc = func(r *http.Request) string {
+		if u, ok := UserFromContext(r.Context()); ok {
+			return u.Username
+		}
+		return ""
+	}
 
 	// Resolve paths next to config file (or cwd)
 	usersPath := "users.json"
