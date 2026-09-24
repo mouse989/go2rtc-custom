@@ -464,11 +464,9 @@ func proxyStreamsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wsScheme := "ws"
-	if r.TLS != nil {
-		wsScheme = "wss"
-	}
 	scheme := "http"
-	if r.TLS != nil {
+	if isRequestTLS(r) {
+		wsScheme = "wss"
 		scheme = "https"
 	}
 

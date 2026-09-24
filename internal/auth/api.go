@@ -26,14 +26,18 @@ func registerHandlers() {
 	http.HandleFunc("/api/users/", usersHandler) // with trailing username
 }
 
-// isRequestTLS reports whether r arrived over this server's own TLS listener
-// (ACME/TLSListen in internal/api). Deliberately does not trust
-// X-Forwarded-Proto — that's client-controllable, and wrongly marking the
-// cookie Secure on a plain-HTTP deployment would silently break cookie auth
-// (browsers refuse to send Secure cookies over HTTP), so only ever set it
-// when we can be sure from the connection itself.
+// isRequestTLS reports whether the client reached us over HTTPS: either via
+// this server's own TLS listener (ACME/TLSListen in internal/api), or via a
+// TLS-terminating reverse proxy on this same machine (the standalone HTTPS
+// proxy), which connects from loopback and sets X-Forwarded-Proto. The
+// header is trusted ONLY from loopback — from anywhere else it's
+// client-controllable, and wrongly marking the cookie Secure on a plain-HTTP
+// deployment would silently break cookie auth.
 func isRequestTLS(r *http.Request) bool {
-	return r.TLS != nil
+	if r.TLS != nil {
+		return true
+	}
+	return isLoopback(r.RemoteAddr) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // respondLoginLocked returns 429 with the remaining lockout time so the

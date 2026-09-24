@@ -112,7 +112,7 @@ func Middleware(next http.Handler) http.Handler {
 		}
 
 		// Allow internal loopback requests from the counting module
-		if r.Header.Get("X-Internal") == "counting" && isLoopback(r.RemoteAddr) {
+		if isInternalRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -179,7 +179,7 @@ func CanAccessStream(ctx context.Context, streamName string) bool {
 // go through Middleware, so r.Context() carries no user — used by go2rtc's
 // own counting/snapshot subsystem to fetch a keyframe from the loopback API.
 func CanAccessStreamRequest(r *http.Request, streamName string) bool {
-	if r.Header.Get("X-Internal") == "counting" && isLoopback(r.RemoteAddr) {
+	if isInternalRequest(r) {
 		return true
 	}
 	if CanAccessStream(r.Context(), streamName) {
@@ -303,6 +303,24 @@ func userCanAccessPath(u *User, path string) bool {
 		}
 	}
 	return false
+}
+
+// isInternalRequest reports whether r is go2rtc's own counting/snapshot
+// subsystem calling its loopback API. A request that passed through a
+// reverse proxy on this machine (e.g. the standalone HTTPS proxy) also
+// arrives from 127.0.0.1, so anything carrying forwarding headers is never
+// treated as internal — otherwise an outside client could send
+// "X-Internal: counting" through the proxy and skip authentication.
+func isInternalRequest(r *http.Request) bool {
+	if r.Header.Get("X-Internal") != "counting" || !isLoopback(r.RemoteAddr) {
+		return false
+	}
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip", "Forwarded", "Via"} {
+		if r.Header.Get(h) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func isLoopback(remoteAddr string) bool {
