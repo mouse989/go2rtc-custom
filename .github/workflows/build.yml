@@ -6,6 +6,8 @@ on:
     # manually only when you need CI-built artifacts.
     # Local build scripts:
     #   go2rtc binaries : scripts/build.sh (Linux/Mac) or scripts/build.cmd (Windows)
+    #   https-proxy     : scripts/build_https_proxy_win.bat (Windows)
+    #                     scripts/build_https_proxy.sh (Linux/Mac)
     #   yolo_counter    : scripts/build_yolo_linux.sh (Linux)
     #                     scripts/build_yolo_win.bat  (Windows CPU)
     # NOTE: GPU (CUDA) builds are done locally only — see yolo_counter/BUILD_GUIDE.md
@@ -13,10 +15,10 @@ on:
     #   Linux GPU  : scripts/setup_yolo_linux_gpu.sh (venv, recommended)
 
 jobs:
-  build-binaries:
-    name: Build binaries
-    runs-on: ubuntu-latest
-    env: { CGO_ENABLED: 0 }
+  build-windows:
+    name: Build go2rtc + https-proxy (Windows Server)
+    runs-on: windows-latest
+    env: { CGO_ENABLED: 0, GOOS: windows, GOARCH: amd64 }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,19 +27,68 @@ jobs:
         uses: actions/setup-go@v5
         with: { go-version: '1.25' }
 
-      - name: Build go2rtc_win64
-        env: { GOOS: windows, GOARCH: amd64 }
-        run: go build -ldflags "-s -w" -trimpath
+      - name: Vet
+        run: go vet . ./cmd/https-proxy
+
+      - name: Build go2rtc.exe
+        run: go build -ldflags "-s -w" -trimpath -o go2rtc.exe .
+
+      - name: Build https-proxy.exe
+        run: go build -ldflags "-s -w" -trimpath -o https-proxy.exe ./cmd/https-proxy
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          .\go2rtc.exe -version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\https-proxy.exe -h 2>&1 | Out-Host
+          (Get-Item go2rtc.exe, https-proxy.exe) | Format-Table Name, Length
+
+      # Ready-to-copy folder: same layout run.bat / run-https-proxy.bat expect
+      - name: Assemble bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force bundle\dist | Out-Null
+          Copy-Item go2rtc.exe bundle\dist\go2rtc-custom.exe
+          Copy-Item https-proxy.exe bundle\dist\https-proxy.exe
+          Copy-Item run.bat, run-https-proxy.bat bundle\
+          Copy-Item cmd\https-proxy\README.md bundle\https-proxy-README.md
+
       - name: Upload go2rtc_win64
         uses: actions/upload-artifact@v4
         with: { name: go2rtc_win64, path: go2rtc.exe }
 
+      - name: Upload https_proxy_win64
+        uses: actions/upload-artifact@v4
+        with: { name: https_proxy_win64, path: https-proxy.exe }
+
+      - name: Upload go2rtc_bundle_win64
+        uses: actions/upload-artifact@v4
+        with: { name: go2rtc_bundle_win64, path: bundle }
+
+  build-linux:
+    name: Build go2rtc + https-proxy (Linux)
+    runs-on: ubuntu-latest
+    env: { CGO_ENABLED: 0, GOOS: linux, GOARCH: amd64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with: { go-version: '1.25' }
+
       - name: Build go2rtc_linux_amd64
-        env: { GOOS: linux, GOARCH: amd64 }
-        run: go build -ldflags "-s -w" -trimpath
+        run: go build -ldflags "-s -w" -trimpath -o go2rtc .
       - name: Upload go2rtc_linux_amd64
         uses: actions/upload-artifact@v4
         with: { name: go2rtc_linux_amd64, path: go2rtc }
+
+      - name: Build https-proxy (Linux)
+        run: go build -ldflags "-s -w" -trimpath -o https-proxy ./cmd/https-proxy
+      - name: Upload https_proxy_linux_amd64
+        uses: actions/upload-artifact@v4
+        with: { name: https_proxy_linux_amd64, path: https-proxy }
 
   build-yolo-win64:
     name: Build yolo_counter.exe (Windows x64)
