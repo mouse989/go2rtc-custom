@@ -152,6 +152,7 @@ func Init() {
 	registerCamPresetsHandler()
 	registerLoginHistoryHandler()
 	registerSecurityAlertsHandler()
+	registerLoginLockoutsHandler()
 	registerConfigAuditHandler()
 	registerUserLocationHandler()
 

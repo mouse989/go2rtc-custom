@@ -40,6 +40,11 @@ type AppSettings struct {
 	LoginHourRangeEnabled bool `json:"login_hour_range_enabled"`
 	LoginHourStart        int  `json:"login_hour_start"` // 0-23
 	LoginHourEnd          int  `json:"login_hour_end"`   // 0-23
+
+	// Login brute-force lockout thresholds — see login_throttle.go.
+	// 0 → built-in default (5 failures / 5 minutes).
+	MaxLoginFailures    int `json:"max_login_failures"`
+	LoginLockoutMinutes int `json:"login_lockout_minutes"`
 }
 
 var (
