@@ -139,6 +139,7 @@
     <button class="page-tab" id="tabBtnSummary">Tổng hợp truy cập</button>
     <button class="page-tab" id="tabBtnLogin">Lịch sử đăng nhập</button>
     <button class="page-tab" id="tabBtnAlerts">⚠️ Cảnh báo bảo mật</button>
+    <button class="page-tab" id="tabBtnLockouts">🔒 Khóa đăng nhập</button>
     <button class="page-tab" id="tabBtnUserLoc" style="display:none">📍 Vị trí người dùng</button>
   </div>
 
@@ -264,6 +265,44 @@
         <table class="log-table">
           <thead><tr><th class="log-time">Thời gian</th><th style="width:90px">Mức độ</th><th>Loại</th><th>User</th><th>IP</th><th>Nội dung</th></tr></thead>
           <tbody id="alertBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="tabLockouts" style="display:none">
+    <div class="log-toolbar">
+      <span style="font-size:.78rem;color:var(--text-muted)" id="lockCfgLabel">—</span>
+      <button class="btn btn-sm" id="btnLockCfg">⚙️ Cấu hình ngưỡng khóa</button>
+      <span class="spacer"></span>
+      <button class="btn btn-sm" id="btnLockRefresh">↻ Làm mới</button>
+      <span class="log-count" id="lockCount">—</span>
+    </div>
+    <div style="font-size:.72rem;color:var(--text-muted);padding:0 .2rem .5rem">
+      Danh sách tài khoản / địa chỉ IP đăng nhập sai gần đây. "Đang khóa" nghĩa là hiện không thể đăng nhập cho đến khi hết thời gian chờ — bấm "Mở khóa ngay" để cho phép đăng nhập lại trước thời hạn.
+    </div>
+
+    <div id="lockCfgPanel" style="display:none;margin:0 0 1rem;padding:.85rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);gap:.7rem;flex-wrap:wrap;align-items:flex-end">
+      <label style="font-size:.78rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+        Số lần sai tối đa trước khi khóa
+        <input type="number" id="lockCfgMaxFailures" min="1" max="50" class="btn btn-sm" style="width:100px" placeholder="5 (mặc định)">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+        Thời gian khóa (phút)
+        <input type="number" id="lockCfgMinutes" min="1" max="1440" class="btn btn-sm" style="width:100px" placeholder="5 (mặc định)">
+      </label>
+      <button class="btn btn-sm btn-primary" id="btnLockCfgSave">💾 Lưu</button>
+      <span style="font-size:.75rem" id="lockCfgMsg"></span>
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="lockScroll">
+        <table class="log-table">
+          <thead><tr>
+            <th>Loại</th><th>Tài khoản / IP</th><th style="width:90px">Số lần sai</th>
+            <th style="width:120px">Trạng thái</th><th class="log-time">Lần cuối</th><th style="width:120px"></th>
+          </tr></thead>
+          <tbody id="lockBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -556,6 +595,7 @@ const TYPE_LABEL = {
   concurrent_ip: 'Đăng nhập trùng IP',
   off_hours_login: 'Ngoài giờ',
   unauthorized_access: 'Truy cập trái phép',
+  lockout_cleared: 'Mở khóa thủ công',
 };
 
 function renderAlerts() {
@@ -599,6 +639,96 @@ async function loadAlerts() {
 
 document.getElementById('btnAlertFilter').addEventListener('click', loadAlerts);
 document.getElementById('alertSearch').addEventListener('input', renderAlerts);
+
+// ── Login lockouts: monitor + manual unlock (admin only) ─────────
+let lockEntries = [];
+let lockCfg = null;
+
+function fmtRemaining(sec) {
+  if (sec <= 0) return '—';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m > 0 ? `${m}p ${s}s` : `${s}s`;
+}
+
+function renderLockouts() {
+  document.getElementById('lockCount').textContent = lockEntries.length + ' mục';
+  document.getElementById('lockBody').innerHTML = lockEntries.length
+    ? lockEntries.map(e => {
+        const status = e.locked
+          ? `<span class="res-bad">🔒 Đang khóa (còn ${fmtRemaining(e.remaining_sec)})</span>`
+          : `<span style="color:var(--text-muted)">${e.failures} lần sai</span>`;
+        return `<tr>
+          <td>${e.kind === 'ip' ? 'Địa chỉ IP' : 'Tài khoản'}</td>
+          <td style="font-family:monospace">${escHtml(e.identifier)}</td>
+          <td>${e.failures}</td>
+          <td>${status}</td>
+          <td class="log-time">${escHtml(fmtAccTime(e.last_attempt_at))}</td>
+          <td>${e.locked ? `<button class="btn btn-sm" onclick="unlockLogin('${escHtml(e.kind)}','${escHtml(e.identifier).replace(/'/g,"\\'")}')">🔓 Mở khóa ngay</button>` : ''}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="6" class="log-empty">Không có tài khoản / IP nào đang bị theo dõi hoặc khóa.</td></tr>';
+}
+
+async function loadLockouts() {
+  document.getElementById('lockBody').innerHTML = '<tr><td colspan="6" class="log-empty">Loading…</td></tr>';
+  try {
+    const data = await apiFetch('/api/login-lockouts');
+    lockEntries = (data.entries || []).sort((a, b) => (b.locked - a.locked) || (b.failures - a.failures));
+    lockCfg = data;
+    document.getElementById('lockCfgLabel').textContent =
+      `Ngưỡng hiện tại: khóa sau ${data.max_login_failures} lần sai, trong ${data.login_lockout_minutes} phút`;
+    document.getElementById('lockCfgMaxFailures').placeholder = data.max_login_failures + ' (mặc định)';
+    document.getElementById('lockCfgMinutes').placeholder = data.login_lockout_minutes + ' (mặc định)';
+    if (data.configured) {
+      document.getElementById('lockCfgMaxFailures').value = data.configured.max_login_failures || '';
+      document.getElementById('lockCfgMinutes').value = data.configured.login_lockout_minutes || '';
+    }
+    renderLockouts();
+  } catch (e) {
+    document.getElementById('lockBody').innerHTML =
+      `<tr><td colspan="6" class="log-empty">Cannot load lockouts: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function unlockLogin(kind, identifier) {
+  const label = kind === 'ip' ? 'địa chỉ IP' : 'tài khoản';
+  if (!confirm(`Mở khóa ${label} "${identifier}" ngay bây giờ?`)) return;
+  try {
+    await apiFetch('/api/login-lockouts/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, identifier }),
+    });
+    await loadLockouts();
+  } catch (e) {
+    alert('Mở khóa thất bại: ' + e.message);
+  }
+}
+
+document.getElementById('btnLockRefresh').addEventListener('click', loadLockouts);
+
+document.getElementById('btnLockCfg').addEventListener('click', () => {
+  const panel = document.getElementById('lockCfgPanel');
+  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+});
+
+document.getElementById('btnLockCfgSave').addEventListener('click', async () => {
+  const msg = document.getElementById('lockCfgMsg');
+  const maxF = parseInt(document.getElementById('lockCfgMaxFailures').value, 10) || 0;
+  const mins = parseInt(document.getElementById('lockCfgMinutes').value, 10) || 0;
+  msg.style.color = 'var(--text-muted)'; msg.textContent = 'Đang lưu…';
+  try {
+    await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_login_failures: maxF, login_lockout_minutes: mins }),
+    });
+    msg.style.color = '#4ade80'; msg.textContent = '✓ Đã lưu';
+    await loadLockouts();
+  } catch (e) {
+    msg.style.color = '#f87171'; msg.textContent = 'Lỗi: ' + e.message;
+  }
+});
 
 // ── User GPS locations (admin only, shown only if any data exists) ──
 let userLocEntries = null; // null = not fetched yet
@@ -645,7 +775,8 @@ function switchLogTab(name) {
     summary: ['tabBtnSummary', 'tabSummary'],
     login:   ['tabBtnLogin', 'tabLoginLog'],
     alerts:  ['tabBtnAlerts', 'tabAlerts'],
-    userloc: ['tabBtnUserLoc', 'tabUserLoc'],
+    userloc:  ['tabBtnUserLoc', 'tabUserLoc'],
+    lockouts: ['tabBtnLockouts', 'tabLockouts'],
   };
   for (const key in tabs) {
     const [btnId, panelId] = tabs[key];
@@ -657,6 +788,7 @@ function switchLogTab(name) {
   if (name === 'login' && !loginEntries.length) loadLoginLog();
   if (name === 'alerts' && !alertEntries.length) loadAlerts();
   if (name === 'userloc') { populateUserDropdown('ulUser'); if (!userLocEntries) loadUserLoc(); }
+  if (name === 'lockouts') loadLockouts();
 }
 
 document.getElementById('tabBtnServer').addEventListener('click', () => switchLogTab('server'));
@@ -665,6 +797,7 @@ document.getElementById('tabBtnSummary').addEventListener('click', () => switchL
 document.getElementById('tabBtnLogin').addEventListener('click', () => switchLogTab('login'));
 document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLogTab('alerts'));
 document.getElementById('tabBtnUserLoc').addEventListener('click', () => switchLogTab('userloc'));
+document.getElementById('tabBtnLockouts').addEventListener('click', () => switchLogTab('lockouts'));
 
 // ── Boot ──
 (async () => {
@@ -694,10 +827,15 @@ document.getElementById('tabBtnUserLoc').addEventListener('click', () => switchL
     document.getElementById('tabBtnSummary').style.display = 'none';
     document.getElementById('tabBtnLogin').style.display = 'none';
     document.getElementById('tabBtnAlerts').style.display = 'none';
+    document.getElementById('tabBtnLockouts').style.display = 'none';
   }
 
   await reload();
   setInterval(() => { if (autoUpdate) reload(); }, 5000);
+  // Live-ish view of currently locked accounts/IPs while that tab is open
+  setInterval(() => {
+    if (document.getElementById('tabLockouts').style.display !== 'none' && isAdmin()) loadLockouts();
+  }, 5000);
 })();
 </script>
 </body>

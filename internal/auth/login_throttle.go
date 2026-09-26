@@ -3,6 +3,7 @@ package auth
 import (
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -12,11 +13,31 @@ import (
 // username and by client IP, so an attacker can't dodge the per-username
 // lockout by spraying many usernames from one IP, nor dodge a per-IP limit
 // by distributing guesses across many IPs against one account.
+//
+// Thresholds are admin-configurable (AppSettings.MaxLoginFailures /
+// LoginLockoutMinutes, 0 = these defaults) so a site under heavy scanning
+// can tighten them without a rebuild.
 const (
-	maxLoginFailures   = 5
-	loginLockoutWindow = 5 * time.Minute
-	loginStateMaxAge   = time.Hour // stale entries swept after this long unattempted
+	defaultMaxLoginFailures   = 5
+	defaultLoginLockoutWindow = 5 * time.Minute
+	loginStateMaxAge          = time.Hour // stale entries swept after this long unattempted
 )
+
+// maxLoginFailures returns the configured failure threshold before lockout.
+func maxLoginFailures() int {
+	if n := GetSettings().MaxLoginFailures; n > 0 {
+		return n
+	}
+	return defaultMaxLoginFailures
+}
+
+// loginLockoutWindow returns the configured lockout duration.
+func loginLockoutWindow() time.Duration {
+	if m := GetSettings().LoginLockoutMinutes; m > 0 {
+		return time.Duration(m) * time.Minute
+	}
+	return defaultLoginLockoutWindow
+}
 
 type loginAttemptState struct {
 	failures    int
@@ -94,8 +115,8 @@ func recordLoginFailure(key string) (justLocked bool) {
 	}
 	s.failures++
 	s.lastAttempt = time.Now()
-	if s.failures >= maxLoginFailures {
-		s.lockedUntil = time.Now().Add(loginLockoutWindow)
+	if s.failures >= maxLoginFailures() {
+		s.lockedUntil = time.Now().Add(loginLockoutWindow())
 		return true
 	}
 	return false
@@ -105,4 +126,79 @@ func recordLoginSuccess(key string) {
 	loginThrottleMu.Lock()
 	defer loginThrottleMu.Unlock()
 	delete(loginThrottle, key)
+}
+
+// ── Admin monitoring & manual unlock ──────────────────────────────────
+//
+// LoginLockoutEntry is one tracked identity (a username or an IP) for the
+// admin-facing "Khóa đăng nhập" tool: see /api/login-lockouts.
+type LoginLockoutEntry struct {
+	Kind          string `json:"kind"`            // "user" or "ip"
+	Identifier    string `json:"identifier"`      // username (lowercased) or IP
+	Failures      int    `json:"failures"`        // consecutive failures so far
+	Locked        bool   `json:"locked"`          // currently locked out
+	RemainingSec  int    `json:"remaining_sec"`   // seconds left in the lockout, 0 if not locked
+	LastAttemptAt string `json:"last_attempt_at"` // RFC3339
+}
+
+// splitLoginKey parses a "user:"/"ip:"-prefixed throttle key back into
+// (kind, identifier).
+func splitLoginKey(key string) (kind, identifier string, ok bool) {
+	if k, id, found := strings.Cut(key, ":"); found && (k == "user" || k == "ip") {
+		return k, id, true
+	}
+	return "", "", false
+}
+
+// ListLoginLockouts returns every tracked identity that currently has at
+// least one recorded failure (locked or not — a near-lockout is useful to
+// see coming), newest attempt first.
+func ListLoginLockouts() []LoginLockoutEntry {
+	loginThrottleMu.Lock()
+	defer loginThrottleMu.Unlock()
+
+	now := time.Now()
+	out := make([]LoginLockoutEntry, 0, len(loginThrottle))
+	for key, s := range loginThrottle {
+		kind, id, ok := splitLoginKey(key)
+		if !ok || s.failures == 0 {
+			continue
+		}
+		locked := !s.lockedUntil.IsZero() && now.Before(s.lockedUntil)
+		remaining := 0
+		if locked {
+			remaining = int(time.Until(s.lockedUntil).Round(time.Second) / time.Second)
+		}
+		out = append(out, LoginLockoutEntry{
+			Kind:          kind,
+			Identifier:    id,
+			Failures:      s.failures,
+			Locked:        locked,
+			RemainingSec:  remaining,
+			LastAttemptAt: s.lastAttempt.Format(time.RFC3339),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastAttemptAt > out[j].LastAttemptAt })
+	return out
+}
+
+// UnlockLogin clears the throttle state for kind ("user" or "ip") +
+// identifier, so the next login attempt is treated as fresh — used to let
+// an admin reopen an account/IP before its lockout timer would naturally
+// expire. Reports whether an entry existed to clear.
+func UnlockLogin(kind, identifier string) bool {
+	var key string
+	switch kind {
+	case "user":
+		key = "user:" + strings.ToLower(identifier)
+	case "ip":
+		key = "ip:" + identifier
+	default:
+		return false
+	}
+	loginThrottleMu.Lock()
+	_, existed := loginThrottle[key]
+	delete(loginThrottle, key)
+	loginThrottleMu.Unlock()
+	return existed
 }
