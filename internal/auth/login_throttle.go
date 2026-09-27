@@ -185,8 +185,9 @@ func ListLoginLockouts() []LoginLockoutEntry {
 // UnlockLogin clears the throttle state for kind ("user" or "ip") +
 // identifier, so the next login attempt is treated as fresh — used to let
 // an admin reopen an account/IP before its lockout timer would naturally
-// expire. Reports whether an entry existed to clear.
-func UnlockLogin(kind, identifier string) bool {
+// expire, or to reset a failure counter that hasn't reached the lockout yet.
+// Reports whether an entry existed and whether it was locked at the time.
+func UnlockLogin(kind, identifier string) (existed, wasLocked bool) {
 	var key string
 	switch kind {
 	case "user":
@@ -194,11 +195,14 @@ func UnlockLogin(kind, identifier string) bool {
 	case "ip":
 		key = "ip:" + identifier
 	default:
-		return false
+		return false, false
 	}
 	loginThrottleMu.Lock()
-	_, existed := loginThrottle[key]
+	defer loginThrottleMu.Unlock()
+	s, existed := loginThrottle[key]
+	if existed {
+		wasLocked = !s.lockedUntil.IsZero() && time.Now().Before(s.lockedUntil)
+	}
 	delete(loginThrottle, key)
-	loginThrottleMu.Unlock()
-	return existed
+	return existed, wasLocked
 }

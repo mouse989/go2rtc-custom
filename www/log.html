@@ -275,11 +275,12 @@
       <span style="font-size:.78rem;color:var(--text-muted)" id="lockCfgLabel">—</span>
       <button class="btn btn-sm" id="btnLockCfg">⚙️ Cấu hình ngưỡng khóa</button>
       <span class="spacer"></span>
+      <button class="btn btn-sm" id="btnLockAll" style="display:none">🔓 Mở khóa / xóa tất cả</button>
       <button class="btn btn-sm" id="btnLockRefresh">↻ Làm mới</button>
       <span class="log-count" id="lockCount">—</span>
     </div>
     <div style="font-size:.72rem;color:var(--text-muted);padding:0 .2rem .5rem">
-      Danh sách tài khoản / địa chỉ IP đăng nhập sai gần đây. "Đang khóa" nghĩa là hiện không thể đăng nhập cho đến khi hết thời gian chờ — bấm "Mở khóa ngay" để cho phép đăng nhập lại trước thời hạn.
+      Danh sách tài khoản / địa chỉ IP đăng nhập sai gần đây. "Đang khóa" nghĩa là hiện không thể đăng nhập cho đến khi hết thời gian chờ — bấm "Mở khóa ngay" để cho phép đăng nhập lại trước thời hạn. Với mục chưa bị khóa, "Xóa số lần sai" đưa bộ đếm về 0 (được thử lại đủ số lần trước khi bị khóa).
     </div>
 
     <div id="lockCfgPanel" style="display:none;margin:0 0 1rem;padding:.85rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);gap:.7rem;flex-wrap:wrap;align-items:flex-end">
@@ -300,7 +301,7 @@
         <table class="log-table">
           <thead><tr>
             <th>Loại</th><th>Tài khoản / IP</th><th style="width:90px">Số lần sai</th>
-            <th style="width:120px">Trạng thái</th><th class="log-time">Lần cuối</th><th style="width:120px"></th>
+            <th>Trạng thái</th><th class="log-time">Lần cuối</th><th style="width:1%"></th>
           </tr></thead>
           <tbody id="lockBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
         </table>
@@ -654,19 +655,28 @@ function renderLockouts() {
   document.getElementById('lockCount').textContent = lockEntries.length + ' mục';
   document.getElementById('lockBody').innerHTML = lockEntries.length
     ? lockEntries.map(e => {
+        const maxF = (lockCfg && lockCfg.max_login_failures) || 5;
         const status = e.locked
           ? `<span class="res-bad">🔒 Đang khóa (còn ${fmtRemaining(e.remaining_sec)})</span>`
-          : `<span style="color:var(--text-muted)">${e.failures} lần sai</span>`;
+          : `<span style="color:var(--text-muted)">Chưa khóa — còn ${Math.max(0, maxF - e.failures)} lần thử</span>`;
+        const btn = e.locked
+          ? `<button class="btn btn-sm" style="border-color:#f87171;color:#f87171" data-unlock-kind="${escAttr(e.kind)}" data-unlock-id="${escAttr(e.identifier)}" data-unlock-locked="1">🔓 Mở khóa ngay</button>`
+          : `<button class="btn btn-sm" data-unlock-kind="${escAttr(e.kind)}" data-unlock-id="${escAttr(e.identifier)}">↺ Xóa số lần sai</button>`;
         return `<tr>
           <td>${e.kind === 'ip' ? 'Địa chỉ IP' : 'Tài khoản'}</td>
           <td style="font-family:monospace">${escHtml(e.identifier)}</td>
           <td>${e.failures}</td>
-          <td>${status}</td>
+          <td style="white-space:nowrap">${status}</td>
           <td class="log-time">${escHtml(fmtAccTime(e.last_attempt_at))}</td>
-          <td>${e.locked ? `<button class="btn btn-sm" onclick="unlockLogin('${escHtml(e.kind)}','${escHtml(e.identifier).replace(/'/g,"\\'")}')">🔓 Mở khóa ngay</button>` : ''}</td>
+          <td style="white-space:nowrap;text-align:right">${btn}</td>
         </tr>`;
       }).join('')
     : '<tr><td colspan="6" class="log-empty">Không có tài khoản / IP nào đang bị theo dõi hoặc khóa.</td></tr>';
+  document.getElementById('btnLockAll').style.display = lockEntries.length ? '' : 'none';
+}
+
+function escAttr(s) {
+  return escHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 async function loadLockouts() {
@@ -690,20 +700,43 @@ async function loadLockouts() {
   }
 }
 
-async function unlockLogin(kind, identifier) {
+function postUnlock(kind, identifier) {
+  return apiFetch('/api/login-lockouts/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, identifier }),
+  });
+}
+
+async function unlockLogin(kind, identifier, locked) {
   const label = kind === 'ip' ? 'địa chỉ IP' : 'tài khoản';
-  if (!confirm(`Mở khóa ${label} "${identifier}" ngay bây giờ?`)) return;
+  const q = locked
+    ? `Mở khóa ${label} "${identifier}" ngay bây giờ?`
+    : `Xóa số lần đăng nhập sai của ${label} "${identifier}"?`;
+  if (!confirm(q)) return;
   try {
-    await apiFetch('/api/login-lockouts/unlock', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, identifier }),
-    });
+    await postUnlock(kind, identifier);
     await loadLockouts();
   } catch (e) {
-    alert('Mở khóa thất bại: ' + e.message);
+    alert('Thao tác thất bại: ' + e.message);
   }
 }
+
+// Row buttons (event delegation: the table re-renders every 5s).
+document.getElementById('lockBody').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-unlock-kind]');
+  if (b) unlockLogin(b.dataset.unlockKind, b.dataset.unlockId, b.dataset.unlockLocked === '1');
+});
+
+document.getElementById('btnLockAll').addEventListener('click', async () => {
+  if (!lockEntries.length) return;
+  const locked = lockEntries.filter(e => e.locked).length;
+  if (!confirm(`Mở khóa ${locked} mục đang khóa và xóa số lần sai của ${lockEntries.length - locked} mục còn lại?`)) return;
+  const results = await Promise.allSettled(lockEntries.map(e => postUnlock(e.kind, e.identifier)));
+  const failed = results.filter(r => r.status === 'rejected').length;
+  if (failed) alert(`${failed} mục không xử lý được.`);
+  await loadLockouts();
+});
 
 document.getElementById('btnLockRefresh').addEventListener('click', loadLockouts);
 
