@@ -68,7 +68,7 @@ func loginLockoutsUnlockHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existed := UnlockLogin(req.Kind, req.Identifier)
+	existed, wasLocked := UnlockLogin(req.Kind, req.Identifier)
 
 	// Audit trail: shows up in Logs → Cảnh báo bảo mật so there's a record
 	// of who manually reopened an account/IP and when.
@@ -78,10 +78,16 @@ func loginLockoutsUnlockHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		ip = req.Identifier
 	}
-	raiseAlert("lockout_cleared", AlertSeverityLow, label, ip,
-		"Admin \""+admin.Username+"\" đã mở khóa thủ công "+lockoutKindLabelVI(req.Kind)+" \""+req.Identifier+"\".")
+	action := "đã mở khóa thủ công"
+	if !wasLocked {
+		action = "đã xóa số lần đăng nhập sai của"
+	}
+	if existed {
+		raiseAlert("lockout_cleared", AlertSeverityLow, label, ip,
+			"Admin \""+admin.Username+"\" "+action+" "+lockoutKindLabelVI(req.Kind)+" \""+req.Identifier+"\".")
+	}
 
-	responseJSON(w, map[string]any{"ok": true, "existed": existed})
+	responseJSON(w, map[string]any{"ok": true, "existed": existed, "was_locked": wasLocked})
 }
 
 func lockoutKindLabelVI(kind string) string {
