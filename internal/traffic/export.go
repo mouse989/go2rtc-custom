@@ -61,3 +61,11 @@ func LatestSnapshot() TrafficSnapshot {
 	}
 	return snap
 }
+
+// IntervalMin returns the configured scan interval in minutes.
+func IntervalMin() int {
+	if n := getConfig().IntervalMin; n > 0 {
+		return n
+	}
+	return 15
+}

@@ -17,9 +17,14 @@ func Init() {
 }
 
 type summary struct {
-	UpdatedAt  string                       `json:"updatedAt"`
-	Traffic    traffic.TrafficSnapshot      `json:"traffic"`
+	UpdatedAt  string                        `json:"updatedAt"`
+	Traffic    traffic.TrafficSnapshot       `json:"traffic"`
 	TravelTime traveltime.TravelTimeSnapshot `json:"travelTime"`
+
+	// Configured collection intervals, so the dashboard sizes its time slots
+	// to the data's real resolution instead of a fixed 15 minutes.
+	TravelTimeIntervalMin int `json:"travelTimeIntervalMin"`
+	TrafficIntervalMin    int `json:"trafficIntervalMin"`
 }
 
 func handleHistory(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +109,9 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:  time.Now().In(loc).Format(time.RFC3339),
 		Traffic:    traffic.LatestSnapshot(),
 		TravelTime: traveltime.LatestSnapshot(),
+
+		TravelTimeIntervalMin: traveltime.IntervalMin(),
+		TrafficIntervalMin:    traffic.IntervalMin(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
