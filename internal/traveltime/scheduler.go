@@ -81,7 +81,13 @@ func runScheduler(stop chan struct{}) {
 			interval = 15
 		}
 		dur := time.Duration(interval) * time.Minute
-		next := time.Now().Add(dur)
+		// Align runs to wall-clock boundaries (10:00, 10:10, 10:20 … for a
+		// 10-minute interval) instead of "interval after the previous run
+		// finished". The old way drifted later every cycle by however long a
+		// run took, so measurements slid across the dashboard's time slots —
+		// leaving periodic empty cells and double-counted ones once the slot
+		// size matched the interval.
+		next := nextAligned(time.Now(), dur)
 		schedState.mu.Lock()
 		schedState.nextRun = next
 		schedState.mu.Unlock()
@@ -89,7 +95,7 @@ func runScheduler(stop chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case <-time.After(dur):
+		case <-time.After(time.Until(next)):
 			safeRun()
 		}
 	}
@@ -219,4 +225,18 @@ func getSchedulerStatus() SchedulerStatus {
 		s.NextRun = schedState.nextRun.In(l).Format(time.RFC3339)
 	}
 	return s
+}
+
+// nextAligned returns the next local-time boundary that is a multiple of dur
+// since local midnight (strictly after now, at least 5s away so a run that
+// just finished right before a boundary doesn't immediately fire again).
+func nextAligned(now time.Time, dur time.Duration) time.Time {
+	lt := now.In(loc())
+	midnight := time.Date(lt.Year(), lt.Month(), lt.Day(), 0, 0, 0, 0, lt.Location())
+	elapsed := lt.Sub(midnight)
+	next := midnight.Add((elapsed/dur + 1) * dur)
+	if next.Sub(lt) < 5*time.Second {
+		next = next.Add(dur)
+	}
+	return next
 }

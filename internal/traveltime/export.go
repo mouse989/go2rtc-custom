@@ -80,3 +80,14 @@ func LatestSnapshot() TravelTimeSnapshot {
 	snap.TodayLogs = entries
 	return snap
 }
+
+// IntervalMin returns the configured collection interval in minutes, so the
+// dashboard can size its time slots to match the data resolution.
+func IntervalMin() int {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
+	if cfg.IntervalMin > 0 {
+		return cfg.IntervalMin
+	}
+	return 15
+}

@@ -78,12 +78,11 @@ func IsHolidayDate(d time.Time) bool {
 }
 
 // HolidayProfileScale returns the TTI profile multiplier for a given holiday
-// kind and 15-min slot index (0–95). Returns 1.0 when no adjustment needed.
+// kind and local hour of day (0–23). Returns 1.0 when no adjustment needed.
 //
 // Scale < 1.0: traffic lighter than a typical weekday (holidays, school break).
 // Scale > 1.0: traffic heavier than typical (pre-holiday afternoon spike).
-func HolidayProfileScale(kind hkKind, slot int) float64 {
-	hour := (slot * fcSlotMin) / 60
+func HolidayProfileScale(kind hkKind, hour int) float64 {
 	switch kind {
 	case hkTet:
 		// Tết: residents travel out of HCMC; streets dramatically quieter.

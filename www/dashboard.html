@@ -254,19 +254,44 @@
 <script src="app.js"></script>
 <script>
 // ── Constants ─────────────────────────────────────────────────────────────
-const SLOT_MIN    = 15;          // minutes per slot
-const TOTAL_SLOTS = 96;          // 24h × 4 slots/h
+// Slot size follows the travel-time collection interval (summary
+// .travelTimeIntervalMin, e.g. 10 → 144 slots/day) so every collection gets its
+// own cell; the user can pick a coarser view in the chart header.
+let SLOT_MIN    = 15;            // minutes per slot
+let TOTAL_SLOTS = 96;            // slots per day = ceil(1440 / SLOT_MIN)
+let _ttIntervalMin = 15;         // configured collection interval (server)
+const SLOT_PREF_KEY = 'db_tti_slot_min'; // '' / 'auto' or minutes, per browser
+
+function slotPref() {
+  try { return localStorage.getItem(SLOT_PREF_KEY) || 'auto'; } catch (_) { return 'auto'; }
+}
+// Recompute SLOT_MIN/TOTAL_SLOTS; returns true if the grid size changed.
+function applySlotSize() {
+  const pref = slotPref();
+  let m = pref === 'auto' ? _ttIntervalMin : parseInt(pref, 10);
+  if (!(m > 0)) m = _ttIntervalMin;
+  // Finer than the collection interval would just leave empty cells.
+  m = Math.max(m, _ttIntervalMin, 1);
+  m = Math.min(m, 60);
+  const changed = m !== SLOT_MIN;
+  SLOT_MIN = m;
+  TOTAL_SLOTS = Math.ceil(1440 / m);
+  return changed;
+}
+// Slots spanning roughly `minutes` (at least 1).
+function slotsFor(minutes) { return Math.max(1, Math.round(minutes / SLOT_MIN)); }
+function fmtMin(m) { return m % 60 === 0 ? (m / 60) + 'h' : m + '′'; }
 
 // ── State ─────────────────────────────────────────────────────────────────
 let _data       = null;
 let _histLogs   = [];
 let _histDate   = '';
-// Baseline "typical profile": average TTI per route per 15-min slot over the
+// Baseline "typical profile": average TTI per route per time slot over the
 // last N same-weekdays. Foundation for week-over-week trend + short-term forecast.
 const BASELINE_WEEKS = 4;
-let _baseline = { day: '', weeks: 0, byRoute: {} }; // byRoute[id] = [96] of {tti,delay,n} | null
+let _baseline = { day: '', slotMin: 0, weeks: 0, byRoute: {} }; // byRoute[id] = [TOTAL_SLOTS] of {tti,delay,n} | null
 // Phase-2 model forecast from /api/traveltime/forecast (Holt-Winters seasonal).
-let _forecast = { byRoute: {}, weeks: 0 }; // byRoute[id] = {bySlot:{slot:{tti,lo,hi}}, method}
+let _forecast = { byRoute: {}, weeks: 0, slotMin: 0 }; // byRoute[id] = {bySlot:{slot:{tti,lo,hi}}, method}
 let _abnormalRoutes = []; // routes currently ≥25% above their typical level; [{id,name,ratio}]
 let _map        = null;
 let _mapInited  = false;
@@ -420,12 +445,12 @@ function slotOfTs(ts) {
   return Math.floor((d.getHours() * 60 + d.getMinutes()) / SLOT_MIN);
 }
 function slotLabel(idx) {
-  const s = idx * SLOT_MIN, e = s + SLOT_MIN;
+  const s = idx * SLOT_MIN, e = Math.min(s + SLOT_MIN, 1440);
   const p = n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0');
   return p(s) + '–' + p(e);
 }
 
-// Build 96-slot array from log entries for one route
+// Build a TOTAL_SLOTS array from log entries for one route
 function buildSlots(logs, routeId) {
   const acc = Array.from({length: TOTAL_SLOTS}, () => null);
   const buf = Array.from({length: TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0, len:0}));
@@ -450,15 +475,38 @@ function buildSlots(logs, routeId) {
   return acc;
 }
 
+// Linearly interpolate runs of empty slots (null) no wider than maxGap that sit
+// between two measured slots. Used for the typical profile (older days may have
+// been collected at a coarser interval than today's grid) and to patch the odd
+// missed collection in the grid. Filled cells are flagged interp:true.
+function fillSlotGaps(slots, maxGap, lastIdx) {
+  const out = slots.slice();
+  const end = lastIdx == null ? out.length - 1 : Math.min(lastIdx, out.length - 1);
+  let prev = -1;
+  for (let i = 0; i <= end; i++) {
+    if (!out[i] || out[i].interp) continue;
+    if (prev >= 0 && i - prev > 1 && i - prev - 1 <= maxGap) {
+      const a = out[prev], b = out[i];
+      for (let j = prev + 1; j < i; j++) {
+        const f = (j - prev) / (i - prev);
+        out[j] = { tti: a.tti + f * (b.tti - a.tti), delay: Math.round(a.delay + f * (b.delay - a.delay)), n: 0, interp: true };
+      }
+    }
+    prev = i;
+  }
+  return out;
+}
+
 // Week-over-week trend: compare a route's current TTI (latest measured slot
 // today) against the SAME time slot on the SAME weekday last week. This flags
 // whether traffic right now is worse/better than the typical level for this
 // time — the foundation for baseline traffic forecasting.
 const TREND_EPS = 0.05; // TTI change below this is "≈ như tuần trước"
 function avgSlotAround(slots, idx) {
-  // robust baseline: average non-null TTI in [idx-1 .. idx+1]
+  // robust baseline: average non-null TTI within ±15 min of idx
+  const w = slotsFor(15);
   let sum = 0, n = 0;
-  for (let j = idx - 1; j <= idx + 1; j++) {
+  for (let j = idx - w; j <= idx + w; j++) {
     if (j >= 0 && j < slots.length && slots[j]) { sum += slots[j].tti; n++; }
   }
   return n ? sum / n : null;
@@ -487,11 +535,12 @@ function trendArrow(tr) {
 
 // Short-term forecast for the REST of today: the typical profile scaled by how
 // far today is currently running above/below typical (seasonality × persistence).
-const FORECAST_RECENT = 8; // last 8 × 15-min = 2h used to estimate today's deviation
+// The last 2h of today's slots estimate the deviation, whatever the slot size.
 function buildForecast(todaySlots, baseSlots, curSlot) {
   if (!baseSlots || curSlot < 0) return null;
+  const recent = slotsFor(120);
   let rsum = 0, rn = 0;
-  for (let i = curSlot; i > curSlot - FORECAST_RECENT && i >= 0; i--) {
+  for (let i = curSlot; i > curSlot - recent && i >= 0; i--) {
     const t = todaySlots[i], b = baseSlots[i];
     if (t && b && b.tti > 0) { rsum += t.tti / b.tti; rn++; }
   }
@@ -549,19 +598,19 @@ function updateRouteStatus(tt) {
       .join('\n');
     chips.push(`<span class="db-rs-chip" style="border-color:#ef4444;color:#ef4444;cursor:pointer" title="Cao hơn ≥25% so với mức bình thường cùng giờ:\n${escH(names)}" onclick="highlightAbnormalRoutes()">⚠ ${_abnormalRoutes.length} bất thường</span>`);
   }
-  // Forecast badges: +15 min (degrading routes) and +60 min (worst-tier routes).
+  // Forecast badges: next slot (degrading routes) and +60 min (worst-tier routes).
   if (_forecast.weeks > 0 && tiers.length) {
     const curSlot = slotOfTs(new Date().toISOString());
     const worst = tiers[tiers.length - 1];
 
-    // +15 min: routes predicted to move to a worse tier than they are now.
+    // Next slot: routes predicted to move to a worse tier than they are now.
     // Only count routes that have a current measurement — routes with no data
     // would always trigger (curIdx = -1 < any tier index) giving false positives.
     let degrade15 = 0, worst15 = null;
     all.forEach(r => {
       if (!(r.latestTTI > 0)) return; // skip: no current reading
       const sf = _forecast.byRoute[r.id];
-      const p15 = sf && sf.bySlot && sf.bySlot[curSlot + 1]; // +1 slot = +15 min
+      const p15 = sf && sf.bySlot && sf.bySlot[curSlot + 1]; // +1 slot = +SLOT_MIN min
       if (!p15) return;
       const curIdx    = tiers.indexOf(ttiTier(r.latestTTI));
       const futureIdx = tiers.indexOf(ttiTier(p15.tti));
@@ -571,14 +620,14 @@ function updateRouteStatus(tt) {
       }
     });
     if (degrade15 > 0) {
-      chips.push(`<span class="db-rs-chip" style="border-color:${worst15.color};color:${worst15.color}" title="${degrade15} tuyến được dự báo chuyển xấu hơn trong 15 phút tới (mức tệ nhất: ${escH(worst15.label||'')})">🔮 +15': ${degrade15} tuyến → ${escH(worst15.label||'')}</span>`);
+      chips.push(`<span class="db-rs-chip" style="border-color:${worst15.color};color:${worst15.color}" title="${degrade15} tuyến được dự báo chuyển xấu hơn trong ${SLOT_MIN} phút tới (mức tệ nhất: ${escH(worst15.label||'')})">🔮 +${fmtMin(SLOT_MIN)}: ${degrade15} tuyến → ${escH(worst15.label||'')}</span>`);
     }
 
     // +60 min: routes predicted to hit the worst tier.
     let willJam = 0;
     all.forEach(r => {
       const sf = _forecast.byRoute[r.id];
-      const p = sf && sf.bySlot && sf.bySlot[curSlot + 4]; // +4 slots = +60 min
+      const p = sf && sf.bySlot && sf.bySlot[curSlot + slotsFor(60)]; // ≈ +60 min
       if (p && ttiTier(p.tti) === worst) willJam++;
     });
     if (willJam > 0) {
@@ -628,6 +677,8 @@ function posTip(e) {
 async function loadDashboard() {
   try {
     _data = await apiFetch('/api/dashboard/summary');
+    if (_data.travelTimeIntervalMin > 0) _ttIntervalMin = _data.travelTimeIntervalMin;
+    if (applySlotSize()) _forecast = { byRoute: {}, weeks: 0, slotMin: 0 }; // stale grid
     renderDashboard();
     loadBaseline(); // build typical-profile baseline in background, then refresh
     loadForecast(); // fetch Holt-Winters model forecast, then refresh
@@ -641,7 +692,8 @@ async function loadDashboard() {
 // BASELINE_WEEKS same-weekdays. Cached per day so the 60s refresh doesn't refetch.
 async function loadBaseline() {
   const todayStr = new Date().toISOString().slice(0, 10);
-  if (_baseline.day === todayStr && _baseline.weeks > 0) return;
+  if (_baseline.day === todayStr && _baseline.slotMin === SLOT_MIN && _baseline.weeks > 0) return;
+  const slotMin = SLOT_MIN;
 
   const dates = [];
   for (let w = 1; w <= BASELINE_WEEKS; w++) {
@@ -652,7 +704,8 @@ async function loadBaseline() {
     apiFetch('/api/dashboard/history?date=' + dt).catch(() => null)));
 
   // Accumulate per route per slot across the fetched days.
-  const acc = {}; // id → [96] of {sum,n}
+  if (slotMin !== SLOT_MIN) return; // slot size changed while fetching
+  const acc = {}; // id → [TOTAL_SLOTS] of {sum,n}
   const routeIds = ((_data?.travelTime?.routes) || []).map(r => r.id);
   let weeksUsed = 0;
   days.forEach(logs => {
@@ -666,9 +719,9 @@ async function loadBaseline() {
   });
   const byRoute = {};
   Object.keys(acc).forEach(id => {
-    byRoute[id] = acc[id].map(c => c.n ? { tti: c.sum / c.n, delay: Math.round(c.dsum / c.n), n: c.n } : null);
+    byRoute[id] = fillSlotGaps(acc[id].map(c => c.n ? { tti: c.sum / c.n, delay: Math.round(c.dsum / c.n), n: c.n } : null), slotsFor(60));
   });
-  _baseline = { day: todayStr, weeks: weeksUsed, byRoute };
+  _baseline = { day: todayStr, slotMin, weeks: weeksUsed, byRoute };
 
   if (_data) {
     const tt = _data.travelTime || {};
@@ -724,7 +777,7 @@ function openRouteDetail(routeId) {
 
   const cur     = todaySlots[curSlot] ? todaySlots[curSlot].tti : (r.latestTTI || 0);
   const p15     = sf && sf.bySlot && sf.bySlot[curSlot + 1];
-  const p60     = sf && sf.bySlot && sf.bySlot[curSlot + 4];
+  const p60     = sf && sf.bySlot && sf.bySlot[curSlot + slotsFor(60)];
   const baseNow = baseSlots ? avgSlotAround(baseSlots, curSlot) : null;
   const stat = (lbl, val, color) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem;min-width:120px">
     <div style="font-size:.64rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
@@ -732,7 +785,7 @@ function openRouteDetail(routeId) {
   document.getElementById('fcStats').innerHTML =
     stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
     stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
-    stat('Dự báo +15′', p15 ? `${p15.tti.toFixed(2)} [${p15.lo.toFixed(2)}–${p15.hi.toFixed(2)}]` : '—', p15 ? ttiColor(p15.tti) : '') +
+    stat('Dự báo +' + fmtMin(SLOT_MIN), p15 ? `${p15.tti.toFixed(2)} [${p15.lo.toFixed(2)}–${p15.hi.toFixed(2)}]` : '—', p15 ? ttiColor(p15.tti) : '') +
     stat('Dự báo +60′', p60 ? `${p60.tti.toFixed(2)} [${p60.lo.toFixed(2)}–${p60.hi.toFixed(2)}]` : '—', p60 ? ttiColor(p60.tti) : '');
 
   document.getElementById('fcNote').innerHTML = sf
@@ -770,9 +823,11 @@ function closeRouteDetail() {
 
 // Fetch the server-side Holt-Winters forecast (next 2h) and refresh the chart.
 async function loadForecast() {
+  const slotMin = SLOT_MIN;
   let list;
-  try { list = await apiFetch('/api/traveltime/forecast?horizon=8'); }
+  try { list = await apiFetch(`/api/traveltime/forecast?slotMin=${slotMin}&horizonMin=120`); }
   catch (_) { return; }
+  if (slotMin !== SLOT_MIN) return; // slot size changed while fetching
   const byRoute = {};
   let weeks = 0;
   (list || []).forEach(rf => {
@@ -781,7 +836,7 @@ async function loadForecast() {
     byRoute[rf.routeId] = { bySlot, method: rf.method };
     if (rf.weeksUsed > weeks) weeks = rf.weeksUsed;
   });
-  _forecast = { byRoute, weeks };
+  _forecast = { byRoute, weeks, slotMin };
   if (_data) {
     const tt = _data.travelTime || {};
     updateRouteStatus(tt);
@@ -829,6 +884,7 @@ function renderDashboard() {
   document.getElementById('dbRefreshTs').textContent = ts ? 'Cập nhật: ' + ts : '';
 
   updateStatusBar(tf, tt);
+  renderSlotSelect();
   updateKPIs(tf, tt);
   updateRouteStatus(tt);
   renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
@@ -848,6 +904,8 @@ function buildSkeleton() {
       <h3>
         📊 Biểu đồ TTI theo thời gian trong ngày
         <div class="hist-ctrl">
+          <label title="Mỗi ô trên biểu đồ ứng với bao nhiêu phút. Mặc định bằng chu kỳ thu thập travel time để mỗi lần đo là một ô.">Độ mịn:</label>
+          <select id="slotSel" onchange="onSlotSelChange(this.value)" style="font-size:.74rem;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:.12rem .3rem"></select>
           <label>So sánh ngày:</label>
           <input type="date" id="histDate" value="${yesterday}" max="${new Date().toISOString().slice(0,10)}">
           <button class="btn btn-sm btn-secondary" onclick="loadHistory()" style="font-size:.74rem">Tải</button>
@@ -937,6 +995,32 @@ function buildSkeleton() {
   `;
 }
 
+// ── Chart resolution selector ─────────────────────────────────────────────
+function renderSlotSelect() {
+  const sel = document.getElementById('slotSel');
+  if (!sel) return;
+  const pref = slotPref();
+  const opts = [`<option value="auto">Tự động (${fmtMin(_ttIntervalMin)}/ô = chu kỳ thu thập)</option>`];
+  [5, 10, 15, 20, 30, 60].filter(m => m > _ttIntervalMin).forEach(m => {
+    opts.push(`<option value="${m}">${fmtMin(m)}/ô</option>`);
+  });
+  sel.innerHTML = opts.join('');
+  sel.value = [...sel.options].some(o => o.value === pref) ? pref : 'auto';
+}
+function onSlotSelChange(v) {
+  try { localStorage.setItem(SLOT_PREF_KEY, v); } catch (_) {}
+  if (!applySlotSize()) return;
+  _forecast = { byRoute: {}, weeks: 0, slotMin: 0 };
+  closeRouteDetail();
+  if (_data) {
+    const tt = _data.travelTime || {};
+    updateRouteStatus(tt);
+    renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
+  }
+  loadBaseline();
+  loadForecast();
+}
+
 // ── Status bar ────────────────────────────────────────────────────────────
 function updateStatusBar(tf, tt) {
   const sb = document.getElementById('dbStatusBar');
@@ -951,6 +1035,7 @@ function updateStatusBar(tf, tt) {
     </span>
     <span style="color:var(--text-muted)">Quét: <b style="color:var(--text)">${escH(scanned)}</b></span>
     <span style="color:var(--text-muted)">Ngày: <b style="color:var(--text)">${escH(today)}</b></span>
+    <span style="color:var(--text-muted)" title="Chu kỳ thu thập đang cấu hình (Admin Config). Biểu đồ TTI tự chia ô theo chu kỳ travel time.">Chu kỳ: TTI <b style="color:var(--text)">${fmtMin(_data?.travelTimeIntervalMin || _ttIntervalMin)}</b> · ùn tắc <b style="color:var(--text)">${fmtMin(_data?.trafficIntervalMin || 15)}</b></span>
     <span class="db-spacer"></span>
     <a href="/admin.html" class="btn btn-secondary btn-sm" style="font-size:.73rem">⚙ Cấu hình</a>
   `;
@@ -1040,8 +1125,10 @@ function renderTTIChart(routes, todayLogs, histLogs) {
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
 
-    const todayBar   = renderSlotBar(todaySlots, currentSlot, false, forecast);
-    const histBar    = histSlots ? renderSlotBar(histSlots, -1, true) : '';
+    // Patch a single missed collection so one late run doesn't punch a hole
+    // in the bar (shown hatched / marked "nội suy" in the tooltip).
+    const todayBar   = renderSlotBar(fillSlotGaps(todaySlots, 1, currentSlot), currentSlot, false, forecast);
+    const histBar    = histSlots ? renderSlotBar(fillSlotGaps(histSlots, 1), -1, true) : '';
     const histLabel  = histSlots
       ? `<span style="font-size:.64rem;color:var(--text-muted)">${escH(_histDate)}${!hasHistData ? ' (không có dữ liệu)' : ''}</span>`
       : '';
@@ -1074,7 +1161,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
   if (isAdmin) initTTIDragSort();
 
   // Axis
-  const marks = [0,6,12,18].map(h => {
+  const marks = [0,3,6,9,12,15,18,21].map(h => {
     const pct = (h/24*100).toFixed(2);
     return `<span class="tti-axis-lbl" style="left:${pct}%">${String(h).padStart(2,'0')}:00</span>`;
   }).join('');
@@ -1091,7 +1178,11 @@ function renderSlotBar(slots, currentSlot, isHistory, forecast) {
     if (s) {
       bg = ttiColor(s.tti) || 'var(--surface2)';
       const prefix = isHistory ? (_histDate + ' ') : 'Hôm nay ';
-      tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\nTrễ TB: ${Math.round(s.delay/60)} phút\n${s.n} lần đo`;
+      tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\nTrễ TB: ${Math.round(s.delay/60)} phút\n` +
+            (s.interp ? '(nội suy — không có lần đo trong khung này)' : `${s.n} lần đo`);
+      if (s.interp) {
+        return `<div class="tti-slot" style="flex:1;background:${bg};opacity:.55" data-tip="${escH(tip)}"></div>`;
+      }
     } else if (isFuture) {
       const f = forecast && forecast[i];
       if (f) {
