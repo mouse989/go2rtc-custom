@@ -279,6 +279,12 @@ function applySlotSize() {
   return changed;
 }
 // Slots spanning roughly `minutes` (at least 1).
+// 754 → "12,6 phút"; used wherever a duration in seconds is shown to people.
+function fmtMinSec(sec) {
+  if (sec == null || isNaN(sec)) return '—';
+  const m = sec / 60;
+  return (Math.abs(m) >= 10 ? Math.round(m) : m.toFixed(1)).toString().replace('.', ',') + ' phút';
+}
 function slotsFor(minutes) { return Math.max(1, Math.round(minutes / SLOT_MIN)); }
 function fmtMin(m) { return m % 60 === 0 ? (m / 60) + 'h' : m + '′'; }
 
@@ -453,7 +459,7 @@ function slotLabel(idx) {
 // Build a TOTAL_SLOTS array from log entries for one route
 function buildSlots(logs, routeId) {
   const acc = Array.from({length: TOTAL_SLOTS}, () => null);
-  const buf = Array.from({length: TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0, len:0}));
+  const buf = Array.from({length: TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0, len:0, dur:0, base:0}));
   (logs||[]).filter(e => e.routeId === routeId && e.timestamp && e.tti > 0).forEach(e => {
     const i = slotOfTs(e.timestamp);
     if (i < 0 || i >= TOTAL_SLOTS) return;
@@ -461,6 +467,8 @@ function buildSlots(logs, routeId) {
     buf[i].tti   += e.tti;
     buf[i].delay += e.delaySec || 0;
     buf[i].len   += e.lengthM  || 0;
+    buf[i].dur   += e.durationSec || 0;
+    buf[i].base  += e.baseSec     || 0;
   });
   for (let i = 0; i < TOTAL_SLOTS; i++) {
     if (buf[i].n > 0) {
@@ -468,6 +476,8 @@ function buildSlots(logs, routeId) {
         tti:   buf[i].tti   / buf[i].n,
         delay: Math.round(buf[i].delay / buf[i].n),
         len:   Math.round(buf[i].len   / buf[i].n),
+        dur:   Math.round(buf[i].dur   / buf[i].n), // actual travel time, s
+        base:  Math.round(buf[i].base  / buf[i].n), // free-flow travel time, s
         n:     buf[i].n,
       };
     }
@@ -734,6 +744,8 @@ function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
 
 // ── Route detail modal: actual vs typical profile vs forecast (with CI) ──────
 let _fcChart = null;
+let _fcMode = 'time';   // 'time' | 'delay' | 'tti' — chart unit in the route detail
+let _fcRouteId = null;
 function slotHHMM(i) { const m = i * SLOT_MIN; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
 
 function openRouteDetail(routeId) {
@@ -757,6 +769,7 @@ function openRouteDetail(routeId) {
         <button onclick="closeRouteDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:.25rem .6rem;font-size:1rem">✕</button>
       </div>
       <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
+      <div id="fcModes" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div style="position:relative;height:340px"><canvas id="fcCanvas"></canvas></div>
       <div id="fcNote" style="font-size:.72rem;color:var(--text-muted);margin-top:10px;line-height:1.5"></div>
     </div>`;
@@ -764,33 +777,88 @@ function openRouteDetail(routeId) {
   }
   ov.style.display = 'flex';
   document.getElementById('fcTitle').textContent = '📈 ' + (r.name || routeId);
+  _fcRouteId = routeId;
 
-  const labels = [], actual = [], profile = [], fcast = [], lo = [], hi = [];
+  // Free-flow (no-traffic) travel time: TTI = actual / free-flow, so any TTI
+  // converts to minutes as TTI × free-flow. Taken as the median baseSec of the
+  // route's measurements (today first, else the comparison day).
+  const baseSecOf = logs => {
+    const v = (logs || []).filter(e => e.routeId === routeId && e.baseSec > 0).map(e => e.baseSec).sort((x, y) => x - y);
+    return v.length ? v[Math.floor(v.length / 2)] : 0;
+  };
+  const freeSec = baseSecOf(tt.todayLogs) || baseSecOf(_histLogs);
+  const hasMin  = freeSec > 0;
+  const toSec   = tti => (tti != null && hasMin) ? tti * freeSec : null;
+
+  const labels = [], tti = { actual: [], profile: [], fcast: [], lo: [], hi: [] }, actualSec = [];
   for (let i = 0; i < TOTAL_SLOTS; i++) {
     labels.push(slotHHMM(i));
-    actual.push(todaySlots[i] ? todaySlots[i].tti : null);
-    profile.push(baseSlots && baseSlots[i] ? baseSlots[i].tti : null);
+    const t = todaySlots[i];
+    tti.actual.push(t ? t.tti : null);
+    actualSec.push(t ? (t.dur || toSec(t.tti)) : null); // real measured duration when logged
+    tti.profile.push(baseSlots && baseSlots[i] ? baseSlots[i].tti : null);
     const p = sf && sf.bySlot && sf.bySlot[i];
-    fcast.push(p ? p.tti : null); lo.push(p ? p.lo : null); hi.push(p ? p.hi : null);
+    tti.fcast.push(p ? p.tti : null); tti.lo.push(p ? p.lo : null); tti.hi.push(p ? p.hi : null);
   }
-  if (curSlot >= 0 && actual[curSlot] != null) fcast[curSlot] = actual[curSlot]; // join lines
+  if (curSlot >= 0 && tti.actual[curSlot] != null) tti.fcast[curSlot] = tti.actual[curSlot]; // join lines
 
-  const cur     = todaySlots[curSlot] ? todaySlots[curSlot].tti : (r.latestTTI || 0);
+  const curSlotData = todaySlots[curSlot] || null;
+  const cur     = curSlotData ? curSlotData.tti : (r.latestTTI || 0);
+  const curSec  = curSlotData && curSlotData.dur ? curSlotData.dur : toSec(cur);
+  const curDelay = curSlotData ? curSlotData.delay : (r.latestDelaySec || (hasMin && cur ? (cur - 1) * freeSec : null));
   const p15     = sf && sf.bySlot && sf.bySlot[curSlot + 1];
   const p60     = sf && sf.bySlot && sf.bySlot[curSlot + slotsFor(60)];
   const baseNow = baseSlots ? avgSlotAround(baseSlots, curSlot) : null;
-  const stat = (lbl, val, color) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem;min-width:120px">
-    <div style="font-size:.64rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
-    <div style="font-weight:800;font-size:1.05rem;color:${color || 'var(--text)'}">${val}</div></div>`;
-  document.getElementById('fcStats').innerHTML =
-    stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
-    stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
-    stat('Dự báo +' + fmtMin(SLOT_MIN), p15 ? `${p15.tti.toFixed(2)} [${p15.lo.toFixed(2)}–${p15.hi.toFixed(2)}]` : '—', p15 ? ttiColor(p15.tti) : '') +
-    stat('Dự báo +60′', p60 ? `${p60.tti.toFixed(2)} [${p60.lo.toFixed(2)}–${p60.hi.toFixed(2)}]` : '—', p60 ? ttiColor(p60.tti) : '');
 
-  document.getElementById('fcNote').innerHTML = sf
+  const stat = (lbl, val, color, sub) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem;min-width:132px;flex:1">
+    <div style="font-size:.64rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+    <div style="font-weight:800;font-size:1.05rem;color:${color || 'var(--text)'}">${val}</div>
+    ${sub ? `<div style="font-size:.7rem;color:var(--text-muted);margin-top:.1rem">${sub}</div>` : ''}</div>`;
+  const delayTxt = sec => sec == null ? '—' : (sec >= 0 ? '+' : '') + fmtMinSec(sec);
+  // Forecast card: minutes as the headline, TTI + delay as the detail line.
+  const fcCard = (lbl, p) => {
+    if (!p) return stat(lbl, '—');
+    if (!hasMin) return stat(lbl, `${p.tti.toFixed(2)} [${p.lo.toFixed(2)}–${p.hi.toFixed(2)}]`, ttiColor(p.tti));
+    return stat(lbl, fmtMinSec(toSec(p.tti)), ttiColor(p.tti),
+      `khoảng ${fmtMinSec(toSec(p.lo)).replace(' phút', '')}–${fmtMinSec(toSec(p.hi))} · trễ ${delayTxt(toSec(p.tti) - freeSec)} · TTI ${p.tti.toFixed(2)}`);
+  };
+  const lenKm = r.latestLengthM ? (r.latestLengthM / 1000).toFixed(1).replace('.', ',') + ' km · ' : '';
+  document.getElementById('fcStats').innerHTML = hasMin
+    ? stat('Thời gian đi hiện tại', fmtMinSec(curSec), ttiColor(cur), `${lenKm}TTI ${cur ? cur.toFixed(2) : '—'}`) +
+      stat('Trễ hiện tại', delayTxt(curDelay), ttiColor(cur), `so với khi đường thông thoáng (${fmtMinSec(freeSec)})`) +
+      stat('Bình thường giờ này', baseNow ? fmtMinSec(toSec(baseNow)) : '—', '',
+        baseNow ? `trễ ${delayTxt(toSec(baseNow) - freeSec)} · TTI ${baseNow.toFixed(2)}` : '') +
+      fcCard('Dự báo +' + fmtMin(SLOT_MIN), p15) +
+      fcCard('Dự báo +60′', p60)
+    : stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
+      stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
+      fcCard('Dự báo +' + fmtMin(SLOT_MIN), p15) +
+      fcCard('Dự báo +60′', p60);
+
+  document.getElementById('fcNote').innerHTML = (sf
     ? `Phương pháp: <b>${sf.method === 'holt-seasonal' ? 'Holt-Winters có mùa vụ + xu thế giảm dần (damped)' : 'Hồ sơ điển hình (chưa đủ dữ liệu hôm nay)'}</b> · vùng cam mờ = khoảng tin cậy ~80% · đường xám nét đứt = mức bình thường (TB ${_baseline.weeks} tuần cùng thứ).`
-    : 'Chưa có dữ liệu dự báo cho tuyến này.';
+    : 'Chưa có dữ liệu dự báo cho tuyến này.') +
+    (hasMin ? ` Thời gian khi đường thông thoáng: <b>${fmtMinSec(freeSec)}</b>; trễ = thời gian đi − thời gian thông thoáng; mức bình thường/dự báo quy ra phút = TTI × thời gian thông thoáng.` : '');
+
+  // Mode tabs: minutes (default), delay minutes, or raw TTI.
+  const modes = hasMin
+    ? [['time', '⏱ Thời gian đi (phút)'], ['delay', '⏳ Thời gian trễ (phút)'], ['tti', 'TTI']]
+    : [['tti', 'TTI']];
+  if (!modes.some(m => m[0] === _fcMode)) _fcMode = modes[0][0];
+  document.getElementById('fcModes').innerHTML = modes.map(([k, lbl]) =>
+    `<button onclick="_fcMode='${k}';openRouteDetail(_fcRouteId)" style="font-size:.74rem;padding:.22rem .6rem;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${k === _fcMode ? 'var(--accent)' : 'var(--border)'};background:${k === _fcMode ? 'var(--accent)' : 'var(--surface2)'};color:${k === _fcMode ? '#fff' : 'var(--text)'}">${lbl}</button>`).join('');
+
+  const conv = {
+    tti:   { f: v => v, fmt: v => v.toFixed(2), axis: 'TTI' },
+    time:  { f: v => v == null ? null : toSec(v) / 60, fmt: v => fmtMinSec(v * 60), axis: 'Thời gian đi (phút)' },
+    delay: { f: v => v == null ? null : (toSec(v) - freeSec) / 60, fmt: v => (v >= 0 ? '+' : '') + fmtMinSec(v * 60), axis: 'Thời gian trễ (phút)' },
+  }[_fcMode];
+  const series = key => tti[key].map(conv.f);
+  const actualData = _fcMode === 'tti' ? tti.actual
+    : actualSec.map(sec => sec == null ? null : (_fcMode === 'time' ? sec / 60 : (sec - freeSec) / 60));
+  const fcastData = series('fcast');
+  if (curSlot >= 0 && actualData[curSlot] != null) fcastData[curSlot] = actualData[curSlot];
+  const ttiBySet = [tti.lo, tti.hi, tti.profile, tti.actual, tti.fcast]; // dataset order below
 
   const txt  = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
   const grid = 'rgba(128,128,128,.15)';
@@ -798,21 +866,28 @@ function openRouteDetail(routeId) {
   _fcChart = new Chart(document.getElementById('fcCanvas'), {
     type: 'line',
     data: { labels, datasets: [
-      { label: 'CI lo', data: lo, borderColor: 'transparent', pointRadius: 0, fill: false },
-      { label: 'Khoảng tin cậy', data: hi, borderColor: 'transparent', backgroundColor: 'rgba(245,158,11,.18)', pointRadius: 0, fill: '-1' },
-      { label: 'Mức bình thường', data: profile, borderColor: '#94a3b8', borderDash: [5,4], borderWidth: 1.5, pointRadius: 0, tension: .3, spanGaps: true },
-      { label: 'Thực tế hôm nay', data: actual, borderColor: '#2f81f7', borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
-      { label: 'Dự báo', data: fcast, borderColor: '#f59e0b', borderDash: [4,3], borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'CI lo', data: series('lo'), borderColor: 'transparent', pointRadius: 0, fill: false },
+      { label: 'Khoảng tin cậy', data: series('hi'), borderColor: 'transparent', backgroundColor: 'rgba(245,158,11,.18)', pointRadius: 0, fill: '-1' },
+      { label: 'Mức bình thường', data: series('profile'), borderColor: '#94a3b8', borderDash: [5,4], borderWidth: 1.5, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Thực tế hôm nay', data: actualData, borderColor: '#2f81f7', borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Dự báo', data: fcastData, borderColor: '#f59e0b', borderDash: [4,3], borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
     ]},
     options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { labels: { color: txt, filter: it => it.text !== 'CI lo', boxWidth: 12, font: { size: 11 } } },
         tooltip: { filter: it => it.dataset.label !== 'CI lo',
-          callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y != null ? c.parsed.y.toFixed(2) : '—'}` } },
+          callbacks: { label: c => {
+            if (c.parsed.y == null) return ` ${c.dataset.label}: —`;
+            let extra = '';
+            const t = (ttiBySet[c.datasetIndex] || [])[c.dataIndex];
+            if (_fcMode !== 'tti' && t != null) extra = ` · TTI ${t.toFixed(2)}`;
+            else if (_fcMode === 'tti' && hasMin && t != null) extra = ` · ${fmtMinSec(toSec(t))} (trễ ${delayTxt(toSec(t) - freeSec)})`;
+            return ` ${c.dataset.label}: ${conv.fmt(c.parsed.y)}${extra}`;
+          } } },
       },
       scales: {
         x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 9, font: { size: 10 } }, grid: { color: grid } },
-        y: { beginAtZero: false, ticks: { color: txt, font: { size: 10 } }, grid: { color: grid }, title: { display: true, text: 'TTI', color: txt } },
+        y: { beginAtZero: _fcMode === 'delay', ticks: { color: txt, font: { size: 10 } }, grid: { color: grid }, title: { display: true, text: conv.axis, color: txt } },
       } },
   });
 }
@@ -1178,7 +1253,9 @@ function renderSlotBar(slots, currentSlot, isHistory, forecast) {
     if (s) {
       bg = ttiColor(s.tti) || 'var(--surface2)';
       const prefix = isHistory ? (_histDate + ' ') : 'Hôm nay ';
-      tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\nTrễ TB: ${Math.round(s.delay/60)} phút\n` +
+      tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\n` +
+            (s.dur ? `Thời gian đi: ${fmtMinSec(s.dur)}\n` : '') +
+            `Trễ TB: ${fmtMinSec(s.delay)}\n` +
             (s.interp ? '(nội suy — không có lần đo trong khung này)' : `${s.n} lần đo`);
       if (s.interp) {
         return `<div class="tti-slot" style="flex:1;background:${bg};opacity:.55" data-tip="${escH(tip)}"></div>`;
