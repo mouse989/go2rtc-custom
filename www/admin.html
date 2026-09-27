@@ -314,6 +314,17 @@ tr:hover td { background:var(--surface2); }
               hoặc đăng nhập từ nhiều IP khác nhau trong thời gian ngắn.
             </p>
           </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">
+              <input type="checkbox" id="stnLayerDefaultOn" style="margin-right:.4rem;vertical-align:middle" checked>
+              Bật lớp "Trạm đo" mặc định trên bản đồ
+            </label>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Trạng thái ban đầu của nút <strong>📊 Trạm đo</strong> (tab Map) cho người dùng chưa từng tự bấm nút này
+              trên trình duyệt của họ — hữu ích để giảm rối bản đồ trên điện thoại. Ai đã tự bật/tắt thì trình duyệt
+              đó nhớ riêng lựa chọn của họ, không bị mặc định này ghi đè.
+            </p>
+          </div>
           <div style="display:flex;gap:.5rem">
             <button class="btn btn-primary" onclick="saveSettings()" style="font-size:.83rem">💾 Save Settings</button>
             <span id="settingsSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Saved</span>
@@ -1852,6 +1863,7 @@ async function loadSettings() {
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
     document.getElementById('loginHourEnd').value = s.login_hour_end ?? 22;
+    document.getElementById('stnLayerDefaultOn').checked = !s.stations_layer_default_off;
   } catch (e) {}
   loadRtspCreds();
   loadModules();
@@ -1973,6 +1985,7 @@ async function saveSettings() {
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
   const loginHourEnd   = parseInt(document.getElementById('loginHourEnd').value, 10) || 0;
+  const stnLayerDefaultOff = !document.getElementById('stnLayerDefaultOn').checked;
   try {
     await apiFetch('/api/settings', {
       method: 'POST',
@@ -1986,6 +1999,7 @@ async function saveSettings() {
         login_hour_range_enabled: loginHourRangeEnabled,
         login_hour_start: loginHourStart,
         login_hour_end: loginHourEnd,
+        stations_layer_default_off: stnLayerDefaultOff,
       }),
     });
     const msg = document.getElementById('settingsSaveMsg');
