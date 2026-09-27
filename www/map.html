@@ -45,6 +45,12 @@ body.sb-collapsed           { --map-left:0; }
 .map-btn:hover  { border-color:var(--accent); }
 .map-btn.active { border-color:var(--accent); background:rgba(47,129,247,.12); color:var(--accent); }
 
+/* Collapse toggle: always visible; every other button in the toolbar hides
+   when #mapToolbar has .collapsed — this is what keeps the button stack
+   from covering most of the map on a phone screen (see #btnToolbarCollapse). */
+#btnToolbarCollapse { justify-content:center; width:38px; padding:.42rem 0 !important; font-size:1rem !important; }
+#mapToolbar.collapsed .map-btn:not(#btnToolbarCollapse) { display:none !important; }
+
 /* ── Sidebar layout ────────────────────────────────────────── */
 .sidebar { z-index:500; display:flex; flex-direction:column; }
 .sidebar-nav { flex-shrink:0; }
@@ -534,6 +540,7 @@ body.sb-collapsed           { --map-left:0; }
 
 <!-- ── Floating toolbar ──────────────────────────────────────── -->
 <div id="mapToolbar">
+  <button class="map-btn" id="btnToolbarCollapse" title="Thu gọn/mở rộng menu bản đồ">☰</button>
   <button class="map-btn" id="btnNorth" title="Reset hướng bản đồ về Bắc" onclick="if(map)map.resetNorth()">
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M10 2a1 1 0 01.894.553l7 14A1 1 0 0117 18H3a1 1 0 01-.894-1.447l7-14A1 1 0 0110 2zm0 3.236L4.618 16h10.764L10 5.236z" clip-rule="evenodd"/></svg>
     Bắc
@@ -550,7 +557,7 @@ body.sb-collapsed           { --map-left:0; }
   <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
   <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
   <button class="map-btn" id="btnSnapPreview" style="display:none" title="Bật/tắt hiển thị snapshot camera trực tiếp trên bản đồ">📷 Xem trước</button>
-  <button class="map-btn active" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
+  <button class="map-btn" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
   <!-- Map style toggle (single button, shows current mode) -->
   <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
   <button class="map-btn admin-only" id="btnEdit" style="display:none">
@@ -860,6 +867,33 @@ body.sb-collapsed           { --map-left:0; }
 <script type="module" src="video-stream.js"></script>
 <script src="app.js"></script>
 <script>
+// ── Map toolbar collapse (mostly for phones — the button stack otherwise
+// covers a large chunk of the map, as in the "📊 Trạm đo" screenshot report).
+// Default: collapsed on narrow screens, expanded on desktop; once a visitor
+// taps the toggle, their choice is remembered on that browser regardless of
+// screen size. Runs immediately (not inside the async boot IIFE below) so
+// the toolbar never flashes open before collapsing.
+(function initToolbarCollapse() {
+  const KEY = 'map_toolbar_collapsed';
+  const stored = localStorage.getItem(KEY);
+  let collapsed = stored === '1' ? true : stored === '0' ? false
+    : window.matchMedia('(max-width:768px)').matches;
+
+  const toolbar = document.getElementById('mapToolbar');
+  const btn = document.getElementById('btnToolbarCollapse');
+  const apply = () => {
+    toolbar.classList.toggle('collapsed', collapsed);
+    btn.textContent = collapsed ? '☰' : '✕';
+    btn.title = collapsed ? 'Mở menu bản đồ' : 'Thu gọn menu bản đồ';
+  };
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    localStorage.setItem(KEY, collapsed ? '1' : '0');
+    apply();
+  });
+  apply();
+})();
+
 // ── Constants ─────────────────────────────────────────────────
 const OV_W     = 230;
 const OV_H     = 188;
@@ -2669,7 +2703,13 @@ let _stationTypes  = [];    // [{id, name, thresh_yellow, thresh_orange, thresh_
 let _stationMkrs   = {};    // stationID → {marker, el}
 let _stnSummary    = {};    // cameraID  → {hour, total, hours[24]}
 let _stnEditMode   = false;
-let _stnLayerOn    = true;  // station layer visibility toggle
+// Station layer visibility: a browser that has clicked the toggle before
+// keeps its own choice (localStorage: '1'/'0'); otherwise it follows the
+// admin's configured default (settings.stations_layer_default_off — applied
+// in the boot sequence below, once that /api/settings call resolves).
+let _stnLayerOn    = localStorage.getItem('map_stn_layer') === '1' ? true
+                   : localStorage.getItem('map_stn_layer') === '0' ? false
+                   : true; // provisional until the boot code applies the server default
 let _editingStnID  = null;
 let _stnChart      = null;
 let _stnChartCamID = null;
@@ -2862,6 +2902,7 @@ function buildStnMarkers() {
 // ── Station layer toggle ───────────────────────────────────────
 function toggleStnLayer() {
   _stnLayerOn = !_stnLayerOn;
+  localStorage.setItem('map_stn_layer', _stnLayerOn ? '1' : '0'); // this browser's own choice, from now on
   document.getElementById('btnStnLayer').classList.toggle('active', _stnLayerOn);
   Object.values(_stationMkrs).forEach(({ marker }) => {
     if (_stnLayerOn) marker.addTo(map);
@@ -3319,6 +3360,11 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   try {
     const settings = await apiFetch('/api/settings');
     _vietmapKey = (settings && settings.vietmap_api_key) || '';
+    // Only apply the admin's default when this browser hasn't picked its own
+    // state before (toggleStnLayer's localStorage flag).
+    if (localStorage.getItem('map_stn_layer') == null) {
+      _stnLayerOn = !(settings && settings.stations_layer_default_off);
+    }
     const r = parseFloat(settings && settings.map_search_radius_km);
     if (r > 0) {
       document.getElementById('radiusNum').value   = r;
@@ -3353,6 +3399,7 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     // Load counting stations + today's summary (only if user has view permission)
     if (canViewStations()) {
       document.getElementById('btnStnLayer').style.display = '';
+      document.getElementById('btnStnLayer').classList.toggle('active', _stnLayerOn);
       loadCountingCams();
       await loadStationsLayer();
       // Refresh counts every 30 s — rolling15 window shifts meaningfully every ~5 min

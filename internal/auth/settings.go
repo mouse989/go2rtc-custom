@@ -45,6 +45,12 @@ type AppSettings struct {
 	// 0 → built-in default (5 failures / 5 minutes).
 	MaxLoginFailures    int `json:"max_login_failures"`
 	LoginLockoutMinutes int `json:"login_lockout_minutes"`
+
+	// Default state of the Map page's "📊 Trạm đo" (counting stations) layer
+	// toggle for users who haven't touched it yet in their own browser (a
+	// per-browser click is remembered separately, in localStorage). Inverted
+	// so the zero value (false) keeps today's behavior — layer on by default.
+	StationsLayerDefaultOff bool `json:"stations_layer_default_off"`
 }
 
 var (
