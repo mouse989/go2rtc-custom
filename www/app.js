@@ -187,7 +187,7 @@ function firstPermittedPage(u) {
   for (const { tab, page } of order) {
     if ((u.tabs || []).includes(tab)) return page;
   }
-  return '/login.html?err=no_access';
+  return '/no-access.html';
 }
 
 // initChangePasswordModal — wires up "click your name in the sidebar" to

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UTMC Platform — Chưa được cấp quyền</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #2f81f7;
+      --accent-h: #388bfd;
+      --danger:   #f85149;
+      --radius:   10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      text-align: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      margin-bottom: 1.5rem;
+      justify-content: center;
+    }
+    .logo img { height: 48px; width: auto; }
+    .logo h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -.5px; }
+    .logo span { color: var(--accent); }
+
+    .icon {
+      font-size: 2.6rem;
+      margin-bottom: .6rem;
+      line-height: 1;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: .6rem;
+    }
+
+    p {
+      font-size: .88rem;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: .4rem;
+    }
+
+    .who {
+      font-size: .82rem;
+      color: var(--text);
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .55rem .8rem;
+      margin: 1.1rem 0 1.4rem;
+    }
+    .who b { color: var(--accent); }
+
+    .actions {
+      display: flex;
+      gap: .6rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: .65rem 1.1rem;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: var(--accent-h); }
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.secondary:hover { border-color: var(--accent); }
+    button:disabled { opacity: .6; cursor: default; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <img src="logo.png" alt="UTMC">
+    <h1><span>Platform</span></h1>
+  </div>
+
+  <div class="icon">🔒</div>
+  <h2>Bạn chưa được phân quyền truy cập hệ thống</h2>
+  <p>Tài khoản của bạn đã đăng nhập thành công, nhưng hiện chưa được cấp quyền xem bất kỳ trang nào.</p>
+  <p>Vui lòng liên hệ quản trị viên hệ thống để được cấp quyền truy cập.</p>
+
+  <div class="who" id="whoBox" style="display:none">
+    Đang đăng nhập với tài khoản: <b id="whoName">—</b>
+  </div>
+
+  <div class="actions">
+    <button class="secondary" id="btnRetry">↻ Kiểm tra lại quyền</button>
+    <button id="btnLogout">Đăng xuất</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+// This page is a landing spot for a logged-in user with no permitted tabs —
+// it deliberately does NOT call initApp(requiredTab), since that would just
+// bounce them right back here. It still needs its own auth check (not
+// logged in at all → login.html) and its own "did the admin already grant
+// access?" recheck (button below, and once automatically on load).
+
+function goToFirstPermittedOrStayHere(u) {
+  if (!u) { window.location.href = '/login.html'; return; }
+  if (u.role === 'admin' || (u.tabs || []).length > 0) {
+    window.location.href = firstPermittedPage(u);
+  }
+}
+
+async function recheckAccess(btn) {
+  const token = getToken();
+  if (!token) { window.location.href = '/login.html'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang kiểm tra…'; }
+  try {
+    const res = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } });
+    if (res.status === 401) {
+      localStorage.removeItem('go2rtc_token');
+      localStorage.removeItem('go2rtc_user');
+      window.location.href = '/login.html';
+      return;
+    }
+    if (res.ok) {
+      const me = await res.json();
+      localStorage.setItem('go2rtc_user', JSON.stringify(me));
+      goToFirstPermittedOrStayHere(me);
+    }
+  } catch (_) {
+    // offline — nothing to update, let the user try again later
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Kiểm tra lại quyền'; }
+  }
+}
+
+document.getElementById('btnRetry').addEventListener('click', () => recheckAccess(document.getElementById('btnRetry')));
+document.getElementById('btnLogout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  localStorage.removeItem('go2rtc_token');
+  localStorage.removeItem('go2rtc_user');
+  window.location.href = '/login.html';
+});
+
+(function boot() {
+  const u = getUser();
+  if (!u) { window.location.href = '/login.html'; return; }
+  if (u.username) {
+    document.getElementById('whoName').textContent = u.username;
+    document.getElementById('whoBox').style.display = '';
+  }
+  goToFirstPermittedOrStayHere(u); // in case tabs were already granted before landing here
+  recheckAccess(); // and re-verify against the server once, silently
+})();
+</script>
+</body>
+</html>
