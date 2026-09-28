@@ -284,6 +284,17 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Khoảng cách tối đa tới tuyến mặc định (m)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="mapRouteWidthInput" min="10" max="2000" step="10" value="100"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">m (mặc định: 100)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Khoảng cách tối đa từ camera tới tuyến để tính là "dọc tuyến" trong công cụ 🛣 Theo tuyến (tab Map). Áp dụng cho tất cả user, session.
+            </p>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Giới hạn phiên xem video mặc định (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="viewLimitInput" min="1" step="1" value="15"
@@ -1859,6 +1870,7 @@ async function loadSettings() {
     document.getElementById('snapIntervalInput').value = s.snapshot_interval_sec || 15;
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
+    document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
@@ -1981,6 +1993,7 @@ async function saveSettings() {
   const interval    = parseInt(document.getElementById('snapIntervalInput').value, 10) || 15;
   const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
+  const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
@@ -1995,6 +2008,7 @@ async function saveSettings() {
         snapshot_interval_sec: interval,
         snapshot_concurrency: concurrency,
         map_search_radius_km: mapRadius,
+        map_route_width_m: mapRouteWidth,
         default_view_limit_minutes: viewLimit,
         login_hour_range_enabled: loginHourRangeEnabled,
         login_hour_start: loginHourStart,
