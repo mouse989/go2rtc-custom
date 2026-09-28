@@ -31,6 +31,7 @@ type AppSettings struct {
 	SnapshotIntervalSec     int            `json:"snapshot_interval_sec"` // 0 → default 15 s
 	SnapshotConcurrency     int            `json:"snapshot_concurrency"`  // 0 → auto (interval_sec × 10)
 	MapSearchRadiusKm       float64        `json:"map_search_radius_km"`  // 0 → default 1 km
+	MapRouteWidthM          float64        `json:"map_route_width_m"`     // "Theo tuyến" tool: 0 → default 100 m
 	HeatmapCfg              *HeatmapConfig `json:"heatmap_cfg,omitempty"`
 	DefaultViewLimitMinutes int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
 

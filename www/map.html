@@ -3707,7 +3707,7 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     document.getElementById('btnStnTypes').style.display = '';
   }
 
-  // Fetch settings: VietMap API key + default search radius
+  // Fetch settings: VietMap API key + default search radius + route width
   try {
     const settings = await apiFetch('/api/settings');
     _vietmapKey = (settings && settings.vietmap_api_key) || '';
@@ -3720,6 +3720,13 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     if (r > 0) {
       document.getElementById('radiusNum').value   = r;
       document.getElementById('radiusSlider').value = Math.min(Math.max(r, 0.1), 10);
+    }
+    // Shared default for the "Theo tuyến" corridor width, same idea as the
+    // search radius above — admin sets one value everyone starts from.
+    const w = parseFloat(settings && settings.map_route_width_m);
+    if (w > 0) {
+      document.getElementById('routeWidthNum').value = w;
+      document.getElementById('routeWidthSlider').value = Math.min(Math.max(w, 20), 500);
     }
   } catch (_) {}
 
