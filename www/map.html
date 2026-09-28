@@ -128,6 +128,10 @@ body.sb-collapsed           { --map-left:0; }
   font-size:.73rem; padding:.25rem .45rem;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-muted);
 }
+.result-card .rc-order {
+  font-size:.66rem; font-weight:700; color:#fff; background:rgba(167,139,250,.9);
+  padding:.1rem .45rem; text-align:center; white-space:nowrap;
+}
 
 /* ── Map overlay container (Mode 2 – PiP windows) ──────────── */
 #mapOverlays {
@@ -293,6 +297,20 @@ body.sb-collapsed           { --map-left:0; }
 .region-row .region-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .region-row .region-count { color:var(--text-muted); font-size:.73rem; white-space:nowrap; }
 .region-empty { font-size:.78rem; color:var(--text-muted); text-align:center; padding:1rem 0; }
+
+/* ── Route ("Theo tuyến") corridor panel ─────────────────────── */
+#routePanel {
+  position:fixed; left:calc(var(--map-left) + .8rem); top:80px;
+  z-index:400; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:.85rem;
+  width:320px; min-width:280px; max-width:480px;
+  display:none; flex-direction:column; gap:.6rem;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+  max-height:calc(100vh - 120px); overflow-y:auto;
+  transition:left var(--transition);
+}
+#routePanel.show { display:flex; }
+#routePanel h4 { font-size:.9rem; font-weight:700; margin:0; }
 
 /* ── Camera marker HTML element (edit mode) ─────────────────── */
 .cam-marker-wrap {
@@ -549,6 +567,9 @@ body.sb-collapsed           { --map-left:0; }
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
     Search area
   </button>
+  <button class="map-btn" id="btnRoute" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
+    🛣 Theo tuyến
+  </button>
   <!-- Traffic: shown only for admin or users with allow_traffic -->
   <button class="map-btn" id="btnTraffic" style="display:none">
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
@@ -579,7 +600,7 @@ body.sb-collapsed           { --map-left:0; }
 <div id="resultsPanel">
   <div id="resultsPanelHeader">
     <h4 id="resultsTitle">Cameras</h4>
-    <div class="radius-row">
+    <div class="radius-row" id="radiusRow">
       <label>📍 R:</label>
       <input type="range" id="radiusSlider" min="0.1" max="10" step="0.1" value="1">
       <input type="number" id="radiusNum" value="1" min="0.1" step="0.1" title="Type any value (km)">
@@ -678,6 +699,34 @@ body.sb-collapsed           { --map-left:0; }
       <button class="btn btn-danger" id="regionDeleteBtn" style="font-size:.8rem;display:none">🗑</button>
     </div>
   </div>
+</div>
+
+<!-- ── Route ("Theo tuyến") corridor panel ──────────────────────── -->
+<div id="routePanel">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h4>🛣 Theo tuyến đường</h4>
+    <button class="btn btn-secondary" id="routePanelClose" style="font-size:.75rem;padding:.15rem .5rem">✕</button>
+  </div>
+  <p style="font-size:.72rem;color:var(--text-muted);margin:0">
+    Click lên bản đồ theo đúng thứ tự: <b>điểm đầu</b> → (điểm giữa nếu cần) → <b>điểm cuối</b>. Hệ thống dò theo
+    đường thật (VietMap Direction) rồi liệt kê camera dọc tuyến theo đúng thứ tự từ điểm đầu đến điểm cuối.
+  </p>
+  <div id="routePointsInfo" style="font-size:.8rem;color:var(--text)">Chưa có điểm nào — bấm lên bản đồ để bắt đầu.</div>
+  <div>
+    <label style="font-size:.73rem;color:var(--text-muted);display:block;margin-bottom:.15rem">Khoảng cách tối đa tới tuyến (m)</label>
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <input type="range" id="routeWidthSlider" min="20" max="500" step="10" value="100" style="flex:1">
+      <input type="number" id="routeWidthNum" value="100" min="10" max="2000" step="10"
+             style="width:70px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+      <span style="font-size:.76rem;color:var(--text-muted)">m</span>
+    </div>
+  </div>
+  <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+    <button class="btn btn-secondary" id="routeUndoPoint" style="font-size:.76rem">↩ Hoàn tác điểm</button>
+    <button class="btn btn-secondary" id="routeClearBtn" style="font-size:.76rem">🗑 Xóa tuyến</button>
+  </div>
+  <button class="btn btn-primary" id="routeComputeBtn" style="font-size:.82rem;width:100%" disabled>🏁 Dò tuyến &amp; tìm camera</button>
+  <div id="routeInfo" style="font-size:.78rem;display:none"></div>
 </div>
 
 <!-- ── Stream modal ───────────────────────────────────────────── -->
@@ -912,6 +961,12 @@ let _editMarkers = {};    // id → vietmapgl.Marker (edit mode only)
 let _searchHits  = [];
 let _searchCenter = null; // [lng, lat]
 let _searchMode = false, _editMode = false, _editingID = null;
+// ── Route corridor tool ("Theo tuyến") state ──
+let _routeMode  = false;   // panel open / map clicks add route points
+let _routePoints = [];     // [[lng,lat], ...] clicked points, in click order (start → end)
+let _routeGeom   = null;   // real road-following geometry after compute: [[lng,lat],...]
+let _routeInfo   = null;   // {km, min} of the computed route
+let _routeAlongByID = {};  // camera id → km along the route (drives result ordering)
 let _ovWindows  = {};     // id → { el, lat, lon, pinned }
 let _snapshotTimer = null, _currentModalID = null;
 let _trafficOn = false, _trafficSourceIds = [], _trafficLayerIds = [], _trafficTimer = null;
@@ -1244,6 +1299,7 @@ async function initMap(apiKey) {
   // Click events are registered once (survive style change)
   map.on('click', 'clusters', async e => {
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
+    if (_routeMode) { addRoutePoint(e.lngLat); return; }
     const feat  = e.features[0];
     const src   = map.getSource('cameras');
     const coord = feat.geometry.coordinates.slice();
@@ -1267,6 +1323,7 @@ async function initMap(apiKey) {
 
   map.on('click', 'unclustered-point', e => {
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
+    if (_routeMode) { addRoutePoint(e.lngLat); return; }
     if (_editMode) return;
     const id = e.features[0].properties.id;
     if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
@@ -1277,6 +1334,7 @@ async function initMap(apiKey) {
     const layers = ['unclustered-point','clusters'];
     if (map.queryRenderedFeatures(e.point, { layers }).length > 0) return;
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
+    if (_routeMode) { addRoutePoint(e.lngLat); return; }
     if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
     if (_editMode) {
       document.getElementById('editLat').value = e.lngLat.lat.toFixed(6);
@@ -1297,10 +1355,10 @@ async function initMap(apiKey) {
 
   ['unclustered-point','clusters'].forEach(layer => {
     map.on('mouseenter', layer, () => {
-      if (!_editMode && !_regionDrawing) map.getCanvas().style.cursor = 'pointer';
+      if (!_editMode && !_regionDrawing && !_routeMode) map.getCanvas().style.cursor = 'pointer';
     });
     map.on('mouseleave', layer, () => {
-      map.getCanvas().style.cursor = _regionDrawing ? 'crosshair' : (_searchMode ? 'crosshair' : '');
+      map.getCanvas().style.cursor = (_regionDrawing || _routeMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
     });
   });
 
@@ -1664,14 +1722,20 @@ function runSearch(lngLat, km) {
   showResultsPanel(_searchHits, km);
 }
 
-function clearSearch() {
-  if (map) clearSearchCircle();
+// Clears the highlighted-camera set + closes the results strip. Shared by
+// circle search and the route tool — neither owns _searchHits exclusively.
+function clearSearchHighlight() {
   _searchHits = [];
   refreshMarkerIcons();
   buildSidebar();
   document.getElementById('resultsPanel').classList.remove('show');
   closeAllOverlays();
   forceMapResize();
+}
+
+function clearSearch() {
+  if (map) clearSearchCircle();
+  clearSearchHighlight();
 }
 
 // Force the GL canvas to recompute its drawing buffer / viewport. Used
@@ -1684,34 +1748,62 @@ function forceMapResize() {
   setTimeout(() => map.resize(), 320); // after the panel's .3s CSS transition ends
 }
 
-document.getElementById('btnCloseResults').addEventListener('click', clearSearch);
+document.getElementById('btnCloseResults').addEventListener('click', () => {
+  // In route mode the left drawing panel + computed route stay put — only
+  // the bottom camera strip closes, same as circle mode leaves _searchMode on.
+  if (_routeMode) clearSearchHighlight(); else clearSearch();
+});
 
 // ── Results panel ─────────────────────────────────────────────
+// Renders the camera cards shared by circle search and the route tool.
+// sorted:false (route mode) keeps the caller's order (start → end of the
+// route) instead of alphabetising; alongById annotates each card with its
+// position along the route.
+function renderResultsCams(ids, opts = {}) {
+  const list = opts.sorted === false ? ids
+    : [...ids].sort((a,b) => ((_locByID[a]?.label||_locByID[a]?.name||a))
+        .localeCompare(_locByID[b]?.label||_locByID[b]?.name||b));
+
+  const panel = document.getElementById('resultsCams');
+  panel.innerHTML = '';
+  list.forEach((id, i) => {
+    const loc = _locByID[id], s = _streamByID[id];
+    if (!loc||!s) return;
+    const label = camLabel(loc, id, s);
+    const alongKm = opts.alongById ? opts.alongById[id] : null;
+    const order = alongKm != null ? `<div class="rc-order">#${i+1} · km ${alongKm.toFixed(1)}</div>` : '';
+    const card = document.createElement('div');
+    card.className = 'result-card';
+    card.innerHTML = `
+      ${order}
+      <img src="${escHtml(s.frame_url)}&_t=${Date.now()}"
+           style="width:100%;aspect-ratio:16/9;display:block;background:#111;object-fit:cover;"
+           alt="${escHtml(label)}" onerror="this.style.background='#1a1a2e'">
+      <div class="rc-name" title="${escHtml(label)}">${escHtml(label)}</div>`;
+    card.addEventListener('click', () => openModal(id));
+    panel.appendChild(card);
+  });
+}
+
 function showResultsPanel(ids, km) {
+  document.getElementById('radiusRow').style.display = '';
   document.getElementById('resultsTitle').textContent =
     `${ids.length} camera${ids.length!==1?'s':''} found`;
   document.getElementById('radiusNum').value   = km;
   document.getElementById('radiusSlider').value = Math.min(Math.max(km, 0.1), 10);
+  renderResultsCams(ids, { sorted: true });
+  document.getElementById('resultsPanel').classList.add('show');
+  forceMapResize();
+}
 
-  const panel = document.getElementById('resultsCams');
-  panel.innerHTML = '';
-  [...ids]
-    .sort((a,b) => ((_locByID[a]?.label||_locByID[a]?.name||a))
-      .localeCompare(_locByID[b]?.label||_locByID[b]?.name||b))
-    .forEach(id => {
-      const loc = _locByID[id], s = _streamByID[id];
-      if (!loc||!s) return;
-      const label = camLabel(loc, id, s);
-      const card = document.createElement('div');
-      card.className = 'result-card';
-      card.innerHTML = `
-        <img src="${escHtml(s.frame_url)}&_t=${Date.now()}"
-             style="width:100%;aspect-ratio:16/9;display:block;background:#111;object-fit:cover;"
-             alt="${escHtml(label)}" onerror="this.style.background='#1a1a2e'">
-        <div class="rc-name" title="${escHtml(label)}">${escHtml(label)}</div>`;
-      card.addEventListener('click', () => openModal(id));
-      panel.appendChild(card);
-    });
+// Route-mode counterpart of showResultsPanel: hides the (irrelevant) radius
+// slider, titles the strip with the route's own stats, and keeps the
+// start→end order instead of alphabetising.
+function showRouteResultsPanel(ids, info) {
+  document.getElementById('radiusRow').style.display = 'none';
+  document.getElementById('resultsTitle').textContent =
+    `🛣 ${ids.length} camera dọc tuyến · ${info.km} km · ~${info.min} phút`;
+  renderResultsCams(ids, { sorted: false, alongById: _routeAlongByID });
   document.getElementById('resultsPanel').classList.add('show');
   forceMapResize();
 }
@@ -1864,6 +1956,261 @@ function haversine(lat1,lon1,lat2,lon2) {
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
+// ── Route corridor math (for the "Theo tuyến" tool) ─────────────
+// Local equirectangular projection — the same flat-earth approximation
+// circleGeoJSON already uses for the search-radius circle; plenty accurate
+// at road/corridor scale (tens to low hundreds of meters).
+function toXYkm(lat, lng, refLat) {
+  return [lng * 111.32 * Math.cos(refLat * Math.PI / 180), lat * 111.32];
+}
+
+// Closest point on segment [a,b] to point p (all in local km coords).
+// Returns t∈[0,1] (position along the segment) and the perpendicular distance.
+function projectOnSegmentKm(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return { t, dist: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) };
+}
+
+// Finds the closest point on a [lng,lat] polyline to (lat,lng): the
+// perpendicular distance to the route (km) and the cumulative distance from
+// the polyline's FIRST point to that closest point (km) — i.e. "how far
+// along the route, in the direction it was drawn". Sorting cameras by this
+// value is what makes the results list respect the route's direction
+// (start → end), not just "distance from the line".
+function nearestOnPolyline(lat, lng, coords) {
+  if (!coords || coords.length < 2) return null;
+  const refLat = coords[0][1];
+  const [px, py] = toXYkm(lat, lng, refLat);
+  let best = null, cum = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lng1, lat1] = coords[i], [lng2, lat2] = coords[i + 1];
+    const [ax, ay] = toXYkm(lat1, lng1, refLat);
+    const [bx, by] = toXYkm(lat2, lng2, refLat);
+    const segLen = Math.hypot(bx - ax, by - ay);
+    const { t, dist } = projectOnSegmentKm(px, py, ax, ay, bx, by);
+    const along = cum + t * segLen;
+    if (!best || dist < best.dist) best = { dist, along };
+    cum += segLen;
+  }
+  return best;
+}
+
+// ── Route corridor tool ("Theo tuyến") ───────────────────────────
+// Same interaction shape as circle search (click map → highlight cameras →
+// results strip), but the "area" is a hand-drawn route instead of a radius:
+// click points in travel order (start → … → end), the tool snaps them to
+// the real road network (VietMap Directions, same proxy the travel-time
+// route builder in Admin Config uses) and lists every camera within a
+// configurable distance of that road, ordered start-to-end — so the list
+// reads in the same direction the route was drawn.
+function ensureRouteLayers() {
+  if (!map.getSource('route-draft-line')) {
+    map.addSource('route-draft-line', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'route-draft-line-layer', type: 'line', source: 'route-draft-line',
+      paint: { 'line-color': '#a78bfa', 'line-width': 2, 'line-dasharray': [3, 2] },
+    });
+  }
+  if (!map.getSource('route-draft-points')) {
+    map.addSource('route-draft-points', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'route-draft-points-layer', type: 'circle', source: 'route-draft-points',
+      paint: {
+        'circle-radius': 6,
+        'circle-color': ['match', ['get', 'role'], 'start', '#22c55e', 'end', '#ef4444', '#fff'],
+        'circle-stroke-width': 2, 'circle-stroke-color': '#a78bfa',
+      },
+    });
+  }
+  if (!map.getSource('route-line')) {
+    map.addSource('route-line', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'route-line-layer', type: 'line', source: 'route-line',
+      paint: { 'line-color': '#a78bfa', 'line-width': 4, 'line-opacity': 0.9 },
+    });
+  }
+}
+
+function removeRouteLayers() {
+  ['route-draft-line-layer', 'route-draft-points-layer', 'route-line-layer']
+    .forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  ['route-draft-line', 'route-draft-points', 'route-line']
+    .forEach(id => { if (map.getSource(id)) map.removeSource(id); });
+}
+
+function updateRouteDraftLayers() {
+  if (!map || !map.getSource('route-draft-line')) return;
+  map.getSource('route-draft-line').setData(_routePoints.length >= 2
+    ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: _routePoints } }] }
+    : emptyFC());
+
+  const n = _routePoints.length;
+  map.getSource('route-draft-points').setData({
+    type: 'FeatureCollection',
+    features: _routePoints.map((pt, i) => ({
+      type: 'Feature',
+      properties: { role: i === 0 ? 'start' : (i === n - 1 && n > 1 ? 'end' : 'mid') },
+      geometry: { type: 'Point', coordinates: pt },
+    })),
+  });
+
+  document.getElementById('routePointsInfo').textContent = n === 0
+    ? 'Chưa có điểm nào — bấm lên bản đồ để bắt đầu.'
+    : `${n} điểm đã chọn` + (n >= 2 ? ' (điểm vừa bấm = điểm cuối)' : ' — bấm thêm để chọn điểm cuối');
+  document.getElementById('routeComputeBtn').disabled = n < 2;
+}
+
+function addRoutePoint(lngLat) {
+  _routePoints.push([lngLat.lng, lngLat.lat]);
+  // A new point changes the route — the last computed geometry no longer
+  // matches the drawn points, so drop it rather than show a stale corridor.
+  if (_routeGeom) { _routeGeom = null; _routeInfo = null; document.getElementById('routeInfo').style.display = 'none'; }
+  updateRouteDraftLayers();
+}
+
+function undoRoutePoint() {
+  if (!_routePoints.length) return;
+  _routePoints.pop();
+  if (_routeGeom) { _routeGeom = null; _routeInfo = null; document.getElementById('routeInfo').style.display = 'none'; }
+  updateRouteDraftLayers();
+}
+
+function clearRoute() {
+  _routePoints = [];
+  _routeGeom = null;
+  _routeInfo = null;
+  if (map && map.getSource('route-line')) map.getSource('route-line').setData(emptyFC());
+  updateRouteDraftLayers();
+  document.getElementById('routeInfo').style.display = 'none';
+  document.getElementById('routeComputeBtn').textContent = '🏁 Dò tuyến & tìm camera';
+  clearSearchHighlight();
+}
+
+function openRoutePanel() {
+  exitOtherMapModes();
+  _routeMode = true;
+  document.getElementById('btnRoute').classList.add('active');
+  if (map) { ensureRouteLayers(); map.getCanvas().style.cursor = 'crosshair'; }
+  document.getElementById('routePanel').classList.add('show');
+  updateRouteDraftLayers();
+}
+
+function closeRoutePanel() {
+  _routeMode = false;
+  document.getElementById('btnRoute').classList.remove('active');
+  if (map) { map.getCanvas().style.cursor = ''; removeRouteLayers(); }
+  document.getElementById('routePanel').classList.remove('show');
+  _routePoints = [];
+  _routeGeom = null;
+  _routeInfo = null;
+  clearSearchHighlight();
+}
+
+document.getElementById('btnRoute').addEventListener('click', () => {
+  _routeMode ? closeRoutePanel() : openRoutePanel();
+});
+document.getElementById('routePanelClose').addEventListener('click', closeRoutePanel);
+document.getElementById('routeUndoPoint').addEventListener('click', undoRoutePoint);
+document.getElementById('routeClearBtn').addEventListener('click', clearRoute);
+document.getElementById('routeComputeBtn').addEventListener('click', computeRoute);
+
+document.getElementById('routeWidthSlider').addEventListener('input', function() {
+  document.getElementById('routeWidthNum').value = this.value;
+  if (_routeGeom) recomputeRouteHits();
+});
+document.getElementById('routeWidthNum').addEventListener('input', function() {
+  const m = parseFloat(this.value);
+  if (!m || m <= 0) return;
+  document.getElementById('routeWidthSlider').value = Math.min(Math.max(m, 20), 500);
+  if (_routeGeom) recomputeRouteHits();
+});
+document.getElementById('routeWidthNum').addEventListener('change', function() {
+  if (!this.value || parseFloat(this.value) <= 0) this.value = 100;
+});
+
+// Re-filters cameras against the already-computed route geometry (no new
+// Directions API call) — used when the corridor-width control changes.
+function recomputeRouteHits() {
+  if (!_routeGeom) return;
+  const widthKm = Math.max(0.01, (parseFloat(document.getElementById('routeWidthNum').value) || 100) / 1000);
+  const along = {};
+  _searchHits = _locations
+    .filter(loc => _streamByID[loc.id])
+    .map(loc => {
+      const near = nearestOnPolyline(loc.lat, loc.lon, _routeGeom);
+      return near ? { id: loc.id, dist: near.dist, along: near.along } : null;
+    })
+    .filter(m => m && m.dist <= widthKm)
+    .sort((a, b) => a.along - b.along)
+    .map(m => { along[m.id] = m.along; return m.id; });
+  _routeAlongByID = along;
+
+  refreshMarkerIcons();
+  buildSidebar();
+
+  if (_routeInfo) {
+    const widthM = Math.round(widthKm * 1000);
+    document.getElementById('routeInfo').style.display = '';
+    document.getElementById('routeInfo').style.color = 'var(--green,#4ade80)';
+    document.getElementById('routeInfo').textContent =
+      `✓ ${_routeInfo.km} km · ~${_routeInfo.min} phút · ${_searchHits.length} camera trong phạm vi ${widthM}m`;
+    if (document.getElementById('resultsPanel').classList.contains('show')) {
+      showRouteResultsPanel(_searchHits, _routeInfo);
+    }
+  }
+}
+
+// Snaps the clicked points to the real road network via the same VietMap
+// Directions proxy the Admin Config travel-time route builder uses, then
+// filters + orders cameras along the returned geometry.
+async function computeRoute() {
+  if (_routePoints.length < 2) return;
+  const btn  = document.getElementById('routeComputeBtn');
+  const info = document.getElementById('routeInfo');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang dò tuyến…';
+  info.style.display = 'none';
+
+  try {
+    const params = new URLSearchParams();
+    _routePoints.forEach(([lng, lat]) => params.append('point', `${lat},${lng}`));
+    params.set('vehicle', 'car');
+    params.set('points_encoded', 'false');
+
+    const data = await apiFetch('/api/vietmap/route?' + params.toString());
+    if (data?.error) throw new Error(data.error);
+    if (!data?.paths?.length) throw new Error('Không tìm được lộ trình cho các điểm đã chọn.');
+
+    const path   = data.paths[0];
+    const coords = path.points?.coordinates ?? path.points;
+    if (!coords || coords.length < 2) throw new Error('Dữ liệu lộ trình không hợp lệ.');
+
+    _routeGeom = coords;
+    _routeInfo = { km: (path.distance / 1000).toFixed(1), min: Math.round(path.time / 60000) };
+
+    if (map) {
+      map.getSource('route-line').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
+      if (path.bbox) {
+        const [w, sB, e, n] = path.bbox;
+        map.fitBounds([[w, sB], [e, n]], { padding: 60 });
+      }
+    }
+
+    recomputeRouteHits();
+    showRouteResultsPanel(_searchHits, _routeInfo);
+    btn.textContent = '🔄 Dò lại tuyến';
+  } catch (err) {
+    info.style.display = '';
+    info.style.color = 'var(--red,#f85149)';
+    info.textContent = '❌ ' + (err.message || 'Lỗi kết nối');
+  } finally {
+    btn.disabled = _routePoints.length < 2;
+  }
+}
+
 // ── Traffic overlay ───────────────────────────────────────────
 // VietMap's CDN serves the "tf" style's vector tiles with caching headers,
 // and the tile URL template never changes between loads, so the browser
@@ -1938,6 +2285,8 @@ document.getElementById('btnSearch').addEventListener('click', function() {
   this.classList.toggle('active', _searchMode);
   if (map) map.getCanvas().style.cursor = _searchMode ? 'crosshair' : '';
   if (_searchMode) {
+    if (_routeMode) closeRoutePanel(); // mutually exclusive map tools
+    document.getElementById('radiusRow').style.display = '';
     document.getElementById('resultsCams').innerHTML = '';
     document.getElementById('resultsTitle').textContent = '🖱 Click map to search…';
     document.getElementById('resultsPanel').classList.add('show');
@@ -2429,6 +2778,8 @@ function exitOtherMapModes() {
   if (_searchMode) document.getElementById('btnSearch')?.click();
   if (_editMode) document.getElementById('btnEdit')?.click();
   if (_stnEditMode) document.getElementById('btnStnEdit')?.click();
+  if (_regionMode) closeRegionsPanel();
+  if (_routeMode) closeRoutePanel();
 }
 
 function openRegionsPanel() {

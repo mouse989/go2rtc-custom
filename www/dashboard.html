@@ -822,9 +822,14 @@ function openRouteDetail(routeId) {
     return stat(lbl, fmtMinSec(toSec(p.tti)), ttiColor(p.tti),
       `khoảng ${fmtMinSec(toSec(p.lo)).replace(' phút', '')}–${fmtMinSec(toSec(p.hi))} · trễ ${delayTxt(toSec(p.tti) - freeSec)} · TTI ${p.tti.toFixed(2)}`);
   };
-  const lenKm = r.latestLengthM ? (r.latestLengthM / 1000).toFixed(1).replace('.', ',') + ' km · ' : '';
-  document.getElementById('fcStats').innerHTML = hasMin
-    ? stat('Thời gian đi hiện tại', fmtMinSec(curSec), ttiColor(cur), `${lenKm}TTI ${cur ? cur.toFixed(2) : '—'}`) +
+  // Route length: its own card (not just a side note) — km is the plainest
+  // way to picture "how long is this road", right next to the time cards.
+  const lenCard = r.latestLengthM
+    ? stat('Chiều dài tuyến', (r.latestLengthM / 1000).toFixed(1).replace('.', ',') + ' km', '',
+        freeSec ? `~${fmtMinSec(freeSec)} khi đường thông thoáng` : '')
+    : '';
+  document.getElementById('fcStats').innerHTML = lenCard + (hasMin
+    ? stat('Thời gian đi hiện tại', fmtMinSec(curSec), ttiColor(cur), `TTI ${cur ? cur.toFixed(2) : '—'}`) +
       stat('Trễ hiện tại', delayTxt(curDelay), ttiColor(cur), `so với khi đường thông thoáng (${fmtMinSec(freeSec)})`) +
       stat('Bình thường giờ này', baseNow ? fmtMinSec(toSec(baseNow)) : '—', '',
         baseNow ? `trễ ${delayTxt(toSec(baseNow) - freeSec)} · TTI ${baseNow.toFixed(2)}` : '') +
@@ -833,7 +838,7 @@ function openRouteDetail(routeId) {
     : stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
       stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
       fcCard('Dự báo +' + fmtMin(SLOT_MIN), p15) +
-      fcCard('Dự báo +60′', p60);
+      fcCard('Dự báo +60′', p60));
 
   document.getElementById('fcNote').innerHTML = (sf
     ? `Phương pháp: <b>${sf.method === 'holt-seasonal' ? 'Holt-Winters có mùa vụ + xu thế giảm dần (damped)' : 'Hồ sơ điển hình (chưa đủ dữ liệu hôm nay)'}</b> · vùng cam mờ = khoảng tin cậy ~80% · đường xám nét đứt = mức bình thường (TB ${_baseline.weeks} tuần cùng thứ).`
