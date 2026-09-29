@@ -670,6 +670,8 @@ body.sb-collapsed           { --map-left:0; }
       Vẽ vùng trên bản đồ để tự động lọc camera trong vùng — dùng để phân quyền xem theo địa bàn cho user (Admin Config → Users).
     </p>
     <button class="btn btn-primary" id="regionNewBtn" style="font-size:.8rem;width:100%">+ Vùng mới</button>
+    <button class="btn btn-secondary" id="regionImportKmlBtn" style="font-size:.8rem;width:100%">⬆ Nhập từ KML (Google My Maps)</button>
+    <input type="file" id="regionImportKmlFile" accept=".kml" style="display:none">
     <div id="regionListWrap"></div>
   </div>
 
@@ -2908,6 +2910,106 @@ async function deleteRegionConfirm(id) {
 document.getElementById('regionDeleteBtn').addEventListener('click', async () => {
   if (!_editingRegionID) return;
   if (await deleteRegionConfirm(_editingRegionID)) cancelRegionEdit();
+});
+
+// ── KML import (Google My Maps export) ──────────────────────────
+// Parses <Placemark> elements into {name, color, polygons} and creates
+// one region per placemark via the same POST /api/regions the manual
+// "Lưu địa bàn" flow uses — imported regions are then plain regions,
+// editable like any other.
+function kmlColorToHex(kmlColor) {
+  // KML <color> is aabbggrr; region color picker wants #rrggbb.
+  const m = /^[0-9a-fA-F]{8}$/.exec((kmlColor || '').trim());
+  if (!m) return null;
+  const bb = kmlColor.slice(2, 4), gg = kmlColor.slice(4, 6), rr = kmlColor.slice(6, 8);
+  return '#' + rr + gg + bb;
+}
+
+function parseKmlCoordinates(text) {
+  // "lon,lat,alt lon,lat,alt ..." (whitespace/newline separated).
+  const pts = text.trim().split(/\s+/).map(tuple => {
+    const parts = tuple.split(',');
+    return [parseFloat(parts[0]), parseFloat(parts[1])];
+  }).filter(pt => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
+  // Drop the closing point KML repeats to match the app's open-ring format.
+  if (pts.length > 1) {
+    const [fx, fy] = pts[0], [lx, ly] = pts[pts.length - 1];
+    if (fx === lx && fy === ly) pts.pop();
+  }
+  return pts;
+}
+
+function parseKmlToRegions(kmlText) {
+  const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
+  if (doc.querySelector('parsererror')) throw new Error('File KML không hợp lệ.');
+
+  // Map styleUrl -> PolyStyle color, so imported regions keep their
+  // Google My Maps colors (StyleMap normal/highlight both point at a
+  // plain Style sharing the same color in My Maps exports).
+  const colorByStyleID = {};
+  doc.querySelectorAll('Style').forEach(style => {
+    const id = style.getAttribute('id');
+    const color = style.querySelector('PolyStyle > color')?.textContent;
+    if (id && color) colorByStyleID[id] = color;
+  });
+  const styleMapTarget = {};
+  doc.querySelectorAll('StyleMap').forEach(sm => {
+    const id = sm.getAttribute('id');
+    const normal = [...sm.querySelectorAll('Pair')].find(p => p.querySelector('key')?.textContent === 'normal');
+    const ref = normal?.querySelector('styleUrl')?.textContent?.replace(/^#/, '');
+    if (id && ref) styleMapTarget[id] = ref;
+  });
+
+  const regions = [];
+  doc.querySelectorAll('Placemark').forEach(pm => {
+    const name = pm.querySelector('name')?.textContent?.trim();
+    if (!name) return;
+    const polyEls = [...pm.querySelectorAll('Polygon')];
+    const polygons = polyEls.map(poly => {
+      const coordEl = poly.querySelector('outerBoundaryIs coordinates') || poly.querySelector('coordinates');
+      return coordEl ? parseKmlCoordinates(coordEl.textContent) : [];
+    }).filter(ring => ring.length >= 3);
+    if (!polygons.length) return;
+
+    let styleUrl = pm.querySelector('styleUrl')?.textContent?.replace(/^#/, '');
+    if (styleUrl && styleMapTarget[styleUrl]) styleUrl = styleMapTarget[styleUrl];
+    const color = (styleUrl && colorByStyleID[styleUrl] && kmlColorToHex(colorByStyleID[styleUrl])) || '#3b82f6';
+
+    regions.push({ name, color, polygons });
+  });
+  return regions;
+}
+
+document.getElementById('regionImportKmlBtn').addEventListener('click', () => {
+  document.getElementById('regionImportKmlFile').click();
+});
+document.getElementById('regionImportKmlFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  let regions;
+  try {
+    regions = parseKmlToRegions(await file.text());
+  } catch (err) {
+    alert('Đọc file KML thất bại: ' + err.message);
+    return;
+  }
+  if (!regions.length) { alert('Không tìm thấy địa bàn (Placemark có vùng vẽ) nào trong file KML.'); return; }
+  if (!confirm(`Tìm thấy ${regions.length} địa bàn trong file KML. Nhập tất cả vào hệ thống?`)) return;
+
+  let ok = 0, fail = 0;
+  for (const region of regions) {
+    try {
+      await apiFetch('/api/regions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(region),
+      });
+      ok++;
+    } catch (err) {
+      fail++;
+    }
+  }
+  await loadRegionsList();
+  alert(`Đã nhập ${ok} địa bàn.` + (fail ? ` ${fail} địa bàn lỗi.` : ''));
 });
 
 // ── Data ──────────────────────────────────────────────────────
