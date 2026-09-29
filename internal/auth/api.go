@@ -203,6 +203,8 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_cam_names":            user.AllowCamNames,
 		"allow_view_stations":        user.AllowViewStations,
 		"allow_config_stations":      user.AllowConfigStations,
+		"allow_map_search":           user.AllowMapSearch,
+		"allow_map_route":            user.AllowMapRoute,
 		"allow_monitor_workers":      user.AllowMonitorWorkers,
 		"allow_monitor_process":      user.AllowMonitorProcess,
 		"allow_monitor_streaming":    user.AllowMonitorStreaming,
@@ -261,6 +263,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowCamNames           bool     `json:"allow_cam_names"`
 			AllowViewStations       bool     `json:"allow_view_stations"`
 			AllowConfigStations     bool     `json:"allow_config_stations"`
+			AllowMapSearch          bool     `json:"allow_map_search"`
+			AllowMapRoute           bool     `json:"allow_map_route"`
 			AllowMonitorWorkers     bool     `json:"allow_monitor_workers"`
 			AllowMonitorProcess     bool     `json:"allow_monitor_process"`
 			AllowMonitorStreaming   bool     `json:"allow_monitor_streaming"`
@@ -306,6 +310,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowCamNames:           req.AllowCamNames,
 			AllowViewStations:       req.AllowViewStations,
 			AllowConfigStations:     req.AllowConfigStations,
+			AllowMapSearch:          req.AllowMapSearch,
+			AllowMapRoute:           req.AllowMapRoute,
 			AllowMonitorWorkers:     req.AllowMonitorWorkers,
 			AllowMonitorProcess:     req.AllowMonitorProcess,
 			AllowMonitorStreaming:   req.AllowMonitorStreaming,
@@ -349,6 +355,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowCamNames           *bool    `json:"allow_cam_names"`
 			AllowViewStations       *bool    `json:"allow_view_stations"`
 			AllowConfigStations     *bool    `json:"allow_config_stations"`
+			AllowMapSearch          *bool    `json:"allow_map_search"`
+			AllowMapRoute           *bool    `json:"allow_map_route"`
 			AllowMonitorWorkers     *bool    `json:"allow_monitor_workers"`
 			AllowMonitorProcess     *bool    `json:"allow_monitor_process"`
 			AllowMonitorStreaming   *bool    `json:"allow_monitor_streaming"`
@@ -412,6 +420,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowConfigStations != nil {
 			existing.AllowConfigStations = *req.AllowConfigStations
+		}
+		if req.AllowMapSearch != nil {
+			existing.AllowMapSearch = *req.AllowMapSearch
+		}
+		if req.AllowMapRoute != nil {
+			existing.AllowMapRoute = *req.AllowMapRoute
 		}
 		if req.AllowMonitorWorkers != nil {
 			existing.AllowMonitorWorkers = *req.AllowMonitorWorkers
