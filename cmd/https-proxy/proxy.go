@@ -8,6 +8,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -19,6 +20,61 @@ import (
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 )
+
+// slowRequestThreshold gates the per-request timing log below — logging
+// every request would be noise, but a request slower than this is exactly
+// what "loads fine locally, slow through the proxy" is asking to see.
+// var, not const, so tests can shrink it instead of sleeping 800ms+.
+var slowRequestThreshold = 800 * time.Millisecond
+
+// timingTransport wraps a site's Transport to break a slow backend
+// round-trip into DNS/connect/TLS-handshake/total, via httptrace — the only
+// way to tell "the backend itself is slow to answer" (dns/connect/tls near
+// zero, total large — a loopback Target like http://127.0.0.1:1984 has no
+// DNS or meaningful connect/TLS cost once the pool is warm) apart from "the
+// proxy is spending time reaching or handshaking with the backend" (one of
+// those phases itself is large).
+type timingTransport struct {
+	rt   http.RoundTripper
+	site string
+}
+
+func (t *timingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	var dnsStart, connectStart, tlsStart time.Time
+	var dnsDur, connectDur, tlsDur time.Duration
+
+	trace := &httptrace.ClientTrace{
+		DNSStart:          func(httptrace.DNSStartInfo) { dnsStart = time.Now() },
+		DNSDone:           func(httptrace.DNSDoneInfo) { dnsDur = sinceIfSet(dnsStart) },
+		ConnectStart:      func(string, string) { connectStart = time.Now() },
+		ConnectDone:       func(string, string, error) { connectDur = sinceIfSet(connectStart) },
+		TLSHandshakeStart: func() { tlsStart = time.Now() },
+		TLSHandshakeDone:  func(tls.ConnectionState, error) { tlsDur = sinceIfSet(tlsStart) },
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
+	resp, err := t.rt.RoundTrip(req)
+	total := time.Since(start)
+
+	if total >= slowRequestThreshold {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		logf("[slow-backend] %s %s %s status=%d total=%s dns=%s connect=%s tls=%s",
+			t.site, req.Method, req.URL.Path, status, total.Round(time.Millisecond),
+			dnsDur.Round(time.Millisecond), connectDur.Round(time.Millisecond), tlsDur.Round(time.Millisecond))
+	}
+	return resp, err
+}
+
+func sinceIfSet(t time.Time) time.Duration {
+	if t.IsZero() {
+		return 0
+	}
+	return time.Since(t)
+}
 
 // runtimeSite is a Site plus its ready-to-use reverse proxy.
 type runtimeSite struct {
@@ -174,7 +230,7 @@ func newReverseProxy(s *Site) *httputil.ReverseProxy {
 			// go2rtc trusts this header from loopback — never pass it on.
 			pr.Out.Header.Del("X-Internal")
 		},
-		Transport:     transport,
+		Transport:     &timingTransport{rt: transport, site: name},
 		FlushInterval: -1, // stream immediately (MJPEG, HLS, SSE, long polls)
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
@@ -269,7 +325,22 @@ func httpHandler(w http.ResponseWriter, r *http.Request) {
 
 // ── Certificates ─────────────────────────────────────────────────
 
-func getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+// getCertificate runs on every client-facing TLS handshake, i.e. on every
+// new HTTPS connection through this proxy — a cost "local"/direct access to
+// a backend never pays. autocert.Manager.GetCertificate is normally an
+// in-memory cache hit, but a miss falls through to disk I/O or, worse, a
+// live ACME issuance/renewal round-trip to Let's Encrypt that blocks this
+// handshake until it finishes — so time it and say so if it's slow, rather
+// than leaving TLS handshake cost invisible next to the request-timing log
+// above.
+func getCertificate(hello *tls.ClientHelloInfo) (cert *tls.Certificate, err error) {
+	start := time.Now()
+	defer func() {
+		if d := time.Since(start); d >= slowRequestThreshold {
+			logf("[slow-tls] server_name=%q took %s (err=%v)", hello.ServerName, d.Round(time.Millisecond), err)
+		}
+	}()
+
 	rt := current.Load()
 	name := strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))
 
