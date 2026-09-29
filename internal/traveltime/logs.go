@@ -30,6 +30,19 @@ type LogEntry struct {
 var (
 	logsMu  sync.Mutex
 	logsDir string
+
+	// todayCache mirrors today's log file in memory so the dashboard summary
+	// API (polled every 60s, see www/dashboard.html) doesn't re-read and
+	// re-JSON-parse the whole day's file on every single call — with many
+	// routes on a short collection interval that file grows all day, so the
+	// same query gets slower and slower as the day goes on, with nothing
+	// ever erroring (a slow disk scan isn't a failure) to explain why.
+	// appendLogs keeps this in sync as entries are written; getLogs serves
+	// "today" straight from it. Historical dates still hit disk — they're
+	// only requested on demand, not polled.
+	cacheMu   sync.RWMutex
+	cacheDate string
+	cacheData []LogEntry
 )
 
 var logFileRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.jsonl$`)
@@ -73,27 +86,29 @@ func appendLogs(entries []LogEntry) error {
 			return err
 		}
 	}
+
+	today := time.Now().In(loc()).Format("2006-01-02")
+	cacheMu.Lock()
+	if cacheDate == today {
+		cacheData = append(cacheData, entries...)
+	} else {
+		// Stale/unseeded cache (day rollover, or this is the first append
+		// since process start): reload from disk rather than assuming
+		// today's file was empty before this write — it may already hold
+		// entries from earlier today. path was just written to above and
+		// we're still holding logsMu, so this reread is consistent.
+		loaded, _ := readLogFile(path)
+		cacheDate = today
+		cacheData = loaded
+	}
+	cacheMu.Unlock()
+
 	return nil
 }
 
-// getLogs returns log entries for the given date (format "2006-01-02").
-// If date is empty, today's entries are returned.
-// limit ≤ 0 returns all entries.
-func getLogs(date string, limit int) ([]LogEntry, error) {
-	var path string
-	if date == "" {
-		path = todayFile()
-	} else {
-		// Validate to prevent path traversal.
-		if !logFileRe.MatchString(date + ".jsonl") {
-			return []LogEntry{}, nil
-		}
-		path = dayFile(date)
-	}
-
-	logsMu.Lock()
-	defer logsMu.Unlock()
-
+// readLogFile scans and JSON-parses one JSONL log file from disk. Callers
+// must hold logsMu.
+func readLogFile(path string) ([]LogEntry, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return []LogEntry{}, nil
@@ -120,14 +135,83 @@ func getLogs(date string, limit int) ([]LogEntry, error) {
 	if scanner.Err() != nil {
 		return nil, scanner.Err()
 	}
+	return entries, nil
+}
 
+// getLogs returns log entries for the given date (format "2006-01-02").
+// If date is empty, today's entries are returned.
+// limit ≤ 0 returns all entries.
+func getLogs(date string, limit int) ([]LogEntry, error) {
+	today := time.Now().In(loc()).Format("2006-01-02")
+
+	if date == "" || date == today {
+		entries, err := getTodayFromCache(today)
+		if err != nil {
+			return nil, err
+		}
+		return applyLimit(entries, limit), nil
+	}
+
+	// Validate to prevent path traversal.
+	if !logFileRe.MatchString(date + ".jsonl") {
+		return []LogEntry{}, nil
+	}
+
+	logsMu.Lock()
+	defer logsMu.Unlock()
+	entries, err := readLogFile(dayFile(date))
+	if err != nil {
+		return nil, err
+	}
+	return applyLimit(entries, limit), nil
+}
+
+// getTodayFromCache serves today's entries from the in-memory cache that
+// appendLogs keeps current, seeding it from disk once if this is the first
+// call since startup or since the date rolled over. Always returns a fresh
+// copy — the cache slice itself must never escape this function, since
+// appendLogs mutates it concurrently.
+func getTodayFromCache(today string) ([]LogEntry, error) {
+	cacheMu.RLock()
+	valid := cacheDate == today
+	var data []LogEntry
+	if valid {
+		data = cacheData
+	}
+	cacheMu.RUnlock()
+
+	if !valid {
+		logsMu.Lock()
+		loaded, err := readLogFile(todayFile())
+		logsMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+
+		cacheMu.Lock()
+		// Re-check: another goroutine may have seeded (or appended to) the
+		// cache while we were reading the file without holding cacheMu.
+		if cacheDate != today {
+			cacheDate = today
+			cacheData = loaded
+		}
+		data = cacheData
+		cacheMu.Unlock()
+	}
+
+	out := make([]LogEntry, len(data))
+	copy(out, data)
+	return out, nil
+}
+
+func applyLimit(entries []LogEntry, limit int) []LogEntry {
 	if limit > 0 && len(entries) > limit {
 		entries = entries[len(entries)-limit:]
 	}
 	if entries == nil {
 		entries = []LogEntry{}
 	}
-	return entries, nil
+	return entries
 }
 
 // listLogDates returns available log dates (newest first).
