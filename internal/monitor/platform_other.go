@@ -8,6 +8,6 @@ package monitor
 func initPlatform()                     {}
 func sampleCPU() float64                { return 0 }
 func sampleMemory() (uint64, uint64)    { return 0, 0 }
-func sampleDisk() (uint64, uint64)      { return 0, 0 }
+func sampleDisks() []DiskInfo           { return nil }
 func sampleUptime() uint64              { return 0 }
 func sampleNetwork() (uint64, uint64)   { return 0, 0 }

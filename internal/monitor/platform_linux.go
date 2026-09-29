@@ -108,14 +108,18 @@ func sampleMemory() (total, avail uint64) {
 	return
 }
 
-// sampleDisk returns (total, free) bytes for the root filesystem.
-func sampleDisk() (total, free uint64) {
+// sampleDisks returns the root filesystem as the sole entry — this program
+// doesn't otherwise know which other mount points an admin cares about on
+// Linux (unlike Windows drive letters, there's no fixed enumerable set).
+func sampleDisks() []DiskInfo {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs("/", &st); err != nil {
-		return 0, 0
+		return nil
 	}
 	bsize := uint64(st.Bsize)
-	return st.Blocks * bsize, st.Bavail * bsize
+	total := st.Blocks * bsize
+	free := st.Bavail * bsize
+	return []DiskInfo{{Path: "/", Total: total, Used: total - free}}
 }
 
 // sampleUptime returns system uptime in seconds from /proc/uptime.

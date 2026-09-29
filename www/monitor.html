@@ -264,14 +264,9 @@
         <div class="mon-card" id="diskCard">
           <div class="mon-card-title">
             <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h12a2 2 0 012 2v2H2V6zm0 4h16v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4zm10 3a1 1 0 011-1h.01a1 1 0 110 2H13a1 1 0 01-1-1z"/></svg>
-            Disk (C:\)
+            Ổ đĩa
           </div>
-          <div class="mon-value" id="diskVal">0<sup>%</sup></div>
-          <div class="mon-bar-wrap"><div class="mon-bar" id="diskBar" style="width:0%"></div></div>
-          <div class="mon-detail">
-            <span id="diskUsedLabel">— used</span>
-            <span id="diskTotalLabel">— total</span>
-          </div>
+          <div id="diskRows" style="display:flex;flex-direction:column;gap:.55rem"></div>
         </div>
 
         <!-- Uptime -->
@@ -646,14 +641,25 @@ function render(s) {
   pushHistory(memHistory, memPct);
   drawSpark('memSpark', memHistory, '#3fb950', 100);
 
-  // Disk
-  const diskPct = s.disk_total > 0 ? Math.round(s.disk_used / s.disk_total * 100) : 0;
-  document.getElementById('diskVal').innerHTML = `${diskPct}<sup>%</sup>`;
-  const diskBar = document.getElementById('diskBar');
-  diskBar.style.width = diskPct + '%';
-  diskBar.className = 'mon-bar ' + barClass(diskPct);
-  document.getElementById('diskUsedLabel').textContent = fmtBytes(s.disk_used) + ' used';
-  document.getElementById('diskTotalLabel').textContent = fmtBytes(s.disk_total) + ' total';
+  // Disk(s) — one row per local fixed drive the server reports (C:\, D:\, …
+  // on Windows; root filesystem on Linux). Falls back to the single
+  // disk_total/disk_used pair for older servers that don't send `disks` yet.
+  const disks = (s.disks && s.disks.length) ? s.disks
+    : (s.disk_total ? [{ path: 'Disk', total: s.disk_total, used: s.disk_used }] : []);
+  document.getElementById('diskRows').innerHTML = disks.length ? disks.map(d => {
+    const pct = d.total > 0 ? Math.round(d.used / d.total * 100) : 0;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.82rem;margin-bottom:.2rem">
+        <span style="font-weight:600">${d.path}</span>
+        <span>${pct}<sup style="font-size:.7em">%</sup></span>
+      </div>
+      <div class="mon-bar-wrap"><div class="mon-bar ${barClass(pct)}" style="width:${pct}%"></div></div>
+      <div class="mon-detail" style="margin-top:.15rem">
+        <span>${fmtBytes(d.used)} used</span>
+        <span>${fmtBytes(d.total)} total</span>
+      </div>
+    </div>`;
+  }).join('') : '<div class="mon-sub">Không có dữ liệu ổ đĩa</div>';
 
   // Uptime
   const u = fmtUptime(s.uptime_sec || 0);

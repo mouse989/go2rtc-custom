@@ -18,6 +18,13 @@ import (
 
 var log zerolog.Logger
 
+// DiskInfo is one monitored fixed drive/filesystem.
+type DiskInfo struct {
+	Path  string `json:"path"` // e.g. "C:" or "/"
+	Total uint64 `json:"total"`
+	Used  uint64 `json:"used"`
+}
+
 // Stats is the full snapshot returned by /api/system/stats.
 type Stats struct {
 	// Sampled every 2 s by background goroutine
@@ -25,9 +32,14 @@ type Stats struct {
 	MemTotal   uint64  `json:"mem_total"`   // bytes
 	MemUsed    uint64  `json:"mem_used"`    // bytes
 	MemPercent float64 `json:"mem_percent"` // 0-100
-	DiskTotal  uint64  `json:"disk_total"`  // bytes (C:\)
+	DiskTotal  uint64  `json:"disk_total"`  // bytes, primary/first fixed disk (kept for older clients)
 	DiskUsed   uint64  `json:"disk_used"`   // bytes
 	UptimeSec  uint64  `json:"uptime_sec"`  // system uptime
+
+	// Disks lists every local fixed drive (all drive letters on Windows,
+	// not just C:\ — see platform_windows.go's sampleDisks). One entry on
+	// Linux (the root filesystem).
+	Disks []DiskInfo `json:"disks,omitempty"`
 
 	// Go process stats (always available)
 	GoRoutines  int    `json:"goroutines"`
@@ -103,7 +115,11 @@ func sample() {
 
 	cpu := sampleCPU()
 	memTotal, memAvail := sampleMemory()
-	diskTotal, diskFree := sampleDisk()
+	disks := sampleDisks()
+	var diskTotal, diskUsed uint64
+	if len(disks) > 0 {
+		diskTotal, diskUsed = disks[0].Total, disks[0].Used
+	}
 	uptime := sampleUptime()
 	netIn, netOut := sampleNetwork()
 	gpus := sampleGPU()
@@ -121,7 +137,8 @@ func sample() {
 		MemUsed:     memUsed,
 		MemPercent:  memPct,
 		DiskTotal:   diskTotal,
-		DiskUsed:    diskTotal - diskFree,
+		DiskUsed:    diskUsed,
+		Disks:       disks,
 		UptimeSec:   uptime,
 		GoRoutines:  runtime.NumGoroutine(),
 		GoMemAlloc:  ms.Alloc,
