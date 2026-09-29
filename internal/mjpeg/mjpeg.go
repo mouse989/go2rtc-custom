@@ -45,6 +45,12 @@ func handlerKeyframe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+
+	if query.Get("keepalive") != "" {
+		handlerKeyframeKeepAlive(w, r, query)
+		return
+	}
+
 	stream, _ := streams.GetOrPatch(query)
 	if stream == nil {
 		http.Error(w, api.StreamNotFound, http.StatusNotFound)
@@ -137,6 +143,64 @@ func handlerKeyframe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch cons.CodecName() {
+	case core.CodecH264, core.CodecH265:
+		if r.Context().Err() != nil {
+			return // caller gave up; don't spend an ffmpeg slot on it
+		}
+		ts := time.Now()
+		var err error
+		if b, err = ffmpeg.JPEGWithQueryContext(r.Context(), b, query); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Debug().Msgf("[mjpeg] transcoding time=%s", time.Since(ts))
+	case core.CodecJPEG:
+		b = mjpeg.FixJPEG(b)
+	}
+
+	writeJPEGResponse(w, b)
+}
+
+// handlerKeyframeKeepAlive serves /api/frame.jpeg?keepalive=1 requests from
+// a persistent per-stream keyframe cache (keepalive.go) instead of dialing
+// the camera fresh on every call — see keepalive.go for why. First poll for
+// a stream pays the normal connect-and-wait cost; every poll after that is
+// a cheap in-memory read.
+func handlerKeyframeKeepAlive(w http.ResponseWriter, r *http.Request, query url.Values) {
+	entry, err := getOrStartKeepAlive(query)
+	if err != nil {
+		log.Warn().Err(err).Caller().Send()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	b, codec := entry.cons.latest()
+	if b == nil {
+		timer := time.NewTimer(keyframeTimeout(query))
+		var waitErr string
+		select {
+		case <-entry.cons.ready:
+		case <-r.Context().Done():
+			waitErr = "client gone"
+		case <-timer.C:
+			waitErr = "keyframe timeout"
+		}
+		timer.Stop()
+
+		if waitErr != "" {
+			log.Debug().Str("src", query.Get("src")).Msgf("[mjpeg] %s", waitErr)
+			http.Error(w, waitErr, http.StatusGatewayTimeout)
+			return
+		}
+
+		b, codec = entry.cons.latest()
+		if b == nil {
+			http.Error(w, "no keyframe", http.StatusBadGateway)
+			return
+		}
+	}
+
+	switch codec {
 	case core.CodecH264, core.CodecH265:
 		if r.Context().Err() != nil {
 			return // caller gave up; don't spend an ffmpeg slot on it

@@ -214,8 +214,12 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 
 	// RTSP-only type: grab a keyframe from go2rtc's internal loopback API.
 	// go2rtc must already have the stream active (it always does for configured streams).
+	// keepalive=1 makes go2rtc reuse one persistent RTSP connection across
+	// polls instead of redialing the camera every snapshot cycle — at
+	// thousands of cameras that reconnect churn is expensive enough to
+	// matter (see internal/mjpeg/keepalive.go).
 	if ct.RTSP {
-		snapshotURL := fmt.Sprintf("http://%s/api/frame.jpeg?src=%s",
+		snapshotURL := fmt.Sprintf("http://%s/api/frame.jpeg?src=%s&keepalive=1",
 			loopbackHost(), url.QueryEscape(streamName))
 		return fetchLoopbackJPEG(ctx, snapshotURL)
 	}
