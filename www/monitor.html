@@ -363,6 +363,33 @@
           </div>
         </div>
 
+        <!-- RTSP snapshot keep-alive cost (opt-in; see Admin Config → Cấu hình) -->
+        <div class="mon-card" style="grid-column:1/-1" id="rtspKeepAliveCard">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM8 16a2 2 0 104 0H8z"/></svg>
+            RTSP giữ ấm (snapshot keep-alive)
+            <span style="margin-left:auto;font-size:.7rem;color:var(--text-muted);font-weight:normal" id="rtspKeepAliveHint"></span>
+          </div>
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:baseline">
+            <div>
+              <span class="mon-value" id="rtspKACamerasVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">camera đang giữ kết nối</span>
+            </div>
+            <div>
+              <span class="mon-value" id="rtspKARamVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">RAM cache</span>
+            </div>
+            <div>
+              <span class="mon-value" id="rtspKABwVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">băng thông đang dùng</span>
+            </div>
+          </div>
+          <div class="mon-detail" style="color:var(--text-muted)">
+            Băng thông = tổng dữ liệu video các camera đang giữ kết nối RTSP nhận liên tục (không phải chỉ lúc lấy snapshot) —
+            đây là chi phí đánh đổi khi bật "Giữ ấm RTSP" trong Cấu hình.
+          </div>
+        </div>
+
         <!-- Device Monitoring -->
         <div class="mon-card" style="grid-column:1/-1" id="devMonCard">
           <div class="mon-card-title" style="margin-bottom:.75rem">
@@ -687,6 +714,14 @@ function render(s) {
     document.getElementById('tfFiles').textContent = s.traffic_files ?? 0;
     document.getElementById('tfSize').textContent  = fmtBytes(s.traffic_bytes || 0);
   }
+
+  // RTSP snapshot keep-alive cost (0 when the setting is off — see Admin Config → Cấu hình)
+  const kaCams = s.rtsp_keepalive_cameras ?? 0;
+  document.getElementById('rtspKACamerasVal').textContent = kaCams;
+  document.getElementById('rtspKARamVal').textContent = fmtBytes((s.rtsp_keepalive_cached_kb ?? 0) * 1024);
+  document.getElementById('rtspKABwVal').textContent = fmtRate(s.rtsp_keepalive_bandwidth_bps ?? 0);
+  document.getElementById('rtspKeepAliveHint').textContent =
+    kaCams > 0 ? '' : '(đang tắt trong Cấu hình, hoặc chưa có camera nào giữ kết nối)';
 
   // Update main server card in the overview grid (live at 3s rate)
   renderSrvCards(s);

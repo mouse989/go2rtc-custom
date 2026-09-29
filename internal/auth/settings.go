@@ -30,6 +30,17 @@ type AppSettings struct {
 	VietmapAPIKey           string         `json:"vietmap_api_key"`
 	SnapshotIntervalSec     int            `json:"snapshot_interval_sec"` // 0 → default 15 s
 	SnapshotConcurrency     int            `json:"snapshot_concurrency"`  // 0 → auto (interval_sec × 10)
+	// SnapshotRTSPKeepAlive: for camera types with no HTTP snapshot URL (grab
+	// a keyframe from go2rtc's own RTSP stream instead), keep that RTSP
+	// connection open between polls rather than reconnecting every cycle.
+	// Off by default: an open RTSP connection receives the camera's full,
+	// continuous video stream the whole time it's held open (RTSP has no way
+	// to ask for "just the next keyframe" without a live session), not only
+	// the small burst a connect→grab→disconnect cycle pulls — so this trades
+	// per-cycle reconnect overhead (CPU/sockets) for sustained per-camera
+	// bandwidth, which at a few thousand cameras is usually the worse trade.
+	// See internal/mjpeg/keepalive.go's GetKeepAliveStats for the live cost.
+	SnapshotRTSPKeepAlive bool `json:"snapshot_rtsp_keepalive"`
 	MapSearchRadiusKm       float64        `json:"map_search_radius_km"`  // 0 → default 1 km
 	MapRouteWidthM          float64        `json:"map_route_width_m"`     // "Theo tuyến" tool: 0 → default 100 m
 	HeatmapCfg              *HeatmapConfig `json:"heatmap_cfg,omitempty"`

@@ -273,6 +273,19 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:.5rem;cursor:pointer">
+              <input type="checkbox" id="snapRtspKeepAliveInput" style="width:auto">
+              Giữ ấm kết nối RTSP cho camera loại "chỉ RTSP" (không có URL snapshot HTTP)
+            </label>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              <strong>Mặc định TẮT.</strong> Khi bật: mỗi camera loại RTSP chỉ dial 1 lần rồi giữ kết nối sống, tránh phải
+              kết nối lại mỗi lần lấy snapshot (giảm tải CPU/số kết nối). Đánh đổi: kết nối giữ sống sẽ liên tục nhận
+              <strong>toàn bộ luồng video</strong> của camera đó (không chỉ lúc lấy snapshot) — tốn băng thông liên tục,
+              không phải chỉ lúc cần. Chỉ nên bật nếu CPU/số kết nối là vấn đề chính và camera có dư băng thông.
+              Xem chi phí thực tế (số camera đang giữ, RAM cache, băng thông) tại trang <strong>Giám sát</strong>.
+            </p>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Bán kính tìm kiếm camera mặc định (km)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="mapRadiusInput" min="0.1" max="50" step="0.1" value="1"
@@ -1885,6 +1898,7 @@ async function loadSettings() {
     document.getElementById('vietmapKeyInput').value = s.vietmap_api_key || '';
     document.getElementById('snapIntervalInput').value = s.snapshot_interval_sec || 15;
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
+    document.getElementById('snapRtspKeepAliveInput').checked = !!s.snapshot_rtsp_keepalive;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
@@ -2008,6 +2022,7 @@ async function saveSettings() {
   const key         = document.getElementById('vietmapKeyInput').value.trim();
   const interval    = parseInt(document.getElementById('snapIntervalInput').value, 10) || 15;
   const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
+  const rtspKeepAlive = document.getElementById('snapRtspKeepAliveInput').checked;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
@@ -2023,6 +2038,7 @@ async function saveSettings() {
         vietmap_api_key: key,
         snapshot_interval_sec: interval,
         snapshot_concurrency: concurrency,
+        snapshot_rtsp_keepalive: rtspKeepAlive,
         map_search_radius_km: mapRadius,
         map_route_width_m: mapRouteWidth,
         default_view_limit_minutes: viewLimit,

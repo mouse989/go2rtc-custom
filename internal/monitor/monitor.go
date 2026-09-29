@@ -10,6 +10,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/app"
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/counting"
+	"github.com/AlexxIT/go2rtc/internal/mjpeg"
 	"github.com/AlexxIT/go2rtc/internal/streams"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
 	"github.com/rs/zerolog"
@@ -56,6 +57,12 @@ type Stats struct {
 	// Traffic history storage (computed per request)
 	TrafficFiles int   `json:"traffic_files"` // daily history files on disk
 	TrafficBytes int64 `json:"traffic_bytes"` // their total size
+
+	// RTSP snapshot keep-alive cost (opt-in, AppSettings.SnapshotRTSPKeepAlive)
+	// — see internal/mjpeg/keepalive.go. Zero when the setting is off.
+	RTSPKeepAliveCameras   int     `json:"rtsp_keepalive_cameras"`
+	RTSPKeepAliveCachedKB  int64   `json:"rtsp_keepalive_cached_kb"`
+	RTSPKeepAliveBandwidth float64 `json:"rtsp_keepalive_bandwidth_bps"`
 
 	// Server start time
 	StartTime int64 `json:"start_time"` // unix timestamp
@@ -192,6 +199,11 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	s.StreamsTotal, s.StreamsActive, s.StreamConsumers = streams.GetStreamStats()
 	s.TrafficFiles, s.TrafficBytes = traffic.HistoryStats()
 	s.CamerasTotal, s.CamerasAnalyzing, s.YoloModel = counting.GetLocalStats()
+
+	ka := mjpeg.GetKeepAliveStats()
+	s.RTSPKeepAliveCameras = ka.ActiveCameras
+	s.RTSPKeepAliveCachedKB = ka.CachedBytes / 1024
+	s.RTSPKeepAliveBandwidth = ka.BandwidthBps
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s)

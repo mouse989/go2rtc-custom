@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
@@ -45,6 +46,12 @@ type liveKeyframe struct {
 
 	ready     chan struct{}
 	readyOnce sync.Once
+
+	// bytesRecv counts every RTP payload byte delivered to this consumer —
+	// all frames (I/P/B), not just the keyframes it actually caches — since
+	// that's what the held-open connection costs on the wire regardless of
+	// what AddTrack's handler below keeps. See GetKeepAliveStats.
+	bytesRecv atomic.Uint64
 }
 
 func newLiveKeyframe() *liveKeyframe {
@@ -136,6 +143,15 @@ func (k *liveKeyframe) AddTrack(media *core.Media, _ *core.Codec, track *core.Re
 		sender.Handler = mjpeg.Encoder(track.Codec, 5, sender.Handler)
 	}
 
+	// Count every raw RTP packet handed to this consumer, before any of the
+	// codec-specific keyframe filtering above — that filtering only decides
+	// what gets cached, not what was received off the wire.
+	next := sender.Handler
+	sender.Handler = func(packet *rtp.Packet) {
+		k.bytesRecv.Add(uint64(len(packet.Payload)))
+		next(packet)
+	}
+
 	sender.HandleRTP(track)
 	k.Senders = append(k.Senders, sender)
 	return nil
@@ -147,8 +163,10 @@ type keepAliveEntry struct {
 	stream *streams.Stream
 	cons   *liveKeyframe
 
-	mu       sync.Mutex
-	lastPoll time.Time
+	mu              sync.Mutex
+	lastPoll        time.Time
+	bytesAtLastTick uint64  // cons.bytesRecv as of the previous sample, for the rate below
+	rateBps         float64 // bytes/sec, refreshed every sweep tick (sampleRate)
 }
 
 func (e *keepAliveEntry) touch() {
@@ -161,6 +179,19 @@ func (e *keepAliveEntry) idleSince() time.Duration {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return time.Since(e.lastPoll)
+}
+
+// sampleRate refreshes rateBps from how many bytes arrived since the last
+// call, window apart (the sweeper's own tick interval). The first call after
+// attach necessarily averages over less than a full window; it self-corrects
+// on the next tick.
+func (e *keepAliveEntry) sampleRate(window time.Duration) {
+	cur := e.cons.bytesRecv.Load()
+	e.mu.Lock()
+	delta := cur - e.bytesAtLastTick
+	e.bytesAtLastTick = cur
+	e.rateBps = float64(delta) / window.Seconds()
+	e.mu.Unlock()
 }
 
 var (
@@ -183,13 +214,15 @@ func keepAliveIdleTimeout() time.Duration {
 	return d
 }
 
+const sweepInterval = 30 * time.Second
+
 var sweeperOnce sync.Once
 
 func startKeepAliveSweeper() {
 	sweeperOnce.Do(func() {
 		go func() {
 			for {
-				time.Sleep(30 * time.Second)
+				time.Sleep(sweepInterval)
 
 				var stale []*keepAliveEntry
 				timeout := keepAliveIdleTimeout()
@@ -199,7 +232,9 @@ func startKeepAliveSweeper() {
 					if e.idleSince() > timeout {
 						stale = append(stale, e)
 						delete(keepMap, name)
+						continue
 					}
+					e.sampleRate(sweepInterval)
 				}
 				keepMu.Unlock()
 
@@ -209,6 +244,32 @@ func startKeepAliveSweeper() {
 			}
 		}()
 	})
+}
+
+// KeepAliveStats summarizes what the RTSP snapshot keep-alive mechanism
+// (opt-in via AppSettings.SnapshotRTSPKeepAlive) is costing right now, for
+// the admin Monitor page — see keepalive.go's top comment for why holding a
+// connection open isn't free even though it removes reconnect churn.
+type KeepAliveStats struct {
+	ActiveCameras int     `json:"activeCameras"`
+	CachedBytes   int64   `json:"cachedBytes"`  // sum of each camera's one cached keyframe (RAM cost)
+	BandwidthBps  float64 `json:"bandwidthBps"` // sum of all held-open cameras' live receive rate (network cost)
+}
+
+func GetKeepAliveStats() KeepAliveStats {
+	keepMu.Lock()
+	defer keepMu.Unlock()
+
+	stats := KeepAliveStats{ActiveCameras: len(keepMap)}
+	for _, e := range keepMap {
+		data, _ := e.cons.latest()
+		stats.CachedBytes += int64(len(data))
+
+		e.mu.Lock()
+		stats.BandwidthBps += e.rateBps
+		e.mu.Unlock()
+	}
+	return stats
 }
 
 // getOrStartKeepAlive returns the cached-keyframe entry for query["src"],
