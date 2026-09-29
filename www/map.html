@@ -563,11 +563,12 @@ body.sb-collapsed           { --map-left:0; }
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M10 2a1 1 0 01.894.553l7 14A1 1 0 0117 18H3a1 1 0 01-.894-1.447l7-14A1 1 0 0110 2zm0 3.236L4.618 16h10.764L10 5.236z" clip-rule="evenodd"/></svg>
     Bắc
   </button>
-  <button class="map-btn" id="btnSearch">
+  <!-- Search area / Theo tuyến: shown only for admin or users with allow_map_search / allow_map_route -->
+  <button class="map-btn" id="btnSearch" style="display:none">
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
     Search area
   </button>
-  <button class="map-btn" id="btnRoute" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
+  <button class="map-btn" id="btnRoute" style="display:none" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
     🛣 Theo tuyến
   </button>
   <!-- Traffic: shown only for admin or users with allow_traffic -->
@@ -3742,6 +3743,12 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   }
   if (canUseHeatmap()) {
     document.getElementById('btnHeatmap').style.display = '';
+  }
+  if (canMapSearch()) {
+    document.getElementById('btnSearch').style.display = '';
+  }
+  if (canMapRoute()) {
+    document.getElementById('btnRoute').style.display = '';
   }
   const snapPreviewAllowed = canMapSnapshotPreview();
   if (snapPreviewAllowed) {

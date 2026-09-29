@@ -44,6 +44,12 @@ type User struct {
 	AllowCamNames       bool `json:"allow_cam_names"`       // can see real camera names (like admin)
 	AllowViewStations   bool `json:"allow_view_stations"`   // can view traffic counting station data on map
 	AllowConfigStations bool `json:"allow_config_stations"` // can add/edit/delete stations and station types
+	// AllowMapSearch/AllowMapRoute gate the map's own analysis tools —
+	// "Search area" (circle) and "Theo tuyến" (route corridor). Off by
+	// default for new viewers, always on for admins, same convention as
+	// AllowMapSnapshotPreview below.
+	AllowMapSearch bool `json:"allow_map_search"`
+	AllowMapRoute  bool `json:"allow_map_route"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process

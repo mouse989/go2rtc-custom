@@ -829,6 +829,20 @@ rtsp:
           </div>
         </div>
 
+        <!-- Row 1.5: Overview map — every configured route drawn at once -->
+        <div class="card" style="padding:1.1rem 1.25rem;margin-bottom:1.25rem">
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.6rem;flex-wrap:wrap">
+            <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;flex:1">🗺 Bản đồ các tuyến đang theo dõi</div>
+            <span id="ttOverviewStatus" style="font-size:.75rem;color:var(--text-muted)"></span>
+            <button class="btn btn-secondary btn-sm" onclick="ttOverviewRedraw()">↺ Vẽ lại</button>
+          </div>
+          <div id="ttOverviewMap" style="width:100%;height:420px;border-radius:8px;border:1px solid var(--border);background:var(--surface2)"></div>
+          <p style="font-size:.72rem;color:var(--text-muted);margin:.55rem 0 0">
+            Mỗi tuyến một màu, vẽ theo đường thật (VietMap Direction) — để nhận biết tuyến nào trên bản đồ đã được cấu hình theo dõi.
+            Di chuột vào tên tuyến ở bảng bên dưới để làm nổi bật trên bản đồ; bấm vào một tuyến trên bản đồ để sửa tuyến đó.
+          </p>
+        </div>
+
         <!-- Row 2: Routes -->
         <div class="card" style="padding:1.1rem 1.25rem;margin-bottom:1.25rem">
           <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem">
@@ -1368,6 +1382,8 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-names"> 🏷 See Camera Names</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-view-stations"> 📊 Xem trạm đo</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-config-stations"> ⚙ Config trạm đo</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-search"> 🔍 Search area</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-route"> 🛣 Theo tuyến</label>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Monitor</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-workers"> 🖥 Xem máy chủ phân tích</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-process"> ⚙ Xem go2rtc process</label>
@@ -2132,6 +2148,8 @@ function openEdit(u) {
   document.getElementById('f-allow-cam-names').checked = !!u.allow_cam_names;
   document.getElementById('f-allow-view-stations').checked = !!u.allow_view_stations;
   document.getElementById('f-allow-config-stations').checked = !!u.allow_config_stations;
+  document.getElementById('f-allow-map-search').checked = !!u.allow_map_search;
+  document.getElementById('f-allow-map-route').checked = !!u.allow_map_route;
   document.getElementById('f-allow-monitor-workers').checked  = !!u.allow_monitor_workers;
   document.getElementById('f-allow-monitor-process').checked  = !!u.allow_monitor_process;
   document.getElementById('f-allow-monitor-streaming').checked = !!u.allow_monitor_streaming;
@@ -2317,6 +2335,8 @@ async function submitForm(e) {
   const allow_cam_names        = role === 'admin' ? true : document.getElementById('f-allow-cam-names').checked;
   const allow_view_stations    = role === 'admin' ? true : document.getElementById('f-allow-view-stations').checked;
   const allow_config_stations  = role === 'admin' ? true : document.getElementById('f-allow-config-stations').checked;
+  const allow_map_search       = role === 'admin' ? true : document.getElementById('f-allow-map-search').checked;
+  const allow_map_route        = role === 'admin' ? true : document.getElementById('f-allow-map-route').checked;
   const allow_monitor_workers  = role === 'admin' ? true : document.getElementById('f-allow-monitor-workers').checked;
   const allow_monitor_process  = role === 'admin' ? true : document.getElementById('f-allow-monitor-process').checked;
   const allow_monitor_streaming = role === 'admin' ? true : document.getElementById('f-allow-monitor-streaming').checked;
@@ -2328,7 +2348,7 @@ async function submitForm(e) {
   const allow_unlimited_view   = role === 'admin' ? true : document.getElementById('f-allow-unlimited-view').checked;
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 
@@ -3283,7 +3303,7 @@ function showTrafficInner(pane) {
   document.getElementById('trafficMonitorPane').style.display = pane === 'trafficMonitor' ? '' : 'none';
   document.getElementById('travelTimePane').style.display     = pane === 'travelTime'     ? '' : 'none';
   document.getElementById('holidaysPane').style.display       = pane === 'holidays'        ? '' : 'none';
-  if (pane === 'travelTime') loadTTPane();
+  if (pane === 'travelTime') { loadTTPane(); if (_ttOverviewMap) setTimeout(() => _ttOverviewMap.resize(), 60); }
   if (pane === 'holidays')   loadHolidays();
 }
 
@@ -3435,6 +3455,7 @@ async function loadTTRoutes() {
   try { _ttRoutes = await apiFetch('/api/traveltime/routes') || []; }
   catch (_) { _ttRoutes = []; }
   renderTTRoutes();
+  drawTTOverviewMap(); // not awaited — table renders immediately, map fills in as routes are fetched
 }
 
 function renderTTRoutes() {
@@ -3444,9 +3465,9 @@ function renderTTRoutes() {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chưa có tuyến nào — nhấn "+ Thêm tuyến"</td></tr>';
     return;
   }
-  tbody.innerHTML = _ttRoutes.map((r, i) => `<tr>
+  tbody.innerHTML = _ttRoutes.map((r, i) => `<tr onmouseenter="ttOverviewSetHover('${esc(r.id)}')" onmouseleave="ttOverviewSetHover(null)">
     <td style="color:var(--text-muted)">${i+1}</td>
-    <td><strong>${esc(r.name)}</strong></td>
+    <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${ttOverviewColor(i)};margin-right:.45rem;vertical-align:middle"></span><strong>${esc(r.name)}</strong></td>
     <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.origin)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.destination)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${r.waypoints ? esc(r.waypoints) : '<em style="opacity:.5">—</em>'}</td>
@@ -3739,6 +3760,155 @@ async function submitTTRoute(e) {
     await loadTTRoutes();
     toast(id ? 'Đã cập nhật tuyến' : 'Đã thêm tuyến', 'success');
   } catch (e) { toast(e.message || 'Lỗi', 'error'); }
+}
+
+// ── Route overview map ("tuyến nào đã được theo dõi") ───────────────
+// Draws every configured route at once, snapped to the real road network
+// (same VietMap Directions proxy the per-route editor and the Map page's
+// "Theo tuyến" tool use) so an admin can see at a glance which streets are
+// covered instead of reading 20+ lat/lng pairs in a table.
+let _ttOverviewMap = null, _ttOverviewReady = false, _ttOverviewDrawing = false;
+const _ttGeomCache = {}; // ttRouteKey(route) -> {coords} | 'error'
+const TT_OVERVIEW_COLORS = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#a78bfa','#06b6d4','#ec4899','#84cc16','#f97316','#14b8a6','#eab308','#6366f1'];
+
+function ttOverviewColor(i) { return TT_OVERVIEW_COLORS[i % TT_OVERVIEW_COLORS.length]; }
+// Cache key includes the route's own coordinates, not just its id, so
+// editing a route's points invalidates the cached geometry automatically.
+function ttRouteKey(r) { return `${r.origin}|${r.destination}|${r.waypoints || ''}`; }
+
+async function ttOverviewMapEnsure() {
+  if (_ttOverviewMap) return true;
+  try {
+    const { apikey } = await apiFetch('/api/vietmap/key');
+    if (!apikey) {
+      document.getElementById('ttOverviewMap').innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:.82rem;text-align:center;padding:1rem">Chưa cấu hình VietMap API Key trong Settings</div>';
+      return false;
+    }
+    await new Promise(res => _loadVietmapGL(res));
+    _ttOverviewMap = new vietmapgl.Map({
+      container: 'ttOverviewMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apikey}`,
+      center: [106.700, 10.776],
+      zoom: 11,
+    });
+    _ttOverviewMap.addControl(new vietmapgl.NavigationControl(), 'top-right');
+    await new Promise(res => _ttOverviewMap.on('load', res));
+
+    _ttOverviewMap.addSource('ttOverview', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    _ttOverviewMap.addLayer({
+      id: 'ttOverviewLine', type: 'line', source: 'ttOverview',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': .85 },
+    });
+    _ttOverviewMap.on('click', 'ttOverviewLine', e => openTTRoute(e.features[0].properties.id));
+    _ttOverviewMap.on('mouseenter', 'ttOverviewLine', () => { _ttOverviewMap.getCanvas().style.cursor = 'pointer'; });
+    _ttOverviewMap.on('mouseleave', 'ttOverviewLine', () => { _ttOverviewMap.getCanvas().style.cursor = ''; });
+
+    _ttOverviewReady = true;
+    return true;
+  } catch (e) {
+    console.error('[tt-overview] init failed', e);
+    return false;
+  }
+}
+
+// Highlights one route's line (called on table-row hover); id === null clears it.
+function ttOverviewSetHover(id) {
+  if (!_ttOverviewReady) return;
+  _ttOverviewMap.setPaintProperty('ttOverviewLine', 'line-width',
+    id ? ['case', ['==', ['get', 'id'], id], 6, 3] : 3);
+}
+
+async function ttFetchRouteGeom(r) {
+  const params = new URLSearchParams();
+  params.append('point', r.origin);
+  if (r.waypoints) r.waypoints.split('|').filter(Boolean).forEach(wp => params.append('point', wp));
+  params.append('point', r.destination);
+  params.set('vehicle', 'car');
+  const data = await apiFetch('/api/vietmap/route?' + params.toString());
+  if (data?.error || !data?.paths?.length) throw new Error('no route');
+  const coords = data.paths[0].points?.coordinates ?? data.paths[0].points;
+  if (!coords || coords.length < 2) throw new Error('bad geometry');
+  return { coords };
+}
+
+// Runs `fn` over `items` with at most `limit` in flight at once.
+async function ttMapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 1 }, worker));
+  return results;
+}
+
+async function drawTTOverviewMap() {
+  if (_ttOverviewDrawing) return;
+  _ttOverviewDrawing = true;
+  const status = document.getElementById('ttOverviewStatus');
+  try {
+    if (!(await ttOverviewMapEnsure())) return;
+
+    if (!_ttRoutes.length) {
+      _ttOverviewMap.getSource('ttOverview').setData({ type: 'FeatureCollection', features: [] });
+      status.textContent = 'Chưa có tuyến nào.';
+      return;
+    }
+
+    let done = 0, failed = 0;
+    status.textContent = `Đang tải 0/${_ttRoutes.length} tuyến…`;
+    const geoms = await ttMapWithConcurrency(_ttRoutes, 4, async r => {
+      const key = ttRouteKey(r);
+      let g = _ttGeomCache[key];
+      if (g === undefined) {
+        g = await ttFetchRouteGeom(r).catch(() => 'error');
+        _ttGeomCache[key] = g;
+      }
+      done++;
+      if (g === 'error') failed++;
+      status.textContent = `Đang tải ${done}/${_ttRoutes.length} tuyến…`;
+      return g;
+    });
+
+    const features = [];
+    _ttRoutes.forEach((r, i) => {
+      const g = geoms[i];
+      if (!g || g === 'error') return;
+      features.push({
+        type: 'Feature',
+        properties: { id: r.id, name: r.name, color: ttOverviewColor(i) },
+        geometry: { type: 'LineString', coordinates: g.coords },
+      });
+    });
+    _ttOverviewMap.getSource('ttOverview').setData({ type: 'FeatureCollection', features });
+
+    if (features.length) {
+      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+      features.forEach(f => f.geometry.coordinates.forEach(([lng, lat]) => {
+        minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+        minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+      }));
+      _ttOverviewMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, maxZoom: 15 });
+    }
+
+    status.textContent = failed
+      ? `${features.length}/${_ttRoutes.length} tuyến hiển thị · ${failed} tuyến lỗi (không dò được đường)`
+      : `${features.length} tuyến đang hiển thị`;
+  } finally {
+    _ttOverviewDrawing = false;
+  }
+}
+
+// Manual refresh: clears the geometry cache too, in case a route's
+// suggested road changed (new road opened, one-way flipped, etc.).
+function ttOverviewRedraw() {
+  Object.keys(_ttGeomCache).forEach(k => delete _ttGeomCache[k]);
+  drawTTOverviewMap();
 }
 
 // ── Map helpers ───────────────────────────────────────────────────
