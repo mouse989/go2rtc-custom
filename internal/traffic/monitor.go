@@ -142,6 +142,13 @@ func bboxOfRegion(r Region) (minLat, minLon, maxLat, maxLon float64) {
 	return
 }
 
+// maxTrafficResponseBytes caps how much of a region's traffic-flow response
+// we'll buffer in memory. This endpoint returns a whole bbox's worth of road
+// geometry, unlike the travel-time collector's small per-segment responses —
+// a large region (or a misbehaving upstream) could otherwise read an
+// unbounded amount into memory every scan cycle.
+const maxTrafficResponseBytes = 32 << 20 // 32 MB
+
 func fetchTrafficForRegion(apiKey string, r Region) ([]byte, error) {
 	minLat, minLon, maxLat, maxLon := bboxOfRegion(r)
 	// API expects: bbox=lng_west,lat_south,lng_east,lat_north  (lon first, NOT lat first)
@@ -160,7 +167,16 @@ func fetchTrafficForRegion(apiKey string, r Region) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTrafficResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxTrafficResponseBytes {
+		return nil, fmt.Errorf("response exceeds %d MB cap for region %q — bbox may be too large",
+			maxTrafficResponseBytes>>20, r.Name)
+	}
+	return body, nil
 }
 
 // segment represents a road segment with jam factor and shape.
@@ -612,9 +628,11 @@ func getLogs() []LogEntry {
 func runScan() error {
 	c := getConfig()
 
+	scanStart := time.Now()
 	addLog("info", "scan started")
 
 	var allRaw []Point
+	var totalBytes int
 
 	// trafficKey: dedicated traffic API key (c.APIKey), fallback to VietMap key
 	trafficKey := c.APIKey
@@ -631,11 +649,15 @@ func runScan() error {
 		if !r.Enabled || len(r.Coords) == 0 {
 			continue
 		}
+		regionStart := time.Now()
 		data, err := fetchTrafficForRegion(trafficKey, r)
 		if err != nil {
 			addLog("warn", fmt.Sprintf("region %s fetch error: %v", r.Name, err))
 			continue
 		}
+		totalBytes += len(data)
+		addLog("info", fmt.Sprintf("region %s: fetched %d KB in %s",
+			r.Name, len(data)/1024, time.Since(regionStart).Round(time.Millisecond)))
 		segs, err := normalizeTrafficData(data)
 		if err != nil {
 			addLog("warn", fmt.Sprintf("region %s parse error: %v", r.Name, err))
@@ -701,8 +723,8 @@ func runScan() error {
 	lastErr = ""
 	scanStateMu.Unlock()
 
-	addLog("info", fmt.Sprintf("scan done: raw=%d filtered=%d persistent=%d",
-		len(allRaw), len(filtered), len(persistent)))
+	addLog("info", fmt.Sprintf("scan done in %s: fetched=%d KB raw=%d filtered=%d persistent=%d",
+		time.Since(scanStart).Round(time.Millisecond), totalBytes/1024, len(allRaw), len(filtered), len(persistent)))
 
 	// Save scan data to local disk (traffic_data/ next to traffic.json)
 	if c.Storage.Enabled {

@@ -121,6 +121,7 @@ func runOnce() {
 
 	log.Info().Int("routes", len(routes)).Msg("[traveltime] collecting")
 	setStatus("⏳ Đang thu thập...")
+	runStart := time.Now()
 	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -177,12 +178,27 @@ func runOnce() {
 	n := schedState.successRuns
 	schedState.mu.Unlock()
 
-	msg := fmt.Sprintf("✅ %d/%d tuyến · lần #%d", len(entries), len(routes), n)
+	elapsed := time.Since(runStart)
+	msg := fmt.Sprintf("✅ %d/%d tuyến · lần #%d · %s", len(entries), len(routes), n, elapsed.Round(time.Millisecond))
 	if errors > 0 {
-		msg = fmt.Sprintf("⚠️ %d ok, %d lỗi · lần #%d", len(entries), errors, n)
+		msg = fmt.Sprintf("⚠️ %d ok, %d lỗi · lần #%d · %s", len(entries), errors, n, elapsed.Round(time.Millisecond))
 	}
 	setStatus(msg)
-	log.Info().Str("status", msg).Msg("[traveltime] done")
+	log.Info().Str("status", msg).Dur("elapsed", elapsed).Msg("[traveltime] done")
+
+	// Routes are fetched one at a time (segment-by-segment for waypoints),
+	// so a run's total time scales with route/waypoint count and upstream
+	// latency. If it starts eating into the configured interval, cycles get
+	// skipped (nextAligned just jumps to the next boundary) rather than
+	// overlapping — flag it so a too-short interval for this route count
+	// shows up somewhere instead of just quietly losing data points.
+	cfgMu.RLock()
+	interval := cfg.IntervalMin
+	cfgMu.RUnlock()
+	if interval > 0 && elapsed > time.Duration(interval)*time.Minute/2 {
+		log.Warn().Dur("elapsed", elapsed).Int("intervalMin", interval).
+			Msg("[traveltime] collection run took over half the configured interval — consider a longer interval or fewer routes/waypoints")
+	}
 }
 
 func setStatus(msg string) {
