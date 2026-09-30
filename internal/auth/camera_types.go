@@ -272,20 +272,55 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 }
 
 // fetchHTTPJPEG GETs a URL and validates that the response is JPEG.
+// Authenticates with Basic first (as before, so the common case stays a
+// single round trip); a camera whose snapshot endpoint only accepts Digest
+// answers that with 401 + WWW-Authenticate: Digest, and this retries once
+// with a computed Digest response, reusing the same buildDigestAuth this
+// package already has for the camera bulk-config feature
+// (api_camera_config.go) rather than a second implementation. creds may be
+// nil (URL with no embedded/assigned credentials, or an ONVIF-discovered
+// snapshot URI that embeds them in the URL itself); the Digest retry then
+// falls back to whatever userinfo is embedded in rawURL, since Digest can't
+// be satisfied by Go's automatic "URL userinfo → Basic auth" behavior the
+// way Basic can.
 func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	resp, err := doHTTPGet(ctx, rawURL, creds, "")
 	if err != nil {
 		return nil, err
 	}
-	if creds != nil {
-		pass, _ := creds.Password()
-		req.SetBasicAuth(creds.Username(), pass)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		challenge := resp.Header.Get("WWW-Authenticate")
+		resp.Body.Close()
+
+		if !strings.HasPrefix(challenge, "Digest ") {
+			return nil, fmt.Errorf("HTTP 401 from %s", rawURL)
+		}
+
+		digestCreds := creds
+		if digestCreds == nil {
+			if u, err := url.Parse(rawURL); err == nil {
+				digestCreds = u.User
+			}
+		}
+		if digestCreds == nil {
+			return nil, fmt.Errorf("HTTP 401 (Digest) from %s: no credentials to answer with", rawURL)
+		}
+		pass, _ := digestCreds.Password()
+
+		reqURI := rawURL
+		if u, err := url.Parse(rawURL); err == nil {
+			reqURI = u.RequestURI()
+		}
+		authHeader := buildDigestAuth(challenge, http.MethodGet, reqURI, digestCreds.Username(), pass)
+
+		resp, err = doHTTPGet(ctx, rawURL, nil, authHeader)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, rawURL)
 	}
@@ -301,6 +336,23 @@ func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]b
 		return nil, fmt.Errorf("response is not JPEG (got %02X%02X)", data[0], data[1])
 	}
 	return data, nil
+}
+
+// doHTTPGet issues one GET, setting Basic auth from creds when given, or the
+// literal Authorization header value in authHeader when given (mutually
+// exclusive — authHeader is used for the computed Digest retry).
+func doHTTPGet(ctx context.Context, rawURL string, creds *url.Userinfo, authHeader string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	} else if creds != nil {
+		pass, _ := creds.Password()
+		req.SetBasicAuth(creds.Username(), pass)
+	}
+	return http.DefaultClient.Do(req)
 }
 
 // fetchLoopbackJPEG fetches a JPEG from a loopback go2rtc API endpoint,
