@@ -151,12 +151,38 @@ func deleteCameraType(id string) error {
 	return nil
 }
 
+// getCameraTypeAssignments returns the current stream→type map, pruned to
+// streams that still exist in go2rtc.yaml. Assignments are never actively
+// removed when a stream is deleted or renamed in the config, so without
+// this filter a camera fleet that's been reconfigured over time
+// accumulates orphaned entries here forever — invisible in the Stream
+// Assignments table (which only ever lists current streams), but still
+// counted into each Camera Type's "Cameras" badge (renderCtTable sums
+// this map by type ID), so the per-type counts can add up to more than
+// the actual number of configured cameras. Filtering here — the one place
+// both the admin's "Cameras" badges and the "chưa gán" count ultimately
+// read from — keeps both numbers honest against the same live stream
+// list, and the pruned result the admin's next "Save Assignments" click
+// sends back as a PUT self-heals the stored file, no separate cleanup
+// step needed.
 func getCameraTypeAssignments() map[string]string {
 	ctStore.mu.RLock()
 	defer ctStore.mu.RUnlock()
 	cp := make(map[string]string, len(ctStore.data.Assignments))
 	for k, v := range ctStore.data.Assignments {
 		cp[k] = v
+	}
+
+	if getStreamNames != nil {
+		live := make(map[string]bool)
+		for _, name := range getStreamNames() {
+			live[name] = true
+		}
+		for k := range cp {
+			if !live[k] {
+				delete(cp, k)
+			}
+		}
 	}
 	return cp
 }
