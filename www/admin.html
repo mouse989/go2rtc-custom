@@ -535,7 +535,7 @@ rtsp:
           <span style="font-size:.77rem;color:var(--text-muted)">Define snapshot URL patterns per vendor/model family</span>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Snapshot Path</th><th>HTTP Port</th><th>ONVIF</th><th>RTSP</th><th>Cameras</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Snapshot Path</th><th>Port</th><th>HTTPS</th><th>ONVIF</th><th>RTSP</th><th>Cameras</th><th>Actions</th></tr></thead>
           <tbody id="ctTbody"></tbody>
         </table>
       </div>
@@ -565,6 +565,31 @@ rtsp:
           </select>
           <button class="btn btn-primary btn-sm" onclick="applyBulkAssign()">Áp dụng</button>
           <span id="bulkMsg" style="font-size:.78rem;color:var(--green);display:none"></span>
+        </div>
+        <!-- Detect-from-sample-URL panel -->
+        <div style="padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--surface2)">
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <span style="font-size:.78rem;font-weight:600;color:var(--text-muted)">Dò loại camera từ URL mẫu:</span>
+            <input type="text" id="ctDetectUrl" class="input" placeholder="rtsp://admin:pass@10.0.1.5:554/Streaming/Channels/101/picture"
+                   style="flex:1;min-width:280px;font-family:monospace;padding:.28rem .5rem;font-size:.78rem">
+            <button class="btn btn-secondary btn-sm" onclick="detectCameraType()">🔍 Dò</button>
+          </div>
+          <div style="font-size:.73rem;color:var(--text-muted);margin-top:.3rem">
+            Dán 1 URL RTSP mẫu (đã cấu hình trong go2rtc.yaml, có thể copy từ 1 stream bất kỳ) — hệ thống tự nhận
+            diện hãng camera (nếu là hãng phổ biến) và tìm mọi stream khác trong cấu hình có cùng cấu trúc URL
+            (chỉ khác IP/kênh/mật khẩu), để gán hàng loạt cùng 1 loại camera.
+          </div>
+          <div id="ctDetectResult" style="display:none;margin-top:.6rem;padding:.6rem;background:var(--surface);border:1px solid var(--border);border-radius:6px">
+            <div id="ctDetectSummary" style="font-size:.82rem;margin-bottom:.4rem"></div>
+            <div id="ctDetectStreams" style="font-size:.75rem;color:var(--text-muted);font-family:monospace;max-height:80px;overflow-y:auto;margin-bottom:.5rem"></div>
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+              <select id="ctDetectTypeSel" class="input" style="padding:.28rem .5rem;font-size:.8rem;width:auto;min-width:200px">
+                <option value="">— chọn loại camera —</option>
+              </select>
+              <button class="btn btn-primary btn-sm" id="ctDetectApplyBtn" onclick="applyDetectedCameraType()">Áp dụng</button>
+              <span id="ctDetectMsg" style="font-size:.78rem;color:var(--green);display:none"></span>
+            </div>
+          </div>
         </div>
         <div style="padding:.45rem 1rem .3rem;font-size:.75rem;color:var(--text-muted)">
           Gán từng stream vào loại camera tương ứng để server lấy snapshot trực tiếp từ camera qua HTTP.
@@ -1281,20 +1306,30 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <input type="text" id="ct-path" class="input" autocomplete="off" placeholder="/ISAPI/Streaming/channels/101/picture">
           <div style="font-size:.73rem;color:var(--text-muted);margin-top:.25rem">
             Leave blank for ONVIF auto-discovery. Used only when ONVIF is off.
+            User/mật khẩu <strong>không</strong> khai báo ở đây — hệ thống tự lấy từ URL nguồn RTSP đã cấu hình
+            cho camera đó (giả định camera dùng chung 1 tài khoản cho cả RTSP lẫn HTTP/HTTPS snapshot; nếu
+            camera dùng tài khoản snapshot riêng, đặt lại URL RTSP với đúng tài khoản đó). Basic hoặc Digest
+            được tự nhận diện dựa trên phản hồi của camera, không cần chọn.
           </div>
         </div>
 
         <div class="f2">
           <div class="form-group">
-            <label>HTTP Port (0 = 80)</label>
+            <label>Port (0 = 80, hoặc 443 nếu HTTPS)</label>
             <input type="number" id="ct-port" class="input" value="80" min="0" max="65535">
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;padding-bottom:.05rem">
             <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-bottom:.35rem;font-size:.85rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
-              <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
-              <span>ONVIF auto-discover snapshot URL</span>
+              <input type="checkbox" id="ct-https" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
+              <span>HTTPS (bỏ qua kiểm tra chứng chỉ — camera thường dùng chứng chỉ tự ký)</span>
             </label>
           </div>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:normal;font-size:.85rem;">
+            <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
+            <span>ONVIF auto-discover snapshot URL</span>
+          </label>
         </div>
       </div>
 
@@ -2532,7 +2567,7 @@ async function deleteGroup(name) {
 // ════════════════════════════════════════════════════════
 //  CAMERA TYPES
 // ════════════════════════════════════════════════════════
-let allCameraTypes   = [];   // [{id, name, snapshot_path, http_port, onvif}]
+let allCameraTypes   = [];   // [{id, name, snapshot_path, http_port, https, onvif, rtsp}]
 let ctAssignments    = {};   // {streamName: typeID}  — pending (not yet saved)
 let ctAssignDirty    = false;
 
@@ -2608,10 +2643,120 @@ function applyBulkAssign() {
   renderCtTable();       // refresh assigned counts
 }
 
+// ── Detect camera type from a sample RTSP URL ──
+// Given one URL already configured in go2rtc.yaml, guesses the vendor (from
+// known RTSP path conventions) and finds every other configured stream whose
+// source URL has the same shape (same path structure, only host/port/creds/
+// channel differ) — see internal/auth/camera_type_detect.go. Passwords never
+// leave the server: only the one sample URL the admin already has is sent.
+let _lastDetection = null;
+
+async function detectCameraType() {
+  const sampleUrl = document.getElementById('ctDetectUrl').value.trim();
+  if (!sampleUrl) { toast('Nhập URL mẫu trước', 'error'); return; }
+  try {
+    _lastDetection = await apiFetch('/api/camera-types/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sampleUrl }),
+    });
+    renderDetectResult();
+  } catch (e) {
+    toast('Dò thất bại: ' + e.message, 'error');
+  }
+}
+
+function renderDetectResult() {
+  const det = _lastDetection;
+  document.getElementById('ctDetectResult').style.display = '';
+
+  const vendorText = det.vendor ? `<strong>${esc(det.vendor)}</strong>` : '<em>Không nhận diện được hãng cụ thể</em>';
+  const suggestText = det.snapshotPath
+    ? ` · Snapshot path gợi ý: <code>${esc(det.snapshotPath)}</code>`
+    : (det.onvif ? ' · Gợi ý dùng ONVIF auto-discovery' : '');
+  document.getElementById('ctDetectSummary').innerHTML =
+    `Nhận diện: ${vendorText}${suggestText}<br>Khớp với <strong>${det.matchingStreams.length}</strong> stream trong cấu hình go2rtc.yaml.`;
+
+  document.getElementById('ctDetectStreams').textContent = det.matchingStreams.length
+    ? det.matchingStreams.join(', ')
+    : '(không có stream nào khác khớp cấu trúc URL này)';
+
+  const sel = document.getElementById('ctDetectTypeSel');
+  sel.innerHTML = '<option value="">— chọn loại camera —</option>';
+  if (det.vendor || det.snapshotPath || det.onvif) {
+    const opt = document.createElement('option');
+    opt.value = '__new__';
+    opt.textContent = `+ Tạo loại mới: ${det.vendor || 'Camera mới'}`;
+    sel.appendChild(opt);
+  }
+  allCameraTypes.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    sel.appendChild(opt);
+  });
+
+  document.getElementById('ctDetectApplyBtn').disabled = det.matchingStreams.length === 0;
+}
+
+function slugifyForId(s) {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'camera-type';
+}
+
+async function applyDetectedCameraType() {
+  const det = _lastDetection;
+  if (!det || !det.matchingStreams.length) {
+    toast('Chưa có kết quả dò, hoặc không có stream nào khớp', 'error');
+    return;
+  }
+  let typeId = document.getElementById('ctDetectTypeSel').value;
+  if (!typeId) { toast('Chọn loại camera trước', 'error'); return; }
+
+  const btn = document.getElementById('ctDetectApplyBtn');
+  btn.disabled = true;
+  try {
+    if (typeId === '__new__') {
+      const baseId = slugifyForId(det.vendor || 'camera-type');
+      let id = baseId, n = 1;
+      while (allCameraTypes.some(t => t.id === id)) id = `${baseId}-${++n}`;
+      const created = await apiFetch('/api/camera-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id, name: det.vendor || 'Camera mới',
+          snapshot_path: det.snapshotPath || '', http_port: 80,
+          onvif: !!det.onvif, rtsp: false,
+        }),
+      });
+      allCameraTypes = await apiFetch('/api/camera-types') || allCameraTypes;
+      renderCtTable();
+      renderBulkSelects();
+      typeId = created.id;
+    }
+
+    det.matchingStreams.forEach(name => { ctAssignments[name] = typeId; });
+    ctAssignDirty = true;
+
+    const typeName = (allCameraTypes.find(t => t.id === typeId) || {}).name || typeId;
+    const msg = document.getElementById('ctDetectMsg');
+    msg.textContent = `✓ Đã gán ${det.matchingStreams.length} camera → ${typeName} — nhớ bấm "💾 Save Assignments"`;
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 5000);
+
+    renderCtAssignTable();
+    renderCtTable();
+  } catch (e) {
+    toast('Áp dụng thất bại: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function renderCtTable() {
   const tbody = document.getElementById('ctTbody');
   if (!allCameraTypes.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">No camera types yet — add one to enable direct HTTP snapshots</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:1.5rem">No camera types yet — add one to enable direct HTTP snapshots</td></tr>';
     return;
   }
   tbody.innerHTML = '';
@@ -2621,7 +2766,8 @@ function renderCtTable() {
     tr.innerHTML = `
       <td><strong>${esc(t.name)}</strong><br><span style="font-size:.73rem;color:var(--text-muted);font-family:monospace">${esc(t.id)}</span></td>
       <td><span style="font-family:monospace;font-size:.78rem">${esc(t.snapshot_path || '—')}</span></td>
-      <td>${t.http_port || 80}</td>
+      <td>${t.http_port || (t.https ? 443 : 80)}</td>
+      <td>${t.https ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td>${t.onvif ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td>${t.rtsp ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td><span class="cnt-badge">${assignedCount}</span></td>
@@ -2708,6 +2854,7 @@ function openAddCt() {
   document.getElementById('ct-name').value = '';
   document.getElementById('ct-path').value = '';
   document.getElementById('ct-port').value = '80';
+  document.getElementById('ct-https').checked = false;
   document.getElementById('ct-onvif').checked = false;
   document.getElementById('ct-rtsp').checked = false;
   onCtTypeChange();
@@ -2722,7 +2869,8 @@ function openEditCt(t) {
   document.getElementById('ct-id').disabled = true;
   document.getElementById('ct-name').value = t.name;
   document.getElementById('ct-path').value = t.snapshot_path || '';
-  document.getElementById('ct-port').value = t.http_port || 80;
+  document.getElementById('ct-port').value = t.http_port || (t.https ? 443 : 80);
+  document.getElementById('ct-https').checked = !!t.https;
   document.getElementById('ct-onvif').checked = !!t.onvif;
   document.getElementById('ct-rtsp').checked = !!t.rtsp;
   onCtTypeChange();
@@ -2746,12 +2894,13 @@ function onCtTypeChange() {
   if (isRTSP && isOnvif) document.getElementById('ct-onvif').checked = false;
 }
 
-function ctFill(id, name, path, port, onvif, rtsp) {
+function ctFill(id, name, path, port, onvif, rtsp, https) {
   const idEl = document.getElementById('ct-id');
   if (!idEl.disabled) idEl.value = id;
   document.getElementById('ct-name').value  = name;
   document.getElementById('ct-path').value  = path;
   document.getElementById('ct-port').value  = port;
+  document.getElementById('ct-https').checked = !!https;
   document.getElementById('ct-onvif').checked = !!onvif;
   document.getElementById('ct-rtsp').checked  = !!rtsp;
   onCtTypeChange();
@@ -2764,12 +2913,13 @@ async function submitCameraType(e) {
   const name    = document.getElementById('ct-name').value.trim();
   const path    = document.getElementById('ct-path').value.trim();
   const port    = parseInt(document.getElementById('ct-port').value, 10) || 80;
+  const https   = document.getElementById('ct-https').checked;
   const onvif   = document.getElementById('ct-onvif').checked;
   const rtsp    = document.getElementById('ct-rtsp').checked;
 
   if (!id || !name) { toast('ID and Name are required', 'error'); return; }
 
-  const body = { id: origId || id, name, snapshot_path: path, http_port: port, onvif, rtsp };
+  const body = { id: origId || id, name, snapshot_path: path, http_port: port, https, onvif, rtsp };
   const btn = document.getElementById('ctDlg-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
