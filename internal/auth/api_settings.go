@@ -43,6 +43,12 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Re-init the WebAuthn relying party so an RP ID/origin change (or
+		// first-time setup) takes effect immediately rather than only after
+		// a restart.
+		if err := initWebAuthn(s.DeviceBindingRPID, "go2rtc", s.DeviceBindingRPOrigins); err != nil {
+			log.Warn().Err(err).Msg("[auth] webauthn relying party re-init failed")
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(s)
 

@@ -71,6 +71,22 @@ type AppSettings struct {
 	// per-browser click is remembered separately, in localStorage). Inverted
 	// so the zero value (false) keeps today's behavior — layer on by default.
 	StationsLayerDefaultOff bool `json:"stations_layer_default_off"`
+
+	// Device-binding (WebAuthn/passkey) settings — see device_binding.go and
+	// webauthn.go. Disabled (RPID empty) by default: registering and
+	// step-up-verifying a device only works once an admin fills these in,
+	// and WebAuthn requires RPID to be the exact domain (no scheme/port)
+	// the browser's address bar shows, and RPOrigins the exact
+	// "https://" + that domain the browser sends as Origin — a mismatch
+	// fails every ceremony, so both must be set together and kept in sync
+	// with the real deployment hostname.
+	DeviceBindingEnabled   bool     `json:"device_binding_enabled"`
+	DeviceBindingRPID      string   `json:"device_binding_rp_id"`      // e.g. "dieuhanh.utmc.io.vn"
+	DeviceBindingRPOrigins []string `json:"device_binding_rp_origins"` // e.g. ["https://dieuhanh.utmc.io.vn"]
+	// DeviceVerifyValidHours: once a step-up verification succeeds, how long
+	// the resulting cookie satisfies further requests to the same gated
+	// scope before the browser is asked to verify again. 0 → default 12h.
+	DeviceVerifyValidHours int `json:"device_verify_valid_hours"`
 }
 
 var (

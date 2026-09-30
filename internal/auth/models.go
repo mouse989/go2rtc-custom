@@ -70,6 +70,25 @@ type User struct {
 	ViewLimitMinutes      int  `json:"view_limit_minutes"`
 	// Incidents sub-permission (only meaningful when user has incidents tab)
 	AllowIncidentsImport bool `json:"allow_incidents_import"` // import hàng loạt từ Excel
+
+	// DeviceBindingScopes lists which sensitive-data categories (keys from
+	// DeviceScopeCatalog — see device_binding.go) this user may only reach
+	// from a device an admin has approved via WebAuthn. A category the user
+	// is otherwise allowed to access (e.g. by Streams/RegionIDs, or one of
+	// the AllowX flags above) but that isn't listed here works exactly as
+	// before — not every viewer or every kind of data needs this.
+	DeviceBindingScopes []string `json:"device_binding_scopes,omitempty"`
+}
+
+// RequiresDeviceBindingFor reports whether scope is one of this user's
+// DeviceBindingScopes. Admins are never gated (checked by the caller).
+func (u *User) RequiresDeviceBindingFor(scope string) bool {
+	for _, s := range u.DeviceBindingScopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // EffectiveTabs returns the full resolved tab list for this user.
@@ -104,6 +123,9 @@ var viewerDefaultPaths = []string{
 	"/api/cameras",              // camera list with GPS coords (no stream URLs)
 	"/api/traffic-heatmap",      // map: jam points for heatmap overlay (read-only)
 	"/api/heatmap-cfg",          // map/dashboard: heatmap config (write guarded inside handler)
+	"/api/auth/webauthn",        // device-binding enroll/step-up ceremonies (own account only)
+	"/api/device-scopes",        // device-binding scope catalog (labels only, nothing sensitive)
+	"/api/device-bindings",      // own trusted devices; admin-only listing/actions guarded inside handler
 }
 
 // Claims holds JWT payload fields

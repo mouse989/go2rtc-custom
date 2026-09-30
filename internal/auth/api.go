@@ -217,6 +217,8 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"view_limit_minutes":         user.ViewLimitMinutes,
 		"allow_incidents_import":     user.AllowIncidentsImport,
 		"tabs":                       user.EffectiveTabs(),
+		"device_binding_scopes":      user.DeviceBindingScopes,
+		"device_verified":            requestHasVerifiedDevice(r, user.Username),
 	})
 }
 
@@ -276,6 +278,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowUnlimitedViewing   bool     `json:"allow_unlimited_view"`
 			ViewLimitMinutes        int      `json:"view_limit_minutes"`
 			AllowIncidentsImport    bool     `json:"allow_incidents_import"`
+			DeviceBindingScopes     []string `json:"device_binding_scopes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -323,6 +326,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowUnlimitedViewing:   req.AllowUnlimitedViewing,
 			ViewLimitMinutes:        req.ViewLimitMinutes,
 			AllowIncidentsImport:    req.AllowIncidentsImport,
+			DeviceBindingScopes:     validDeviceScopeKeys(req.DeviceBindingScopes),
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -369,6 +373,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			ViewLimitMinutes        *int     `json:"view_limit_minutes"`
 			AllowIncidentsImport    *bool    `json:"allow_incidents_import"`
 			MustChangePassword      *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
+			DeviceBindingScopes     []string `json:"device_binding_scopes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -399,6 +404,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Tabs != nil {
 			existing.Tabs = req.Tabs
+		}
+		if req.DeviceBindingScopes != nil {
+			existing.DeviceBindingScopes = validDeviceScopeKeys(req.DeviceBindingScopes)
 		}
 		if req.Enabled != nil {
 			existing.Enabled = *req.Enabled

@@ -211,6 +211,7 @@ tr:hover td { background:var(--surface2); }
     <button class="page-tab" data-tab="camconfig" onclick="showTab('camconfig')">Camera Config</button>
     <button class="page-tab" data-tab="traffic" onclick="showTab('traffic')">Traffic</button>
     <button class="page-tab" data-tab="audit" onclick="showTab('audit')">🔍 Đối soát Camera</button>
+    <button class="page-tab" data-tab="devbind" onclick="showTab('devbind')">🔐 Xác minh TB</button>
   </div>
 
   <div class="content">
@@ -361,6 +362,37 @@ tr:hover td { background:var(--surface2); }
               Trạng thái ban đầu của nút <strong>📊 Trạm đo</strong> (tab Map) cho người dùng chưa từng tự bấm nút này
               trên trình duyệt của họ — hữu ích để giảm rối bản đồ trên điện thoại. Ai đã tự bật/tắt thì trình duyệt
               đó nhớ riêng lựa chọn của họ, không bị mặc định này ghi đè.
+            </p>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:.4rem">
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">
+              <input type="checkbox" id="devBindEnabledInput" style="margin-right:.4rem;vertical-align:middle">
+              Bật xác minh thiết bị (WebAuthn) cho dữ liệu nhạy cảm
+            </label>
+            <div style="display:flex;flex-direction:column;gap:.5rem;margin-top:.5rem">
+              <div style="display:flex;align-items:center;gap:.6rem">
+                <span style="font-size:.78rem;color:var(--text-muted);width:110px;flex-shrink:0">RP ID (domain)</span>
+                <input type="text" id="devBindRpIdInput" placeholder="dieuhanh.utmc.io.vn"
+                       style="flex:1;max-width:320px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              </div>
+              <div style="display:flex;align-items:center;gap:.6rem">
+                <span style="font-size:.78rem;color:var(--text-muted);width:110px;flex-shrink:0">Origin(s)</span>
+                <input type="text" id="devBindOriginsInput" placeholder="https://dieuhanh.utmc.io.vn (cách nhau bởi dấu phẩy nếu nhiều)"
+                       style="flex:1;max-width:420px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              </div>
+              <div style="display:flex;align-items:center;gap:.6rem">
+                <span style="font-size:.78rem;color:var(--text-muted);width:110px;flex-shrink:0">Hiệu lực xác minh</span>
+                <input type="number" id="devBindValidHoursInput" min="0" max="720" value="0"
+                       style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+                <span style="font-size:.78rem;color:var(--text-muted)">giờ (0 = tự động 12h)</span>
+              </div>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.5rem 0 0">
+              RP ID phải khớp <strong>chính xác</strong> tên miền hiển thị trên thanh địa chỉ trình duyệt (không kèm https://,
+              không kèm cổng), và Origin phải là <code>https://</code> + đúng tên miền đó. Sai một trong hai sẽ khiến mọi
+              thao tác đăng ký/xác minh thiết bị thất bại. Chọn user nào cần xác minh thiết bị cho loại dữ liệu nào ở form
+              sửa user (mục "Yêu cầu xác minh thiết bị" bên dưới) — bật ở đây chỉ là bật khả năng của cả hệ thống.
+              Quản lý thiết bị đã đăng ký/chờ duyệt ở tab <strong>Thiết bị</strong>.
             </p>
           </div>
           <div style="display:flex;gap:.5rem">
@@ -1068,6 +1100,43 @@ rtsp:
       </div>
     </div><!-- /auditSection -->
 
+    <!-- ── Device Binding (WebAuthn) section ── -->
+    <div id="devbindSection" style="display:none">
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">🔐 Thiết bị xác minh (WebAuthn)</h3>
+          <select id="devbindStatusFilter" onchange="renderDeviceBindingsTable()"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.28rem .45rem;color:var(--text);font-size:.8rem;outline:none">
+            <option value="">Tất cả trạng thái</option>
+            <option value="pending">Chờ duyệt</option>
+            <option value="approved">Đã duyệt</option>
+            <option value="revoked">Đã thu hồi</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="loadDeviceBindingsTab()">🔄 Tải lại</button>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          Danh sách thiết bị mà từng user đã đăng ký (qua "Đăng ký thiết bị mới" khi hệ thống yêu cầu xác minh). Thiết bị
+          <b>Chờ duyệt</b> chưa có quyền truy cập gì cho tới khi bạn bấm <b>Duyệt</b>. Bấm <b>Thu hồi</b> để chặn một
+          thiết bị (đã duyệt hoặc chờ duyệt) — user sẽ phải đăng ký lại nếu cần dùng thiết bị đó tiếp.
+          Cấu hình bật/tắt tính năng và chọn user nào cần xác minh thiết bị cho loại dữ liệu nào ở tab
+          <b>Settings</b> và form sửa từng user.
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+            <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">User</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên thiết bị</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Trạng thái</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Đăng ký lúc</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Dùng lần cuối</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+            </tr></thead>
+            <tbody id="devbindTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /devbindSection -->
+
   </div>
 </main>
 
@@ -1469,6 +1538,14 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <div style="font-size:.7rem;color:var(--text-muted);margin:-.15rem 0 .3rem">Sau khi hết thời gian, video dừng lại và người dùng phải bấm để xem tiếp. Không áp dụng cho link RTSP/RTSPS. Để trống ô phút = dùng giá trị mặc định hệ thống (Settings).</div>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Sự cố giao thông</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-incidents-import"> ⬆ Import Excel hàng loạt</label>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">🔐 Yêu cầu xác minh thiết bị</div>
+          <div id="f-device-scopes-row" style="display:flex;flex-wrap:wrap;gap:.4rem">
+            <span style="font-size:.72rem;color:var(--text-muted)">Đang tải danh mục…</span>
+          </div>
+          <div style="font-size:.7rem;color:var(--text-muted);margin:.3rem 0 0">
+            Với mỗi mục được chọn, user chỉ xem được loại dữ liệu đó sau khi xác minh thiết bị (WebAuthn) đã được duyệt —
+            các quyền khác của user vẫn hoạt động bình thường. Cần bật "Xác minh thiết bị" trong tab Settings trước.
+          </div>
         </div>
         <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic, heatmap, sửa vị trí camera, xem tên thật camera, xem/config trạm đo đếm lưu lượng trên tab Map.</p>
       </div>
@@ -1567,7 +1644,7 @@ let gCheckedCams = new Set();  // group-form camera selection
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
   await initApp();
-  await Promise.all([loadCameras(), loadUsers(), loadGroups(), loadRegions()]);
+  await Promise.all([loadCameras(), loadUsers(), loadGroups(), loadRegions(), loadDeviceScopes()]);
   renderCamList();
 });
 
@@ -1588,6 +1665,7 @@ function showTab(tab) {
   document.getElementById('camconfigSection').style.display = tab === 'camconfig' ? '' : 'none';
   document.getElementById('trafficSection').style.display   = tab === 'traffic'    ? '' : 'none';
   document.getElementById('auditSection').style.display     = tab === 'audit'      ? '' : 'none';
+  document.getElementById('devbindSection').style.display   = tab === 'devbind'    ? '' : 'none';
   const btn = document.getElementById('topbarAddBtn');
   if (tab === 'users') {
     btn.textContent = '+ Add User'; btn.style.display = ''; btn.onclick = openAdd;
@@ -1606,6 +1684,7 @@ function showTab(tab) {
   if (tab === 'camconfig') loadCamPresets();
   if (tab === 'traffic')   loadTrafficTab();
   if (tab === 'audit' && !_auditData) runConfigAudit();
+  if (tab === 'devbind') loadDeviceBindingsTab();
 }
 
 // ════════════════════════════════════════════════════════
@@ -1960,6 +2039,10 @@ async function loadSettings() {
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
     document.getElementById('loginHourEnd').value = s.login_hour_end ?? 22;
     document.getElementById('stnLayerDefaultOn').checked = !s.stations_layer_default_off;
+    document.getElementById('devBindEnabledInput').checked = !!s.device_binding_enabled;
+    document.getElementById('devBindRpIdInput').value = s.device_binding_rp_id || '';
+    document.getElementById('devBindOriginsInput').value = (s.device_binding_rp_origins || []).join(', ');
+    document.getElementById('devBindValidHoursInput').value = s.device_verify_valid_hours || 0;
   } catch (e) {}
   loadRtspCreds();
   loadModules();
@@ -2085,6 +2168,10 @@ async function saveSettings() {
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
   const loginHourEnd   = parseInt(document.getElementById('loginHourEnd').value, 10) || 0;
   const stnLayerDefaultOff = !document.getElementById('stnLayerDefaultOn').checked;
+  const devBindEnabled = document.getElementById('devBindEnabledInput').checked;
+  const devBindRpId = document.getElementById('devBindRpIdInput').value.trim();
+  const devBindOrigins = document.getElementById('devBindOriginsInput').value.split(',').map(s => s.trim()).filter(Boolean);
+  const devBindValidHours = parseInt(document.getElementById('devBindValidHoursInput').value, 10) || 0;
   try {
     await apiFetch('/api/settings', {
       method: 'POST',
@@ -2102,6 +2189,10 @@ async function saveSettings() {
         login_hour_start: loginHourStart,
         login_hour_end: loginHourEnd,
         stations_layer_default_off: stnLayerDefaultOff,
+        device_binding_enabled: devBindEnabled,
+        device_binding_rp_id: devBindRpId,
+        device_binding_rp_origins: devBindOrigins,
+        device_verify_valid_hours: devBindValidHours,
       }),
     });
     const msg = document.getElementById('settingsSaveMsg');
@@ -2193,6 +2284,7 @@ function openAdd() {
   document.querySelectorAll('input[name="userTab"]').forEach(cb => { cb.checked = false; });
   document.getElementById('f-allow-map-snapshot-preview').checked = false; // new users: off by default
   renderRegionChecks([]);
+  renderDeviceScopeChecks([]);
   uncheckAll(); updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
 }
@@ -2236,6 +2328,7 @@ function openEdit(u) {
   document.getElementById('f-allow-incidents-import').checked = !!u.allow_incidents_import;
   setCamChecks(u.streams || []);
   renderRegionChecks(u.region_ids || []);
+  renderDeviceScopeChecks(u.device_binding_scopes || []);
   updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
 }
@@ -2269,6 +2362,100 @@ function renderRegionChecks(selectedIDs) {
 
 function getCheckedRegions() {
   return [...document.querySelectorAll('.region-check:checked')].map(cb => cb.value);
+}
+
+// ════════════════════════════════════════════════════════
+//  DEVICE-BINDING SCOPE CATALOG (for the user edit form)
+// ════════════════════════════════════════════════════════
+let allDeviceScopes = []; // [{key,label}]
+
+async function loadDeviceScopes() {
+  try { allDeviceScopes = await apiFetch('/api/device-scopes') || []; }
+  catch { allDeviceScopes = []; }
+}
+
+function renderDeviceScopeChecks(selectedKeys) {
+  const wrap = document.getElementById('f-device-scopes-row');
+  const sel = new Set(selectedKeys || []);
+  if (!allDeviceScopes.length) {
+    wrap.innerHTML = '<span style="font-size:.72rem;color:var(--text-muted)">Không tải được danh mục.</span>';
+    return;
+  }
+  wrap.innerHTML = allDeviceScopes.map(s => `
+    <label class="tab-perm-chip">
+      <input type="checkbox" class="devscope-check" value="${esc(s.key)}" ${sel.has(s.key) ? 'checked' : ''}>
+      ${esc(s.label)}
+    </label>`).join('');
+}
+
+function getCheckedDeviceScopes() {
+  return [...document.querySelectorAll('.devscope-check:checked')].map(cb => cb.value);
+}
+
+// ════════════════════════════════════════════════════════
+//  DEVICE-BINDING ADMIN REVIEW (approve/revoke trusted devices)
+// ════════════════════════════════════════════════════════
+let _devbindData = [];
+
+async function loadDeviceBindingsTab() {
+  const tbody = document.getElementById('devbindTbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  try {
+    _devbindData = await apiFetch('/api/device-bindings?all=1') || [];
+    renderDeviceBindingsTable();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function _devbindStatusLabel(status) {
+  if (status === 'pending') return '<span style="color:#f59e0b">⏳ Chờ duyệt</span>';
+  if (status === 'approved') return '<span style="color:#4ade80">✓ Đã duyệt</span>';
+  return '<span style="color:var(--text-muted)">✗ Đã thu hồi</span>';
+}
+
+function _devbindFmtTime(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleString('vi-VN'); } catch { return iso; }
+}
+
+function renderDeviceBindingsTable() {
+  const tbody = document.getElementById('devbindTbody');
+  const filter = document.getElementById('devbindStatusFilter').value;
+  const rows = filter ? _devbindData.filter(d => d.status === filter) : _devbindData;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Chưa có thiết bị nào.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(d => `
+    <tr>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(d.username)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(d.label)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${_devbindStatusLabel(d.status)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${_devbindFmtTime(d.created_at)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${_devbindFmtTime(d.last_used_at)}${d.last_used_ip ? ' · ' + esc(d.last_used_ip) : ''}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;gap:.4rem">
+        ${d.status !== 'approved' ? `<button class="btn btn-primary btn-sm" onclick="approveDeviceBinding('${esc(d.id)}')">Duyệt</button>` : ''}
+        ${d.status !== 'revoked' ? `<button class="btn btn-danger btn-sm" onclick="revokeDeviceBinding('${esc(d.id)}')">Thu hồi</button>` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+async function approveDeviceBinding(id) {
+  try {
+    await apiFetch(`/api/device-bindings/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+    toast('Đã duyệt thiết bị.', 'success');
+    await loadDeviceBindingsTab();
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+async function revokeDeviceBinding(id) {
+  if (!confirm('Thu hồi thiết bị này? User sẽ phải đăng ký lại nếu cần dùng tiếp.')) return;
+  try {
+    await apiFetch(`/api/device-bindings/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
+    toast('Đã thu hồi thiết bị.', 'success');
+    await loadDeviceBindingsTab();
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
 }
 
 function onRoleChange() {
@@ -2420,7 +2607,8 @@ async function submitForm(e) {
   const allow_unlimited_view   = role === 'admin' ? true : document.getElementById('f-allow-unlimited-view').checked;
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, tabs };
+  const device_binding_scopes  = role === 'admin' ? [] : getCheckedDeviceScopes();
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 
