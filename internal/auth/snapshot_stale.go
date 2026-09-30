@@ -7,26 +7,33 @@ package auth
 // image and a live one look identical to a viewer, so nothing signals that
 // the camera actually needs attention.
 //
-// Drawn entirely with the stdlib image package plus golang.org/x/image's
-// tiny bitmap font (already a transitive dependency here) rather than
-// embedding an asset file: no image editing tooling was available to
-// produce one, and a warning triangle + "!" is simple enough to rasterize
-// directly. The "!" mark is drawn as plain filled rectangles rather than
-// text so it renders identically regardless of font/locale support; the
-// caption text is kept to plain ASCII for the same reason — basicfont's
-// bitmap glyphs don't cover Vietnamese diacritics.
+// The warning icon (assets/warning.png) is the ⚠️ Unicode emoji, rendered
+// once offline via a local headless-Chromium screenshot of Noto Color Emoji
+// (the font already present on this build host) and committed as a static
+// asset — no network fetch happens at build or run time. It's embedded with
+// go:embed, decoded and alpha-composited onto the canvas once at process
+// startup (deterministic, no per-request cost) using golang.org/x/image/draw
+// (already a transitive dependency here) for the scale step. The caption
+// text is kept to plain ASCII because basicfont's bitmap glyphs — used for
+// the caption only, not the icon — don't cover Vietnamese diacritics.
 
 import (
 	"bytes"
+	_ "embed"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/jpeg"
+	"image/png"
 
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
 )
+
+//go:embed assets/warning.png
+var warningIconPNG []byte
 
 // disconnectedPlaceholderJPEG is generated once at startup (deterministic,
 // no per-request cost) and served as-is.
@@ -39,9 +46,7 @@ func buildDisconnectedPlaceholder() []byte {
 	bg := color.RGBA{R: 30, G: 18, B: 18, A: 255} // dark red-brown, distinct from the neutral gray "not fetched yet" placeholder
 	draw.Draw(img, img.Bounds(), image.NewUniform(bg), image.Point{}, draw.Src)
 
-	amber := color.RGBA{R: 245, G: 166, B: 35, A: 255}
-	amberEdge := color.RGBA{R: 120, G: 80, B: 15, A: 255}
-	drawWarningTriangle(img, w/2, 30, 60, bg, amber, amberEdge)
+	drawWarningIcon(img, w/2, 8, 64)
 
 	drawCenteredText(img, "CAMERA OFFLINE", 130, color.RGBA{230, 230, 230, 255})
 	drawCenteredText(img, "no recent signal", 148, color.RGBA{190, 150, 110, 255})
@@ -51,36 +56,23 @@ func buildDisconnectedPlaceholder() []byte {
 	return buf.Bytes()
 }
 
-// drawWarningTriangle fills an isoceles triangle (apex at (cx, topY), base
-// 2*size wide at y = topY+size) with fill/edge colors, then cuts an "!" mark
-// out of it in cutColor (the background color, so it reads as a hole).
-func drawWarningTriangle(img *image.RGBA, cx, topY, size int, cutColor, fill, edge color.RGBA) {
-	baseY := topY + size
-	for y := topY; y <= baseY; y++ {
-		frac := float64(y-topY) / float64(size)
-		half := int(frac * float64(size) * 0.95)
-		edgeRow := y == baseY
-		for x := cx - half; x <= cx+half; x++ {
-			c := fill
-			if edgeRow || x == cx-half || x == cx+half {
-				c = edge
-			}
-			img.SetRGBA(x, y, c)
-		}
+// drawWarningIcon decodes the embedded ⚠️ emoji PNG, scales it to `size`
+// pixels tall (preserving aspect ratio), and alpha-composites it onto img
+// centered horizontally at cx with its top edge at topY.
+func drawWarningIcon(img *image.RGBA, cx, topY, size int) {
+	icon, err := png.Decode(bytes.NewReader(warningIconPNG))
+	if err != nil {
+		return // can't happen for the embedded asset; skip the icon rather than panic
 	}
 
-	barTop := topY + size/4
-	barBottom := topY + size - size/4
-	for y := barTop; y <= barBottom-6; y++ {
-		for x := cx - 3; x <= cx+3; x++ {
-			img.SetRGBA(x, y, cutColor)
-		}
-	}
-	for y := barBottom - 4; y <= barBottom; y++ {
-		for x := cx - 3; x <= cx+3; x++ {
-			img.SetRGBA(x, y, cutColor)
-		}
-	}
+	srcB := icon.Bounds()
+	destW := size * srcB.Dx() / srcB.Dy()
+	scaled := image.NewRGBA(image.Rect(0, 0, destW, size))
+	xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), icon, srcB, xdraw.Src, nil)
+
+	x0 := cx - destW/2
+	dstRect := image.Rect(x0, topY, x0+destW, topY+size)
+	draw.Draw(img, dstRect, scaled, image.Point{}, draw.Over)
 }
 
 // drawCenteredText horizontally centers s (ASCII only — see file comment)
