@@ -24,6 +24,33 @@ import (
 
 var storageMu sync.Mutex // serialises read-modify-write on the daily file
 
+// summaryCache holds each daily file's listScanFiles summary, keyed by
+// filename, so GET /api/traffic/data doesn't re-read and re-JSON-parse every
+// stored day on every call — with retention allowing up to 100 files and
+// each holding a full day of scans (every scan_interval_min, complete with
+// raw/filtered/persistent point geometry), that scan-and-parse was taking
+// several seconds and got slower as more days accumulated, on a request
+// path with no natural cap on how often it's polled. saveScanData updates
+// this directly from the record it just wrote (no extra read); listScanFiles
+// falls back to a one-time read+parse only for files not yet cached (e.g.
+// history from before this process started) and remembers the result.
+var (
+	summaryMu    sync.Mutex
+	summaryCache = map[string]scanFileInfo{}
+)
+
+func updateSummaryCache(name string, rec dailyRecord, size int64) {
+	info := scanFileInfo{Name: name, Date: rec.Date, Size: size, Scans: len(rec.Scans)}
+	for _, s := range rec.Scans {
+		info.Raw += len(s.Raw)
+		info.Filtered += len(s.Filtered)
+		info.Persistent += len(s.Persistent)
+	}
+	summaryMu.Lock()
+	summaryCache[name] = info
+	summaryMu.Unlock()
+}
+
 var dailyFileRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.json$`)
 
 // vnLocation anchors the daily file's calendar day to Vietnam wall-clock
@@ -82,6 +109,7 @@ func saveScanData(c Config, scannedAt time.Time, raw, filtered, persistent []Poi
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return err
 	}
+	updateSummaryCache(day+".json", rec, int64(len(data)))
 
 	// Retention cleanup (best-effort, by date in filename)
 	if c.Storage.RetentionDays > 0 {
@@ -137,6 +165,18 @@ func listScanFiles(limit int) ([]scanFileInfo, error) {
 
 	out := make([]scanFileInfo, 0, len(names))
 	for _, name := range names {
+		summaryMu.Lock()
+		cached, ok := summaryCache[name]
+		summaryMu.Unlock()
+		if ok {
+			out = append(out, cached)
+			continue
+		}
+
+		// Cache miss — a day's file this process hasn't written to itself
+		// (existing history from before it started, or before a restart).
+		// Read and parse it once, then remember the result so it's not
+		// paid again on the next call.
 		path := filepath.Join(dataDir(), name)
 		info := scanFileInfo{
 			Name: name,
@@ -156,6 +196,9 @@ func listScanFiles(limit int) ([]scanFileInfo, error) {
 				}
 			}
 		}
+		summaryMu.Lock()
+		summaryCache[name] = info
+		summaryMu.Unlock()
 		out = append(out, info)
 	}
 	return out, nil
