@@ -8,6 +8,12 @@ package auth
 //
 // GET  /api/camera-type-assignments     → map of streamName → typeID
 // PUT  /api/camera-type-assignments     → replace full assignment map (body: {streamName: typeID})
+//
+// POST /api/camera-types/detect         → guess vendor/snapshot convention
+//                                          and find matching configured
+//                                          streams from one sample RTSP URL
+//                                          (body: {sampleUrl: "rtsp://..."})
+//                                          — see camera_type_detect.go.
 
 import (
 	"encoding/json"
@@ -17,6 +23,38 @@ import (
 func registerCameraTypesHandler() {
 	http.HandleFunc("/api/camera-types", cameraTypesHandler)
 	http.HandleFunc("/api/camera-type-assignments", cameraTypeAssignmentsHandler)
+	http.HandleFunc("/api/camera-types/detect", cameraTypeDetectHandler)
+}
+
+func cameraTypeDetectHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok || user.Role != RoleAdmin {
+		http.Error(w, "admin only", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		SampleURL string `json:"sampleUrl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.SampleURL == "" {
+		http.Error(w, "sampleUrl required", http.StatusBadRequest)
+		return
+	}
+
+	det, err := DetectCameraType(body.SampleURL)
+	if err != nil {
+		http.Error(w, "cannot parse sampleUrl: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	responseJSON(w, det)
 }
 
 func cameraTypesHandler(w http.ResponseWriter, r *http.Request) {
