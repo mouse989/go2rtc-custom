@@ -544,6 +544,10 @@ rtsp:
         <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
           <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">Stream Assignments</h3>
           <span id="ctUnassignedCount" style="font-size:.77rem;color:var(--text-muted)"></span>
+          <select id="ctAssignTypeFilter" onchange="renderCtAssignTable()"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;color:var(--text);font-size:.8rem;width:auto;min-width:150px">
+            <option value="">— tất cả loại —</option>
+          </select>
           <label style="font-size:.8rem;color:var(--text-muted);display:flex;align-items:center;gap:.35rem;cursor:pointer;user-select:none">
             <input type="checkbox" id="ctAssignUnassignedOnly" onchange="renderCtAssignTable()">
             Chỉ hiện chưa gán
@@ -2612,6 +2616,19 @@ function renderBulkSelects() {
     tSel.appendChild(opt);
   });
   if (prevT) tSel.value = prevT;
+
+  // Stream Assignments "filter by type" dropdown — same options, kept in
+  // sync whenever camera types change.
+  const fSel = document.getElementById('ctAssignTypeFilter');
+  const prevF = fSel.value;
+  fSel.innerHTML = '<option value="">— tất cả loại —</option>';
+  allCameraTypes.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name;
+    fSel.appendChild(opt);
+  });
+  if (prevF) fSel.value = prevF;
 }
 
 function applyBulkAssign() {
@@ -2770,7 +2787,7 @@ function renderCtTable() {
       <td>${t.https ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td>${t.onvif ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td>${t.rtsp ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
-      <td><span class="cnt-badge">${assignedCount}</span></td>
+      <td><span class="cnt-badge" style="cursor:pointer;text-decoration:underline dotted" title="Xem danh sách camera đã gán loại này" onclick="filterAssignmentsByType('${esc(t.id)}')">${assignedCount}</span></td>
       <td>
         <button class="btn btn-secondary btn-sm" data-ctact="edit" data-ctid="${esc(t.id)}">Edit</button>
         <button class="btn btn-danger btn-sm" data-ctact="del" data-ctid="${esc(t.id)}">Delete</button>
@@ -2783,10 +2800,22 @@ function renderCtTable() {
     btn.addEventListener('click', () => deleteCameraType(btn.dataset.ctid)));
 }
 
+// Jumps from a Camera Type's "Cameras" count badge to the Stream Assignments
+// table below, filtered to exactly the streams assigned to that type — for
+// reviewing whether each one was actually assigned correctly.
+function filterAssignmentsByType(typeId) {
+  document.getElementById('ctAssignTypeFilter').value = typeId;
+  document.getElementById('ctAssignSearch').value = '';
+  document.getElementById('ctAssignUnassignedOnly').checked = false;
+  renderCtAssignTable();
+  document.getElementById('ctAssignTbody').closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function renderCtAssignTable() {
   const tbody  = document.getElementById('ctAssignTbody');
   const filter = (document.getElementById('ctAssignSearch').value || '').toLowerCase();
   const unassignedOnly = document.getElementById('ctAssignUnassignedOnly').checked;
+  const typeFilter = document.getElementById('ctAssignTypeFilter').value;
 
   const unassignedCount = allCams.filter(c => !ctAssignments[c]).length;
   document.getElementById('ctUnassignedCount').textContent =
@@ -2794,9 +2823,12 @@ function renderCtAssignTable() {
 
   let cams = filter ? allCams.filter(c => c.toLowerCase().includes(filter)) : allCams;
   if (unassignedOnly) cams = cams.filter(c => !ctAssignments[c]);
+  if (typeFilter) cams = cams.filter(c => ctAssignments[c] === typeFilter);
 
   if (!cams.length) {
-    tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">${allCams.length ? (unassignedOnly ? 'Tất cả stream đã được gán loại camera 🎉' : 'No streams match') : 'No streams configured'}</td></tr>`;
+    const emptyMsg = typeFilter ? 'Không có camera nào đang gán loại này'
+      : (unassignedOnly ? 'Tất cả stream đã được gán loại camera 🎉' : 'No streams match');
+    tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">${allCams.length ? emptyMsg : 'No streams configured'}</td></tr>`;
     return;
   }
 
