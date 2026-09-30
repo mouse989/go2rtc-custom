@@ -27,9 +27,9 @@ type HeatmapConfig struct {
 
 // AppSettings holds persisted application-level settings.
 type AppSettings struct {
-	VietmapAPIKey           string         `json:"vietmap_api_key"`
-	SnapshotIntervalSec     int            `json:"snapshot_interval_sec"` // 0 → default 15 s
-	SnapshotConcurrency     int            `json:"snapshot_concurrency"`  // 0 → auto (interval_sec × 10)
+	VietmapAPIKey       string `json:"vietmap_api_key"`
+	SnapshotIntervalSec int    `json:"snapshot_interval_sec"` // 0 → default 15 s
+	SnapshotConcurrency int    `json:"snapshot_concurrency"`  // 0 → auto (interval_sec × 10)
 	// SnapshotRTSPKeepAlive: for camera types with no HTTP snapshot URL (grab
 	// a keyframe from go2rtc's own RTSP stream instead), keep that RTSP
 	// connection open between polls rather than reconnecting every cycle.
@@ -41,10 +41,18 @@ type AppSettings struct {
 	// bandwidth, which at a few thousand cameras is usually the worse trade.
 	// See internal/mjpeg/keepalive.go's GetKeepAliveStats for the live cost.
 	SnapshotRTSPKeepAlive bool `json:"snapshot_rtsp_keepalive"`
-	MapSearchRadiusKm       float64        `json:"map_search_radius_km"`  // 0 → default 1 km
-	MapRouteWidthM          float64        `json:"map_route_width_m"`     // "Theo tuyến" tool: 0 → default 100 m
-	HeatmapCfg              *HeatmapConfig `json:"heatmap_cfg,omitempty"`
-	DefaultViewLimitMinutes int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
+	// SnapshotStaleThresholdSec: how old an on-disk snapshot may be before
+	// GET /api/proxy/frame refuses to serve it and shows a "disconnected"
+	// placeholder instead — otherwise a camera that's been offline for hours
+	// keeps silently showing its last-known-good frame forever, looking
+	// exactly like a live view. 0 → auto (4× snapshot_interval_sec, floored
+	// at 60s — see snapshotStaleThreshold in proxy.go for why it scales
+	// with the interval instead of a bare fixed value).
+	SnapshotStaleThresholdSec int            `json:"snapshot_stale_threshold_sec"`
+	MapSearchRadiusKm         float64        `json:"map_search_radius_km"` // 0 → default 1 km
+	MapRouteWidthM            float64        `json:"map_route_width_m"`    // "Theo tuyến" tool: 0 → default 100 m
+	HeatmapCfg                *HeatmapConfig `json:"heatmap_cfg,omitempty"`
+	DefaultViewLimitMinutes   int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
 
 	// Security-alert "normal login hours" window (Asia/Ho_Chi_Minh). When
 	// enabled, a successful login outside [LoginHourStart, LoginHourEnd)

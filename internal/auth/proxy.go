@@ -183,6 +183,26 @@ func snapshotConcurrency() int {
 	return n
 }
 
+// snapshotStaleThreshold returns how old an on-disk snapshot may be before
+// proxyFrameHandler refuses to serve it and shows the "disconnected"
+// placeholder instead. Auto default: 4× the configured refresh interval,
+// floored at 60s — sized off the interval (not a bare fixed 60s) because a
+// deployment that intentionally raised the interval (see
+// SnapshotConcurrency's own comment on tuning it down for many cameras)
+// would otherwise see every camera falsely flagged "disconnected" between
+// its own, slower refresh cycles.
+func snapshotStaleThreshold() time.Duration {
+	s := GetSettings()
+	if s.SnapshotStaleThresholdSec >= 1 {
+		return time.Duration(s.SnapshotStaleThresholdSec) * time.Second
+	}
+	d := snapshotInterval() * 4
+	if d < 60*time.Second {
+		d = 60 * time.Second
+	}
+	return d
+}
+
 // SnapshotStatsResponse is the payload for GET /api/proxy/snapshot-stats.
 type SnapshotStatsResponse struct {
 	IntervalSec int                     `json:"interval_sec"`
@@ -558,6 +578,18 @@ func proxyFrameHandler(w http.ResponseWriter, r *http.Request) {
 	// Fast path: serve from disk (worker keeps this fresh every 5 s).
 	path := SnapshotFilePath(streamName)
 	if f, fi, err := openSnapshot(path); err == nil {
+		if age := time.Since(fi.ModTime()); age > snapshotStaleThreshold() {
+			// The worker has stopped successfully refreshing this file —
+			// almost always a camera that's gone offline. Without this
+			// check the last-known-good frame keeps being served forever,
+			// indistinguishable from a live view.
+			f.Close()
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Frame-Cache", "STALE")
+			http.ServeContent(w, r, "", time.Now(), bytes.NewReader(disconnectedPlaceholderJPEG))
+			return
+		}
 		defer f.Close()
 		w.Header().Set("X-Frame-Cache", "HIT")
 		serveFromDisk(w, r, f, fi)

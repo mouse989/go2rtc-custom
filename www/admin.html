@@ -286,6 +286,20 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Ngưỡng coi snapshot là cũ / camera mất kết nối (giây)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="snapStaleThresholdInput" min="0" max="86400" value="0"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">0 = tự tính (4× khoảng lấy snapshot, tối thiểu 60s)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Ảnh snapshot lưu trên đĩa cũ hơn ngưỡng này sẽ <strong>không được hiển thị</strong> — thay vào đó hệ thống
+              hiện ảnh báo "CAMERA OFFLINE" kèm dấu cảnh báo, để tránh trường hợp camera mất kết nối lâu nhưng vẫn hiện
+              ảnh cũ như đang chạy bình thường. Để 0 (tự tính) trừ khi bạn thực sự cần một ngưỡng cố định khác khoảng
+              lấy snapshot đang cấu hình.
+            </p>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Bán kính tìm kiếm camera mặc định (km)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="mapRadiusInput" min="0.1" max="50" step="0.1" value="1"
@@ -1938,6 +1952,7 @@ async function loadSettings() {
     document.getElementById('snapIntervalInput').value = s.snapshot_interval_sec || 15;
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
     document.getElementById('snapRtspKeepAliveInput').checked = !!s.snapshot_rtsp_keepalive;
+    document.getElementById('snapStaleThresholdInput').value = s.snapshot_stale_threshold_sec || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
@@ -2062,6 +2077,7 @@ async function saveSettings() {
   const interval    = parseInt(document.getElementById('snapIntervalInput').value, 10) || 15;
   const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
   const rtspKeepAlive = document.getElementById('snapRtspKeepAliveInput').checked;
+  const staleThreshold = parseInt(document.getElementById('snapStaleThresholdInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
@@ -2078,6 +2094,7 @@ async function saveSettings() {
         snapshot_interval_sec: interval,
         snapshot_concurrency: concurrency,
         snapshot_rtsp_keepalive: rtspKeepAlive,
+        snapshot_stale_threshold_sec: staleThreshold,
         map_search_radius_km: mapRadius,
         map_route_width_m: mapRouteWidth,
         default_view_limit_minutes: viewLimit,
