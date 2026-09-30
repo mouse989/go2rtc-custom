@@ -21,9 +21,9 @@ func registerCameraConfigHandler() {
 	http.HandleFunc("/api/camera-config/streams", cameraConfigStreamsHandler)
 }
 
-// camStreamInfo describes a configured go2rtc stream whose source is an rtsp://
-// URL, with host + credentials parsed out so the Camera Config UI can offer a
-// pick-list instead of manual IP entry.
+// camStreamInfo describes a configured go2rtc stream whose source is an
+// rtsp(s|x):// URL, with host + credentials parsed out so the Camera Config
+// UI can offer a pick-list instead of manual IP entry.
 type camStreamInfo struct {
 	Name     string `json:"name"`
 	Host     string `json:"host"`
@@ -47,7 +47,14 @@ func cameraConfigStreamsHandler(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(names)
 		for _, name := range names {
 			for _, src := range getStreamSources(name) {
-				if !strings.HasPrefix(strings.ToLower(src), "rtsp://") {
+				lower := strings.ToLower(src)
+				// rtsps/rtspx (RTSP-over-TLS, e.g. Bosch cameras that default
+				// to requiring it) parse identically for host/creds — only
+				// the streaming layer (pkg/tcp/dial.go) needs to know it's
+				// TLS-wrapped.
+				if !strings.HasPrefix(lower, "rtsp://") &&
+					!strings.HasPrefix(lower, "rtsps://") &&
+					!strings.HasPrefix(lower, "rtspx://") {
 					continue
 				}
 				u, err := url.Parse(src)
