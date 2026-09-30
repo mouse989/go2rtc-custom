@@ -264,14 +264,9 @@
         <div class="mon-card" id="diskCard">
           <div class="mon-card-title">
             <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h12a2 2 0 012 2v2H2V6zm0 4h16v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4zm10 3a1 1 0 011-1h.01a1 1 0 110 2H13a1 1 0 01-1-1z"/></svg>
-            Disk (C:\)
+            Ổ đĩa
           </div>
-          <div class="mon-value" id="diskVal">0<sup>%</sup></div>
-          <div class="mon-bar-wrap"><div class="mon-bar" id="diskBar" style="width:0%"></div></div>
-          <div class="mon-detail">
-            <span id="diskUsedLabel">— used</span>
-            <span id="diskTotalLabel">— total</span>
-          </div>
+          <div id="diskRows" style="display:flex;flex-direction:column;gap:.55rem"></div>
         </div>
 
         <!-- Uptime -->
@@ -360,6 +355,33 @@
             <span id="snapIntervalLabel">refresh: —</span>
             <span id="snapRateLabel" style="color:var(--text-muted)"></span>
             <span id="snapFailLabel" style="color:var(--red)"></span>
+          </div>
+        </div>
+
+        <!-- RTSP snapshot keep-alive cost (opt-in; see Admin Config → Cấu hình) -->
+        <div class="mon-card" style="grid-column:1/-1" id="rtspKeepAliveCard">
+          <div class="mon-card-title">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM8 16a2 2 0 104 0H8z"/></svg>
+            RTSP giữ ấm (snapshot keep-alive)
+            <span style="margin-left:auto;font-size:.7rem;color:var(--text-muted);font-weight:normal" id="rtspKeepAliveHint"></span>
+          </div>
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:baseline">
+            <div>
+              <span class="mon-value" id="rtspKACamerasVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">camera đang giữ kết nối</span>
+            </div>
+            <div>
+              <span class="mon-value" id="rtspKARamVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">RAM cache</span>
+            </div>
+            <div>
+              <span class="mon-value" id="rtspKABwVal" style="font-size:1.6rem">—</span>
+              <span style="font-size:.82rem;color:var(--text-muted);margin-left:.3rem">băng thông đang dùng</span>
+            </div>
+          </div>
+          <div class="mon-detail" style="color:var(--text-muted)">
+            Băng thông = tổng dữ liệu video các camera đang giữ kết nối RTSP nhận liên tục (không phải chỉ lúc lấy snapshot) —
+            đây là chi phí đánh đổi khi bật "Giữ ấm RTSP" trong Cấu hình.
           </div>
         </div>
 
@@ -619,14 +641,25 @@ function render(s) {
   pushHistory(memHistory, memPct);
   drawSpark('memSpark', memHistory, '#3fb950', 100);
 
-  // Disk
-  const diskPct = s.disk_total > 0 ? Math.round(s.disk_used / s.disk_total * 100) : 0;
-  document.getElementById('diskVal').innerHTML = `${diskPct}<sup>%</sup>`;
-  const diskBar = document.getElementById('diskBar');
-  diskBar.style.width = diskPct + '%';
-  diskBar.className = 'mon-bar ' + barClass(diskPct);
-  document.getElementById('diskUsedLabel').textContent = fmtBytes(s.disk_used) + ' used';
-  document.getElementById('diskTotalLabel').textContent = fmtBytes(s.disk_total) + ' total';
+  // Disk(s) — one row per local fixed drive the server reports (C:\, D:\, …
+  // on Windows; root filesystem on Linux). Falls back to the single
+  // disk_total/disk_used pair for older servers that don't send `disks` yet.
+  const disks = (s.disks && s.disks.length) ? s.disks
+    : (s.disk_total ? [{ path: 'Disk', total: s.disk_total, used: s.disk_used }] : []);
+  document.getElementById('diskRows').innerHTML = disks.length ? disks.map(d => {
+    const pct = d.total > 0 ? Math.round(d.used / d.total * 100) : 0;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.82rem;margin-bottom:.2rem">
+        <span style="font-weight:600">${d.path}</span>
+        <span>${pct}<sup style="font-size:.7em">%</sup></span>
+      </div>
+      <div class="mon-bar-wrap"><div class="mon-bar ${barClass(pct)}" style="width:${pct}%"></div></div>
+      <div class="mon-detail" style="margin-top:.15rem">
+        <span>${fmtBytes(d.used)} used</span>
+        <span>${fmtBytes(d.total)} total</span>
+      </div>
+    </div>`;
+  }).join('') : '<div class="mon-sub">Không có dữ liệu ổ đĩa</div>';
 
   // Uptime
   const u = fmtUptime(s.uptime_sec || 0);
@@ -687,6 +720,14 @@ function render(s) {
     document.getElementById('tfFiles').textContent = s.traffic_files ?? 0;
     document.getElementById('tfSize').textContent  = fmtBytes(s.traffic_bytes || 0);
   }
+
+  // RTSP snapshot keep-alive cost (0 when the setting is off — see Admin Config → Cấu hình)
+  const kaCams = s.rtsp_keepalive_cameras ?? 0;
+  document.getElementById('rtspKACamerasVal').textContent = kaCams;
+  document.getElementById('rtspKARamVal').textContent = fmtBytes((s.rtsp_keepalive_cached_kb ?? 0) * 1024);
+  document.getElementById('rtspKABwVal').textContent = fmtRate(s.rtsp_keepalive_bandwidth_bps ?? 0);
+  document.getElementById('rtspKeepAliveHint').textContent =
+    kaCams > 0 ? '' : '(đang tắt trong Cấu hình, hoặc chưa có camera nào giữ kết nối)';
 
   // Update main server card in the overview grid (live at 3s rate)
   renderSrvCards(s);

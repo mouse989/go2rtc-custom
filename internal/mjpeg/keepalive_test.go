@@ -87,3 +87,75 @@ func TestKeepAliveIdleTimeoutFloor(t *testing.T) {
 		t.Fatalf("expected floor of 2m, got %s", got)
 	}
 }
+
+func TestSampleRateComputesBytesPerSecondSinceLastTick(t *testing.T) {
+	e := &keepAliveEntry{cons: newLiveKeyframe()}
+
+	// bytesRecv counts every RTP payload byte delivered to the consumer,
+	// independent of set() — this simulates the AddTrack wrapper in
+	// keepalive.go adding bytes for every packet, keyframe or not.
+	e.cons.bytesRecv.Add(300)
+	e.sampleRate(3 * time.Second)
+	if got := e.rateBps; got != 100 {
+		t.Fatalf("expected 300 bytes / 3s = 100 B/s, got %v", got)
+	}
+
+	// A second tick must only count the delta since the first tick, not the
+	// running total — otherwise a long-lived camera's rate would only ever
+	// grow, never reflect its current throughput.
+	e.cons.bytesRecv.Add(60)
+	e.sampleRate(3 * time.Second)
+	if got := e.rateBps; got != 20 {
+		t.Fatalf("expected 60 bytes / 3s = 20 B/s on the second tick, got %v", got)
+	}
+}
+
+func TestGetKeepAliveStatsAggregatesAcrossEntries(t *testing.T) {
+	keepMu.Lock()
+	savedMap := keepMap
+	keepMap = map[string]*keepAliveEntry{}
+	keepMu.Unlock()
+	defer func() {
+		keepMu.Lock()
+		keepMap = savedMap
+		keepMu.Unlock()
+	}()
+
+	e1 := &keepAliveEntry{cons: newLiveKeyframe(), rateBps: 1000}
+	e1.cons.set([]byte{1, 2, 3, 4}, core.CodecH264) // 4 cached bytes
+	e2 := &keepAliveEntry{cons: newLiveKeyframe(), rateBps: 2500}
+	e2.cons.set([]byte{5, 6}, core.CodecJPEG) // 2 cached bytes
+
+	keepMu.Lock()
+	keepMap["cam1"] = e1
+	keepMap["cam2"] = e2
+	keepMu.Unlock()
+
+	stats := GetKeepAliveStats()
+	if stats.ActiveCameras != 2 {
+		t.Fatalf("expected 2 active cameras, got %d", stats.ActiveCameras)
+	}
+	if stats.CachedBytes != 6 {
+		t.Fatalf("expected 4+2=6 cached bytes, got %d", stats.CachedBytes)
+	}
+	if stats.BandwidthBps != 3500 {
+		t.Fatalf("expected 1000+2500=3500 bps, got %v", stats.BandwidthBps)
+	}
+}
+
+func TestGetKeepAliveStatsEmptyWhenNoEntries(t *testing.T) {
+	keepMu.Lock()
+	savedMap := keepMap
+	keepMap = map[string]*keepAliveEntry{}
+	keepMu.Unlock()
+	defer func() {
+		keepMu.Lock()
+		keepMap = savedMap
+		keepMu.Unlock()
+	}()
+
+	stats := GetKeepAliveStats()
+	if stats.ActiveCameras != 0 || stats.CachedBytes != 0 || stats.BandwidthBps != 0 {
+		t.Fatalf("expected all-zero stats with no entries, got %+v", stats)
+	}
+}

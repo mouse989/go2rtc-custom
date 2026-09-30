@@ -92,6 +92,8 @@ var (
 	procGlobalMemoryStatusEx = modKernel32.NewProc("GlobalMemoryStatusEx")
 	procGetTickCount64       = modKernel32.NewProc("GetTickCount64")
 	procGetSystemTimes       = modKernel32.NewProc("GetSystemTimes")
+	procGetLogicalDrives     = modKernel32.NewProc("GetLogicalDrives")
+	procGetDriveTypeW        = modKernel32.NewProc("GetDriveTypeW")
 )
 
 func sampleMemory() (total, avail uint64) {
@@ -108,19 +110,50 @@ func sampleUptime() uint64 {
 	return uint64(r1) / 1000
 }
 
-// ── Disk (GetDiskFreeSpaceEx on C:\) ─────────────────────────────
+// ── Disk (every local fixed drive, not just C:\) ──────────────────
 
-func sampleDisk() (total, free uint64) {
-	pathPtr, err := windows.UTF16PtrFromString(`C:\`)
-	if err != nil {
-		return 0, 0
+const driveFixed = 3 // DRIVE_FIXED — excludes removable/network/CD-ROM drives
+
+// sampleDisks enumerates drive letters via GetLogicalDrives and reports
+// GetDiskFreeSpaceEx for each one GetDriveTypeW reports as a local fixed
+// disk — so a second data drive (D:\ etc.) shows up on its own without
+// needing to be named anywhere, same as C:\ already was.
+func sampleDisks() []DiskInfo {
+	r, _, _ := procGetLogicalDrives.Call()
+	mask := uint32(r)
+	if mask == 0 {
+		return nil
 	}
-	var freeBytesAvail, totalBytes, totalFreeBytes uint64
-	err = windows.GetDiskFreeSpaceEx(pathPtr, &freeBytesAvail, &totalBytes, &totalFreeBytes)
-	if err != nil {
-		return 0, 0
+
+	var disks []DiskInfo
+	for i := 0; i < 26; i++ {
+		if mask&(1<<uint(i)) == 0 {
+			continue
+		}
+		letter := string(rune('A' + i))
+		root := letter + `:\`
+
+		rootPtr, err := windows.UTF16PtrFromString(root)
+		if err != nil {
+			continue
+		}
+
+		driveType, _, _ := procGetDriveTypeW.Call(uintptr(unsafe.Pointer(rootPtr)))
+		if driveType != driveFixed {
+			continue
+		}
+
+		var freeBytesAvail, totalBytes, totalFreeBytes uint64
+		if err := windows.GetDiskFreeSpaceEx(rootPtr, &freeBytesAvail, &totalBytes, &totalFreeBytes); err != nil {
+			continue
+		}
+		disks = append(disks, DiskInfo{
+			Path:  letter + ":",
+			Total: totalBytes,
+			Used:  totalBytes - totalFreeBytes,
+		})
 	}
-	return totalBytes, totalFreeBytes
+	return disks
 }
 
 // ── Network (netstat -e, delta bytes/sec) ─────────────────────────
