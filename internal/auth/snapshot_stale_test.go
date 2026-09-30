@@ -52,14 +52,13 @@ func TestBuildDisconnectedPlaceholderIsVisuallyDistinctFromDefault(t *testing.T)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Sample a pixel from the warning triangle's amber fill (well inside its
-	// bounds per buildDisconnectedPlaceholder's geometry: apex (160,30),
-	// size 60 — the point (160, 70) sits inside the triangle body, off the
-	// "!" cutout column) and confirm it's warm-toned (amber), not the flat
-	// dark red-brown background.
-	r, g, b, _ := img.At(160, 70).RGBA()
+	// Sample a pixel from the ⚠️ icon's amber fill (drawWarningIcon places it
+	// at cx=160, topY=8, size=64 — (170, 45) sits inside the triangle body,
+	// clear of the "!" glyph and the highlight streak) and confirm it's
+	// warm-toned (amber), not the flat dark red-brown background.
+	r, g, b, _ := img.At(170, 45).RGBA()
 	if !(r > g && g > b) {
-		t.Fatalf("expected an amber (r>g>b) pixel inside the warning triangle, got r=%d g=%d b=%d", r>>8, g>>8, b>>8)
+		t.Fatalf("expected an amber (r>g>b) pixel inside the warning icon, got r=%d g=%d b=%d", r>>8, g>>8, b>>8)
 	}
 }
 
@@ -102,19 +101,16 @@ func TestSnapshotStaleThresholdExplicitOverride(t *testing.T) {
 	}
 }
 
-func TestDrawWarningTriangleStaysWithinBounds(t *testing.T) {
-	// Regression guard: drawWarningTriangle/drawCenteredText must not panic
-	// on out-of-bounds SetRGBA calls for any reasonable canvas/geometry —
-	// exercise it at the actual size buildDisconnectedPlaceholder uses, plus
-	// a size large enough that the triangle's base would overflow a naive
-	// canvas if bounds weren't clipped by image.RGBA.SetRGBA itself.
+func TestDrawWarningIconStaysWithinBounds(t *testing.T) {
+	// Regression guard: drawWarningIcon/drawCenteredText must not panic for
+	// any reasonable canvas/geometry — exercise it at the actual placement
+	// buildDisconnectedPlaceholder uses, plus a corner/oversized case that
+	// would push the scaled icon rect outside the canvas if draw.Draw's
+	// clipping didn't handle it.
 	img := image.NewRGBA(image.Rect(0, 0, 320, 180))
-	bg := color.RGBA{R: 30, G: 18, B: 18, A: 255}
-	fill := color.RGBA{R: 245, G: 166, B: 35, A: 255}
-	edge := color.RGBA{R: 120, G: 80, B: 15, A: 255}
 
-	drawWarningTriangle(img, 160, 30, 60, bg, fill, edge)
-	drawWarningTriangle(img, 0, 0, 400, bg, fill, edge) // apex at corner, oversized — must not panic
+	drawWarningIcon(img, 160, 8, 64)
+	drawWarningIcon(img, 0, 0, 400) // centered at corner, oversized — must not panic
 	drawCenteredText(img, "CAMERA OFFLINE", 130, color.RGBA{230, 230, 230, 255})
 }
 
