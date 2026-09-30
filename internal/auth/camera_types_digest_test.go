@@ -17,6 +17,14 @@ import (
 // only serves the snapshot if it matches — exactly what a real camera does,
 // so this actually exercises buildDigestAuth's math rather than assuming it.
 func digestCameraServer(t *testing.T, username, password, qop string) *httptest.Server {
+	return newCameraServer(t, username, password, qop, false)
+}
+
+// newCameraServer builds the fake-camera handler shared by the HTTP and
+// HTTPS digest tests; useTLS=true serves it over httptest's self-signed
+// TLS cert, exercising cameraHTTPClient's InsecureSkipVerify exactly as a
+// real self-signed camera would.
+func newCameraServer(t *testing.T, username, password, qop string, useTLS bool) *httptest.Server {
 	t.Helper()
 	const realm = "IP Camera"
 	const nonce = "testnonce123"
@@ -27,7 +35,7 @@ func digestCameraServer(t *testing.T, username, password, qop string) *httptest.
 		challenge += fmt.Sprintf(`, qop="%s"`, qop)
 	}
 
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Digest ") {
 			w.Header().Set("WWW-Authenticate", challenge)
@@ -60,7 +68,12 @@ func digestCameraServer(t *testing.T, username, password, qop string) *httptest.
 
 		w.Header().Set("Content-Type", "image/jpeg")
 		_, _ = w.Write(jpegBody)
-	}))
+	})
+
+	if useTLS {
+		return httptest.NewTLSServer(handler)
+	}
+	return httptest.NewServer(handler)
 }
 
 func TestFetchHTTPJPEGDigestAuthQopAuth(t *testing.T) {
@@ -146,5 +159,54 @@ func TestFetchHTTPJPEGDigestFromURLEmbeddedCreds(t *testing.T) {
 	}
 	if len(data) < 2 || data[0] != 0xFF || data[1] != 0xD8 {
 		t.Fatalf("expected JPEG bytes, got %v", data)
+	}
+}
+
+// ── HTTPS (self-signed cert) ─────────────────────────────────────────
+
+func TestFetchHTTPJPEGHTTPSWithSelfSignedCertAndDigest(t *testing.T) {
+	// The scenario this is actually for: a camera type with HTTPS enabled,
+	// whose snapshot endpoint requires Digest and — like virtually every IP
+	// camera's embedded HTTPS server — presents a self-signed certificate.
+	// cameraHTTPClient must tolerate the cert AND buildDigestAuth must still
+	// work over the TLS connection, both at once.
+	srv := newCameraServer(t, "admin", "s3cret", "auth", true)
+	defer srv.Close()
+
+	creds := url.UserPassword("admin", "s3cret")
+	data, err := fetchHTTPJPEG(context.Background(), srv.URL+"/snapshot", creds)
+	if err != nil {
+		t.Fatalf("fetchHTTPJPEG over HTTPS: %v", err)
+	}
+	if len(data) < 2 || data[0] != 0xFF || data[1] != 0xD8 {
+		t.Fatalf("expected JPEG bytes, got %v", data)
+	}
+}
+
+func TestFetchHTTPJPEGHTTPSBasicAuthOneRoundTrip(t *testing.T) {
+	var requests int
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != "admin" || pass != "s3cret" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="cam"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		_, _ = w.Write([]byte{0xFF, 0xD8, 0xFF})
+	}))
+	defer srv.Close()
+
+	creds := url.UserPassword("admin", "s3cret")
+	data, err := fetchHTTPJPEG(context.Background(), srv.URL+"/snapshot", creds)
+	if err != nil {
+		t.Fatalf("fetchHTTPJPEG over HTTPS: %v", err)
+	}
+	if len(data) < 2 || data[0] != 0xFF || data[1] != 0xD8 {
+		t.Fatalf("expected JPEG bytes, got %v", data)
+	}
+	if requests != 1 {
+		t.Fatalf("expected exactly 1 request for a Basic-auth HTTPS camera, got %d", requests)
 	}
 }

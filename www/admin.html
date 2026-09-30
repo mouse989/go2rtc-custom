@@ -535,7 +535,7 @@ rtsp:
           <span style="font-size:.77rem;color:var(--text-muted)">Define snapshot URL patterns per vendor/model family</span>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Snapshot Path</th><th>HTTP Port</th><th>ONVIF</th><th>RTSP</th><th>Cameras</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Snapshot Path</th><th>Port</th><th>HTTPS</th><th>ONVIF</th><th>RTSP</th><th>Cameras</th><th>Actions</th></tr></thead>
           <tbody id="ctTbody"></tbody>
         </table>
       </div>
@@ -1281,20 +1281,30 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <input type="text" id="ct-path" class="input" autocomplete="off" placeholder="/ISAPI/Streaming/channels/101/picture">
           <div style="font-size:.73rem;color:var(--text-muted);margin-top:.25rem">
             Leave blank for ONVIF auto-discovery. Used only when ONVIF is off.
+            User/mật khẩu <strong>không</strong> khai báo ở đây — hệ thống tự lấy từ URL nguồn RTSP đã cấu hình
+            cho camera đó (giả định camera dùng chung 1 tài khoản cho cả RTSP lẫn HTTP/HTTPS snapshot; nếu
+            camera dùng tài khoản snapshot riêng, đặt lại URL RTSP với đúng tài khoản đó). Basic hoặc Digest
+            được tự nhận diện dựa trên phản hồi của camera, không cần chọn.
           </div>
         </div>
 
         <div class="f2">
           <div class="form-group">
-            <label>HTTP Port (0 = 80)</label>
+            <label>Port (0 = 80, hoặc 443 nếu HTTPS)</label>
             <input type="number" id="ct-port" class="input" value="80" min="0" max="65535">
           </div>
           <div class="form-group" style="display:flex;align-items:flex-end;gap:.5rem;padding-bottom:.05rem">
             <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-bottom:.35rem;font-size:.85rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
-              <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
-              <span>ONVIF auto-discover snapshot URL</span>
+              <input type="checkbox" id="ct-https" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
+              <span>HTTPS (bỏ qua kiểm tra chứng chỉ — camera thường dùng chứng chỉ tự ký)</span>
             </label>
           </div>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:normal;text-transform:none;letter-spacing:normal;font-size:.85rem;">
+            <input type="checkbox" id="ct-onvif" style="accent-color:var(--accent);width:15px;height:15px;" onchange="onCtTypeChange()">
+            <span>ONVIF auto-discover snapshot URL</span>
+          </label>
         </div>
       </div>
 
@@ -2532,7 +2542,7 @@ async function deleteGroup(name) {
 // ════════════════════════════════════════════════════════
 //  CAMERA TYPES
 // ════════════════════════════════════════════════════════
-let allCameraTypes   = [];   // [{id, name, snapshot_path, http_port, onvif}]
+let allCameraTypes   = [];   // [{id, name, snapshot_path, http_port, https, onvif, rtsp}]
 let ctAssignments    = {};   // {streamName: typeID}  — pending (not yet saved)
 let ctAssignDirty    = false;
 
@@ -2611,7 +2621,7 @@ function applyBulkAssign() {
 function renderCtTable() {
   const tbody = document.getElementById('ctTbody');
   if (!allCameraTypes.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">No camera types yet — add one to enable direct HTTP snapshots</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:1.5rem">No camera types yet — add one to enable direct HTTP snapshots</td></tr>';
     return;
   }
   tbody.innerHTML = '';
@@ -2621,7 +2631,8 @@ function renderCtTable() {
     tr.innerHTML = `
       <td><strong>${esc(t.name)}</strong><br><span style="font-size:.73rem;color:var(--text-muted);font-family:monospace">${esc(t.id)}</span></td>
       <td><span style="font-family:monospace;font-size:.78rem">${esc(t.snapshot_path || '—')}</span></td>
-      <td>${t.http_port || 80}</td>
+      <td>${t.http_port || (t.https ? 443 : 80)}</td>
+      <td>${t.https ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td>${t.onvif ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td>${t.rtsp ? '<span class="badge badge-on">Yes</span>' : '<span class="badge badge-off">No</span>'}</td>
       <td><span class="cnt-badge">${assignedCount}</span></td>
@@ -2708,6 +2719,7 @@ function openAddCt() {
   document.getElementById('ct-name').value = '';
   document.getElementById('ct-path').value = '';
   document.getElementById('ct-port').value = '80';
+  document.getElementById('ct-https').checked = false;
   document.getElementById('ct-onvif').checked = false;
   document.getElementById('ct-rtsp').checked = false;
   onCtTypeChange();
@@ -2722,7 +2734,8 @@ function openEditCt(t) {
   document.getElementById('ct-id').disabled = true;
   document.getElementById('ct-name').value = t.name;
   document.getElementById('ct-path').value = t.snapshot_path || '';
-  document.getElementById('ct-port').value = t.http_port || 80;
+  document.getElementById('ct-port').value = t.http_port || (t.https ? 443 : 80);
+  document.getElementById('ct-https').checked = !!t.https;
   document.getElementById('ct-onvif').checked = !!t.onvif;
   document.getElementById('ct-rtsp').checked = !!t.rtsp;
   onCtTypeChange();
@@ -2746,12 +2759,13 @@ function onCtTypeChange() {
   if (isRTSP && isOnvif) document.getElementById('ct-onvif').checked = false;
 }
 
-function ctFill(id, name, path, port, onvif, rtsp) {
+function ctFill(id, name, path, port, onvif, rtsp, https) {
   const idEl = document.getElementById('ct-id');
   if (!idEl.disabled) idEl.value = id;
   document.getElementById('ct-name').value  = name;
   document.getElementById('ct-path').value  = path;
   document.getElementById('ct-port').value  = port;
+  document.getElementById('ct-https').checked = !!https;
   document.getElementById('ct-onvif').checked = !!onvif;
   document.getElementById('ct-rtsp').checked  = !!rtsp;
   onCtTypeChange();
@@ -2764,12 +2778,13 @@ async function submitCameraType(e) {
   const name    = document.getElementById('ct-name').value.trim();
   const path    = document.getElementById('ct-path').value.trim();
   const port    = parseInt(document.getElementById('ct-port').value, 10) || 80;
+  const https   = document.getElementById('ct-https').checked;
   const onvif   = document.getElementById('ct-onvif').checked;
   const rtsp    = document.getElementById('ct-rtsp').checked;
 
   if (!id || !name) { toast('ID and Name are required', 'error'); return; }
 
-  const body = { id: origId || id, name, snapshot_path: path, http_port: port, onvif, rtsp };
+  const body = { id: origId || id, name, snapshot_path: path, http_port: port, https, onvif, rtsp };
   const btn = document.getElementById('ctDlg-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {

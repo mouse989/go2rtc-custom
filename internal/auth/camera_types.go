@@ -16,6 +16,7 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,7 +35,8 @@ type CameraType struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	SnapshotPath string `json:"snapshot_path"` // e.g. /ISAPI/Streaming/channels/101/picture
-	HTTPPort     int    `json:"http_port"`      // 0 → default 80
+	HTTPPort     int    `json:"http_port"`      // 0 → default 80, or 443 when HTTPS is set
+	HTTPS        bool   `json:"https"`          // snapshot endpoint is HTTPS (self-signed certs tolerated — see cameraHTTPClient)
 	ONVIF        bool   `json:"onvif"`          // auto-discover snapshot URL via ONVIF
 	RTSP         bool   `json:"rtsp"`           // grab frame from go2rtc's RTSP stream via loopback
 }
@@ -255,10 +257,17 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 
 	port := ct.HTTPPort
 	if port <= 0 {
-		port = 80
+		if ct.HTTPS {
+			port = 443
+		} else {
+			port = 80
+		}
 	}
 
 	if ct.ONVIF {
+		// ONVIF device discovery itself is always plain HTTP here — cameras
+		// exposing ONVIF over HTTPS are rare and not what ct.HTTPS is for
+		// (that's the direct snapshot-path fetch below).
 		snapshotURL, err := getONVIFSnapshotURI(ctx, streamName, host, port, creds)
 		if err != nil {
 			return nil, fmt.Errorf("ONVIF discovery for %q: %w", streamName, err)
@@ -267,7 +276,11 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 		return fetchHTTPJPEG(ctx, snapshotURL, nil)
 	}
 
-	snapshotURL := fmt.Sprintf("http://%s:%d%s", host, port, ct.SnapshotPath)
+	scheme := "http"
+	if ct.HTTPS {
+		scheme = "https"
+	}
+	snapshotURL := fmt.Sprintf("%s://%s:%d%s", scheme, host, port, ct.SnapshotPath)
 	return fetchHTTPJPEG(ctx, snapshotURL, creds)
 }
 
@@ -338,6 +351,20 @@ func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]b
 	return data, nil
 }
 
+// cameraHTTPClient fetches camera HTTP(S) snapshot endpoints (both the
+// direct ct.SnapshotPath fetch and ONVIF-discovered URIs). IP cameras that
+// serve their web/snapshot interface over HTTPS almost universally use a
+// self-signed certificate — no public CA can issue one for a private LAN
+// IP — so certificate verification is skipped here, the same trade-off
+// cmd/https-proxy makes per-site via its own InsecureSkipVerify option.
+// Skipping verification is a no-op for the (still far more common) plain
+// HTTP snapshot fetches this client also handles.
+var cameraHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	},
+}
+
 // doHTTPGet issues one GET, setting Basic auth from creds when given, or the
 // literal Authorization header value in authHeader when given (mutually
 // exclusive — authHeader is used for the computed Digest retry).
@@ -352,7 +379,7 @@ func doHTTPGet(ctx context.Context, rawURL string, creds *url.Userinfo, authHead
 		pass, _ := creds.Password()
 		req.SetBasicAuth(creds.Username(), pass)
 	}
-	return http.DefaultClient.Do(req)
+	return cameraHTTPClient.Do(req)
 }
 
 // fetchLoopbackJPEG fetches a JPEG from a loopback go2rtc API endpoint,
