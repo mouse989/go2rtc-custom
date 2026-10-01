@@ -216,6 +216,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_unlimited_view":       user.AllowUnlimitedViewing,
 		"view_limit_minutes":         user.ViewLimitMinutes,
 		"allow_incidents_import":     user.AllowIncidentsImport,
+		"allow_traffic_live":         user.AllowTrafficLive,
 		"tabs":                       user.EffectiveTabs(),
 		"device_binding_scopes":      user.DeviceBindingScopes,
 		"device_verified":            requestHasVerifiedDevice(r, user.Username),
@@ -278,6 +279,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowUnlimitedViewing   bool     `json:"allow_unlimited_view"`
 			ViewLimitMinutes        int      `json:"view_limit_minutes"`
 			AllowIncidentsImport    bool     `json:"allow_incidents_import"`
+			AllowTrafficLive        bool     `json:"allow_traffic_live"`
 			DeviceBindingScopes     []string `json:"device_binding_scopes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -326,6 +328,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowUnlimitedViewing:   req.AllowUnlimitedViewing,
 			ViewLimitMinutes:        req.ViewLimitMinutes,
 			AllowIncidentsImport:    req.AllowIncidentsImport,
+			AllowTrafficLive:        req.AllowTrafficLive,
 			DeviceBindingScopes:     validDeviceScopeKeys(req.DeviceBindingScopes),
 		}
 		if _, exists := GetUser(req.Username); exists {
@@ -372,6 +375,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowUnlimitedViewing   *bool    `json:"allow_unlimited_view"`
 			ViewLimitMinutes        *int     `json:"view_limit_minutes"`
 			AllowIncidentsImport    *bool    `json:"allow_incidents_import"`
+			AllowTrafficLive        *bool    `json:"allow_traffic_live"`
 			MustChangePassword      *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
 			DeviceBindingScopes     []string `json:"device_binding_scopes"`
 		}
@@ -467,6 +471,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowIncidentsImport != nil {
 			existing.AllowIncidentsImport = *req.AllowIncidentsImport
+		}
+		if req.AllowTrafficLive != nil {
+			existing.AllowTrafficLive = *req.AllowTrafficLive
 		}
 		if req.MustChangePassword != nil {
 			existing.MustChangePassword = *req.MustChangePassword

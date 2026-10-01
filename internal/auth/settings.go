@@ -87,6 +87,15 @@ type AppSettings struct {
 	// the resulting cookie satisfies further requests to the same gated
 	// scope before the browser is asked to verify again. 0 → default 12h.
 	DeviceVerifyValidHours int `json:"device_verify_valid_hours"`
+
+	// VietmapLiveTrafficAPIKey is the key for VietMap's "Live Traffic Tile"
+	// vector-tile API (internal/auth/traffic_live.go) — separate from
+	// VietmapAPIKey above (used for map tiles/geocoding and the older
+	// traffic-style passthrough). That API is IP-allow-listed to this
+	// server only, so this key must never reach the browser: the settings
+	// HTTP handler (api_settings.go) always redacts this field on GET and
+	// only overwrites it on POST when a new non-empty value is sent.
+	VietmapLiveTrafficAPIKey string `json:"vietmap_live_traffic_api_key,omitempty"`
 }
 
 var (

@@ -251,6 +251,21 @@ tr:hover td { background:var(--surface2); }
               Used for map display and traffic overlay. Restrict by domain for security.
             </p>
           </div>
+          <div style="border-top:1px solid var(--border);padding-top:1rem">
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">VietMap Live Traffic API Key (nguồn traffic tối ưu)</label>
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <input type="password" id="vmlTrafficKeyInput" placeholder="để trống = giữ nguyên khóa đã lưu" autocomplete="off"
+                     style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;font-family:monospace;box-sizing:border-box">
+              <button type="button" class="btn btn-danger btn-sm" id="vmlTrafficKeyClearBtn" onclick="clearLiveTrafficKey()">🗑 Xoá</button>
+            </div>
+            <p id="vmlTrafficKeyStatus" style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0"></p>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Khóa riêng cho API "Live Traffic Tile" của VietMap — endpoint này được VietMap giới hạn chỉ cho phép gọi từ
+              <b>địa chỉ IP công cộng của máy chủ này</b> (đã đăng ký trước với VietMap), nên <b>trình duyệt không bao giờ
+              gọi trực tiếp</b> — mọi yêu cầu đều đi qua server. Khóa chỉ lưu ở server, không bao giờ gửi về trình duyệt kể
+              cả cho admin. Để trống và lưu Settings sẽ <b>giữ nguyên</b> khóa đã có; bấm "Xoá" để gỡ khóa đang lưu.
+            </p>
+          </div>
           <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Snapshot Refresh Interval (giây)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
@@ -1512,6 +1527,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
         <label style="font-size:.8rem;font-weight:600;display:block;margin-top:.75rem;margin-bottom:.45rem">Map Permissions</label>
         <div style="display:flex;flex-wrap:wrap;gap:.4rem">
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-traffic"> 🚦 Live Traffic</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-traffic-live"> 🚦 Live Traffic tối ưu (VietMap Live)</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-heatmap"> 🌡 Heatmap</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-edit"> 📍 Edit Map Locations</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-cam-names"> 🏷 See Camera Names</label>
@@ -2028,6 +2044,9 @@ async function loadSettings() {
   try {
     const s = await apiFetch('/api/settings');
     document.getElementById('vietmapKeyInput').value = s.vietmap_api_key || '';
+    document.getElementById('vmlTrafficKeyInput').value = '';
+    document.getElementById('vmlTrafficKeyStatus').textContent = s.vietmap_live_traffic_configured
+      ? '✓ Đã cấu hình khóa (ẩn, không hiển thị lại).' : '○ Chưa cấu hình khóa.';
     document.getElementById('snapIntervalInput').value = s.snapshot_interval_sec || 15;
     document.getElementById('snapConcurrencyInput').value = s.snapshot_concurrency || 0;
     document.getElementById('snapRtspKeepAliveInput').checked = !!s.snapshot_rtsp_keepalive;
@@ -2172,34 +2191,64 @@ async function saveSettings() {
   const devBindRpId = document.getElementById('devBindRpIdInput').value.trim();
   const devBindOrigins = document.getElementById('devBindOriginsInput').value.split(',').map(s => s.trim()).filter(Boolean);
   const devBindValidHours = parseInt(document.getElementById('devBindValidHoursInput').value, 10) || 0;
+  // vietmap_live_traffic_api_key is deliberately omitted entirely (not sent
+  // as "") when left blank — the server keeps whatever is already saved
+  // when the field is absent from the request body (see api_settings.go),
+  // and the key is never sent back to the browser to re-populate this
+  // field in the first place (see loadSettings()).
+  const vmlTrafficKey = document.getElementById('vmlTrafficKeyInput').value.trim();
+  const body = {
+    vietmap_api_key: key,
+    snapshot_interval_sec: interval,
+    snapshot_concurrency: concurrency,
+    snapshot_rtsp_keepalive: rtspKeepAlive,
+    snapshot_stale_threshold_sec: staleThreshold,
+    map_search_radius_km: mapRadius,
+    map_route_width_m: mapRouteWidth,
+    default_view_limit_minutes: viewLimit,
+    login_hour_range_enabled: loginHourRangeEnabled,
+    login_hour_start: loginHourStart,
+    login_hour_end: loginHourEnd,
+    stations_layer_default_off: stnLayerDefaultOff,
+    device_binding_enabled: devBindEnabled,
+    device_binding_rp_id: devBindRpId,
+    device_binding_rp_origins: devBindOrigins,
+    device_verify_valid_hours: devBindValidHours,
+  };
+  if (vmlTrafficKey) body.vietmap_live_traffic_api_key = vmlTrafficKey;
   try {
     await apiFetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        vietmap_api_key: key,
-        snapshot_interval_sec: interval,
-        snapshot_concurrency: concurrency,
-        snapshot_rtsp_keepalive: rtspKeepAlive,
-        snapshot_stale_threshold_sec: staleThreshold,
-        map_search_radius_km: mapRadius,
-        map_route_width_m: mapRouteWidth,
-        default_view_limit_minutes: viewLimit,
-        login_hour_range_enabled: loginHourRangeEnabled,
-        login_hour_start: loginHourStart,
-        login_hour_end: loginHourEnd,
-        stations_layer_default_off: stnLayerDefaultOff,
-        device_binding_enabled: devBindEnabled,
-        device_binding_rp_id: devBindRpId,
-        device_binding_rp_origins: devBindOrigins,
-        device_verify_valid_hours: devBindValidHours,
-      }),
+      body: JSON.stringify(body),
     });
+    document.getElementById('vmlTrafficKeyInput').value = '';
+    loadSettings(); // refresh the "configured" indicator if the key just changed
     const msg = document.getElementById('settingsSaveMsg');
     msg.style.display = '';
     setTimeout(() => { msg.style.display = 'none'; }, 2500);
   } catch (e) {
     alert('Save failed: ' + e.message);
+  }
+}
+
+// clearLiveTrafficKey explicitly blanks the VietMap Live Traffic API key.
+// Separate from the main Save Settings flow above, which deliberately never
+// sends an empty value for this field (that would mean "keep unchanged" is
+// impossible to express) — fetches the current settings fresh (not the
+// form's in-memory values, which may be stale) and posts them back with
+// just this one field forced to "".
+async function clearLiveTrafficKey() {
+  if (!confirm('Xoá khóa VietMap Live Traffic đang lưu? Traffic nguồn "Tối ưu" sẽ ngừng hoạt động cho tới khi nhập khóa mới.')) return;
+  try {
+    const s = await apiFetch('/api/settings');
+    s.vietmap_live_traffic_api_key = '';
+    await apiFetch('/api/settings', { method: 'POST', body: s });
+    document.getElementById('vmlTrafficKeyInput').value = '';
+    loadSettings();
+    toast('Đã xoá khóa VietMap Live Traffic.', 'success');
+  } catch (e) {
+    toast('Lỗi: ' + e.message, 'error');
   }
 }
 
@@ -2307,6 +2356,7 @@ function openEdit(u) {
     cb.checked = (u.tabs || []).includes(cb.value);
   });
   document.getElementById('f-allow-traffic').checked = !!u.allow_traffic;
+  document.getElementById('f-allow-traffic-live').checked = !!u.allow_traffic_live;
   document.getElementById('f-allow-heatmap').checked = !!u.allow_heatmap;
   document.getElementById('f-allow-map-edit').checked = !!u.allow_map_edit;
   document.getElementById('f-allow-cam-names').checked = !!u.allow_cam_names;
@@ -2589,6 +2639,7 @@ async function submitForm(e) {
   }
 
   const allow_traffic          = role === 'admin' ? true : document.getElementById('f-allow-traffic').checked;
+  const allow_traffic_live     = role === 'admin' ? true : document.getElementById('f-allow-traffic-live').checked;
   const allow_heatmap          = role === 'admin' ? true : document.getElementById('f-allow-heatmap').checked;
   const allow_map_edit         = role === 'admin' ? true : document.getElementById('f-allow-map-edit').checked;
   const allow_cam_names        = role === 'admin' ? true : document.getElementById('f-allow-cam-names').checked;
@@ -2608,7 +2659,7 @@ async function submitForm(e) {
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
   const device_binding_scopes  = role === 'admin' ? [] : getCheckedDeviceScopes();
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 

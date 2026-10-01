@@ -71,6 +71,13 @@ type User struct {
 	// Incidents sub-permission (only meaningful when user has incidents tab)
 	AllowIncidentsImport bool `json:"allow_incidents_import"` // import hàng loạt từ Excel
 
+	// AllowTrafficLive grants access to the alternative, higher-quality live
+	// traffic source (VietMap Live Traffic Tile — internal/auth/traffic_live.go)
+	// and the on-map toggle to pick it over the existing traffic overlay.
+	// Independent of AllowTraffic: a user without this flag keeps using
+	// exactly the traffic overlay they have today, unaffected.
+	AllowTrafficLive bool `json:"allow_traffic_live"`
+
 	// DeviceBindingScopes lists which sensitive-data categories (keys from
 	// DeviceScopeCatalog — see device_binding.go) this user may only reach
 	// from a device an admin has approved via WebAuthn. A category the user

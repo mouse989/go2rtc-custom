@@ -55,6 +55,14 @@ function canUseTraffic() {
   return u && (u.role === 'admin' || !!u.allow_traffic);
 }
 
+// canUseTrafficLive gates the alternative, higher-quality live traffic
+// source (VietMap Live Traffic Tile) and the on-map toggle to pick it over
+// the existing traffic overlay — independent of canUseTraffic().
+function canUseTrafficLive() {
+  const u = getUser();
+  return u && (u.role === 'admin' || !!u.allow_traffic_live);
+}
+
 function canUseHeatmap() {
   const u = getUser();
   return u && (u.role === 'admin' || !!u.allow_heatmap);

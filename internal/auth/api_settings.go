@@ -20,7 +20,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(GetSettings()); err != nil {
+		if err := json.NewEncoder(w).Encode(redactedSettings(GetSettings())); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
@@ -50,10 +50,33 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			log.Warn().Err(err).Msg("[auth] webauthn relying party re-init failed")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s)
+		json.NewEncoder(w).Encode(redactedSettings(s))
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// settingsOut mirrors AppSettings for API responses, except for secrets that
+// must never reach a browser — currently just VietmapLiveTrafficAPIKey (see
+// its doc comment in settings.go: the upstream it's for is IP-allow-listed
+// to this server only, so the key has no legitimate reason to ever leave
+// it). The explicit field below shadows the embedded one for JSON encoding
+// (Go's encoding/json gives an explicit field priority over a
+// same-named promoted field), replacing its value with "" on the wire.
+// VietmapLiveTrafficConfigured tells the admin UI whether a key is already
+// saved without revealing it, so "leave blank to keep" has something to
+// show the admin besides silence.
+type settingsOut struct {
+	AppSettings
+	VietmapLiveTrafficAPIKey     string `json:"vietmap_live_traffic_api_key"`
+	VietmapLiveTrafficConfigured bool   `json:"vietmap_live_traffic_configured"`
+}
+
+func redactedSettings(s AppSettings) settingsOut {
+	return settingsOut{
+		AppSettings:                  s,
+		VietmapLiveTrafficConfigured: s.VietmapLiveTrafficAPIKey != "",
 	}
 }
 

@@ -317,6 +317,11 @@ func userCanAccessPath(u *User, path string) bool {
 			}
 		}
 	}
+	if u.AllowTrafficLive {
+		if strings.HasPrefix(path, "/api/traffic-live/") {
+			return true
+		}
+	}
 	return false
 }
 

@@ -172,6 +172,7 @@ func Init() {
 	registerConfigAuditHandler()
 	registerUserLocationHandler()
 	registerDeviceBindingHandler()
+	registerTrafficLiveHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }
