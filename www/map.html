@@ -1664,7 +1664,8 @@ function schedulePreviewUpdate() {
   });
 }
 
-function setPreviewMode(on) {
+async function setPreviewMode(on) {
+  if (on && !(await ensureDeviceVerified('cam_snapshot'))) return;
   _previewMode = on;
   localStorage.setItem('map_snap_preview', on ? '1' : '0');
   document.getElementById('btnSnapPreview').classList.toggle('active', on);
@@ -2315,12 +2316,16 @@ document.getElementById('btnEdit').addEventListener('click', async function() {
 // ── Grid ──────────────────────────────────────────────────────
 document.getElementById('btnGrid').addEventListener('click', () => openGrid(_searchHits));
 
-function openGrid(ids) {
+async function openGrid(ids) {
   if (!ids.length) return;
-  const grid = document.getElementById('gridPlayers');
-  grid.innerHTML = '';
   const videoOk = canCamVideo();
   const snapOk  = canCamSnapshot();
+  // Gate once for the whole grid — not per-cell, which would prompt once
+  // per camera in the grid.
+  if (videoOk && !(await ensureDeviceVerified('cam_stream'))) return;
+  if (!videoOk && snapOk && !(await ensureDeviceVerified('cam_snapshot'))) return;
+  const grid = document.getElementById('gridPlayers');
+  grid.innerHTML = '';
   document.getElementById('gridTitle').textContent =
     `${videoOk ? 'Watching' : 'Snapshot'} ${ids.length} camera${ids.length!==1?'s':''}`;
   const cols = ids.length<=1?1:ids.length<=4?2:ids.length<=9?3:4;
@@ -2368,8 +2373,12 @@ document.getElementById('btnMapOverlay').addEventListener('click', () => {
   Object.keys(_ovWindows).length ? closeAllOverlays() : openOverlays(_searchHits);
 });
 
-function openOverlays(ids) {
+async function openOverlays(ids) {
   closeAllOverlays(); if (!ids.length) return;
+  // Gate once for the whole batch of PiP windows (each window individually
+  // picks video vs. snapshot below based on the same two permissions).
+  if (canCamVideo() && !(await ensureDeviceVerified('cam_stream'))) return;
+  if (!canCamVideo() && canCamSnapshot() && !(await ensureDeviceVerified('cam_snapshot'))) return;
   const valid = ids.filter(id => _streamByID[id] && _locByID[id]);
   const items = computeWindowPositions(valid);
   resolveOverlaps(items);
@@ -2483,7 +2492,8 @@ function openModal(maskedID) {
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
-function showSnapshot(id) {
+async function showSnapshot(id) {
+  if (!(await ensureDeviceVerified('cam_snapshot'))) return;
   stopSnapshot();
   const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
   const img=document.createElement('img'); img.className='modal-snap';
@@ -2500,7 +2510,8 @@ function showSnapshot(id) {
   _snapshotTimer=setInterval(()=>{ secs--; if(secs<=0){secs=SNAP_IV;refresh();} cd(); },1000);
 }
 function stopSnapshot() { if(_snapshotTimer){clearInterval(_snapshotTimer);_snapshotTimer=null;} }
-function startPlayer(id,mode) {
+async function startPlayer(id,mode) {
+  if (!(await ensureDeviceVerified('cam_stream'))) return;
   stopSnapshot();
   const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
   const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
