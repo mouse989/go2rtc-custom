@@ -157,6 +157,26 @@ function webauthnSupported() {
   return !!(window.PublicKeyCredential && PublicKeyCredential.parseCreationOptionsFromJSON && PublicKeyCredential.parseRequestOptionsFromJSON);
 }
 
+// A friendlier default than navigator.platform (which reports e.g. "MacIntel"
+// for an iPhone/iPad under Safari's UA string). Just a starting point the
+// user can edit — doesn't need to be exact.
+function _guessDeviceLabel() {
+  const ua = navigator.userAgent || '';
+  let device = 'Thiết bị';
+  if (/iPhone/.test(ua)) device = 'iPhone';
+  else if (/iPad/.test(ua)) device = 'iPad';
+  else if (/Android/.test(ua)) device = 'Android';
+  else if (/Windows/.test(ua)) device = 'Windows';
+  else if (/Macintosh/.test(ua)) device = 'Mac';
+  else if (/Linux/.test(ua)) device = 'Linux';
+  let browser = '';
+  if (/EdgA|Edge|Edg\//.test(ua)) browser = 'Edge';
+  else if (/CriOS|Chrome/.test(ua)) browser = 'Chrome';
+  else if (/FxiOS|Firefox/.test(ua)) browser = 'Firefox';
+  else if (/Safari/.test(ua)) browser = 'Safari';
+  return browser ? `${device} (${browser})` : device;
+}
+
 let _deviceModalPromise = null; // in-flight Promise, so concurrent callers share one dialog
 let _deviceModalResolve = null;
 
@@ -180,7 +200,11 @@ function _deviceModalEls() {
         <div id="devVerifyErr" style="color:var(--red);font-size:.8rem;display:none;margin-bottom:.6rem"></div>
         <div style="display:flex;flex-direction:column;gap:.6rem">
           <button class="btn btn-primary" id="devVerifyBtn" type="button">🔐 Xác minh bằng thiết bị này</button>
-          <button class="btn btn-secondary" id="devRegisterBtn" type="button">➕ Đăng ký thiết bị mới (chờ duyệt)</button>
+          <div style="border-top:1px solid var(--border);padding-top:.6rem;margin-top:.2rem">
+            <label style="font-size:.78rem;color:var(--text-muted);display:block;margin-bottom:.35rem">Tên thiết bị (để quản trị viên dễ nhận biết khi duyệt)</label>
+            <input type="text" id="devLabelInput" class="input" style="margin-bottom:.5rem" maxlength="80">
+            <button class="btn btn-secondary" id="devRegisterBtn" type="button" style="width:100%">➕ Đăng ký thiết bị mới (chờ duyệt)</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -227,8 +251,12 @@ async function _deviceVerifyAttempt() {
 
 async function _deviceRegisterAttempt() {
   document.getElementById('devVerifyErr').style.display = 'none';
-  const label = prompt('Đặt tên cho thiết bị này (để quản trị viên dễ nhận biết khi duyệt):', navigator.platform || 'Thiết bị của tôi');
-  if (label === null) return;
+  // An inline input, not prompt(): on Safari/iOS, navigator.credentials.create()
+  // throws "NotAllowedError: The document is not focused" if a native
+  // dialog (prompt/confirm/alert) ran right before it — the native dialog
+  // steals focus and WebKit refuses the ceremony afterwards, failing
+  // registration regardless of what name was entered.
+  const label = document.getElementById('devLabelInput').value.trim() || _guessDeviceLabel();
   try {
     const options = await apiFetch('/api/auth/webauthn/register/begin', { method: 'POST' });
     const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(options.publicKey);
@@ -256,6 +284,8 @@ async function ensureDeviceVerified(scope) {
   if (_deviceModalPromise) return _deviceModalPromise;
   const backdrop = _deviceModalEls();
   document.getElementById('devVerifyErr').style.display = 'none';
+  const labelInput = document.getElementById('devLabelInput');
+  if (labelInput) labelInput.value = _guessDeviceLabel();
   backdrop.classList.add('open');
   _deviceModalPromise = new Promise(resolve => { _deviceModalResolve = resolve; });
   return _deviceModalPromise;
