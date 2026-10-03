@@ -694,6 +694,11 @@ body.sb-collapsed           { --map-left:0; }
         <span id="regionCamCount">0 camera</span>
       </div>
     </div>
+    <div>
+      <label>Vùng đệm (km) — mở rộng vùng nhìn camera ra xung quanh để phối hợp (0 = không dùng)</label>
+      <input type="number" id="regionBufferKm" placeholder="0" min="0" step="0.1" value="0"
+             style="width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+    </div>
     <p style="font-size:.71rem;color:var(--text-muted);margin:0">
       Click lên bản đồ để thêm điểm vẽ vùng. Địa bàn rời rạc/phức tạp? Bấm "Đóng vùng con" rồi vẽ tiếp một vùng khác — tất cả sẽ tính chung vào 1 địa bàn.
     </p>
@@ -921,6 +926,7 @@ body.sb-collapsed           { --map-left:0; }
 <!-- ── Scripts ────────────────────────────────────────────────── -->
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
 <script type="module" src="video-stream.js"></script>
 <script src="app.js"></script>
 <script>
@@ -2748,6 +2754,45 @@ function pointInDraft(lon, lat) {
   return rings.some(ring => pointInRingJS(lon, lat, ring));
 }
 
+function currentBufferKm() {
+  const v = parseFloat(document.getElementById('regionBufferKm').value);
+  return isFinite(v) && v > 0 ? v : 0;
+}
+
+// computeBufferPolygons expands `polygons` (rings as [lng,lat], unclosed)
+// outward by bufferKm kilometers using Turf's geodesic buffer — correctly
+// handles concave hand-drawn boundaries without the self-intersection a
+// naive per-vertex radial push would cause. Returns unclosed rings in the
+// same [lng,lat] shape the server's Ring type expects. Only the outer
+// boundary of each buffered polygon is kept (holes, which a positive
+// buffer essentially never produces, are ignored).
+function computeBufferPolygons(polygons, bufferKm) {
+  if (!bufferKm || !polygons.length || typeof turf === 'undefined') return [];
+  try {
+    const features = polygons
+      .filter(ring => ring.length >= 3)
+      .map(ring => turf.polygon([[...ring, ring[0]]]));
+    if (!features.length) return [];
+    const buffered = turf.buffer(turf.featureCollection(features), bufferKm, { units: 'kilometers' });
+    if (!buffered) return [];
+    const feats = buffered.type === 'FeatureCollection' ? buffered.features : [buffered];
+    const rings = [];
+    feats.forEach(f => {
+      const geom = f && f.geometry;
+      if (!geom) return;
+      if (geom.type === 'Polygon') {
+        rings.push(geom.coordinates[0].slice(0, -1));
+      } else if (geom.type === 'MultiPolygon') {
+        geom.coordinates.forEach(poly => rings.push(poly[0].slice(0, -1)));
+      }
+    });
+    return rings;
+  } catch (e) {
+    console.error('buffer compute failed', e);
+    return [];
+  }
+}
+
 function ensureRegionLayers() {
   if (!map.getSource('region-draft-fill')) {
     map.addSource('region-draft-fill', { type: 'geojson', data: emptyFC() });
@@ -2780,12 +2825,21 @@ function ensureRegionLayers() {
       },
     });
   }
+  // Buffer-zone preview (admin-only — this panel never shows to viewers):
+  // a dashed outline of the region's computed outward-expanded boundary.
+  if (!map.getSource('region-draft-buffer')) {
+    map.addSource('region-draft-buffer', { type: 'geojson', data: emptyFC() });
+    map.addLayer({
+      id: 'region-draft-buffer-layer', type: 'line', source: 'region-draft-buffer',
+      paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [2, 2] },
+    });
+  }
 }
 
 function removeRegionLayers() {
-  ['region-draft-fill-layer','region-draft-line-layer','region-draft-points-layer','region-cam-highlight-layer']
+  ['region-draft-fill-layer','region-draft-line-layer','region-draft-points-layer','region-cam-highlight-layer','region-draft-buffer-layer']
     .forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
-  ['region-draft-fill','region-draft-points','region-cam-highlight']
+  ['region-draft-fill','region-draft-points','region-cam-highlight','region-draft-buffer']
     .forEach(id => { if (map.getSource(id)) map.removeSource(id); });
 }
 
@@ -2819,6 +2873,17 @@ function updateRegionDraftLayers() {
     features: inside.map(l => ({ type:'Feature', geometry:{ type:'Point', coordinates:[l.lon,l.lat] } })),
   });
   document.getElementById('regionCamCount').textContent = inside.length + ' camera';
+
+  // Buffer-zone preview (admin-only, this editor is never shown to viewers)
+  const bufferKm = currentBufferKm();
+  const closedRings = _draftCurrent.length >= 3 ? [..._draftRings, _draftCurrent] : _draftRings;
+  const bufferRings = computeBufferPolygons(closedRings, bufferKm);
+  map.getSource('region-draft-buffer').setData({
+    type:'FeatureCollection',
+    features: bufferRings.map(ring => ({
+      type:'Feature', properties:{ color }, geometry:{ type:'Polygon', coordinates:[[...ring, ring[0]]] },
+    })),
+  });
 }
 
 function startRegionDrawing() {
@@ -2929,6 +2994,7 @@ function openRegionEditor(region) {
   _draftCurrent = [];
   document.getElementById('regionName').value = region ? region.name : '';
   document.getElementById('regionColor').value = region?.color || '#3b82f6';
+  document.getElementById('regionBufferKm').value = region?.buffer_km || 0;
   document.getElementById('regionDeleteBtn').style.display = region ? '' : 'none';
   document.getElementById('regionListView').style.display = 'none';
   document.getElementById('regionEditView').style.display = '';
@@ -2939,6 +3005,7 @@ document.getElementById('regionNewBtn').addEventListener('click', () => openRegi
 document.getElementById('regionUndoPoint').addEventListener('click', undoRegionPoint);
 document.getElementById('regionCloseRing').addEventListener('click', closeRegionRing);
 document.getElementById('regionColor').addEventListener('input', updateRegionDraftLayers);
+document.getElementById('regionBufferKm').addEventListener('input', updateRegionDraftLayers);
 
 function cancelRegionEdit() {
   _editingRegionID = null;
@@ -2953,7 +3020,9 @@ document.getElementById('regionSaveBtn').addEventListener('click', async () => {
   if (!name) { alert('Nhập tên địa bàn.'); return; }
   const polygons = _draftCurrent.length >= 3 ? [..._draftRings, _draftCurrent] : _draftRings;
   if (!polygons.length) { alert('Vẽ ít nhất một vùng (tối thiểu 3 điểm) trước khi lưu.'); return; }
-  const body = { name, color: currentRegionColor(), polygons };
+  const bufferKm = currentBufferKm();
+  const bufferPolygons = computeBufferPolygons(polygons, bufferKm);
+  const body = { name, color: currentRegionColor(), polygons, buffer_km: bufferKm, buffer_polygons: bufferPolygons };
   try {
     if (_editingRegionID) {
       await apiFetch('/api/regions/' + encodeURIComponent(_editingRegionID), {
