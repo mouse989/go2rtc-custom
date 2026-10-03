@@ -929,6 +929,7 @@ body.sb-collapsed           { --map-left:0; }
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
 <script type="module" src="video-stream.js"></script>
 <script src="app.js"></script>
+<script src="ptz-control.js"></script>
 <script>
 // ── Map toolbar collapse (mostly for phones — the button stack otherwise
 // covers a large chunk of the map, as in the "📊 Trạm đo" screenshot report).
@@ -2565,9 +2566,15 @@ function openModal(maskedID) {
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
+let _ptzCleanup = null; // set while the PTZ overlay is mounted on #playerWrap
+function teardownPTZOverlay() {
+  if (_ptzCleanup) { _ptzCleanup(); _ptzCleanup = null; }
+}
+
 async function showSnapshot(id) {
   if (!(await ensureDeviceVerified('cam_snapshot'))) return;
   stopSnapshot();
+  teardownPTZOverlay();
   const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
   const img=document.createElement('img'); img.className='modal-snap';
   img.style.cssText='width:100%;display:block;background:#111;object-fit:contain;max-height:60vh;';
@@ -2586,10 +2593,13 @@ function stopSnapshot() { if(_snapshotTimer){clearInterval(_snapshotTimer);_snap
 async function startPlayer(id,mode) {
   if (!(await ensureDeviceVerified('cam_stream'))) return;
   stopSnapshot();
+  teardownPTZOverlay();
   const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
   const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
   const player=document.createElement('video-stream');
   Object.assign(player,{mode,background:false,src:wsUrl}); wrap.appendChild(player);
+  const s = _streamByID[id];
+  if (s && s.ptz) _ptzCleanup = mountPTZOverlay(wrap, s.name);
 }
 document.getElementById('modeTabs').addEventListener('click',e=>{
   const tab=e.target.closest('.mode-tab'); if(!tab||!_currentModalID) return;
@@ -2600,6 +2610,7 @@ document.getElementById('modeTabs').addEventListener('click',e=>{
 });
 function closeModal() {
   stopSnapshot();
+  teardownPTZOverlay();
   document.getElementById('modalBackdrop').classList.remove('open');
   document.getElementById('playerWrap').innerHTML=''; _currentModalID=null;
 }

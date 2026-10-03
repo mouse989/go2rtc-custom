@@ -212,6 +212,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_monitor_devices":      user.AllowMonitorDevices,
 		"allow_cam_snapshot":         user.AllowCamSnapshot,
 		"allow_cam_video":            user.AllowCamVideo,
+		"allow_ptz":                  user.AllowPTZ,
 		"allow_map_snapshot_preview": user.AllowMapSnapshotPreview,
 		"allow_unlimited_view":       user.AllowUnlimitedViewing,
 		"view_limit_minutes":         user.ViewLimitMinutes,
@@ -275,6 +276,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices     bool     `json:"allow_monitor_devices"`
 			AllowCamSnapshot        bool     `json:"allow_cam_snapshot"`
 			AllowCamVideo           bool     `json:"allow_cam_video"`
+			AllowPTZ                bool     `json:"allow_ptz"`
 			AllowMapSnapshotPreview bool     `json:"allow_map_snapshot_preview"`
 			AllowUnlimitedViewing   bool     `json:"allow_unlimited_view"`
 			ViewLimitMinutes        int      `json:"view_limit_minutes"`
@@ -324,6 +326,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices:     req.AllowMonitorDevices,
 			AllowCamSnapshot:        req.AllowCamSnapshot,
 			AllowCamVideo:           req.AllowCamVideo,
+			AllowPTZ:                req.AllowPTZ,
 			AllowMapSnapshotPreview: req.AllowMapSnapshotPreview,
 			AllowUnlimitedViewing:   req.AllowUnlimitedViewing,
 			ViewLimitMinutes:        req.ViewLimitMinutes,
@@ -371,6 +374,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMonitorDevices     *bool    `json:"allow_monitor_devices"`
 			AllowCamSnapshot        *bool    `json:"allow_cam_snapshot"`
 			AllowCamVideo           *bool    `json:"allow_cam_video"`
+			AllowPTZ                *bool    `json:"allow_ptz"`
 			AllowMapSnapshotPreview *bool    `json:"allow_map_snapshot_preview"`
 			AllowUnlimitedViewing   *bool    `json:"allow_unlimited_view"`
 			ViewLimitMinutes        *int     `json:"view_limit_minutes"`
@@ -459,6 +463,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowCamVideo != nil {
 			existing.AllowCamVideo = *req.AllowCamVideo
+		}
+		if req.AllowPTZ != nil {
+			existing.AllowPTZ = *req.AllowPTZ
 		}
 		if req.AllowMapSnapshotPreview != nil {
 			existing.AllowMapSnapshotPreview = *req.AllowMapSnapshotPreview

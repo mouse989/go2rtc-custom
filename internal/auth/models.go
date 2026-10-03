@@ -59,6 +59,13 @@ type User struct {
 	// Camera view sub-permissions (only meaningful when user has cameras tab)
 	AllowCamSnapshot bool `json:"allow_cam_snapshot"` // xem ảnh snapshot camera
 	AllowCamVideo    bool `json:"allow_cam_video"`    // xem video live (webrtc/mse/hls)
+	// AllowPTZ grants pan/tilt/zoom control on cameras whose assigned Camera
+	// Type has PTZ enabled (see CameraType.PTZEnabled in camera_types.go).
+	// Without it, the PTZ overlay never even appears while viewing — see
+	// proxyStreamsHandler's per-stream "ptz" flag — not just disabled, so a
+	// viewer without this permission has no way to tell a camera is
+	// PTZ-capable at all.
+	AllowPTZ bool `json:"allow_ptz"`
 	// AllowMapSnapshotPreview gates the "Xem trước" live-thumbnail overlay
 	// on the map (map.html) — off by default for new viewers, always on for admins.
 	AllowMapSnapshotPreview bool `json:"allow_map_snapshot_preview"`

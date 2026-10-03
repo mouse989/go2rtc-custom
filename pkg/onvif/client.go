@@ -3,6 +3,7 @@ package onvif
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ type Client struct {
 	deviceURL string
 	mediaURL  string
 	imaginURL string
+	ptzURL    string
 }
 
 func NewClient(rawURL string) (*Client, error) {
@@ -43,6 +45,11 @@ func NewClient(rawURL string) (*Client, error) {
 
 	s = FindTagValue(b, "Imaging.+?XAddr")
 	client.imaginURL = baseURL + GetPath(s, "/onvif/imaging_service")
+
+	// GetCapabilities was already called with Category=All above, so the
+	// PTZ service address is already present in b — no extra round trip.
+	s = FindTagValue(b, "PTZ.+?XAddr")
+	client.ptzURL = baseURL + GetPath(s, "/onvif/ptz_service")
 
 	return client, nil
 }
@@ -148,6 +155,42 @@ func (c *Client) GetSnapshotUri(token string) ([]byte, error) {
 	return c.Request(
 		c.imaginURL, `<trt:GetSnapshotUri><trt:ProfileToken>`+token+`</trt:ProfileToken></trt:GetSnapshotUri>`,
 	)
+}
+
+// ContinuousMove starts a pan/tilt/zoom move at the given velocities (each
+// -1.0 to 1.0; 0 leaves that axis still) that continues until Stop is
+// called. timeoutSec bounds how long the device keeps moving on its own if
+// no Stop ever arrives (e.g. the controlling browser tab loses its network
+// mid-gesture) — ONVIF devices default to no timeout at all without this,
+// so it is always sent, never omitted.
+func (c *Client) ContinuousMove(token string, pan, tilt, zoom float64, timeoutSec int) ([]byte, error) {
+	return c.PTZRequest(fmt.Sprintf(
+		`<tptz:ContinuousMove>
+	<tptz:ProfileToken>%s</tptz:ProfileToken>
+	<tptz:Velocity>
+		<tt:PanTilt x="%g" y="%g"/>
+		<tt:Zoom x="%g"/>
+	</tptz:Velocity>
+	<tptz:Timeout>PT%dS</tptz:Timeout>
+</tptz:ContinuousMove>`,
+		token, pan, tilt, zoom, timeoutSec,
+	))
+}
+
+// Stop halts an in-progress ContinuousMove on the given axes.
+func (c *Client) Stop(token string, panTilt, zoom bool) ([]byte, error) {
+	return c.PTZRequest(fmt.Sprintf(
+		`<tptz:Stop>
+	<tptz:ProfileToken>%s</tptz:ProfileToken>
+	<tptz:PanTilt>%t</tptz:PanTilt>
+	<tptz:Zoom>%t</tptz:Zoom>
+</tptz:Stop>`,
+		token, panTilt, zoom,
+	))
+}
+
+func (c *Client) PTZRequest(body string) ([]byte, error) {
+	return c.Request(c.ptzURL, body)
 }
 
 func (c *Client) GetServiceCapabilities() ([]byte, error) {

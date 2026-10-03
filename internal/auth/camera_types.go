@@ -35,10 +35,20 @@ type CameraType struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	SnapshotPath string `json:"snapshot_path"` // e.g. /ISAPI/Streaming/channels/101/picture
-	HTTPPort     int    `json:"http_port"`      // 0 → default 80, or 443 when HTTPS is set
-	HTTPS        bool   `json:"https"`          // snapshot endpoint is HTTPS (self-signed certs tolerated — see cameraHTTPClient)
-	ONVIF        bool   `json:"onvif"`          // auto-discover snapshot URL via ONVIF
-	RTSP         bool   `json:"rtsp"`           // grab frame from go2rtc's RTSP stream via loopback
+	HTTPPort     int    `json:"http_port"`     // 0 → default 80, or 443 when HTTPS is set
+	HTTPS        bool   `json:"https"`         // snapshot endpoint is HTTPS (self-signed certs tolerated — see cameraHTTPClient)
+	ONVIF        bool   `json:"onvif"`         // auto-discover snapshot URL via ONVIF
+	RTSP         bool   `json:"rtsp"`          // grab frame from go2rtc's RTSP stream via loopback
+
+	// PTZEnabled/PTZDriver configure pan/tilt/zoom control — entirely
+	// independent of the snapshot fields above (a camera's snapshot method
+	// and its PTZ method are unrelated capabilities; see internal/auth/ptz.go,
+	// which never reads SnapshotPath/HTTPS/ONVIF/RTSP). Credentials are not
+	// configured here either: both PTZ drivers reuse resolveStreamHostCreds
+	// below, the same RTSP-source-URL-derived host/user/pass the snapshot
+	// path already uses.
+	PTZEnabled bool   `json:"ptz_enabled"`
+	PTZDriver  string `json:"ptz_driver,omitempty"` // "axis_vapix" | "onvif"
 }
 
 type cameraTypesData struct {
@@ -206,11 +216,46 @@ func setCameraTypeAssignments(assignments map[string]string) error {
 	}
 	onvifCacheMu.Unlock()
 
+	// Same invalidation for the PTZ ONVIF client cache (ptz_onvif.go) — a
+	// reassigned stream may now point at a different camera entirely.
+	onvifPTZCacheMu.Lock()
+	for stream, typeID := range assignments {
+		if old[stream] != typeID {
+			delete(onvifPTZCache, stream)
+		}
+	}
+	for stream := range old {
+		if _, exists := assignments[stream]; !exists {
+			delete(onvifPTZCache, stream)
+		}
+	}
+	onvifPTZCacheMu.Unlock()
+
 	ctStore.mu.Lock()
 	ctStore.data.Assignments = assignments
 	err := ctStore.save()
 	ctStore.mu.Unlock()
 	return err
+}
+
+// cameraTypeForStream returns a copy of the CameraType assigned to
+// streamName, or nil if none is assigned (or the store isn't initialized).
+// Shared by the snapshot path below, the PTZ dispatcher (ptz.go), and the
+// /api/proxy/streams "ptz" flag (proxy.go).
+func cameraTypeForStream(streamName string) *CameraType {
+	if ctStore == nil {
+		return nil
+	}
+	ctStore.mu.RLock()
+	defer ctStore.mu.RUnlock()
+	typeID := ctStore.data.Assignments[streamName]
+	for _, t := range ctStore.data.Types {
+		if t.ID == typeID {
+			cp := *t
+			return &cp
+		}
+	}
+	return nil
 }
 
 // ── Direct HTTP snapshot ──────────────────────────────────────────
@@ -219,23 +264,7 @@ func setCameraTypeAssignments(assignments map[string]string) error {
 // using the camera type assigned to this stream. Returns (nil, nil) when no type
 // is assigned so the caller can fall through to the ffmpeg path transparently.
 func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
-	if ctStore == nil {
-		return nil, nil
-	}
-
-	// Resolve the assigned camera type.
-	ctStore.mu.RLock()
-	typeID := ctStore.data.Assignments[streamName]
-	var ct *CameraType
-	for _, t := range ctStore.data.Types {
-		if t.ID == typeID {
-			cp := *t
-			ct = &cp
-			break
-		}
-	}
-	ctStore.mu.RUnlock()
-
+	ct := cameraTypeForStream(streamName)
 	if ct == nil {
 		return nil, nil // no type assigned → transparent fallthrough
 	}
@@ -256,30 +285,10 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 		return fetchLoopbackJPEG(ctx, snapshotURL)
 	}
 
-	if getStreamSources == nil {
-		return nil, fmt.Errorf("stream source provider not available")
+	host, creds, err := resolveStreamHostCreds(streamName)
+	if err != nil {
+		return nil, err
 	}
-	sources := getStreamSources(streamName)
-	if len(sources) == 0 {
-		return nil, fmt.Errorf("no configured source for stream %q", streamName)
-	}
-
-	// Use first source (typically rtsp://user:pass@host:port/path).
-	srcURL := sources[0]
-	if !strings.Contains(srcURL, "://") {
-		return nil, fmt.Errorf("source URL has no scheme: %s", srcURL)
-	}
-
-	u, err := url.Parse(srcURL)
-	if err != nil || u.Host == "" {
-		return nil, fmt.Errorf("cannot parse source URL %q: %v", srcURL, err)
-	}
-
-	host, _, _ := net.SplitHostPort(u.Host)
-	if host == "" {
-		host = u.Host
-	}
-	creds := u.User
 
 	port := ct.HTTPPort
 	if port <= 0 {
@@ -310,19 +319,53 @@ func fetchDirectJPEG(ctx context.Context, streamName string) ([]byte, error) {
 	return fetchHTTPJPEG(ctx, snapshotURL, creds)
 }
 
-// fetchHTTPJPEG GETs a URL and validates that the response is JPEG.
-// Authenticates with Basic first (as before, so the common case stays a
-// single round trip); a camera whose snapshot endpoint only accepts Digest
-// answers that with 401 + WWW-Authenticate: Digest, and this retries once
-// with a computed Digest response, reusing the same buildDigestAuth this
-// package already has for the camera bulk-config feature
-// (api_camera_config.go) rather than a second implementation. creds may be
-// nil (URL with no embedded/assigned credentials, or an ONVIF-discovered
-// snapshot URI that embeds them in the URL itself); the Digest retry then
-// falls back to whatever userinfo is embedded in rawURL, since Digest can't
-// be satisfied by Go's automatic "URL userinfo → Basic auth" behavior the
-// way Basic can.
-func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]byte, error) {
+// resolveStreamHostCreds extracts the host (without port) and embedded
+// credentials from streamName's first configured source URL (typically
+// rtsp://user:pass@host:port/path) — shared by the snapshot fetch above and
+// by internal/auth/ptz.go, since both assume the camera uses the same
+// account for RTSP, HTTP snapshot, and PTZ control (confirmed true for the
+// Bosch/Axis cameras this is built for; see ptz.go's doc comment).
+func resolveStreamHostCreds(streamName string) (host string, creds *url.Userinfo, err error) {
+	if getStreamSources == nil {
+		return "", nil, fmt.Errorf("stream source provider not available")
+	}
+	sources := getStreamSources(streamName)
+	if len(sources) == 0 {
+		return "", nil, fmt.Errorf("no configured source for stream %q", streamName)
+	}
+
+	// Use first source (typically rtsp://user:pass@host:port/path).
+	srcURL := sources[0]
+	if !strings.Contains(srcURL, "://") {
+		return "", nil, fmt.Errorf("source URL has no scheme: %s", srcURL)
+	}
+
+	u, err := url.Parse(srcURL)
+	if err != nil || u.Host == "" {
+		return "", nil, fmt.Errorf("cannot parse source URL %q: %v", srcURL, err)
+	}
+
+	host = u.Host
+	if h, _, splitErr := net.SplitHostPort(u.Host); splitErr == nil {
+		host = h
+	}
+	return host, u.User, nil
+}
+
+// fetchHTTPWithDigestRetry GETs rawURL, authenticating with Basic first (so
+// the common case stays a single round trip); a camera endpoint that only
+// accepts Digest answers that with 401 + WWW-Authenticate: Digest, and this
+// retries once with a computed Digest response, reusing the same
+// buildDigestAuth this package already has for the camera bulk-config
+// feature (api_camera_config.go). creds may be nil (URL with no
+// embedded/assigned credentials, or an ONVIF-discovered snapshot URI that
+// embeds them in the URL itself); the Digest retry then falls back to
+// whatever userinfo is embedded in rawURL, since Digest can't be satisfied
+// by Go's automatic "URL userinfo → Basic auth" behavior the way Basic can.
+// Shared by fetchHTTPJPEG (below) and ptz_axis.go's VAPIX driver — both talk
+// to the same kind of camera HTTP endpoint, just validate the response body
+// differently (JPEG magic bytes vs. VAPIX's plain-text "OK").
+func fetchHTTPWithDigestRetry(ctx context.Context, rawURL string, creds *url.Userinfo) ([]byte, error) {
 	resp, err := doHTTPGet(ctx, rawURL, creds, "")
 	if err != nil {
 		return nil, err
@@ -363,7 +406,12 @@ func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]b
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, rawURL)
 	}
-	data, err := io.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
+}
+
+// fetchHTTPJPEG GETs a URL and validates that the response is JPEG.
+func fetchHTTPJPEG(ctx context.Context, rawURL string, creds *url.Userinfo) ([]byte, error) {
+	data, err := fetchHTTPWithDigestRetry(ctx, rawURL, creds)
 	if err != nil {
 		return nil, err
 	}

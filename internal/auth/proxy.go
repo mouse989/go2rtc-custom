@@ -599,6 +599,14 @@ func proxyStreamsHandler(w http.ResponseWriter, r *http.Request) {
 		FrameURL string `json:"frame_url"`
 		Mp4URL   string `json:"mp4_url"`
 		RtspURL  string `json:"rtsp_url"`
+		// PTZ is true only when BOTH this user has the AllowPTZ permission
+		// AND this stream's camera type has PTZ configured — never just one
+		// or the other. A viewer without AllowPTZ gets false for every
+		// stream here regardless of the camera, so the client can never
+		// distinguish "no PTZ" from "PTZ hidden by permission": the PTZ
+		// control overlay simply never exists in the page for them. See
+		// ptz.go's doc comment.
+		PTZ bool `json:"ptz"`
 	}
 
 	wsScheme := "ws"
@@ -628,6 +636,7 @@ func proxyStreamsHandler(w http.ResponseWriter, r *http.Request) {
 			FrameURL: fmt.Sprintf("%s://%s/api/proxy/frame?id=%s&token=%s", scheme, r.Host, id, url.QueryEscape(token)),
 			Mp4URL:   fmt.Sprintf("%s://%s/api/proxy/mp4?id=%s&token=%s", scheme, r.Host, id, url.QueryEscape(token)),
 			RtspURL:  fmt.Sprintf("rtsp://%s:%s/%s", hostname, rtspListenPort, id),
+			PTZ:      (user.Role == RoleAdmin || user.AllowPTZ) && PTZEnabledForStream(name),
 		}
 		list = append(list, si)
 	}
