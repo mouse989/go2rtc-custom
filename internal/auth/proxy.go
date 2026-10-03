@@ -221,6 +221,59 @@ type SnapshotFailingCamera struct {
 	FailSec   int64     `json:"fail_sec"`
 }
 
+// SnapshotPingResult is one entry in GET /api/proxy/snapshot-ping's
+// response — an on-demand reachability check for a currently-failing
+// camera, so the admin can tell "camera is physically unreachable" (ping
+// fails too) apart from "camera is up, but this server still can't get a
+// snapshot from it" (ping succeeds — likely a credentials/URL/HTTP-level
+// problem on that one camera, not a network outage). Computed on demand
+// rather than tracked continuously alongside cameraHealth, since it's only
+// ever requested from the Snapshot Status detail view, never the summary
+// card's 10s poll.
+type SnapshotPingResult struct {
+	Name   string `json:"name"`
+	IP     string `json:"ip,omitempty"`
+	PingOK bool   `json:"ping_ok"`
+	Error  string `json:"error,omitempty"` // e.g. no IP could be resolved for this stream
+}
+
+const (
+	snapshotPingTimeoutMs = 1000
+	snapshotPingMaxCount  = 200 // cap per request: ping the longest-down cameras first
+	snapshotPingWorkers   = 32
+)
+
+// cameraHostForStream returns the bare host/IP of streamName's configured
+// source URL (e.g. "10.0.1.5" from "rtsp://user:pass@10.0.1.5:554/..."),
+// regardless of camera type (RTSP-keyframe or direct HTTP snapshot) — both
+// are grabbed from the same underlying go2rtc stream source (see
+// fetchDirectJPEG in camera_types.go, which resolves the HTTP-snapshot
+// host from this exact same source URL; the RTSP-keyframe path just
+// doesn't happen to use it for its own fetch). Returns "" if it can't be
+// determined — no source configured, or the configured URL doesn't parse.
+func cameraHostForStream(streamName string) string {
+	if getStreamSources == nil {
+		return ""
+	}
+	sources := getStreamSources(streamName)
+	if len(sources) == 0 {
+		return ""
+	}
+	srcURL := sources[0]
+	if !strings.Contains(srcURL, "://") {
+		return ""
+	}
+	u, err := url.Parse(srcURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	host, _, _ := net.SplitHostPort(u.Host)
+	if host == "" {
+		host = u.Host
+	}
+	return host
+}
+
 // placeholderJPEG is a small dark-gray JPEG served when no snapshot is yet
 // available (camera offline, not yet assigned a type, first-startup cold miss).
 var placeholderJPEG []byte
@@ -322,6 +375,7 @@ func registerProxyHandlers() {
 	http.HandleFunc("/api/proxy/streams", proxyStreamsHandler)
 	http.HandleFunc("/api/proxy/frame", proxyFrameHandler)
 	http.HandleFunc("/api/proxy/snapshot-stats", proxySnapshotStatsHandler)
+	http.HandleFunc("/api/proxy/snapshot-ping", proxySnapshotPingHandler)
 	http.HandleFunc("/api/proxy/hls", proxyHLSHandler)
 	http.HandleFunc("/api/proxy/hls/", proxyHLSSegmentHandler)
 	http.HandleFunc("/api/proxy/mp4", proxyPassHandler("/api/mp4", "src"))
@@ -379,6 +433,70 @@ func proxySnapshotStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// proxySnapshotPingHandler GET /api/proxy/snapshot-ping — pings the IP of
+// every camera currently in the failing list (longest-down first, capped
+// at snapshotPingMaxCount) and reports whether the camera itself answers,
+// distinguishing a network-level outage from a snapshot-fetch-level one.
+func proxySnapshotPingHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok || (user.Role != RoleAdmin && !HasTab(r.Context(), TabMonitor)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	now := time.Now()
+	healthMu.RLock()
+	type failing struct {
+		name    string
+		failSec int64
+	}
+	names := make([]failing, 0, len(healthMap))
+	for name, h := range healthMap {
+		if !h.OK {
+			names = append(names, failing{name: name, failSec: int64(now.Sub(h.FailSince).Seconds())})
+		}
+	}
+	healthMu.RUnlock()
+
+	// Longest-down first — same ordering as snapshot-stats. If there are
+	// more failing cameras than snapshotPingMaxCount, these are the ones
+	// most worth an admin's attention (least likely to be a just-starting
+	// transient blip).
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j].failSec > names[j-1].failSec; j-- {
+			names[j], names[j-1] = names[j-1], names[j]
+		}
+	}
+	if len(names) > snapshotPingMaxCount {
+		names = names[:snapshotPingMaxCount]
+	}
+
+	results := make([]SnapshotPingResult, len(names))
+	sem := make(chan struct{}, snapshotPingWorkers)
+	var wg sync.WaitGroup
+	for i, f := range names {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, name string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			res := SnapshotPingResult{Name: name}
+			host := cameraHostForStream(name)
+			if host == "" {
+				res.Error = "không xác định được địa chỉ IP camera"
+			} else {
+				res.IP = host
+				res.PingOK = doPing(host, snapshotPingTimeoutMs)
+			}
+			results[i] = res
+		}(i, f.name)
+	}
+	wg.Wait()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 // startSnapshotWorker starts the global staggered snapshot scheduler.

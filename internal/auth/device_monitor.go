@@ -260,8 +260,9 @@ func pingAllDevices() {
 }
 
 // doPing pings a single IP. Uses the native in-process ICMP pinger when
-// available; falls back to exec.Command("ping") otherwise.
-func doPing(ip string, timeoutMs int) bool {
+// available; falls back to exec.Command("ping") otherwise. A var (not a
+// func) so tests can stub it out instead of hitting real ICMP/exec.
+var doPing = func(ip string, timeoutMs int) bool {
 	if globalPinger != nil {
 		return globalPinger.ping(ip, timeoutMs)
 	}

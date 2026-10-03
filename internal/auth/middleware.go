@@ -302,7 +302,9 @@ func userCanAccessPath(u *User, path string) bool {
 			}
 		}
 		if u.AllowMonitorSnapshot {
-			if strings.HasPrefix(path, "/api/proxy/snapshot-stats") {
+			// Covers both /api/proxy/snapshot-stats and /api/proxy/snapshot-ping
+			// (the on-demand per-camera reachability check in the detail view).
+			if strings.HasPrefix(path, "/api/proxy/snapshot") {
 				return true
 			}
 		}

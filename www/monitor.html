@@ -515,6 +515,7 @@
         <option value="ok">Chỉ OK</option>
       </select>
       <span id="snapModalCount" style="font-size:.78rem;color:var(--text-muted);white-space:nowrap"></span>
+      <button id="snapPingBtn" onclick="fetchSnapPing()" class="btn btn-secondary btn-sm" style="white-space:nowrap" title="Ping địa chỉ IP của các camera đang lỗi, để phân biệt camera mất kết nối mạng với camera chỉ lỗi lấy snapshot">🔄 Ping</button>
     </div>
     <!-- Table -->
     <div style="overflow-y:auto;flex:1">
@@ -525,6 +526,7 @@
             <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Trạng thái</th>
             <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Mất kết nối lúc</th>
             <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Thời gian mất</th>
+            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Kết nối camera (ping)</th>
           </tr>
         </thead>
         <tbody id="snapModalTbody"></tbody>
@@ -882,6 +884,8 @@ function renderDevModalTable() {
 
 // ── Snapshot stats ─────────────────────────────────────────────────
 let _snapStats = null; // last fetched snapshot stats
+let _snapPingResults = {}; // name → {ip, ping_ok, error} — on-demand, see fetchSnapPing()
+let _snapPinging = false;
 
 function renderSnapCard(s) {
   if (!s) return;
@@ -925,7 +929,34 @@ function openSnapModal() {
   document.getElementById('snapModal').style.display = 'flex';
   document.getElementById('snapModalSearch').value = '';
   document.getElementById('snapModalFilter').value = 'fail';
+  _snapPingResults = {}; // stale from a previous open — don't show old results for a fresh failing list
   renderSnapTable();
+  fetchSnapPing();
+}
+
+// fetchSnapPing pings the IP of every currently-failing camera (on demand —
+// never on the background 10s summary poll, only when this detail view is
+// open) so the table can show "camera itself unreachable" (ping fails too)
+// apart from "camera is up, this server just can't get a snapshot from it"
+// (ping succeeds).
+async function fetchSnapPing() {
+  if (_snapPinging) return;
+  _snapPinging = true;
+  const btn = document.getElementById('snapPingBtn');
+  btn.textContent = '⏳ Đang ping…';
+  btn.disabled = true;
+  try {
+    const results = await apiFetch('/api/proxy/snapshot-ping');
+    _snapPingResults = {};
+    (results || []).forEach(r => { _snapPingResults[r.name] = r; });
+  } catch (e) {
+    _snapPingResults = {};
+  } finally {
+    _snapPinging = false;
+    btn.textContent = '🔄 Ping';
+    btn.disabled = false;
+    renderSnapTable();
+  }
 }
 
 function closeSnapModal() {
@@ -965,7 +996,7 @@ function renderSnapTable() {
   // We don't have individual OK camera names from the API (only count),
   // so for mode=ok we show a placeholder message.
   if (mode === 'ok') {
-    tbody.innerHTML = `<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--text-muted)">
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;text-align:center;color:var(--text-muted)">
       ${ok} camera đang lấy snapshot bình thường.</td></tr>`;
     document.getElementById('snapModalCount').textContent = `${ok} camera`;
     return;
@@ -974,7 +1005,7 @@ function renderSnapTable() {
   document.getElementById('snapModalCount').textContent = `${rows.length} camera`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--green)">
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;text-align:center;color:var(--green)">
       ✓ Tất cả camera đang lấy snapshot bình thường!</td></tr>`;
     return;
   }
@@ -988,11 +1019,23 @@ function renderSnapTable() {
     const m = Math.floor((r.failSec % 3600) / 60);
     const durStr = d > 0 ? `${d} ngày ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m ${r.failSec % 60}s`;
     const urgency = r.failSec > 86400 ? 'var(--red)' : r.failSec > 3600 ? '#f97316' : 'var(--yellow)';
+    const ping = _snapPingResults[r.name];
+    let pingCell;
+    if (!ping) {
+      pingCell = `<span style="color:var(--text-muted)">${_snapPinging ? '⏳…' : '—'}</span>`;
+    } else if (ping.error) {
+      pingCell = `<span style="color:var(--text-muted)" title="${escHtml(ping.error)}">? Không rõ IP</span>`;
+    } else if (ping.ping_ok) {
+      pingCell = `<span style="color:var(--green);font-weight:600">✓ OK</span> <span style="color:var(--text-muted);font-size:.78rem">(${escHtml(ping.ip)})</span>`;
+    } else {
+      pingCell = `<span style="color:var(--red);font-weight:600">✗ Mất kết nối</span> <span style="color:var(--text-muted);font-size:.78rem">(${escHtml(ping.ip)})</span>`;
+    }
     tr.innerHTML = `
       <td style="padding:.45rem .75rem;font-family:monospace;font-size:.82rem">${r.name}</td>
       <td style="padding:.45rem .75rem"><span style="color:var(--red);font-weight:600">✗ Lỗi</span></td>
       <td style="padding:.45rem .75rem;color:var(--text-muted);font-size:.8rem">${r.failSince.toLocaleString()}</td>
-      <td style="padding:.45rem .75rem;color:${urgency};font-weight:600;font-size:.82rem">${durStr}</td>`;
+      <td style="padding:.45rem .75rem;color:${urgency};font-weight:600;font-size:.82rem">${durStr}</td>
+      <td style="padding:.45rem .75rem;font-size:.82rem">${pingCell}</td>`;
     tbody.appendChild(tr);
   });
 }
