@@ -513,6 +513,7 @@
         <option value="all">Tất cả</option>
         <option value="fail" selected>Chỉ lỗi</option>
         <option value="ok">Chỉ OK</option>
+        <option value="ping_ok_no_snap">📶 Ping OK, chưa có snapshot</option>
       </select>
       <span id="snapModalCount" style="font-size:.78rem;color:var(--text-muted);white-space:nowrap"></span>
       <button id="snapPingBtn" onclick="fetchSnapPing()" class="btn btn-secondary btn-sm" style="white-space:nowrap" title="Ping địa chỉ IP của các camera đang lỗi, để phân biệt camera mất kết nối mạng với camera chỉ lỗi lấy snapshot">🔄 Ping</button>
@@ -522,11 +523,11 @@
       <table style="width:100%;border-collapse:collapse;font-size:.83rem">
         <thead style="position:sticky;top:0;background:var(--surface2)">
           <tr>
-            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Camera</th>
-            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Trạng thái</th>
-            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Mất kết nối lúc</th>
-            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Thời gian mất</th>
-            <th style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">Kết nối camera (ping)</th>
+            <th id="th-snap-name" onclick="setSnapSort('name')" style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none" title="Bấm để sắp xếp">Camera</th>
+            <th id="th-snap-status" onclick="setSnapSort('status')" style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none" title="Bấm để sắp xếp">Trạng thái</th>
+            <th id="th-snap-since" onclick="setSnapSort('since')" style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none" title="Bấm để sắp xếp">Mất kết nối lúc</th>
+            <th id="th-snap-dur" onclick="setSnapSort('dur')" style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none" title="Bấm để sắp xếp">Thời gian mất</th>
+            <th id="th-snap-ping" onclick="setSnapSort('ping')" style="padding:.5rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none" title="Bấm để sắp xếp">Kết nối camera (ping)</th>
           </tr>
         </thead>
         <tbody id="snapModalTbody"></tbody>
@@ -967,6 +968,32 @@ document.getElementById('snapModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeSnapModal();
 });
 
+// ── Column sort ───────────────────────────────────────────────────
+// 'name' | 'status' | 'since' | 'dur' | 'ping', null = unsorted (API order
+// — longest-down-first, as returned by /api/proxy/snapshot-stats).
+let _snapSortCol = null;
+let _snapSortDir = 1; // 1 = ascending, -1 = descending
+
+function setSnapSort(col) {
+  if (_snapSortCol === col) {
+    _snapSortDir = -_snapSortDir;
+  } else {
+    _snapSortCol = col;
+    _snapSortDir = 1;
+  }
+  renderSnapTable();
+}
+
+const SNAP_COL_LABELS = { name: 'Camera', status: 'Trạng thái', since: 'Mất kết nối lúc', dur: 'Thời gian mất', ping: 'Kết nối camera (ping)' };
+
+function updateSnapSortHeaders() {
+  Object.keys(SNAP_COL_LABELS).forEach(col => {
+    const th = document.getElementById('th-snap-' + col);
+    if (!th) return;
+    th.textContent = SNAP_COL_LABELS[col] + (_snapSortCol === col ? (_snapSortDir === 1 ? ' ▲' : ' ▼') : '');
+  });
+}
+
 function renderSnapTable() {
   if (!_snapStats) return;
   const q      = (document.getElementById('snapModalSearch').value || '').toLowerCase();
@@ -983,16 +1010,8 @@ function renderSnapTable() {
   document.getElementById('snapModalSummary').textContent =
     `${ok} OK · ${_snapStats.fail || 0} lỗi · tổng ${total}`;
   document.getElementById('snapModalCount').textContent = '';
+  updateSnapSortHeaders();
 
-  let rows = [];
-  if (mode !== 'ok') {
-    // failing cameras
-    failing.forEach(c => {
-      if (!q || c.name.toLowerCase().includes(q)) {
-        rows.push({ name: c.name, ok: false, failSince: new Date(c.fail_since), failSec: c.fail_sec });
-      }
-    });
-  }
   // We don't have individual OK camera names from the API (only count),
   // so for mode=ok we show a placeholder message.
   if (mode === 'ok') {
@@ -1002,11 +1021,50 @@ function renderSnapTable() {
     return;
   }
 
+  let rows = [];
+  failing.forEach(c => {
+    if (q && !c.name.toLowerCase().includes(q)) return;
+    const ping = _snapPingResults[c.name] || null;
+    // "📶 Ping OK, chưa có snapshot": isolate exactly the cameras that answer
+    // ping but still fail to give a snapshot — nothing to chase on-site for
+    // these, the camera itself is reachable; look at credentials/URL/camera
+    // type instead.
+    if (mode === 'ping_ok_no_snap' && !(ping && !ping.error && ping.ping_ok)) return;
+    rows.push({
+      name: c.name,
+      failSince: new Date(c.fail_since),
+      failSec: c.fail_sec,
+      ping,
+      // Sort order for the ping column: OK first, then down, then
+      // unknown/not-yet-pinged — mirrors what an admin scans for first.
+      pingRank: !ping ? 2 : (ping.error ? 2 : (ping.ping_ok ? 0 : 1)),
+    });
+  });
+
+  if (_snapSortCol) {
+    const col = _snapSortCol, dir = _snapSortDir;
+    rows.sort((a, b) => {
+      let av, bv;
+      switch (col) {
+        case 'name':   av = a.name; bv = b.name; break;
+        case 'since':  av = a.failSince.getTime(); bv = b.failSince.getTime(); break;
+        case 'dur':    av = a.failSec; bv = b.failSec; break;
+        case 'ping':   av = a.pingRank; bv = b.pingRank; break;
+        default:       av = 0; bv = 0; // 'status' — every visible row here is "Lỗi", nothing to differentiate
+      }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }
+
   document.getElementById('snapModalCount').textContent = `${rows.length} camera`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;text-align:center;color:var(--green)">
-      ✓ Tất cả camera đang lấy snapshot bình thường!</td></tr>`;
+    const emptyMsg = mode === 'ping_ok_no_snap'
+      ? '✓ Không có camera nào thuộc nhóm "Ping OK, chưa có snapshot".'
+      : '✓ Tất cả camera đang lấy snapshot bình thường!';
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;text-align:center;color:var(--green)">${emptyMsg}</td></tr>`;
     return;
   }
 
@@ -1019,7 +1077,7 @@ function renderSnapTable() {
     const m = Math.floor((r.failSec % 3600) / 60);
     const durStr = d > 0 ? `${d} ngày ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m ${r.failSec % 60}s`;
     const urgency = r.failSec > 86400 ? 'var(--red)' : r.failSec > 3600 ? '#f97316' : 'var(--yellow)';
-    const ping = _snapPingResults[r.name];
+    const ping = r.ping;
     let pingCell;
     if (!ping) {
       pingCell = `<span style="color:var(--text-muted)">${_snapPinging ? '⏳…' : '—'}</span>`;

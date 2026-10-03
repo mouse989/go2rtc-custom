@@ -12,6 +12,11 @@ package auth
 // sees it immediately, no re-assignment needed. See UserCanAccessStream in
 // middleware.go, which ORs this in alongside the explicit User.Streams
 // list — regions are an additional grant, never a replacement for it.
+//
+// A region can also carry a "buffer zone" (Region.BufferKm/BufferPolygons)
+// that extends its camera-visibility area outward by a configurable
+// distance, for cross-team coordination at a territory's edges — see the
+// doc comment on those fields.
 
 import (
 	"crypto/rand"
@@ -35,6 +40,27 @@ type Region struct {
 	Name     string `json:"name"`
 	Color    string `json:"color,omitempty"` // map display color, e.g. "#3b82f6"
 	Polygons []Ring `json:"polygons"`
+
+	// BufferKm, when > 0, extends this region's camera-visibility area
+	// outward by that many kilometers — so users assigned this region (for
+	// cross-team coordination) also see cameras just outside its drawn
+	// boundary, without being granted the neighboring region itself.
+	// BufferPolygons is the pre-computed outward-expanded ring(s) that
+	// membership checks actually test against (see pointInRegion below);
+	// it's computed client-side by map.html's region editor (via Turf.js —
+	// a proper geodesic polygon buffer, which correctly handles concave
+	// hand-drawn boundaries without self-intersecting the way a naive
+	// per-vertex radial push would) and saved verbatim whenever an admin
+	// sets/changes BufferKm or edits the base polygon, exactly like
+	// Polygons itself — the server never computes or validates buffer
+	// geometry, only stores and ray-casts against it. BufferPolygons
+	// already fully contains Polygons once computed (buffering dilates the
+	// original shape, it doesn't just add a separate ring), but
+	// pointInRegion checks both anyway so a region with BufferKm=0 (no
+	// buffer computed) or a stale/partial BufferPolygons still works
+	// correctly off Polygons alone.
+	BufferKm       float64 `json:"buffer_km,omitempty"`
+	BufferPolygons []Ring  `json:"buffer_polygons,omitempty"`
 }
 
 type regionStore struct {
@@ -167,9 +193,15 @@ func pointInRing(lon, lat float64, ring Ring) bool {
 	return inside
 }
 
-// pointInRegion reports whether (lon,lat) falls inside any of r's polygons.
+// pointInRegion reports whether (lon,lat) falls inside any of r's polygons,
+// or inside its buffer zone when one is configured (see Region.BufferKm).
 func pointInRegion(lon, lat float64, r *Region) bool {
 	for _, ring := range r.Polygons {
+		if pointInRing(lon, lat, ring) {
+			return true
+		}
+	}
+	for _, ring := range r.BufferPolygons {
 		if pointInRing(lon, lat, ring) {
 			return true
 		}

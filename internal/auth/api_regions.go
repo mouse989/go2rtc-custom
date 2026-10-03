@@ -60,9 +60,11 @@ func regionsHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Name     string `json:"name"`
-			Color    string `json:"color"`
-			Polygons []Ring `json:"polygons"`
+			Name           string  `json:"name"`
+			Color          string  `json:"color"`
+			Polygons       []Ring  `json:"polygons"`
+			BufferKm       float64 `json:"buffer_km"`
+			BufferPolygons []Ring  `json:"buffer_polygons"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 			http.Error(w, "name required", http.StatusBadRequest)
@@ -72,7 +74,10 @@ func regionsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one polygon required", http.StatusBadRequest)
 			return
 		}
-		reg := &Region{ID: newRegionID(), Name: req.Name, Color: req.Color, Polygons: req.Polygons}
+		reg := &Region{
+			ID: newRegionID(), Name: req.Name, Color: req.Color, Polygons: req.Polygons,
+			BufferKm: req.BufferKm, BufferPolygons: req.BufferPolygons,
+		}
 		if err := CreateRegion(reg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -90,9 +95,11 @@ func regionsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Name     string `json:"name"`
-			Color    string `json:"color"`
-			Polygons []Ring `json:"polygons"`
+			Name           string  `json:"name"`
+			Color          string  `json:"color"`
+			Polygons       []Ring  `json:"polygons"`
+			BufferKm       float64 `json:"buffer_km"`
+			BufferPolygons []Ring  `json:"buffer_polygons"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 			http.Error(w, "name required", http.StatusBadRequest)
@@ -102,7 +109,10 @@ func regionsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "at least one polygon required", http.StatusBadRequest)
 			return
 		}
-		reg := &Region{ID: id, Name: req.Name, Color: req.Color, Polygons: req.Polygons}
+		reg := &Region{
+			ID: id, Name: req.Name, Color: req.Color, Polygons: req.Polygons,
+			BufferKm: req.BufferKm, BufferPolygons: req.BufferPolygons,
+		}
 		if err := UpdateRegion(reg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

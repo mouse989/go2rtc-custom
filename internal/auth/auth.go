@@ -173,6 +173,7 @@ func Init() {
 	registerUserLocationHandler()
 	registerDeviceBindingHandler()
 	registerTrafficLiveHandler()
+	registerPTZHandlers()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }

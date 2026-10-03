@@ -166,6 +166,7 @@ img.cam-preview{cursor:pointer;}
 
 <script type="module" src="video-stream.js"></script>
 <script src="app.js"></script>
+<script src="ptz-control.js"></script>
 <script>
 // ── State ─────────────────────────────────────────────────────────
 let _currentStream = null;
@@ -256,6 +257,7 @@ const SNAP_INTERVAL = 10; // seconds between auto-refreshes
 async function showSnapshot(name, token) {
   if (!(await ensureDeviceVerified('cam_snapshot'))) return;
   stopSnapshot();
+  teardownPTZOverlay();
   const wrap = document.getElementById('playerWrap');
   wrap.innerHTML = '';
   wrap.style.display = 'block';
@@ -294,10 +296,16 @@ function stopSnapshot() {
 
 // ── Live player ───────────────────────────────────────────────────
 const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+let _ptzCleanup = null; // set while the PTZ overlay is mounted on #playerWrap
+
+function teardownPTZOverlay() {
+  if (_ptzCleanup) { _ptzCleanup(); _ptzCleanup = null; }
+}
 
 async function startPlayer(name, token, mode) {
   if (!(await ensureDeviceVerified('cam_stream'))) return;
   stopSnapshot();
+  teardownPTZOverlay();
   const wrap = document.getElementById('playerWrap');
   wrap.innerHTML = '';
   wrap.style.display = 'block';
@@ -316,6 +324,7 @@ async function startPlayer(name, token, mode) {
       vid.src = `/api/hls/index.m3u8?src=${encodeURIComponent(name)}&token=${encodeURIComponent(token)}`;
     }
     wrap.appendChild(vid);
+    if (info && info.ptz) _ptzCleanup = mountPTZOverlay(wrap, name);
     return;
   }
 
@@ -335,6 +344,7 @@ async function startPlayer(name, token, mode) {
   player.background = false;
   player.src = wsUrl;
   wrap.appendChild(player);
+  if (info && info.ptz) _ptzCleanup = mountPTZOverlay(wrap, name);
 }
 
 // ── Modal ─────────────────────────────────────────────────────────
@@ -384,6 +394,7 @@ document.getElementById('modeTabs').addEventListener('click', e => {
 
 function closeModal() {
   stopSnapshot();
+  teardownPTZOverlay();
   const backdrop = document.getElementById('modalBackdrop');
   const modal = backdrop.querySelector('.modal');
   backdrop.classList.remove('open', 'scale-mode');

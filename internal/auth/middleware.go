@@ -324,6 +324,11 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
+	if u.AllowPTZ {
+		if strings.HasPrefix(path, "/api/ptz/") {
+			return true
+		}
+	}
 	return false
 }
 
