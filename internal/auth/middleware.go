@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"slices"
@@ -151,6 +152,20 @@ func Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Step-up device-binding check: a path may be permission-allowed
+		// above yet still require a verified device for this particular
+		// user (see device_binding.go's scope catalog + User.DeviceBindingScopes).
+		// Admins are never gated — same convention as every other
+		// permission check in this function.
+		if user.Role != RoleAdmin {
+			if scope := deviceScopeForPath(r.URL.Path); scope != "" && user.RequiresDeviceBindingFor(scope) {
+				if !requestHasVerifiedDevice(r, user.Username) {
+					respondDeviceVerificationRequired(w, scope)
+					return
+				}
+			}
+		}
+
 		touchPresence(r, user.Username)
 
 		ctx := context.WithValue(r.Context(), userContextKey, user)
@@ -287,7 +302,9 @@ func userCanAccessPath(u *User, path string) bool {
 			}
 		}
 		if u.AllowMonitorSnapshot {
-			if strings.HasPrefix(path, "/api/proxy/snapshot-stats") {
+			// Covers both /api/proxy/snapshot-stats and /api/proxy/snapshot-ping
+			// (the on-demand per-camera reachability check in the detail view).
+			if strings.HasPrefix(path, "/api/proxy/snapshot") {
 				return true
 			}
 		}
@@ -300,6 +317,11 @@ func userCanAccessPath(u *User, path string) bool {
 			if strings.HasPrefix(path, "/api/workers/status") {
 				return true
 			}
+		}
+	}
+	if u.AllowTrafficLive {
+		if strings.HasPrefix(path, "/api/traffic-live/") {
+			return true
 		}
 	}
 	return false
@@ -353,6 +375,29 @@ func isPublicPath(path string) bool {
 	// Everything that is NOT under /api/ is a static file — served without auth.
 	// The Go binary embeds www/*.html, www/*.js, www/*.css etc.
 	return !strings.HasPrefix(path, "/api/")
+}
+
+// requestHasVerifiedDevice reports whether r carries a still-valid
+// device-verified cookie (see webauthn.go) for username.
+func requestHasVerifiedDevice(r *http.Request, username string) bool {
+	cookie, err := r.Cookie(deviceVerifiedCookieName)
+	if err != nil {
+		return false
+	}
+	return verifyDeviceVerifiedToken(cookie.Value, username)
+}
+
+// respondDeviceVerificationRequired returns 403 with a machine-readable
+// error code the frontend recognizes to trigger the WebAuthn step-up
+// ceremony (POST /api/auth/webauthn/verify/begin then /finish) rather than
+// just showing a generic "forbidden" message.
+func respondDeviceVerificationRequired(w http.ResponseWriter, scope string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": "device_verification_required",
+		"scope": scope,
+	})
 }
 
 // respondUnauthorized returns 401. For WebSocket upgrade requests it also

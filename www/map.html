@@ -571,11 +571,16 @@ body.sb-collapsed           { --map-left:0; }
   <button class="map-btn" id="btnRoute" style="display:none" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
     🛣 Theo tuyến
   </button>
-  <!-- Traffic: shown only for admin or users with allow_traffic -->
+  <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
   <button class="map-btn" id="btnTraffic" style="display:none">
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
     🚦 Traffic
   </button>
+  <!-- Traffic source picker: only shown for admin or users with allow_traffic_live -->
+  <div id="trafficSrcRow" style="display:none;gap:.3rem">
+    <button class="map-btn" id="trafficSrcLegacy" style="flex:1;font-size:.72rem;padding:.3rem .5rem;justify-content:center" title="Nguồn traffic hiện tại">Hiện tại</button>
+    <button class="map-btn" id="trafficSrcLive" style="flex:1;font-size:.72rem;padding:.3rem .5rem;justify-content:center" title="Nguồn traffic tối ưu (VietMap Live)">Tối ưu</button>
+  </div>
   <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
   <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
   <button class="map-btn" id="btnSnapPreview" style="display:none" title="Bật/tắt hiển thị snapshot camera trực tiếp trên bản đồ">📷 Xem trước</button>
@@ -975,6 +980,11 @@ let _snapshotTimer = null, _currentModalID = null;
 let _trafficOn = false, _trafficSourceIds = [], _trafficLayerIds = [], _trafficTimer = null;
 let _trafficTileTemplates = {}; // sourceId → original (un-cache-busted) tiles[] from VietMap's style.json
 const TRAFFIC_REFRESH_MS = 60000; // VietMap's CDN caches tile responses; without this the layer never visibly updates
+// 'legacy' = existing VietMap traffic-flow style passthrough; 'live' = the
+// alternative VietMap Live Traffic Tile source proxied through our own
+// server (see internal/auth/traffic_live.go) — only offered to users with
+// canUseTrafficLive(). Persisted per-browser like other map toggles.
+let _trafficSource = localStorage.getItem('map_traffic_source') === 'live' ? 'live' : 'legacy';
 let _heatmapOn = false, _heatmapData = null, _heatmapCfg = null, _heatmapTimer = null;
 const HEATMAP_REFRESH_MS = 60000; // server rescans every few minutes; this just keeps the layer from going stale while it's open
 let _clusterMarkers = new Map();  // cluster_id → {marker, el, count} — diff-based, avoids full rebuild every frame
@@ -1664,7 +1674,8 @@ function schedulePreviewUpdate() {
   });
 }
 
-function setPreviewMode(on) {
+async function setPreviewMode(on) {
+  if (on && !(await ensureDeviceVerified('cam_snapshot'))) return;
   _previewMode = on;
   localStorage.setItem('map_snap_preview', on ? '1' : '0');
   document.getElementById('btnSnapPreview').classList.toggle('active', on);
@@ -2234,6 +2245,60 @@ function _refreshTrafficTiles() {
   }
 }
 
+// _loadLegacyTraffic copies VietMap's own pre-built traffic-flow style
+// (sources + layers, already colored green/yellow/red) straight into the
+// map — the original, unchanged behavior.
+async function _loadLegacyTraffic() {
+  const tfStyle = await fetch(
+    `https://maps.vietmap.vn/maps/styles/tf/style.json?apikey=${_vietmapKey}`,
+    { cache: 'no-store' }
+  ).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+
+  Object.entries(tfStyle.sources || {}).forEach(([id, src]) => {
+    if (map.getSource(id)) return;
+    if (Array.isArray(src.tiles)) {
+      _trafficTileTemplates[id] = src.tiles;
+      src = { ...src, tiles: src.tiles.map(_bustUrl) };
+    }
+    map.addSource(id, src);
+    _trafficSourceIds.push(id);
+  });
+  (tfStyle.layers || []).forEach(layer => {
+    if (!map.getLayer(layer.id)) {
+      try { map.addLayer(layer); _trafficLayerIds.push(layer.id); } catch(_) {}
+    }
+  });
+}
+
+// _loadLiveTraffic adds the alternative VietMap Live Traffic Tile source,
+// proxied through our own server (never called directly — see
+// internal/auth/traffic_live.go for why). A cheap probe request first gives
+// a clear error if the admin hasn't configured the API key yet, since
+// unlike the legacy path's style.json fetch above, adding a vector tile
+// source itself never fails synchronously even if every tile 502s.
+async function _loadLiveTraffic() {
+  const probe = await fetch(`/api/traffic-live/1/0/0?token=${encodeURIComponent(_token)}`);
+  if (!probe.ok) throw new Error('HTTP ' + probe.status);
+
+  const id = 'vml-traffic-live';
+  const tiles = [`${location.origin}/api/traffic-live/{z}/{x}/{y}?token=${encodeURIComponent(_token)}`];
+  _trafficTileTemplates[id] = tiles;
+  map.addSource(id, { type: 'vector', tiles: tiles.map(_bustUrl), minzoom: 10, maxzoom: 17 });
+  _trafficSourceIds.push(id);
+  map.addLayer({
+    id: id + '-line',
+    type: 'line',
+    source: id,
+    'source-layer': 'jam',
+    layout: { 'line-join': 'round', 'line-cap': 'butt' },
+    paint: {
+      'line-color': ['coalesce', ['get', 'rcolor'], '#84CA50'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 2.5, 16, 4, 18, 6],
+    },
+  });
+  _trafficLayerIds.push(id + '-line');
+}
+
 async function toggleTraffic() {
   if (_trafficOn) {
     if (_trafficTimer) { clearInterval(_trafficTimer); _trafficTimer = null; }
@@ -2247,25 +2312,11 @@ async function toggleTraffic() {
   const btn = document.getElementById('btnTraffic');
   btn.textContent = '⏳ Loading…';
   try {
-    const tfStyle = await fetch(
-      `https://maps.vietmap.vn/maps/styles/tf/style.json?apikey=${_vietmapKey}`,
-      { cache: 'no-store' }
-    ).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
-
-    Object.entries(tfStyle.sources || {}).forEach(([id, src]) => {
-      if (map.getSource(id)) return;
-      if (Array.isArray(src.tiles)) {
-        _trafficTileTemplates[id] = src.tiles;
-        src = { ...src, tiles: src.tiles.map(_bustUrl) };
-      }
-      map.addSource(id, src);
-      _trafficSourceIds.push(id);
-    });
-    (tfStyle.layers || []).forEach(layer => {
-      if (!map.getLayer(layer.id)) {
-        try { map.addLayer(layer); _trafficLayerIds.push(layer.id); } catch(_) {}
-      }
-    });
+    if (_trafficSource === 'live' && canUseTrafficLive()) {
+      await _loadLiveTraffic();
+    } else {
+      await _loadLegacyTraffic();
+    }
     // Bring camera layers above traffic so icons are always visible
     ['clusters','unclustered-point'].forEach(id => {
       if (map.getLayer(id)) map.moveLayer(id);
@@ -2275,12 +2326,29 @@ async function toggleTraffic() {
     _trafficTimer = setInterval(_refreshTrafficTiles, TRAFFIC_REFRESH_MS);
   } catch (err) {
     console.error('[traffic]', err);
-    alert('Cannot load traffic data. Check your VietMap API key in Admin → Settings.');
+    alert(_trafficSource === 'live'
+      ? 'Không tải được traffic (nguồn tối ưu). Kiểm tra API key VietMap Live trong Admin → Settings.'
+      : 'Cannot load traffic data. Check your VietMap API key in Admin → Settings.');
   }
   btn.innerHTML = '🚦 Traffic';
 }
 
 document.getElementById('btnTraffic').addEventListener('click', toggleTraffic);
+
+// ── Traffic source picker (legacy vs. live) ─────────────────────
+function setTrafficSource(src) {
+  if (_trafficSource === src) return;
+  _trafficSource = src;
+  localStorage.setItem('map_traffic_source', src);
+  document.getElementById('trafficSrcLegacy').classList.toggle('active', src === 'legacy');
+  document.getElementById('trafficSrcLive').classList.toggle('active', src === 'live');
+  if (_trafficOn) {
+    toggleTraffic(); // off (synchronous branch)
+    toggleTraffic(); // on again, picks up the new _trafficSource
+  }
+}
+document.getElementById('trafficSrcLegacy').addEventListener('click', () => setTrafficSource('legacy'));
+document.getElementById('trafficSrcLive').addEventListener('click', () => setTrafficSource('live'));
 
 // ── Mode toggles ──────────────────────────────────────────────
 document.getElementById('btnSearch').addEventListener('click', function() {
@@ -2315,12 +2383,16 @@ document.getElementById('btnEdit').addEventListener('click', async function() {
 // ── Grid ──────────────────────────────────────────────────────
 document.getElementById('btnGrid').addEventListener('click', () => openGrid(_searchHits));
 
-function openGrid(ids) {
+async function openGrid(ids) {
   if (!ids.length) return;
-  const grid = document.getElementById('gridPlayers');
-  grid.innerHTML = '';
   const videoOk = canCamVideo();
   const snapOk  = canCamSnapshot();
+  // Gate once for the whole grid — not per-cell, which would prompt once
+  // per camera in the grid.
+  if (videoOk && !(await ensureDeviceVerified('cam_stream'))) return;
+  if (!videoOk && snapOk && !(await ensureDeviceVerified('cam_snapshot'))) return;
+  const grid = document.getElementById('gridPlayers');
+  grid.innerHTML = '';
   document.getElementById('gridTitle').textContent =
     `${videoOk ? 'Watching' : 'Snapshot'} ${ids.length} camera${ids.length!==1?'s':''}`;
   const cols = ids.length<=1?1:ids.length<=4?2:ids.length<=9?3:4;
@@ -2368,8 +2440,12 @@ document.getElementById('btnMapOverlay').addEventListener('click', () => {
   Object.keys(_ovWindows).length ? closeAllOverlays() : openOverlays(_searchHits);
 });
 
-function openOverlays(ids) {
+async function openOverlays(ids) {
   closeAllOverlays(); if (!ids.length) return;
+  // Gate once for the whole batch of PiP windows (each window individually
+  // picks video vs. snapshot below based on the same two permissions).
+  if (canCamVideo() && !(await ensureDeviceVerified('cam_stream'))) return;
+  if (!canCamVideo() && canCamSnapshot() && !(await ensureDeviceVerified('cam_snapshot'))) return;
   const valid = ids.filter(id => _streamByID[id] && _locByID[id]);
   const items = computeWindowPositions(valid);
   resolveOverlaps(items);
@@ -2483,7 +2559,8 @@ function openModal(maskedID) {
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
-function showSnapshot(id) {
+async function showSnapshot(id) {
+  if (!(await ensureDeviceVerified('cam_snapshot'))) return;
   stopSnapshot();
   const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
   const img=document.createElement('img'); img.className='modal-snap';
@@ -2500,7 +2577,8 @@ function showSnapshot(id) {
   _snapshotTimer=setInterval(()=>{ secs--; if(secs<=0){secs=SNAP_IV;refresh();} cd(); },1000);
 }
 function stopSnapshot() { if(_snapshotTimer){clearInterval(_snapshotTimer);_snapshotTimer=null;} }
-function startPlayer(id,mode) {
+async function startPlayer(id,mode) {
+  if (!(await ensureDeviceVerified('cam_stream'))) return;
   stopSnapshot();
   const wrap=document.getElementById('playerWrap'); wrap.innerHTML='';
   const wsUrl=`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/api/proxy/ws?id=${encodeURIComponent(id)}&token=${encodeURIComponent(_token)}`;
@@ -3840,8 +3918,16 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
 
   // Show traffic/heatmap buttons only if user has permission
   const trafficAllowed = canUseTraffic();
-  if (trafficAllowed) {
+  const trafficLiveAllowed = canUseTrafficLive();
+  if (trafficAllowed || trafficLiveAllowed) {
     document.getElementById('btnTraffic').style.display = '';
+  }
+  if (trafficLiveAllowed) {
+    document.getElementById('trafficSrcRow').style.display = 'flex';
+    document.getElementById('trafficSrcLegacy').classList.toggle('active', _trafficSource === 'legacy');
+    document.getElementById('trafficSrcLive').classList.toggle('active', _trafficSource === 'live');
+  } else {
+    _trafficSource = 'legacy'; // ignore a stale localStorage choice if permission was revoked
   }
   if (canUseHeatmap()) {
     document.getElementById('btnHeatmap').style.display = '';

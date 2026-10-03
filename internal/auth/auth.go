@@ -103,6 +103,22 @@ func Init() {
 	}
 	initDeviceMonitor(eventsPath)
 
+	// Trusted-device (WebAuthn) store + relying party (non-fatal — feature
+	// stays unavailable, not fatal, until an admin configures RPID/origins).
+	deviceBindingPath := filepath.Join(filepath.Dir(usersPath), "device_bindings.json")
+	if usersPath == "users.json" {
+		deviceBindingPath = "device_bindings.json"
+	}
+	if err := initDeviceBinding(deviceBindingPath); err != nil {
+		log.Warn().Err(err).Msg("[auth] device binding store load failed (continuing)")
+	}
+	{
+		s := GetSettings()
+		if err := initWebAuthn(s.DeviceBindingRPID, "go2rtc", s.DeviceBindingRPOrigins); err != nil {
+			log.Warn().Err(err).Msg("[auth] webauthn relying party init failed (continuing)")
+		}
+	}
+
 	// Camera config presets store (non-fatal — seeds defaults on first run)
 	presetsPath := filepath.Join(filepath.Dir(usersPath), "cam_presets.json")
 	if usersPath == "users.json" {
@@ -155,6 +171,8 @@ func Init() {
 	registerLoginLockoutsHandler()
 	registerConfigAuditHandler()
 	registerUserLocationHandler()
+	registerDeviceBindingHandler()
+	registerTrafficLiveHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }

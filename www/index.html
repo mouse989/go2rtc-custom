@@ -253,7 +253,8 @@ function refreshCard(btn) {
 // ── Snapshot player (modal default) ──────────────────────────────
 const SNAP_INTERVAL = 10; // seconds between auto-refreshes
 
-function showSnapshot(name, token) {
+async function showSnapshot(name, token) {
+  if (!(await ensureDeviceVerified('cam_snapshot'))) return;
   stopSnapshot();
   const wrap = document.getElementById('playerWrap');
   wrap.innerHTML = '';
@@ -294,7 +295,8 @@ function stopSnapshot() {
 // ── Live player ───────────────────────────────────────────────────
 const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-function startPlayer(name, token, mode) {
+async function startPlayer(name, token, mode) {
+  if (!(await ensureDeviceVerified('cam_stream'))) return;
   stopSnapshot();
   const wrap = document.getElementById('playerWrap');
   wrap.innerHTML = '';
@@ -490,6 +492,20 @@ function scaleModalToFit() {
 (async () => {
   await initApp('cameras');
   const token = getToken();
+
+  // Grid thumbnails are all snapshot fetches — gate once here instead of
+  // per-thumbnail (which would prompt hundreds of times at 3000+ cameras).
+  // A live-view mode switch to video still gates separately in startPlayer,
+  // since it's a different scope (cam_stream) not everyone with cam_snapshot
+  // necessarily also has.
+  if (needsDeviceVerification('cam_snapshot') && !(await ensureDeviceVerified('cam_snapshot'))) {
+    document.getElementById('loadingState').style.display = 'none';
+    const empty = document.getElementById('emptyState');
+    empty.style.display = 'flex';
+    empty.querySelector('p').textContent = 'Cần xác minh thiết bị để xem camera';
+    empty.querySelector('span').textContent = 'Tải lại trang để thử xác minh lại.';
+    return;
+  }
 
   const [streams, proxyStreams, groups] = await Promise.all([
     apiFetch('/api/streams').catch(() => ({})),

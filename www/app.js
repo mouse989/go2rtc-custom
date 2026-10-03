@@ -55,6 +55,14 @@ function canUseTraffic() {
   return u && (u.role === 'admin' || !!u.allow_traffic);
 }
 
+// canUseTrafficLive gates the alternative, higher-quality live traffic
+// source (VietMap Live Traffic Tile) and the on-map toggle to pick it over
+// the existing traffic overlay — independent of canUseTraffic().
+function canUseTrafficLive() {
+  const u = getUser();
+  return u && (u.role === 'admin' || !!u.allow_traffic_live);
+}
+
 function canUseHeatmap() {
   const u = getUser();
   return u && (u.role === 'admin' || !!u.allow_heatmap);
@@ -127,6 +135,168 @@ async function apiFetch(path, opts = {}) {
     if (err.message !== 'redirect') console.error('[api]', path, err);
     throw err;
   }
+}
+
+// ─────────────────── Device binding (WebAuthn step-up) ───────────────────
+// Some sensitive-data categories (see internal/auth/device_binding.go's
+// scope catalog) can be gated per-user by an admin: RequiresDeviceBindingFor
+// scope X means the server refuses to serve X unless the browser also
+// carries a short-lived "device verified" cookie, proven by a WebAuthn
+// assertion against a device an admin previously approved. One verification
+// satisfies every gated scope for the life of that cookie
+// (device_verify_valid_hours, default 12h) — the server tracks that; this
+// file only needs to know whether /api/auth/me's cached device_verified
+// flag is currently true.
+
+function deviceBindingScopes() {
+  const u = getUser();
+  return (u && u.device_binding_scopes) || [];
+}
+
+// needsDeviceVerification reports whether scope applies to the current user
+// and hasn't been satisfied yet this session. Admins are never gated.
+function needsDeviceVerification(scope) {
+  const u = getUser();
+  if (!u || u.role === 'admin') return false;
+  return deviceBindingScopes().includes(scope) && !u.device_verified;
+}
+
+function webauthnSupported() {
+  return !!(window.PublicKeyCredential && PublicKeyCredential.parseCreationOptionsFromJSON && PublicKeyCredential.parseRequestOptionsFromJSON);
+}
+
+// A friendlier default than navigator.platform (which reports e.g. "MacIntel"
+// for an iPhone/iPad under Safari's UA string). Just a starting point the
+// user can edit — doesn't need to be exact.
+function _guessDeviceLabel() {
+  const ua = navigator.userAgent || '';
+  let device = 'Thiết bị';
+  if (/iPhone/.test(ua)) device = 'iPhone';
+  else if (/iPad/.test(ua)) device = 'iPad';
+  else if (/Android/.test(ua)) device = 'Android';
+  else if (/Windows/.test(ua)) device = 'Windows';
+  else if (/Macintosh/.test(ua)) device = 'Mac';
+  else if (/Linux/.test(ua)) device = 'Linux';
+  let browser = '';
+  if (/EdgA|Edge|Edg\//.test(ua)) browser = 'Edge';
+  else if (/CriOS|Chrome/.test(ua)) browser = 'Chrome';
+  else if (/FxiOS|Firefox/.test(ua)) browser = 'Firefox';
+  else if (/Safari/.test(ua)) browser = 'Safari';
+  return browser ? `${device} (${browser})` : device;
+}
+
+let _deviceModalPromise = null; // in-flight Promise, so concurrent callers share one dialog
+let _deviceModalResolve = null;
+
+function _deviceModalEls() {
+  let backdrop = document.getElementById('deviceVerifyBackdrop');
+  if (backdrop) return backdrop;
+
+  backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.id = 'deviceVerifyBackdrop';
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <h3>Xác minh thiết bị</h3>
+        <button class="modal-close" id="devVerifyClose" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:.8rem">
+          Dữ liệu này yêu cầu xác minh thiết bị đã được quản trị viên phê duyệt.
+        </p>
+        <div id="devVerifyErr" style="color:var(--red);font-size:.8rem;display:none;margin-bottom:.6rem"></div>
+        <div style="display:flex;flex-direction:column;gap:.6rem">
+          <button class="btn btn-primary" id="devVerifyBtn" type="button">🔐 Xác minh bằng thiết bị này</button>
+          <div style="border-top:1px solid var(--border);padding-top:.6rem;margin-top:.2rem">
+            <label style="font-size:.78rem;color:var(--text-muted);display:block;margin-bottom:.35rem">Tên thiết bị (để quản trị viên dễ nhận biết khi duyệt)</label>
+            <input type="text" id="devLabelInput" class="input" style="margin-bottom:.5rem" maxlength="80">
+            <button class="btn btn-secondary" id="devRegisterBtn" type="button" style="width:100%">➕ Đăng ký thiết bị mới (chờ duyệt)</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const closeCancelled = () => _resolveDeviceModal(false);
+  document.getElementById('devVerifyClose').addEventListener('click', closeCancelled);
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) closeCancelled(); });
+  document.getElementById('devVerifyBtn').addEventListener('click', _deviceVerifyAttempt);
+  document.getElementById('devRegisterBtn').addEventListener('click', _deviceRegisterAttempt);
+  return backdrop;
+}
+
+function _showDeviceModalErr(msg) {
+  const el = document.getElementById('devVerifyErr');
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+function _resolveDeviceModal(result) {
+  const backdrop = document.getElementById('deviceVerifyBackdrop');
+  if (backdrop) backdrop.classList.remove('open');
+  const resolve = _deviceModalResolve;
+  _deviceModalPromise = null;
+  _deviceModalResolve = null;
+  if (resolve) resolve(result);
+}
+
+async function _deviceVerifyAttempt() {
+  document.getElementById('devVerifyErr').style.display = 'none';
+  try {
+    const options = await apiFetch('/api/auth/webauthn/verify/begin', { method: 'POST' });
+    const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(options.publicKey);
+    const cred = await navigator.credentials.get({ publicKey });
+    await apiFetch('/api/auth/webauthn/verify/finish', { method: 'POST', body: cred.toJSON() });
+    const me = await apiFetch('/api/auth/me');
+    localStorage.setItem('go2rtc_user', JSON.stringify(me));
+    toast('Đã xác minh thiết bị.', 'success');
+    _resolveDeviceModal(true);
+  } catch (e) {
+    _showDeviceModalErr('Xác minh thất bại: ' + (e.message || e) + ' — nếu thiết bị này chưa được đăng ký, dùng nút bên dưới.');
+  }
+}
+
+async function _deviceRegisterAttempt() {
+  document.getElementById('devVerifyErr').style.display = 'none';
+  // An inline input, not prompt(): on Safari/iOS, navigator.credentials.create()
+  // throws "NotAllowedError: The document is not focused" if a native
+  // dialog (prompt/confirm/alert) ran right before it — the native dialog
+  // steals focus and WebKit refuses the ceremony afterwards, failing
+  // registration regardless of what name was entered.
+  const label = document.getElementById('devLabelInput').value.trim() || _guessDeviceLabel();
+  try {
+    const options = await apiFetch('/api/auth/webauthn/register/begin', { method: 'POST' });
+    const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(options.publicKey);
+    const cred = await navigator.credentials.create({ publicKey });
+    await apiFetch('/api/auth/webauthn/register/finish?label=' + encodeURIComponent(label || 'Thiết bị của tôi'), {
+      method: 'POST',
+      body: cred.toJSON(),
+    });
+    toast('Đã gửi yêu cầu đăng ký thiết bị — chờ quản trị viên phê duyệt trước khi dùng được.', 'success');
+    _resolveDeviceModal(false); // registering alone doesn't grant access yet — still not verified
+  } catch (e) {
+    _showDeviceModalErr('Đăng ký thất bại: ' + (e.message || e));
+  }
+}
+
+// ensureDeviceVerified(scope) resolves true immediately if scope doesn't
+// gate this user or is already verified; otherwise shows the step-up
+// dialog and resolves true/false based on what the user does.
+async function ensureDeviceVerified(scope) {
+  if (!needsDeviceVerification(scope)) return true;
+  if (!webauthnSupported()) {
+    toast('Trình duyệt này không hỗ trợ xác minh thiết bị (WebAuthn) — không thể xem dữ liệu này.', 'error');
+    return false;
+  }
+  if (_deviceModalPromise) return _deviceModalPromise;
+  const backdrop = _deviceModalEls();
+  document.getElementById('devVerifyErr').style.display = 'none';
+  const labelInput = document.getElementById('devLabelInput');
+  if (labelInput) labelInput.value = _guessDeviceLabel();
+  backdrop.classList.add('open');
+  _deviceModalPromise = new Promise(resolve => { _deviceModalResolve = resolve; });
+  return _deviceModalPromise;
 }
 
 // ──────────────────── Login-location capture ────────────────────
