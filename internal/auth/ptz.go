@@ -78,6 +78,27 @@ func SendPTZStop(ctx context.Context, streamName string) error {
 	}
 }
 
+// SendPTZHome recalls preset 1 — the camera's "home" position, set up
+// ahead of time on the camera itself. This is the only preset this feature
+// ever calls: the admin only wants a quick way back to home, not a preset
+// browser for every saved angle, so there's no preset-number parameter
+// anywhere in this path (API, drivers, or the UI's single house-icon
+// button).
+func SendPTZHome(ctx context.Context, streamName string) error {
+	ct := cameraTypeForStream(streamName)
+	if ct == nil || !ct.PTZEnabled {
+		return errPTZNotEnabled
+	}
+	switch ct.PTZDriver {
+	case ptzDriverAxisVAPIX:
+		return axisPTZHome(ctx, streamName)
+	case ptzDriverONVIF:
+		return onvifPTZHome(ctx, streamName)
+	default:
+		return errPTZNotEnabled
+	}
+}
+
 type ptzError string
 
 func (e ptzError) Error() string { return string(e) }

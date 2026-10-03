@@ -42,6 +42,18 @@ func axisPTZStop(ctx context.Context, streamName string) error {
 	return err
 }
 
+// axisPTZHome recalls VAPIX server preset 1 — the only preset this feature
+// calls (see ptz.go's doc comment).
+func axisPTZHome(ctx context.Context, streamName string) error {
+	host, creds, err := resolveStreamHostCreds(streamName)
+	if err != nil {
+		return err
+	}
+	rawURL := fmt.Sprintf("http://%s/axis-cgi/com/ptz.cgi?gotoserverpresetno=1", host)
+	_, err = fetchHTTPWithDigestRetry(ctx, rawURL, creds)
+	return err
+}
+
 // vapixSpeed converts a -1.0..1.0 velocity to VAPIX's -100..100 integer scale.
 func vapixSpeed(v float64) int {
 	n := int(v * 100)

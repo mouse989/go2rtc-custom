@@ -177,6 +177,53 @@ func (c *Client) ContinuousMove(token string, pan, tilt, zoom float64, timeoutSe
 	))
 }
 
+// GotoPreset recalls a saved preset position (as set up on the camera
+// itself, outside this app). presetToken is an ONVIF preset token, not
+// necessarily a plain number — see GetPresetTokens when the camera doesn't
+// use "1" as the literal token for its first preset. c.Request only treats
+// a non-200 HTTP status as failure, so this additionally checks the body
+// for a SOAP Fault — some devices answer an unknown/invalid preset token
+// with HTTP 200 and a Fault in the body, which would otherwise look like a
+// silent, do-nothing "success".
+func (c *Client) GotoPreset(profileToken, presetToken string) ([]byte, error) {
+	b, err := c.PTZRequest(fmt.Sprintf(
+		`<tptz:GotoPreset>
+	<tptz:ProfileToken>%s</tptz:ProfileToken>
+	<tptz:PresetToken>%s</tptz:PresetToken>
+</tptz:GotoPreset>`,
+		profileToken, presetToken,
+	))
+	if err != nil {
+		return b, err
+	}
+	if bytes.Contains(b, []byte("Fault")) {
+		return b, fmt.Errorf("onvif: GotoPreset(%s) fault: %s", presetToken, b)
+	}
+	return b, nil
+}
+
+// GetPresetTokens returns every saved preset's token for the given
+// profile, in whatever order the device reports them — used only as a
+// fallback when GotoPreset(token, "1") fails, to find the real token for
+// the camera's first/home preset on a device that doesn't number its
+// tokens "1", "2", ...
+func (c *Client) GetPresetTokens(profileToken string) ([]string, error) {
+	b, err := c.PTZRequest(fmt.Sprintf(
+		`<tptz:GetPresets><tptz:ProfileToken>%s</tptz:ProfileToken></tptz:GetPresets>`,
+		profileToken,
+	))
+	if err != nil {
+		return nil, err
+	}
+
+	var tokens []string
+	re := regexp.MustCompile(`Preset.+?token="([^"]+)`)
+	for _, s := range re.FindAllStringSubmatch(string(b), 50) {
+		tokens = append(tokens, s[1])
+	}
+	return tokens, nil
+}
+
 // Stop halts an in-progress ContinuousMove on the given axes.
 func (c *Client) Stop(token string, panTilt, zoom bool) ([]byte, error) {
 	return c.PTZRequest(fmt.Sprintf(

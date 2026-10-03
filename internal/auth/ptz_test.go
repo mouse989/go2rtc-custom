@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 )
@@ -85,6 +86,16 @@ func TestPtzAllowed(t *testing.T) {
 	viewerFixedCam := &User{Role: RoleViewer, AllowPTZ: true, Streams: []string{"cam-fixed"}}
 	if ptzAllowed(viewerFixedCam, "cam-fixed") {
 		t.Fatal("expected denial for a non-PTZ camera even with AllowPTZ and stream access")
+	}
+}
+
+func TestSendPTZHomeRejectsNonPTZCameras(t *testing.T) {
+	setupPTZCameraType(t, "cam-fixed", &CameraType{ID: "fixed", Name: "Fixed", PTZEnabled: false})
+	if err := SendPTZHome(context.Background(), "cam-fixed"); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for a non-PTZ camera, got %v", err)
+	}
+	if err := SendPTZHome(context.Background(), "cam-unknown"); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for an unassigned stream, got %v", err)
 	}
 }
 

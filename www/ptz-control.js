@@ -47,17 +47,48 @@ function mountPTZOverlay(container, streamName) {
       console.error('[ptz] stop failed', e);
     }
   }
+  async function sendHome() {
+    try {
+      await apiFetch('/api/ptz/home', { method: 'POST', body: { stream: streamName } });
+    } catch (e) {
+      console.error('[ptz] home failed', e);
+    }
+  }
 
   const wrap = document.createElement('div');
   wrap.className = 'ptz-overlay';
   wrap.style.cssText = 'position:absolute;right:16px;bottom:16px;display:flex;align-items:center;gap:12px;z-index:5';
 
-  // ── Pan/Tilt joystick (8-direction) ──────────────────────────────
+  // ── Pan/Tilt joystick (8-direction), with a Home button at its center ──
   const pad = document.createElement('div');
   pad.style.cssText = 'position:relative;width:120px;height:120px;border-radius:50%;background:rgba(13,17,23,.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.14);flex-shrink:0';
-  const centerDot = document.createElement('div');
-  centerDot.style.cssText = 'position:absolute;left:50%;top:50%;width:5px;height:5px;margin-left:-2.5px;margin-top:-2.5px;border-radius:50%;background:#8b949e';
-  pad.appendChild(centerDot);
+
+  // Recalls preset 1 (the camera's home position, set up ahead of time on
+  // the camera itself) — a single click, not hold-to-move like the
+  // direction/zoom buttons, so it gets its own simple busy-guarded click
+  // handler instead of wireHoldButton.
+  const homeBtn = document.createElement('button');
+  homeBtn.type = 'button';
+  homeBtn.setAttribute('aria-label', 'Về vị trí home (preset 1)');
+  homeBtn.style.cssText = `position:absolute;left:50%;top:50%;width:40px;height:40px;margin-left:-20px;margin-top:-20px;` +
+    `border-radius:50%;border:1px solid ${IDLE_BORDER};background:${IDLE_BG};color:#e6edf3;` +
+    `display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0`;
+  homeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none">' +
+    '<path d="M3 11.5 12 4l9 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="M5.5 10.5V20a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9.5" ' +
+    'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  let homeBusy = false;
+  homeBtn.addEventListener('click', async () => {
+    if (homeBusy) return;
+    homeBusy = true;
+    homeBtn.style.background = ACTIVE_BG;
+    homeBtn.style.borderColor = ACTIVE_BG;
+    await sendHome();
+    homeBusy = false;
+    homeBtn.style.background = IDLE_BG;
+    homeBtn.style.borderColor = IDLE_BORDER;
+  });
+  pad.appendChild(homeBtn);
 
   function wireHoldButton(btn, onDown) {
     const down = (e) => {

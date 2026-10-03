@@ -19,6 +19,7 @@ import (
 func registerPTZHandlers() {
 	http.HandleFunc("/api/ptz/move", ptzMoveHandler)
 	http.HandleFunc("/api/ptz/stop", ptzStopHandler)
+	http.HandleFunc("/api/ptz/home", ptzHomeHandler)
 }
 
 // ptzRequestTimeout bounds how long a move/stop HTTP call to the camera may
@@ -88,6 +89,38 @@ func ptzStopHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if err := SendPTZStop(ctx, req.Stream); err != nil {
 		http.Error(w, "ptz stop failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func ptzHomeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Stream string `json:"stream"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Stream == "" {
+		http.Error(w, "stream required", http.StatusBadRequest)
+		return
+	}
+	if !ptzAllowed(user, req.Stream) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), ptzRequestTimeout)
+	defer cancel()
+	if err := SendPTZHome(ctx, req.Stream); err != nil {
+		http.Error(w, "ptz home failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -125,3 +125,44 @@ func onvifPTZStop(ctx context.Context, streamName string) error {
 	}
 	return err
 }
+
+// onvifPTZHome recalls preset "1" — the only preset this feature calls
+// (see ptz.go's doc comment: the admin only ever wants the home position,
+// never a preset browser). "1" is the near-universal convention for a
+// camera's first saved preset's ONVIF token, so it's tried directly with
+// zero extra round trips; GetPresetTokens is only consulted as a fallback
+// for the rare camera that tokens its presets some other way.
+func onvifPTZHome(ctx context.Context, streamName string) error {
+	h, err := getOnvifPTZHandle(ctx, streamName)
+	if err != nil {
+		return err
+	}
+	if _, err := h.client.GotoPreset(h.token, "1"); err == nil {
+		return nil
+	}
+
+	tokens, err := h.client.GetPresetTokens(h.token)
+	if err != nil {
+		onvifPTZCacheMu.Lock()
+		delete(onvifPTZCache, streamName)
+		onvifPTZCacheMu.Unlock()
+		return err
+	}
+	if len(tokens) == 0 {
+		return fmt.Errorf("camera reported no ONVIF presets")
+	}
+	target := tokens[0]
+	for _, t := range tokens {
+		if t == "1" {
+			target = t
+			break
+		}
+	}
+	_, err = h.client.GotoPreset(h.token, target)
+	if err != nil {
+		onvifPTZCacheMu.Lock()
+		delete(onvifPTZCache, streamName)
+		onvifPTZCacheMu.Unlock()
+	}
+	return err
+}
