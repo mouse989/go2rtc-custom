@@ -292,6 +292,17 @@ function fmtMin(m) { return m % 60 === 0 ? (m / 60) + 'h' : m + '′'; }
 let _data       = null;
 let _histLogs   = [];
 let _histDate   = '';
+// Row 1 of the TTI chart defaults to live "today" data (_primaryDate ===
+// todayISO(), _primaryLogs stays null — see primaryTTILogs below) so the
+// chart keeps auto-refreshing every 60s exactly like before this feature
+// existed. Picking any other date in the "Ngày 1" input switches row 1 to
+// a one-off fetch via the same /api/dashboard/history endpoint row 2 (the
+// "Ngày 2" picker, _histDate/_histLogs) already used — turning the chart
+// into an arbitrary-day vs arbitrary-day comparison instead of always
+// anchoring one side to today.
+let _primaryDate = '';
+let _primaryLogs = null;
+function todayISO() { return new Date().toISOString().slice(0, 10); }
 // Baseline "typical profile": average TTI per route per time slot over the
 // last N same-weekdays. Foundation for week-over-week trend + short-term forecast.
 const BASELINE_WEEKS = 4;
@@ -439,7 +450,7 @@ async function saveTtiAppearance() {
     if (msg) { msg.textContent = '✓ Đã lưu'; msg.style.color='#4ade80'; }
     renderTtiLegend();
     const tt = _data?.travelTime || {};
-    renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
+    renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs);
   } catch(e) {
     if (msg) { msg.textContent = '✗ ' + e.message; msg.style.color='#f87171'; }
   }
@@ -736,7 +747,7 @@ async function loadBaseline() {
   if (_data) {
     const tt = _data.travelTime || {};
     updateRouteStatus(tt);
-    renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
+    renderTTIChart(tt.routes || [], primaryTTILogs(tt), _histLogs);
     updateTopRoutes(tt);
   }
 }
@@ -920,26 +931,58 @@ async function loadForecast() {
   if (_data) {
     const tt = _data.travelTime || {};
     updateRouteStatus(tt);
-    renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
+    renderTTIChart(tt.routes || [], primaryTTILogs(tt), _histLogs);
   }
 }
 
-async function loadHistory() {
-  const dateEl = document.getElementById('histDate');
-  if (!dateEl?.value) return;
-  const date = dateEl.value;
-  const statEl = document.getElementById('histStatus');
+// primaryTTILogs returns whichever logs row 1 of the TTI chart should use:
+// live tt.todayLogs (auto-refreshing) when the "Ngày 1" picker is left on
+// today, or the one-off fetch in _primaryLogs once it's set to another day.
+function primaryTTILogs(tt) {
+  return (_primaryDate && _primaryDate !== todayISO()) ? (_primaryLogs || []) : (tt.todayLogs || []);
+}
+
+// Fetches whichever of the two TTI-chart date pickers points at a
+// non-today date (today's side needs no fetch — it's already live in
+// tt.todayLogs and auto-refreshes every 60s) and re-renders the chart.
+async function loadComparisonDays() {
+  const primaryEl = document.getElementById('primaryDate');
+  const histEl    = document.getElementById('histDate');
+  const statEl    = document.getElementById('histStatus');
   if (statEl) statEl.textContent = 'Đang tải…';
+
+  const today = todayISO();
+  const fetches = [];
+
+  if (primaryEl?.value && primaryEl.value !== today) {
+    fetches.push(
+      apiFetch('/api/dashboard/history?date=' + primaryEl.value)
+        .then(logs => { _primaryLogs = logs || []; _primaryDate = primaryEl.value; })
+    );
+  } else {
+    _primaryDate = today;
+    _primaryLogs = null;
+  }
+
+  if (histEl?.value) {
+    fetches.push(
+      apiFetch('/api/dashboard/history?date=' + histEl.value)
+        .then(logs => { _histLogs = logs || []; _histDate = histEl.value; })
+    );
+  } else {
+    _histLogs = [];
+    _histDate = '';
+  }
+
   try {
-    const logs = await apiFetch('/api/dashboard/history?date=' + date);
-    _histLogs = logs || [];
-    _histDate = date;
-    // Re-render only TTI chart
-    const tt = (_data||{}).travelTime || {};
-    renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
-    if (statEl) statEl.textContent = _histLogs.length
-      ? `${_histDate}: ${_histLogs.length} bản ghi`
-      : `${_histDate}: không có dữ liệu`;
+    await Promise.all(fetches);
+    const tt = (_data || {}).travelTime || {};
+    renderTTIChart(tt.routes || [], primaryTTILogs(tt), _histLogs);
+    const fmtStatus = (date, logs) => logs.length ? `${date}: ${logs.length} bản ghi` : `${date}: không có dữ liệu`;
+    const parts = [];
+    if (_primaryDate && _primaryDate !== today) parts.push(fmtStatus(_primaryDate, _primaryLogs || []));
+    if (_histDate) parts.push(fmtStatus(_histDate, _histLogs));
+    if (statEl) statEl.textContent = parts.join(' · ');
   } catch (e) {
     if (statEl) statEl.textContent = 'Lỗi: ' + e.message;
   }
@@ -967,7 +1010,7 @@ function renderDashboard() {
   renderSlotSelect();
   updateKPIs(tf, tt);
   updateRouteStatus(tt);
-  renderTTIChart(tt.routes||[], tt.todayLogs||[], _histLogs);
+  renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs);
   updateTopRoutes(tt);
   updateMapData(tf);
 }
@@ -986,9 +1029,11 @@ function buildSkeleton() {
         <div class="hist-ctrl">
           <label title="Mỗi ô trên biểu đồ ứng với bao nhiêu phút. Mặc định bằng chu kỳ thu thập travel time để mỗi lần đo là một ô.">Độ mịn:</label>
           <select id="slotSel" onchange="onSlotSelChange(this.value)" style="font-size:.74rem;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:.12rem .3rem"></select>
-          <label>So sánh ngày:</label>
-          <input type="date" id="histDate" value="${yesterday}" max="${new Date().toISOString().slice(0,10)}">
-          <button class="btn btn-sm btn-secondary" onclick="loadHistory()" style="font-size:.74rem">Tải</button>
+          <label>Ngày 1:</label>
+          <input type="date" id="primaryDate" value="${todayISO()}" max="${todayISO()}">
+          <label>Ngày 2:</label>
+          <input type="date" id="histDate" value="${yesterday}" max="${todayISO()}">
+          <button class="btn btn-sm btn-secondary" onclick="loadComparisonDays()" style="font-size:.74rem">So sánh</button>
           <span id="histStatus" style="font-size:.72rem;color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0"></span>
         </div>
       </h3>
@@ -1095,7 +1140,7 @@ function onSlotSelChange(v) {
   if (_data) {
     const tt = _data.travelTime || {};
     updateRouteStatus(tt);
-    renderTTIChart(tt.routes || [], tt.todayLogs || [], _histLogs);
+    renderTTIChart(tt.routes || [], primaryTTILogs(tt), _histLogs);
   }
   loadBaseline();
   loadForecast();
@@ -1171,7 +1216,7 @@ function highlightAbnormalRoutes() {
 }
 
 // ── TTI Combined Chart (full-width) ───────────────────────────────────────
-function renderTTIChart(routes, todayLogs, histLogs) {
+function renderTTIChart(routes, primaryLogs, histLogs) {
   const body  = document.getElementById('ttiChartBody');
   const axis  = document.getElementById('ttiAxis');
   if (!body || !axis) return;
@@ -1185,30 +1230,42 @@ function renderTTIChart(routes, todayLogs, histLogs) {
   const now        = new Date();
   const currentSlot = slotOfTs(now.toISOString());
   const nowMinPct  = ((now.getHours()*60 + now.getMinutes()) / (24*60) * 100).toFixed(2);
+  // Row 1 only gets the "live today" treatment (forecast overlay, future
+  // slots masked from currentSlot onward, no fixed date label) when its
+  // picker is actually on today — any other date behaves exactly like row
+  // 2 (actual data for the whole day, no forecast, labeled with its date).
+  const isPrimaryToday = !_primaryDate || _primaryDate === todayISO();
 
   const isAdmin = (getUser()||{}).role === 'admin';
 
   body.innerHTML = routes.map(r => {
-    const todaySlots = buildSlots(todayLogs, r.id);
+    const todaySlots = buildSlots(primaryLogs, r.id);
     const baseSlots  = baselineSlots(r.id);
     const trend      = routeTrend(todaySlots, baseSlots);
-    let   forecast   = buildForecast(todaySlots, baseSlots, currentSlot);
-    // Overlay the server Holt-Winters model (with CI) onto the naive tail.
-    const sf = _forecast.byRoute[r.id];
-    if (sf && sf.bySlot) {
-      if (!forecast) forecast = Array.from({ length: TOTAL_SLOTS }, () => null);
-      Object.keys(sf.bySlot).forEach(slot => {
-        const p = sf.bySlot[slot];
-        forecast[+slot] = { tti: p.tti, lo: p.lo, hi: p.hi, model: true };
-      });
+    let   forecast   = isPrimaryToday ? buildForecast(todaySlots, baseSlots, currentSlot) : null;
+    // Overlay the server Holt-Winters model (with CI) onto the naive tail —
+    // meaningless for a past day picked as row 1, which has no "future" left.
+    if (isPrimaryToday) {
+      const sf = _forecast.byRoute[r.id];
+      if (sf && sf.bySlot) {
+        if (!forecast) forecast = Array.from({ length: TOTAL_SLOTS }, () => null);
+        Object.keys(sf.bySlot).forEach(slot => {
+          const p = sf.bySlot[slot];
+          forecast[+slot] = { tti: p.tti, lo: p.lo, hi: p.hi, model: true };
+        });
+      }
     }
     const histSlots  = histLogs.length ? buildSlots(histLogs, r.id) : null;
     const hasHistData = histSlots && histSlots.some(s => s !== null);
+    const hasPrimaryData = todaySlots.some(s => s !== null);
 
     // Patch a single missed collection so one late run doesn't punch a hole
     // in the bar (shown hatched / marked "nội suy" in the tooltip).
-    const todayBar   = renderSlotBar(fillSlotGaps(todaySlots, 1, currentSlot), currentSlot, false, forecast);
-    const histBar    = histSlots ? renderSlotBar(fillSlotGaps(histSlots, 1), -1, true) : '';
+    const todayBar   = isPrimaryToday
+      ? renderSlotBar(fillSlotGaps(todaySlots, 1, currentSlot), currentSlot, false, forecast, 'Hôm nay')
+      : renderSlotBar(fillSlotGaps(todaySlots, 1), -1, true, null, _primaryDate);
+    const primaryLabel = isPrimaryToday ? '' : `<span style="font-size:.64rem;color:var(--text-muted)">${escH(_primaryDate)}${!hasPrimaryData ? ' (không có dữ liệu)' : ''}</span>`;
+    const histBar    = histSlots ? renderSlotBar(fillSlotGaps(histSlots, 1), -1, true, null, _histDate) : '';
     const histLabel  = histSlots
       ? `<span style="font-size:.64rem;color:var(--text-muted)">${escH(_histDate)}${!hasHistData ? ' (không có dữ liệu)' : ''}</span>`
       : '';
@@ -1229,6 +1286,7 @@ function renderTTIChart(routes, todayLogs, histLogs) {
       </div>
       <div class="tti-row-bars">
         <div class="tti-bar tti-bar-today">${todayBar}</div>
+        ${primaryLabel}
         ${histSlots ? `
         <div style="display:flex;align-items:center;gap:0">
           <div class="tti-bar tti-bar-hist" style="flex:1">${histBar}</div>
@@ -1249,15 +1307,17 @@ function renderTTIChart(routes, todayLogs, histLogs) {
   axis.innerHTML = marks + nowMark;
 }
 
-// Render one row of 96 slots
-function renderSlotBar(slots, currentSlot, isHistory, forecast) {
+// Render one row of 96 slots. dateLabel names whose day this bar is (shown
+// in each slot's tooltip) — 'Hôm nay' for the live-today row, or the
+// picked date string for any other day (either chart row can be either).
+function renderSlotBar(slots, currentSlot, isHistory, forecast, dateLabel) {
   return slots.map((s, i) => {
     const isFuture = !isHistory && currentSlot >= 0 && i > currentSlot;
 
     let bg, tip = '';
     if (s) {
       bg = ttiColor(s.tti) || 'var(--surface2)';
-      const prefix = isHistory ? (_histDate + ' ') : 'Hôm nay ';
+      const prefix = (dateLabel || 'Hôm nay') + ' ';
       tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\n` +
             (s.dur ? `Thời gian đi: ${fmtMinSec(s.dur)}\n` : '') +
             `Trễ TB: ${fmtMinSec(s.delay)}\n` +
