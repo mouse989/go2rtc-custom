@@ -64,6 +64,32 @@ func TestGotoPresetDetectsSOAPFaultDespiteHTTP200(t *testing.T) {
 	}
 }
 
+func TestSetPresetOverwritesExistingToken(t *testing.T) {
+	c := newTestClient(t, func(body string) (int, string) {
+		if !strings.Contains(body, "<tptz:PresetToken>1</tptz:PresetToken>") {
+			t.Fatalf("expected SetPreset request to carry PresetToken 1 (overwrite, not create), got: %s", body)
+		}
+		if !strings.Contains(body, "<tptz:PresetName>Home</tptz:PresetName>") {
+			t.Fatalf("expected PresetName 'Home', got: %s", body)
+		}
+		return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><tptz:SetPresetResponse/></s:Body></s:Envelope>`
+	})
+
+	if _, err := c.SetPreset("profile1", "1", "Home"); err != nil {
+		t.Fatalf("SetPreset should succeed, got: %v", err)
+	}
+}
+
+func TestSetPresetDetectsSOAPFaultDespiteHTTP200(t *testing.T) {
+	c := newTestClient(t, func(body string) (int, string) {
+		return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><s:Fault><s:Code><s:Value>s:Receiver</s:Value></s:Code><s:Reason><s:Text>InvalidArgVal</s:Text></s:Reason></s:Fault></s:Body></s:Envelope>`
+	})
+
+	if _, err := c.SetPreset("profile1", "1", "Home"); err == nil {
+		t.Fatal("expected an error when the response body contains a SOAP Fault, got nil")
+	}
+}
+
 func TestGetPresetTokensParsesMultiplePresets(t *testing.T) {
 	c := newTestClient(t, func(body string) (int, string) {
 		if !strings.Contains(body, "GetPresets") {

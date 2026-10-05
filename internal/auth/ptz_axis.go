@@ -54,6 +54,21 @@ func axisPTZHome(ctx context.Context, streamName string) error {
 	return err
 }
 
+// axisPTZSaveHome overwrites VAPIX server preset 1 with the camera's
+// current position. Preset *configuration* (saving/naming) was moved from
+// ptz.cgi to ptzconfig.cgi on newer Axis firmware — unlike recall
+// (gotoserverpresetno, a live-movement command that stayed on ptz.cgi) —
+// so this talks to ptzconfig.cgi specifically, not ptz.cgi.
+func axisPTZSaveHome(ctx context.Context, streamName string) error {
+	host, creds, err := resolveStreamHostCreds(streamName)
+	if err != nil {
+		return err
+	}
+	rawURL := fmt.Sprintf("http://%s/axis-cgi/com/ptzconfig.cgi?setserverpresetno=1", host)
+	_, err = fetchHTTPWithDigestRetry(ctx, rawURL, creds)
+	return err
+}
+
 // vapixSpeed converts a -1.0..1.0 velocity to VAPIX's -100..100 integer scale.
 func vapixSpeed(v float64) int {
 	n := int(v * 100)

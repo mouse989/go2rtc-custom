@@ -202,6 +202,29 @@ func (c *Client) GotoPreset(profileToken, presetToken string) ([]byte, error) {
 	return b, nil
 }
 
+// SetPreset saves the device's current pan/tilt/zoom position as a preset.
+// Per the ONVIF PTZ spec, passing a presetToken OVERWRITES that existing
+// preset's position; an empty presetToken instead creates a new preset
+// (not used by this app — see ptz_onvif.go's onvifPTZSaveHome, which
+// always passes "1"). Same HTTP-200-with-a-Fault-body check as GotoPreset.
+func (c *Client) SetPreset(profileToken, presetToken, presetName string) ([]byte, error) {
+	b, err := c.PTZRequest(fmt.Sprintf(
+		`<tptz:SetPreset>
+	<tptz:ProfileToken>%s</tptz:ProfileToken>
+	<tptz:PresetToken>%s</tptz:PresetToken>
+	<tptz:PresetName>%s</tptz:PresetName>
+</tptz:SetPreset>`,
+		profileToken, presetToken, presetName,
+	))
+	if err != nil {
+		return b, err
+	}
+	if bytes.Contains(b, []byte("Fault")) {
+		return b, fmt.Errorf("onvif: SetPreset(%s) fault: %s", presetToken, b)
+	}
+	return b, nil
+}
+
 // GetPresetTokens returns every saved preset's token for the given
 // profile, in whatever order the device reports them — used only as a
 // fallback when GotoPreset(token, "1") fails, to find the real token for

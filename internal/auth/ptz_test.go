@@ -99,6 +99,16 @@ func TestSendPTZHomeRejectsNonPTZCameras(t *testing.T) {
 	}
 }
 
+func TestSendPTZSaveHomeRejectsNonPTZCameras(t *testing.T) {
+	setupPTZCameraType(t, "cam-fixed", &CameraType{ID: "fixed", Name: "Fixed", PTZEnabled: false})
+	if err := SendPTZSaveHome(context.Background(), "cam-fixed"); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for a non-PTZ camera, got %v", err)
+	}
+	if err := SendPTZSaveHome(context.Background(), "cam-unknown"); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for an unassigned stream, got %v", err)
+	}
+}
+
 func TestVapixSpeedClamping(t *testing.T) {
 	cases := []struct {
 		in   float64
