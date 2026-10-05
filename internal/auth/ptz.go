@@ -99,6 +99,27 @@ func SendPTZHome(ctx context.Context, streamName string) error {
 	}
 }
 
+// SendPTZSaveHome overwrites preset 1 with the camera's current position —
+// the save-side counterpart to SendPTZHome. Confirming with the operator
+// before calling this (so they understand the previous home position is
+// gone) is the caller's job (api_ptz.go's handler trusts the request it
+// receives; the confirmation dialog lives in the browser, in
+// www/ptz-control.js).
+func SendPTZSaveHome(ctx context.Context, streamName string) error {
+	ct := cameraTypeForStream(streamName)
+	if ct == nil || !ct.PTZEnabled {
+		return errPTZNotEnabled
+	}
+	switch ct.PTZDriver {
+	case ptzDriverAxisVAPIX:
+		return axisPTZSaveHome(ctx, streamName)
+	case ptzDriverONVIF:
+		return onvifPTZSaveHome(ctx, streamName)
+	default:
+		return errPTZNotEnabled
+	}
+}
+
 type ptzError string
 
 func (e ptzError) Error() string { return string(e) }

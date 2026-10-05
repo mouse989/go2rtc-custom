@@ -54,6 +54,15 @@ function mountPTZOverlay(container, streamName) {
       console.error('[ptz] home failed', e);
     }
   }
+  async function sendSaveHome() {
+    try {
+      await apiFetch('/api/ptz/save-home', { method: 'POST', body: { stream: streamName } });
+      return true;
+    } catch (e) {
+      console.error('[ptz] save-home failed', e);
+      return false;
+    }
+  }
 
   const wrap = document.createElement('div');
   wrap.className = 'ptz-overlay';
@@ -146,8 +155,39 @@ function mountPTZOverlay(container, streamName) {
     }
   });
 
+  // ── Save home (overwrites preset 1 with the current position) ───────
+  // A separate, plainly destructive action — never hold-to-trigger like
+  // the controls above, and always confirmed first since it discards
+  // whatever position was previously saved there with no way back.
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.setAttribute('aria-label', 'Lưu vị trí hiện tại vào preset 1 (Home)');
+  saveBtn.title = 'Lưu làm vị trí Home';
+  saveBtn.style.cssText = `width:34px;height:34px;border-radius:50%;border:1px solid ${IDLE_BORDER};background:${IDLE_BG};` +
+    'color:#e6edf3;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;flex-shrink:0';
+  saveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none">' +
+    '<path d="M4 4h12l4 4v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+    '<rect x="7" y="4" width="7" height="5" stroke="currentColor" stroke-width="2"/>' +
+    '<rect x="7" y="14" width="10" height="6" stroke="currentColor" stroke-width="2"/></svg>';
+  let saveBusy = false;
+  saveBtn.addEventListener('click', async () => {
+    if (saveBusy) return;
+    if (!confirm('Lưu vị trí hiện tại vào preset 1 (Home)?\nVị trí Home cũ sẽ bị ghi đè và không thể khôi phục.')) return;
+    saveBusy = true;
+    saveBtn.style.background = ACTIVE_BG;
+    saveBtn.style.borderColor = ACTIVE_BG;
+    const ok = await sendSaveHome();
+    saveBusy = false;
+    saveBtn.style.background = IDLE_BG;
+    saveBtn.style.borderColor = IDLE_BORDER;
+    if (typeof toast === 'function') {
+      toast(ok ? 'Đã lưu vị trí Home' : 'Lưu vị trí Home thất bại', ok ? 'success' : 'error');
+    }
+  });
+
   wrap.appendChild(zoomPill);
   wrap.appendChild(pad);
+  wrap.appendChild(saveBtn);
   if (!container.style.position) container.style.position = 'relative';
   container.appendChild(wrap);
 

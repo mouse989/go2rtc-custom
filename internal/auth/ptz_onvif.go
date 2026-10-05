@@ -166,3 +166,25 @@ func onvifPTZHome(ctx context.Context, streamName string) error {
 	}
 	return err
 }
+
+// onvifPTZSaveHome overwrites preset "1" with the camera's current
+// position — the save-side counterpart to onvifPTZHome's recall. Unlike
+// onvifPTZHome, there is no token-discovery fallback here: this assumes
+// preset "1" already exists (the whole feature is "save over the home
+// preset I already use", never "create a brand new preset"), which holds
+// for every camera this was built against — if GotoPreset(token, "1") is
+// already working for Home on a given camera, SetPreset(token, "1", ...)
+// overwrites that exact same preset.
+func onvifPTZSaveHome(ctx context.Context, streamName string) error {
+	h, err := getOnvifPTZHandle(ctx, streamName)
+	if err != nil {
+		return err
+	}
+	_, err = h.client.SetPreset(h.token, "1", "Home")
+	if err != nil {
+		onvifPTZCacheMu.Lock()
+		delete(onvifPTZCache, streamName)
+		onvifPTZCacheMu.Unlock()
+	}
+	return err
+}
