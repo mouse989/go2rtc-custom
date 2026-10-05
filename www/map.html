@@ -571,6 +571,10 @@ body.sb-collapsed           { --map-left:0; }
   <button class="map-btn" id="btnRoute" style="display:none" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
     🛣 Theo tuyến
   </button>
+  <!-- Incident quick-add: shown only for admin or users with allow_map_incident_add (and the Incidents tab) -->
+  <button class="map-btn" id="btnIncidentAdd" style="display:none" title="Bật rồi click phải (chuột phải) lên bản đồ tại vị trí cần thêm — tọa độ tự điền vào form">
+    🚨 Thêm sự cố
+  </button>
   <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
   <button class="map-btn" id="btnTraffic" style="display:none">
     <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
@@ -770,6 +774,76 @@ body.sb-collapsed           { --map-left:0; }
       <button class="modal-close" id="gridClose">✕</button>
     </div>
     <div id="gridPlayers"></div>
+  </div>
+</div>
+
+<!-- ── Incident quick-add modal (map.html's own copy of incidents.html's
+     Add form, plus Mức độ/Lat/Lng — Lat/Lng auto-filled by the right-click
+     that opens this, but still editable like every other field) ──────── -->
+<div class="modal-backdrop" id="incAddModalBackdrop">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h3>🚨 Thêm sự cố</h3>
+      <button class="modal-close" id="incAddModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Thời gian *</label>
+        <input type="datetime-local" class="form-input" id="miTime">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Thể loại *</label>
+          <input class="form-input" id="miCategory" list="miDlCategory" placeholder="Đông xe / Va chạm / Sự cố khác…">
+          <datalist id="miDlCategory"></datalist>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mức độ</label>
+          <select class="form-input" id="miSeverity">
+            <option value="">— (không chọn)</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Đơn vị *</label>
+        <input class="form-input" id="miUnit" list="miDlUnit" placeholder="ĐỘI CSGT …">
+        <datalist id="miDlUnit"></datalist>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nội dung sự việc, tình trạng xử lý *</label>
+        <textarea class="form-input" id="miContent" rows="3" placeholder="Mô tả sự việc và tình trạng xử lý…"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Vị trí</label>
+          <input class="form-input" id="miLocation" list="miDlLocation" placeholder="Tên đường / vị trí… (tuỳ chọn)">
+          <datalist id="miDlLocation"></datalist>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ghi chú</label>
+          <input class="form-input" id="miNote" placeholder="Tuỳ chọn">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Lat</label>
+          <input type="number" step="any" class="form-input" id="miLat" placeholder="Tự điền khi click phải trên bản đồ">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lng</label>
+          <input type="number" step="any" class="form-input" id="miLng" placeholder="Tự điền khi click phải trên bản đồ">
+        </div>
+      </div>
+      <div id="miMsg" style="font-size:.82rem;color:var(--red);display:none;margin-bottom:.6rem"></div>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end">
+        <button class="btn btn-ghost" id="incAddCancel">Huỷ</button>
+        <button class="btn btn-primary" id="incAddSave">💾 Lưu</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -976,6 +1050,7 @@ let _editMarkers = {};    // id → vietmapgl.Marker (edit mode only)
 let _searchHits  = [];
 let _searchCenter = null; // [lng, lat]
 let _searchMode = false, _editMode = false, _editingID = null;
+let _incidentAddMode = false; // right-click the map opens the "Thêm sự cố" modal, pre-filled with that point's lat/lng
 // ── Route corridor tool ("Theo tuyến") state ──
 let _routeMode  = false;   // panel open / map clicks add route points
 let _routePoints = [];     // [[lng,lat], ...] clicked points, in click order (start → end)
@@ -1373,12 +1448,22 @@ async function initMap(apiKey) {
     }
   });
 
+  // Right-click anywhere on the map (including on top of a camera marker —
+  // unlike the left-click handler above, this isn't about selecting a
+  // feature, just picking a point) opens the incident form pre-filled with
+  // that point's lat/lng.
+  map.on('contextmenu', e => {
+    if (!_incidentAddMode) return;
+    e.originalEvent.preventDefault();
+    openMapIncidentModal(e.lngLat);
+  });
+
   ['unclustered-point','clusters'].forEach(layer => {
     map.on('mouseenter', layer, () => {
-      if (!_editMode && !_regionDrawing && !_routeMode) map.getCanvas().style.cursor = 'pointer';
+      if (!_editMode && !_regionDrawing && !_routeMode && !_incidentAddMode) map.getCanvas().style.cursor = 'pointer';
     });
     map.on('mouseleave', layer, () => {
-      map.getCanvas().style.cursor = (_regionDrawing || _routeMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
+      map.getCanvas().style.cursor = (_regionDrawing || _routeMode || _incidentAddMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
     });
   });
 
@@ -2374,6 +2459,14 @@ document.getElementById('btnSearch').addEventListener('click', function() {
   }
 });
 
+document.getElementById('btnIncidentAdd').addEventListener('click', function() {
+  const turningOn = !_incidentAddMode;
+  if (turningOn) exitOtherMapModes(); // mutually exclusive with every other map tool
+  _incidentAddMode = turningOn;
+  this.classList.toggle('active', _incidentAddMode);
+  if (map) map.getCanvas().style.cursor = _incidentAddMode ? 'crosshair' : '';
+});
+
 document.getElementById('btnEdit').addEventListener('click', async function() {
   _editMode = !_editMode;
   this.classList.toggle('active', _editMode);
@@ -2616,7 +2709,85 @@ function closeModal() {
 }
 document.getElementById('modalClose').addEventListener('click', closeModal);
 document.getElementById('modalBackdrop').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeModal(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeModal();clearSearch();} });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeModal();clearSearch();closeMapIncidentModal();} });
+
+// ── Incident quick-add modal (btnIncidentAdd + map right-click) ───────
+// Own copy of incidents.html's Add form (Mức độ/Lat/Lng included) — map.html
+// never reuses incidents.html's DOM/JS directly since they're separate pages;
+// this only POSTs to the same /api/incidents the Incidents page already uses.
+let _miMeta = { categories: [], units: [], locations: [] };
+async function loadIncidentMeta() {
+  try { _miMeta = await apiFetch('/api/incidents/meta'); }
+  catch (e) { _miMeta = { categories: [], units: [], locations: [] }; }
+  document.getElementById('miDlCategory').innerHTML = (_miMeta.categories || []).map(c => `<option value="${escHtml(c)}">`).join('');
+  document.getElementById('miDlUnit').innerHTML = (_miMeta.units || []).map(u => `<option value="${escHtml(u)}">`).join('');
+  document.getElementById('miDlLocation').innerHTML = (_miMeta.locations || []).map(l => `<option value="${escHtml(l)}">`).join('');
+}
+
+function _miPad2(n) { return String(n).padStart(2, '0'); }
+function _miLocalInputValue(d) {
+  return `${d.getFullYear()}-${_miPad2(d.getMonth() + 1)}-${_miPad2(d.getDate())}T${_miPad2(d.getHours())}:${_miPad2(d.getMinutes())}`;
+}
+
+// lngLat: a maplibre/vietmapgl LngLat from the map's 'contextmenu' event —
+// the whole point of this mode is never having to type coordinates by hand.
+async function openMapIncidentModal(lngLat) {
+  await loadIncidentMeta();
+  document.getElementById('miTime').value = _miLocalInputValue(new Date());
+  document.getElementById('miCategory').value = '';
+  document.getElementById('miSeverity').value = '';
+  document.getElementById('miUnit').value = '';
+  document.getElementById('miContent').value = '';
+  document.getElementById('miLocation').value = '';
+  document.getElementById('miNote').value = '';
+  document.getElementById('miLat').value = lngLat.lat.toFixed(6);
+  document.getElementById('miLng').value = lngLat.lng.toFixed(6);
+  document.getElementById('miMsg').style.display = 'none';
+  document.getElementById('incAddModalBackdrop').classList.add('open');
+}
+
+function closeMapIncidentModal() {
+  document.getElementById('incAddModalBackdrop')?.classList.remove('open');
+}
+
+async function saveMapIncident() {
+  const msg = document.getElementById('miMsg');
+  const timeVal = document.getElementById('miTime').value;
+  if (!timeVal) { msg.style.display = ''; msg.textContent = 'Vui lòng nhập thời gian'; return; }
+
+  const latVal = document.getElementById('miLat').value.trim();
+  const lngVal = document.getElementById('miLng').value.trim();
+  const sevVal = document.getElementById('miSeverity').value;
+  const payload = {
+    time: new Date(timeVal).toISOString(),
+    category: document.getElementById('miCategory').value.trim(),
+    severity: sevVal ? parseInt(sevVal, 10) : 0,
+    unit: document.getElementById('miUnit').value.trim(),
+    content: document.getElementById('miContent').value.trim(),
+    location: document.getElementById('miLocation').value.trim(),
+    note: document.getElementById('miNote').value.trim(),
+    lat: latVal ? parseFloat(latVal) : 0,
+    lng: lngVal ? parseFloat(lngVal) : 0,
+  };
+
+  const btn = document.getElementById('incAddSave');
+  btn.disabled = true;
+  try {
+    await apiFetch('/api/incidents', { method: 'POST', body: payload });
+    closeMapIncidentModal();
+    if (typeof toast === 'function') toast('Đã thêm sự cố', 'success');
+  } catch (e) {
+    msg.style.display = '';
+    msg.textContent = 'Lỗi: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('incAddModalClose').addEventListener('click', closeMapIncidentModal);
+document.getElementById('incAddCancel').addEventListener('click', closeMapIncidentModal);
+document.getElementById('incAddSave').addEventListener('click', saveMapIncident);
+document.getElementById('incAddModalBackdrop').addEventListener('click', e => { if (e.target === e.currentTarget) closeMapIncidentModal(); });
 
 // ── Edit panel ────────────────────────────────────────────────
 // Kept in the order the server returns it (declaration order in
@@ -2937,6 +3108,7 @@ function exitOtherMapModes() {
   if (_stnEditMode) document.getElementById('btnStnEdit')?.click();
   if (_regionMode) closeRegionsPanel();
   if (_routeMode) closeRoutePanel();
+  if (_incidentAddMode) document.getElementById('btnIncidentAdd')?.click();
 }
 
 function openRegionsPanel() {
@@ -4017,6 +4189,9 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   }
   if (canMapRoute()) {
     document.getElementById('btnRoute').style.display = '';
+  }
+  if (canMapIncidentAdd()) {
+    document.getElementById('btnIncidentAdd').style.display = '';
   }
   const snapPreviewAllowed = canMapSnapshotPreview();
   if (snapPreviewAllowed) {

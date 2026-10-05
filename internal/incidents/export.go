@@ -22,7 +22,7 @@ func WriteExcel(w io.Writer, list []*Incident) error {
 	const sheet = "Sự cố"
 	f.SetSheetName("Sheet1", sheet)
 
-	headers := []string{"STT", "Thời gian", "Thể loại", "Nội dung sự việc, tình trạng xử lý", "Đơn vị", "Ghi Chú", "Vị trí", "Khung giờ"}
+	headers := []string{"STT", "Thời gian", "Thể loại", "Mức độ", "Nội dung sự việc, tình trạng xử lý", "Đơn vị", "Ghi Chú", "Vị trí", "Khung giờ", "Lat", "Lng"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		_ = f.SetCellValue(sheet, cell, h)
@@ -47,17 +47,24 @@ func WriteExcel(w io.Writer, list []*Incident) error {
 		// unified (see validate() and RecomputeAllTimeSlots).
 		set(2, in.Time.In(vnLocation))
 		set(3, in.Category)
-		set(4, in.Content)
-		set(5, in.Unit)
-		set(6, in.Note)
-		set(7, in.Location)
-		set(8, in.TimeSlot)
+		if in.Severity != 0 {
+			set(4, in.Severity)
+		}
+		set(5, in.Content)
+		set(6, in.Unit)
+		set(7, in.Note)
+		set(8, in.Location)
+		set(9, in.TimeSlot)
+		if in.Lat != 0 || in.Lng != 0 {
+			set(10, in.Lat)
+			set(11, in.Lng)
+		}
 
 		timeCell, _ := excelize.CoordinatesToCellName(2, row)
 		_ = f.SetCellStyle(sheet, timeCell, timeCell, dateStyle)
 	}
 
-	for i, width := range []float64{6, 16, 12, 60, 22, 20, 20, 16} {
+	for i, width := range []float64{6, 16, 12, 10, 60, 22, 20, 20, 16, 12, 12} {
 		col, _ := excelize.ColumnNumberToName(i + 1)
 		_ = f.SetColWidth(sheet, col, col, width)
 	}

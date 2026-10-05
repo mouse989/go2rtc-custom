@@ -93,6 +93,10 @@ function canCamVideo()    { const u = getUser(); return u && (u.role === 'admin'
 function canMapSnapshotPreview() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_snapshot_preview); }
 function canMapSearch() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_search); }
 function canMapRoute()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_route); }
+// Requires both the permission flag AND the Incidents tab — the flag alone
+// would show the map button to someone who can't actually create incidents
+// (POST /api/incidents requires the Incidents tab server-side regardless).
+function canMapIncidentAdd() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_incident_add) && hasTab('incidents'); }
 function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
 function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
 function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }

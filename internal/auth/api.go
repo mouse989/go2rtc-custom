@@ -205,6 +205,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_config_stations":      user.AllowConfigStations,
 		"allow_map_search":           user.AllowMapSearch,
 		"allow_map_route":            user.AllowMapRoute,
+		"allow_map_incident_add":     user.AllowMapIncidentAdd,
 		"allow_monitor_workers":      user.AllowMonitorWorkers,
 		"allow_monitor_process":      user.AllowMonitorProcess,
 		"allow_monitor_streaming":    user.AllowMonitorStreaming,
@@ -269,6 +270,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowConfigStations     bool     `json:"allow_config_stations"`
 			AllowMapSearch          bool     `json:"allow_map_search"`
 			AllowMapRoute           bool     `json:"allow_map_route"`
+			AllowMapIncidentAdd     bool     `json:"allow_map_incident_add"`
 			AllowMonitorWorkers     bool     `json:"allow_monitor_workers"`
 			AllowMonitorProcess     bool     `json:"allow_monitor_process"`
 			AllowMonitorStreaming   bool     `json:"allow_monitor_streaming"`
@@ -319,6 +321,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowConfigStations:     req.AllowConfigStations,
 			AllowMapSearch:          req.AllowMapSearch,
 			AllowMapRoute:           req.AllowMapRoute,
+			AllowMapIncidentAdd:     req.AllowMapIncidentAdd,
 			AllowMonitorWorkers:     req.AllowMonitorWorkers,
 			AllowMonitorProcess:     req.AllowMonitorProcess,
 			AllowMonitorStreaming:   req.AllowMonitorStreaming,
@@ -367,6 +370,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowConfigStations     *bool    `json:"allow_config_stations"`
 			AllowMapSearch          *bool    `json:"allow_map_search"`
 			AllowMapRoute           *bool    `json:"allow_map_route"`
+			AllowMapIncidentAdd     *bool    `json:"allow_map_incident_add"`
 			AllowMonitorWorkers     *bool    `json:"allow_monitor_workers"`
 			AllowMonitorProcess     *bool    `json:"allow_monitor_process"`
 			AllowMonitorStreaming   *bool    `json:"allow_monitor_streaming"`
@@ -442,6 +446,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowMapRoute != nil {
 			existing.AllowMapRoute = *req.AllowMapRoute
+		}
+		if req.AllowMapIncidentAdd != nil {
+			existing.AllowMapIncidentAdd = *req.AllowMapIncidentAdd
 		}
 		if req.AllowMonitorWorkers != nil {
 			existing.AllowMonitorWorkers = *req.AllowMonitorWorkers

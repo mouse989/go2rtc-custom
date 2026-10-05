@@ -22,11 +22,13 @@ type ImportResult struct {
 const maxImportErrors = 50
 
 // ImportExcel reads an .xlsx matching the legacy "Thời gian / Thể loại / Nội
-// dung / Đơn vị / Ghi chú / Vị trí" column layout (columns matched by header
-// text, not fixed position, so minor header reordering still works) and
-// creates one Incident per data row. Every sheet in the workbook is scanned
-// — a multi-year export with one sheet per year works in a single upload
-// since each row's own date routes it to the right year file.
+// dung / Đơn vị / Ghi chú / Vị trí" column layout, plus the optional "Mức
+// độ" / "Lat" / "Lng" columns WriteExcel now also writes (columns matched by
+// header text, not fixed position, so minor header reordering still works,
+// and a file from before these columns existed imports exactly as before)
+// and creates one Incident per data row. Every sheet in the workbook is
+// scanned — a multi-year export with one sheet per year works in a single
+// upload since each row's own date routes it to the right year file.
 func ImportExcel(r io.Reader, username string, dryRun bool) (*ImportResult, error) {
 	f, err := excelize.OpenReader(r)
 	if err != nil {
@@ -79,18 +81,20 @@ func ImportExcel(r io.Reader, username string, dryRun bool) (*ImportResult, erro
 }
 
 type headerCols struct {
-	timeCol, categoryCol, contentCol, unitCol, noteCol, locationCol int
+	timeCol, categoryCol, severityCol, contentCol, unitCol, noteCol, locationCol, latCol, lngCol int
 }
 
 // mapHeaders matches columns by header text (contains, case-insensitive) so
 // the importer tolerates minor header rewording/reordering across years.
 func mapHeaders(header []string) headerCols {
-	c := headerCols{-1, -1, -1, -1, -1, -1}
+	c := headerCols{-1, -1, -1, -1, -1, -1, -1, -1, -1}
 	for i, h := range header {
 		h := strings.ToLower(strings.TrimSpace(h))
 		switch {
 		case strings.Contains(h, "thời gian"):
 			c.timeCol = i
+		case strings.Contains(h, "mức độ"):
+			c.severityCol = i
 		case strings.Contains(h, "thể loại"):
 			c.categoryCol = i
 		case strings.Contains(h, "nội dung"):
@@ -101,6 +105,10 @@ func mapHeaders(header []string) headerCols {
 			c.noteCol = i
 		case strings.Contains(h, "vị trí"):
 			c.locationCol = i
+		case h == "lat" || strings.Contains(h, "vĩ độ"):
+			c.latCol = i
+		case h == "lng" || h == "lon" || h == "long" || strings.Contains(h, "kinh độ"):
+			c.lngCol = i
 		}
 	}
 	return c
@@ -138,6 +146,21 @@ func rowToIncident(row []string, col headerCols) (*Incident, error) {
 		Unit:     cellAt(row, col.unitCol),
 		Note:     cellAt(row, col.noteCol),
 		Location: cellAt(row, col.locationCol),
+	}
+	if s := cellAt(row, col.severityCol); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			in.Severity = v
+		}
+	}
+	if s := cellAt(row, col.latCol); s != "" {
+		if v, err := strconv.ParseFloat(s, 64); err == nil {
+			in.Lat = v
+		}
+	}
+	if s := cellAt(row, col.lngCol); s != "" {
+		if v, err := strconv.ParseFloat(s, 64); err == nil {
+			in.Lng = v
+		}
 	}
 	if err := validate(in); err != nil {
 		return nil, err
