@@ -22,6 +22,11 @@ table.inc-table { min-width:920px; }
 .inc-cat-dong  { background:rgba(251,191,36,.15); color:#fbbf24; border:1px solid rgba(251,191,36,.3); }
 .inc-cat-vachaam { background:rgba(248,81,73,.15); color:var(--red); border:1px solid rgba(248,81,73,.3); }
 .inc-cat-khac  { background:rgba(139,148,158,.12); color:var(--text-muted); border:1px solid var(--border); }
+.inc-sev { display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem; border-radius:50%; font-size:.74rem; font-weight:700; }
+.inc-sev-1 { background:rgba(74,222,128,.15); color:#4ade80; border:1px solid rgba(74,222,128,.3); }
+.inc-sev-2 { background:rgba(251,191,36,.15); color:#fbbf24; border:1px solid rgba(251,191,36,.3); }
+.inc-sev-3 { background:rgba(251,146,60,.15); color:#fb923c; border:1px solid rgba(251,146,60,.3); }
+.inc-sev-4 { background:rgba(248,81,73,.15); color:var(--red); border:1px solid rgba(248,81,73,.3); }
 .inc-slot { font-size:.72rem; color:var(--text-muted); white-space:nowrap; }
 .inc-content { max-width:420px; white-space:pre-wrap; word-break:break-word; }
 .inc-actions { white-space:nowrap; text-align:right; }
@@ -145,6 +150,7 @@ table.inc-table { min-width:920px; }
           <thead><tr>
             <th style="width:130px">Thời gian</th>
             <th style="width:110px">Thể loại</th>
+            <th style="width:70px">Mức độ</th>
             <th>Nội dung sự việc, tình trạng xử lý</th>
             <th style="width:170px">Đơn vị</th>
             <th style="width:150px">Vị trí</th>
@@ -152,7 +158,7 @@ table.inc-table { min-width:920px; }
             <th style="width:140px">Ghi chú</th>
             <th style="width:90px"></th>
           </tr></thead>
-          <tbody id="incBody"><tr><td colspan="8" class="inc-empty">Đang tải…</td></tr></tbody>
+          <tbody id="incBody"><tr><td colspan="9" class="inc-empty">Đang tải…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -179,10 +185,20 @@ table.inc-table { min-width:920px; }
           <datalist id="dlCategory"></datalist>
         </div>
         <div class="form-group">
-          <label class="form-label">Đơn vị *</label>
-          <input class="form-input" id="fiUnit" list="dlUnit" placeholder="ĐỘI CSGT …">
-          <datalist id="dlUnit"></datalist>
+          <label class="form-label">Mức độ</label>
+          <select class="form-input" id="fiSeverity">
+            <option value="">— (không chọn)</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Đơn vị *</label>
+        <input class="form-input" id="fiUnit" list="dlUnit" placeholder="ĐỘI CSGT …">
+        <datalist id="dlUnit"></datalist>
       </div>
       <div class="form-group">
         <label class="form-label">Nội dung sự việc, tình trạng xử lý *</label>
@@ -197,6 +213,16 @@ table.inc-table { min-width:920px; }
         <div class="form-group">
           <label class="form-label">Ghi chú</label>
           <input class="form-input" id="fiNote" placeholder="Tuỳ chọn">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Lat</label>
+          <input type="number" step="any" class="form-input" id="fiLat" placeholder="Tuỳ chọn">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lng</label>
+          <input type="number" step="any" class="form-input" id="fiLng" placeholder="Tuỳ chọn">
         </div>
       </div>
       <div id="fiMsg" style="font-size:.82rem;color:var(--red);display:none;margin-bottom:.6rem"></div>
@@ -218,7 +244,7 @@ table.inc-table { min-width:920px; }
     <div class="modal-body">
       <p style="font-size:.83rem;color:var(--text-muted);margin:0 0 .8rem">
         Chọn file .xlsx theo đúng mẫu cột: <strong>Thời gian, Thể loại, Nội dung, Đơn vị</strong> (bắt buộc),
-        <strong>Ghi chú, Vị trí</strong> (tuỳ chọn) — khớp theo tên cột, không cần đúng thứ tự.
+        <strong>Ghi chú, Vị trí, Mức độ, Lat, Lng</strong> (tuỳ chọn) — khớp theo tên cột, không cần đúng thứ tự.
         Cột "Khung giờ" nếu có sẽ bị bỏ qua và tự tính lại.
         File có nhiều sheet (mỗi năm 1 sheet) vẫn nhập được trong 1 lần — hệ thống tự phân theo năm dựa vào cột Thời gian.
       </p>
@@ -424,13 +450,14 @@ function renderTable(list) {
   document.getElementById('incCount').textContent = list.length + ' sự cố';
   const body = document.getElementById('incBody');
   if (!list.length) {
-    body.innerHTML = '<tr><td colspan="8" class="inc-empty">Không có sự cố nào khớp bộ lọc.</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" class="inc-empty">Không có sự cố nào khớp bộ lọc.</td></tr>';
     return;
   }
   body.innerHTML = list.map((inc, i) => `
     <tr>
       <td>${esc(fmtDateTime(inc.time))}</td>
       <td><span class="inc-cat ${catClass(inc.category)}">${esc(inc.category)}</span></td>
+      <td>${inc.severity ? `<span class="inc-sev inc-sev-${inc.severity}">${inc.severity}</span>` : ''}</td>
       <td class="inc-content">${esc(inc.content)}</td>
       <td>${esc(inc.unit)}</td>
       <td>${esc(inc.location)}</td>
@@ -449,10 +476,13 @@ function openAddModal() {
   document.getElementById('incModalTitle').textContent = 'Thêm sự cố';
   document.getElementById('fiTime').value = toLocalInputValue(new Date());
   document.getElementById('fiCategory').value = '';
+  document.getElementById('fiSeverity').value = '';
   document.getElementById('fiUnit').value = '';
   document.getElementById('fiContent').value = '';
   document.getElementById('fiLocation').value = '';
   document.getElementById('fiNote').value = '';
+  document.getElementById('fiLat').value = '';
+  document.getElementById('fiLng').value = '';
   document.getElementById('fiMsg').style.display = 'none';
   document.getElementById('fiMsg').dataset.id = '';
   updateSlotPreview();
@@ -465,10 +495,13 @@ function openEditModal(i) {
   document.getElementById('incModalTitle').textContent = 'Sửa sự cố';
   document.getElementById('fiTime').value = toLocalInputValue(new Date(inc.time));
   document.getElementById('fiCategory').value = inc.category || '';
+  document.getElementById('fiSeverity').value = inc.severity || '';
   document.getElementById('fiUnit').value = inc.unit || '';
   document.getElementById('fiContent').value = inc.content || '';
   document.getElementById('fiLocation').value = inc.location || '';
   document.getElementById('fiNote').value = inc.note || '';
+  document.getElementById('fiLat').value = inc.lat || '';
+  document.getElementById('fiLng').value = inc.lng || '';
   document.getElementById('fiMsg').style.display = 'none';
   document.getElementById('fiMsg').dataset.id = inc.id;
   updateSlotPreview();
@@ -484,13 +517,19 @@ async function saveIncident() {
   const timeVal = document.getElementById('fiTime').value;
   if (!timeVal) { msg.style.display=''; msg.textContent = 'Vui lòng nhập thời gian'; return; }
 
+  const latVal = document.getElementById('fiLat').value.trim();
+  const lngVal = document.getElementById('fiLng').value.trim();
+  const sevVal = document.getElementById('fiSeverity').value;
   const payload = {
     time: new Date(timeVal).toISOString(),
     category: document.getElementById('fiCategory').value.trim(),
+    severity: sevVal ? parseInt(sevVal, 10) : 0,
     unit: document.getElementById('fiUnit').value.trim(),
     content: document.getElementById('fiContent').value.trim(),
     location: document.getElementById('fiLocation').value.trim(),
     note: document.getElementById('fiNote').value.trim(),
+    lat: latVal ? parseFloat(latVal) : 0,
+    lng: lngVal ? parseFloat(lngVal) : 0,
   };
 
   const id = msg.dataset.id;

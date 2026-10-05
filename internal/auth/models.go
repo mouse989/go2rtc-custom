@@ -50,6 +50,13 @@ type User struct {
 	// AllowMapSnapshotPreview below.
 	AllowMapSearch bool `json:"allow_map_search"`
 	AllowMapRoute  bool `json:"allow_map_route"`
+	// AllowMapIncidentAdd gates map.html's "Thêm sự cố" quick-add mode
+	// (right-click the map to open the incidents form pre-filled with that
+	// point's lat/lng) — only meaningful alongside the Incidents tab, which
+	// is what actually authorizes the POST /api/incidents write itself;
+	// this flag only controls whether the map shows the convenience button,
+	// same client-only-gate convention as AllowMapSearch/AllowMapRoute above.
+	AllowMapIncidentAdd bool `json:"allow_map_incident_add"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process

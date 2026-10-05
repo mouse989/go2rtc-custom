@@ -25,14 +25,21 @@ import (
 // legacy Excel columns (Thời gian, Thể loại, Nội dung, Đơn vị, Ghi chú, Vị
 // trí) so staff moving from the spreadsheet to this form see the same shape.
 type Incident struct {
-	ID        string    `json:"id"`
-	Time      time.Time `json:"time"`           // Thời gian
-	Category  string    `json:"category"`       // Thể loại
-	Content   string    `json:"content"`        // Nội dung sự việc, tình trạng xử lý
-	Unit      string    `json:"unit"`           // Đơn vị
-	Note      string    `json:"note,omitempty"` // Ghi chú
-	Location  string    `json:"location"`       // Vị trí
-	TimeSlot  string    `json:"time_slot"`      // Khung giờ — auto-computed from Time
+	ID       string    `json:"id"`
+	Time     time.Time `json:"time"`               // Thời gian
+	Category string    `json:"category"`           // Thể loại
+	Severity int       `json:"severity,omitempty"` // Mức độ — 1-4, 0 = chưa đặt. Previously typed free-text into Note; now its own field.
+	Content  string    `json:"content"`            // Nội dung sự việc, tình trạng xử lý
+	Unit     string    `json:"unit"`               // Đơn vị
+	Note     string    `json:"note,omitempty"`     // Ghi chú
+	Location string    `json:"location"`           // Vị trí
+	// Lat/Lng are optional — most incidents still have no coordinate (free-
+	// text Location is enough), so both stay the zero value unless set
+	// explicitly (either typed by hand or auto-filled by map.html's
+	// right-click "Thêm sự cố" mode — see openMapIncidentModal there).
+	Lat       float64   `json:"lat,omitempty"`
+	Lng       float64   `json:"lng,omitempty"`
+	TimeSlot  string    `json:"time_slot"` // Khung giờ — auto-computed from Time
 	CreatedBy string    `json:"created_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedBy string    `json:"updated_by,omitempty"`
@@ -444,9 +451,10 @@ func validate(in *Incident) error {
 		in.Time = in.Time.In(vnLocation)
 	}
 
-	// Required fields: Thời gian, Thể loại, Nội dung, Đơn vị. Vị trí/Ghi chú
-	// are optional — a meaningful share of the legacy data has no location
-	// (general/area-wide reports), so requiring it would reject valid rows.
+	// Required fields: Thời gian, Thể loại, Nội dung, Đơn vị. Vị trí/Ghi chú/
+	// Mức độ/Lat/Lng are optional — a meaningful share of the legacy data has
+	// no location (general/area-wide reports), so requiring any of these
+	// would reject valid rows.
 	switch {
 	case in.Time.IsZero():
 		return validationError("thời gian không được để trống")
@@ -456,6 +464,10 @@ func validate(in *Incident) error {
 		return validationError("nội dung sự việc không được để trống")
 	case in.Unit == "":
 		return validationError("đơn vị không được để trống")
+	case in.Severity != 0 && (in.Severity < 1 || in.Severity > 4):
+		return validationError("mức độ phải từ 1 đến 4")
+	case (in.Lat != 0) != (in.Lng != 0):
+		return validationError("tọa độ không hợp lệ: cần nhập cả lat và lng, hoặc để trống cả hai")
 	}
 	return nil
 }
