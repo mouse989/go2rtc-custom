@@ -346,12 +346,13 @@ body.sb-collapsed           { --map-left:0; }
 .stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
 
 /* ── Traffic Event layer markers (recent incident bubbles) ──────
-   Đông xe/Va chạm use dedicated icons (traffic-jam.png / va-cham.png)
-   rather than an emoji; anything else falls back to a generic gray ❗.
-   Circle background mirrors incidents.html's .inc-cat-* badge colors —
-   fixed red for Va chạm — except Đông xe, keyed to Severity instead
-   (1=pale yellow .. 4=dark red — see teDongBgColor), since "how jammed"
-   is exactly what severity already encodes. */
+   Đông xe/Va chạm/Ngập nước each use a dedicated icon (traffic-jam.png /
+   va-cham.png / ngap-nuoc.png) rather than an emoji; anything else falls
+   back to a generic gray ❗. Circle background mirrors incidents.html's
+   .inc-cat-* badge colors — fixed red for Va chạm, fixed blue for Ngập
+   nước — except Đông xe, keyed to Severity instead (1=pale yellow ..
+   4=dark red — see teDongBgColor), since "how jammed" is exactly what
+   severity already encodes. */
 .te-marker {
   position:relative; width:30px; height:30px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
@@ -362,6 +363,7 @@ body.sb-collapsed           { --map-left:0; }
 .te-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 .te-marker-dong     { background:#fde68a; } /* Đông xe — overridden per-severity in JS, see teDongBgColor */
 .te-marker-vachaam  { background:var(--red); } /* Va chạm */
+.te-marker-ngap     { background:#0ea5e9; } /* Ngập nước */
 .te-marker-khac     { background:#6b7280; } /* Sự cố khác / unrecognized category */
 .te-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
 .te-sev-badge {
@@ -2842,17 +2844,21 @@ function teDongBgColor(severity) {
   }
 }
 
-// Icon/color keyed off Category. Đông xe/Va chạm each use a dedicated
-// icon (traffic-jam.png / va-cham.png) instead of an emoji; their circle
-// background mirrors incidents.html's .inc-cat-* badge colors — fixed red
-// for Va chạm, severity-scaled for Đông xe (teDongBgColor above). Any
-// other category falls back to a generic gray ❗ emoji marker.
+// Icon/color keyed off Category. Đông xe/Va chạm/Ngập nước each use a
+// dedicated icon (traffic-jam.png / va-cham.png / ngap-nuoc.png) instead
+// of an emoji; their circle background mirrors incidents.html's
+// .inc-cat-* badge colors — fixed red for Va chạm, fixed blue for Ngập
+// nước, severity-scaled for Đông xe (teDongBgColor above). Any other
+// category falls back to a generic gray ❗ emoji marker.
 function teMarkerContentFor(inc) {
   if (inc.category === 'Đông xe') {
     return { cls: 'te-marker-dong', bg: teDongBgColor(inc.severity), html: '<img class="te-marker-img" src="traffic-jam.png" alt="">' };
   }
   if (inc.category === 'Va chạm') {
     return { cls: 'te-marker-vachaam', bg: '', html: '<img class="te-marker-img" src="va-cham.png" alt="">' };
+  }
+  if (inc.category === 'Ngập nước') {
+    return { cls: 'te-marker-ngap', bg: '', html: '<img class="te-marker-img" src="ngap-nuoc.png" alt="">' };
   }
   return { cls: 'te-marker-khac', bg: '', html: '❗' };
 }
