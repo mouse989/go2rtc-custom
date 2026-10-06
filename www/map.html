@@ -2504,12 +2504,19 @@ document.getElementById('btnIncidentAdd').addEventListener('click', function() {
   if (turningOn) {
     loadActiveIncidents();
     if (_tePollTimer) clearInterval(_tePollTimer);
-    _tePollTimer = setInterval(loadActiveIncidents, 20000); // keep bubbles fresh as events age out of the window
+    _tePollTimer = setInterval(loadActiveIncidents, 10000); // keep bubbles fresh as events age out of the window
   } else {
     if (_tePollTimer) { clearInterval(_tePollTimer); _tePollTimer = null; }
     Object.values(_teMarkers).forEach(({ marker }) => marker.remove());
     _teMarkers = {};
   }
+});
+
+// Refresh immediately on return to the tab, rather than waiting up to one
+// poll interval — the common case this closes is "added an incident in
+// another tab/page, switched back to Map to check it".
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _incidentAddMode) loadActiveIncidents();
 });
 
 document.getElementById('btnEdit').addEventListener('click', async function() {
@@ -2875,7 +2882,8 @@ function teMarkerContentFor(inc) {
 // filtered, see internal/incidents/api.go's handleActive) and syncs
 // _teMarkers to match: updates markers still in range, adds new ones, and
 // removes ones that aged out since the last poll. Called on layer-on, every
-// 20s while the layer stays on, and right after a successful quick-add.
+// 10s while the layer stays on, right after a successful quick-add, and
+// whenever the tab regains visibility (see the visibilitychange listener).
 async function loadActiveIncidents() {
   if (!_incidentAddMode || !map) return;
   let list;

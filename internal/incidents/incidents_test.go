@@ -121,6 +121,45 @@ func TestRowToIncidentParsesSeverityAndCoordinates(t *testing.T) {
 	}
 }
 
+// TestActiveWindowToleratesClockSkew is the regression test for the map's
+// "🚨 Traffic Event" layer appearing to delay newly-created incidents: an
+// incident's Time is set by the browser that created it, so if its clock
+// runs even a little ahead of the server's, the incident's Time lands
+// after the server's own "now" and used to be excluded by handleActive's
+// To-bound until the server's clock caught up. activeWindow's grace period
+// must absorb that without letting a wildly wrong Time (a multi-hour typo,
+// say) count as "active" indefinitely.
+func TestActiveWindowToleratesClockSkew(t *testing.T) {
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+
+	from, to := activeWindow(now, 10)
+	if !from.Equal(now.Add(-12 * time.Minute)) {
+		t.Errorf("from = %v, want %v (10 min window + 2 min grace)", from, now.Add(-12*time.Minute))
+	}
+	if !to.Equal(now.Add(2 * time.Minute)) {
+		t.Errorf("to = %v, want %v (2 min grace)", to, now.Add(2*time.Minute))
+	}
+
+	// A client clock 90s ahead of the server's must not get excluded.
+	clientAheadTime := now.Add(90 * time.Second)
+	if clientAheadTime.After(to) {
+		t.Errorf("incident Time %v (90s client clock skew) should fall within [%v, %v]", clientAheadTime, from, to)
+	}
+
+	// 0 (admin hasn't configured a window) falls back to the 10-minute default.
+	fromDefault, toDefault := activeWindow(now, 0)
+	if !fromDefault.Equal(from) || !toDefault.Equal(to) {
+		t.Errorf("windowMin=0 should behave like windowMin=10, got from=%v to=%v", fromDefault, toDefault)
+	}
+
+	// A Time hours in the future (a real typo, not clock skew) must still
+	// fall outside the window — the grace period bounds the damage.
+	wayFuture := now.Add(3 * time.Hour)
+	if !wayFuture.After(to) {
+		t.Errorf("incident Time %v (3h in the future) should fall outside the window (to=%v)", wayFuture, to)
+	}
+}
+
 func TestRowToIncidentBlankSeverityAndCoordinatesStayZero(t *testing.T) {
 	header := []string{"Thời gian", "Thể loại", "Mức độ", "Nội dung", "Đơn vị", "Lat", "Lng"}
 	col := mapHeaders(header)

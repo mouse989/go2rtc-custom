@@ -304,6 +304,31 @@ func handleRecomputeSlots(w http.ResponseWriter, r *http.Request) {
 // the year/from/to/category/unit/q query params the list view uses; it also
 // checks both the current and previous year's file so a window spanning a
 // New Year's Eve midnight still sees across the file boundary.
+// activeWindowGrace absorbs clock skew between the server and whichever
+// browser set Incident.Time (map.html/incidents.html both compute it
+// client-side via `new Date(...).toISOString()` — see their saveIncident
+// functions). Without it, a server clock even a little behind a client's
+// makes a just-created incident's Time land after "now" from the server's
+// point of view, and List()'s To-bound (in.Time.After(f.To)) drops it
+// until the server's own clock catches up — the incident doesn't appear
+// on the map until it ages into relevance, which reads exactly like a
+// display delay. The same slack is applied to the From bound so a server
+// clock running *ahead* doesn't age an incident out early either. Bounded
+// to a couple of minutes so a genuinely mistyped/far-off Time still can't
+// pin an incident as "active" forever.
+const activeWindowGrace = 2 * time.Minute
+
+// activeWindow returns handleActive's search range for the configured
+// window (minutes; <=0 means the 10-minute default) as of now.
+func activeWindow(now time.Time, windowMin int) (from, to time.Time) {
+	if windowMin <= 0 {
+		windowMin = 10
+	}
+	from = now.Add(-time.Duration(windowMin)*time.Minute - activeWindowGrace)
+	to = now.Add(activeWindowGrace)
+	return from, to
+}
+
 func handleActive(w http.ResponseWriter, r *http.Request) {
 	if !requireTab(w, r) {
 		return
@@ -313,17 +338,13 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	windowMin := auth.GetSettings().TrafficEventWindowMinutes
-	if windowMin <= 0 {
-		windowMin = 10
-	}
 	now := time.Now()
-	from := now.Add(-time.Duration(windowMin) * time.Minute)
+	from, to := activeWindow(now, auth.GetSettings().TrafficEventWindowMinutes)
 
 	yearSet := map[int]bool{now.Year(): true, from.Year(): true}
 	out := make([]*Incident, 0, 16)
 	for y := range yearSet {
-		list, err := List(ListFilter{Year: y, From: from, To: now})
+		list, err := List(ListFilter{Year: y, From: from, To: to})
 		if err != nil {
 			continue
 		}
