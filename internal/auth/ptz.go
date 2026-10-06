@@ -1,9 +1,14 @@
 package auth
 
-// ptz.go — pan/tilt/zoom control, entirely independent of the snapshot
-// module (camera_types.go's SnapshotPath/HTTPS/ONVIF/RTSP fields are never
-// read here, and vice versa — a camera's snapshot method and its PTZ method
-// are separate capabilities that happen to live on the same CameraType).
+// ptz.go — pan/tilt/zoom/focus control, entirely independent of the
+// snapshot module (camera_types.go's SnapshotPath/HTTPS/ONVIF/RTSP fields
+// are never read here, and vice versa — a camera's snapshot method and its
+// PTZ method are separate capabilities that happen to live on the same
+// CameraType). Focus (SendPTZFocus/SendPTZFocusStop) reuses the same
+// PTZEnabled/PTZDriver gate as pan/tilt/zoom rather than a capability flag
+// of its own — if a specific camera's lens has no manual focus override,
+// the camera itself rejects or no-ops the command, same tradeoff already
+// accepted for zoom on a fixed-zoom lens.
 //
 // Two drivers, chosen per Camera Type (CameraType.PTZDriver):
 //   - "onvif"      — ptz_onvif.go, for Bosch (and any ONVIF-conformant PTZ
@@ -115,6 +120,45 @@ func SendPTZSaveHome(ctx context.Context, streamName string) error {
 		return axisPTZSaveHome(ctx, streamName)
 	case ptzDriverONVIF:
 		return onvifPTZSaveHome(ctx, streamName)
+	default:
+		return errPTZNotEnabled
+	}
+}
+
+// SendPTZFocus starts a continuous focus move on streamName. speed is
+// -1.0..1.0 (0 leaves focus still) — negative means near, positive means
+// far, same -1..1 convention as SendPTZMove's axes, and the same clamping
+// expectation (callers clamp user input; api_ptz.go does).
+func SendPTZFocus(ctx context.Context, streamName string, speed float64) error {
+	ct := cameraTypeForStream(streamName)
+	if ct == nil || !ct.PTZEnabled {
+		return errPTZNotEnabled
+	}
+	switch ct.PTZDriver {
+	case ptzDriverAxisVAPIX:
+		return axisPTZFocus(ctx, streamName, speed)
+	case ptzDriverONVIF:
+		return onvifPTZFocus(ctx, streamName, speed)
+	default:
+		return errPTZNotEnabled
+	}
+}
+
+// SendPTZFocusStop halts an in-progress continuous focus move started by
+// SendPTZFocus. Kept separate from SendPTZStop (which only ever covers
+// pan/tilt/zoom) because ONVIF genuinely treats focus as a different
+// service (Imaging, not PTZ) with its own Stop operation — mirroring that
+// split here keeps each driver's Stop call matched to the axis it started.
+func SendPTZFocusStop(ctx context.Context, streamName string) error {
+	ct := cameraTypeForStream(streamName)
+	if ct == nil || !ct.PTZEnabled {
+		return errPTZNotEnabled
+	}
+	switch ct.PTZDriver {
+	case ptzDriverAxisVAPIX:
+		return axisPTZFocusStop(ctx, streamName)
+	case ptzDriverONVIF:
+		return onvifPTZFocusStop(ctx, streamName)
 	default:
 		return errPTZNotEnabled
 	}

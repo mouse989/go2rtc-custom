@@ -90,6 +90,104 @@ func TestSetPresetDetectsSOAPFaultDespiteHTTP200(t *testing.T) {
 	}
 }
 
+func TestContinuousFocusMoveResolvesVideoSourceTokenAndSendsSpeed(t *testing.T) {
+	var moveBody string
+	c := newTestClient(t, func(body string) (int, string) {
+		switch {
+		case strings.Contains(body, "GetVideoSources"):
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><trt:GetVideoSourcesResponse>
+				<tt:VideoSources token="VideoSource_1"><tt:Framerate>25</tt:Framerate></tt:VideoSources>
+			</trt:GetVideoSourcesResponse></s:Body></s:Envelope>`
+		case strings.Contains(body, "timg:Move"):
+			moveBody = body
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><timg:MoveResponse/></s:Body></s:Envelope>`
+		default:
+			t.Fatalf("unexpected request: %s", body)
+			return http.StatusInternalServerError, ""
+		}
+	})
+
+	if _, err := c.ContinuousFocusMove(0.75); err != nil {
+		t.Fatalf("ContinuousFocusMove: %v", err)
+	}
+	if !strings.Contains(moveBody, "<timg:VideoSourceToken>VideoSource_1</timg:VideoSourceToken>") {
+		t.Fatalf("expected Move request to carry the resolved VideoSourceToken, got: %s", moveBody)
+	}
+	if !strings.Contains(moveBody, "<tt:Speed>0.75</tt:Speed>") {
+		t.Fatalf("expected Move request to carry Speed=0.75, got: %s", moveBody)
+	}
+}
+
+func TestStopFocusUsesVideoSourceToken(t *testing.T) {
+	var stopBody string
+	c := newTestClient(t, func(body string) (int, string) {
+		switch {
+		case strings.Contains(body, "GetVideoSources"):
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><trt:GetVideoSourcesResponse>
+				<tt:VideoSources token="VideoSource_1"/>
+			</trt:GetVideoSourcesResponse></s:Body></s:Envelope>`
+		case strings.Contains(body, "timg:Stop"):
+			stopBody = body
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><timg:StopResponse/></s:Body></s:Envelope>`
+		default:
+			t.Fatalf("unexpected request: %s", body)
+			return http.StatusInternalServerError, ""
+		}
+	})
+
+	if _, err := c.StopFocus(); err != nil {
+		t.Fatalf("StopFocus: %v", err)
+	}
+	if !strings.Contains(stopBody, "<timg:VideoSourceToken>VideoSource_1</timg:VideoSourceToken>") {
+		t.Fatalf("expected Stop request to carry the resolved VideoSourceToken, got: %s", stopBody)
+	}
+}
+
+// Confirms the lazy-cache behavior videoSourceToken()'s doc comment
+// promises: a second Focus call during the same Client's lifetime must not
+// re-fetch GetVideoSources.
+func TestVideoSourceTokenIsCachedAfterFirstResolve(t *testing.T) {
+	getVideoSourcesCalls := 0
+	c := newTestClient(t, func(body string) (int, string) {
+		switch {
+		case strings.Contains(body, "GetVideoSources"):
+			getVideoSourcesCalls++
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><trt:GetVideoSourcesResponse>
+				<tt:VideoSources token="VideoSource_1"/>
+			</trt:GetVideoSourcesResponse></s:Body></s:Envelope>`
+		case strings.Contains(body, "timg:Move"), strings.Contains(body, "timg:Stop"):
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body/></s:Envelope>`
+		default:
+			t.Fatalf("unexpected request: %s", body)
+			return http.StatusInternalServerError, ""
+		}
+	})
+
+	if _, err := c.ContinuousFocusMove(1); err != nil {
+		t.Fatalf("ContinuousFocusMove: %v", err)
+	}
+	if _, err := c.StopFocus(); err != nil {
+		t.Fatalf("StopFocus: %v", err)
+	}
+	if getVideoSourcesCalls != 1 {
+		t.Fatalf("expected GetVideoSources to be called exactly once (cached after that), got %d calls", getVideoSourcesCalls)
+	}
+}
+
+func TestVideoSourceTokenErrorsWhenNoneReported(t *testing.T) {
+	c := newTestClient(t, func(body string) (int, string) {
+		if strings.Contains(body, "GetVideoSources") {
+			return http.StatusOK, `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><trt:GetVideoSourcesResponse/></s:Body></s:Envelope>`
+		}
+		t.Fatalf("unexpected request: %s", body)
+		return http.StatusInternalServerError, ""
+	})
+
+	if _, err := c.ContinuousFocusMove(1); err == nil {
+		t.Fatal("expected an error when the camera reports no video sources")
+	}
+}
+
 func TestGetPresetTokensParsesMultiplePresets(t *testing.T) {
 	c := newTestClient(t, func(body string) (int, string) {
 		if !strings.Contains(body, "GetPresets") {
