@@ -346,9 +346,11 @@ body.sb-collapsed           { --map-left:0; }
 .stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
 
 /* ── Traffic Event layer markers (recent incident bubbles) ──────
-   Colors mirror incidents.html's .inc-cat-* badges so the same category
-   reads the same way on both pages: Đông xe = amber, Va chạm = red,
-   anything else = gray. */
+   Va chạm/other colors mirror incidents.html's .inc-cat-* badges: Va chạm
+   = red, anything else = gray. Đông xe uses the traffic-jam.png icon
+   instead of an emoji, with its circle background keyed to Severity
+   (1=pale yellow .. 4=dark red — see teDongBgColor) rather than a fixed
+   color, since "how jammed" is exactly what severity already encodes. */
 .te-marker {
   position:relative; width:30px; height:30px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
@@ -357,9 +359,10 @@ body.sb-collapsed           { --map-left:0; }
   transition:transform .15s, box-shadow .15s;
 }
 .te-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
-.te-marker-dong     { background:#fbbf24; } /* Đông xe */
+.te-marker-dong     { background:#fde68a; } /* Đông xe — overridden per-severity in JS, see teDongBgColor */
 .te-marker-vachaam  { background:var(--red); } /* Va chạm */
 .te-marker-khac     { background:#6b7280; } /* Sự cố khác / unrecognized category */
+.te-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
 .te-sev-badge {
   position:absolute; top:-5px; right:-5px; min-width:15px; height:15px; padding:0 2px;
   border-radius:50%; background:#111827; color:#fff; font-size:.62rem; font-weight:800;
@@ -2825,13 +2828,31 @@ document.getElementById('incAddCancel').addEventListener('click', closeMapIncide
 document.getElementById('incAddSave').addEventListener('click', saveMapIncident);
 
 // ── Traffic Event layer: recent-incident bubble markers ────────────────
-// Icon/color keyed off Category, mirroring incidents.html's .inc-cat-*
-// badge colors (Đông xe = amber, Va chạm = red, else = gray) so the same
-// category reads the same way on both pages.
-function teIconFor(category) {
-  if (category === 'Đông xe') return { cls: 'te-marker-dong', icon: '⚠️' };
-  if (category === 'Va chạm') return { cls: 'te-marker-vachaam', icon: '🚨' };
-  return { cls: 'te-marker-khac', icon: '❗' };
+// Đông xe's circle background is keyed to Severity, not a fixed color —
+// how jammed it is IS the severity, so the bubble itself should read that
+// at a glance: 1 pale yellow .. 4 dark red. 0 (chưa đặt) falls back to the
+// palest shade rather than guessing a "serious" default.
+function teDongBgColor(severity) {
+  switch (severity) {
+    case 2: return '#f97316';  // cam
+    case 3: return '#ef4444';  // đỏ
+    case 4: return '#7f1d1d';  // đỏ sẫm
+    default: return '#fde68a'; // 1 (vàng nhạt) and 0/unset
+  }
+}
+
+// Icon/color keyed off Category. Va chạm/other mirror incidents.html's
+// .inc-cat-* badge colors (red / gray); Đông xe uses the traffic-jam.png
+// icon with its background from teDongBgColor above instead of the emoji +
+// fixed-amber styling the other categories use.
+function teMarkerContentFor(inc) {
+  if (inc.category === 'Đông xe') {
+    return { cls: 'te-marker-dong', bg: teDongBgColor(inc.severity), html: '<img class="te-marker-img" src="traffic-jam.png" alt="">' };
+  }
+  if (inc.category === 'Va chạm') {
+    return { cls: 'te-marker-vachaam', bg: '', html: '🚨' };
+  }
+  return { cls: 'te-marker-khac', bg: '', html: '❗' };
 }
 
 // Fetches incidents within the admin-configured time window (server-side
@@ -2849,7 +2870,7 @@ async function loadActiveIncidents() {
   const seen = new Set();
   list.forEach(inc => {
     seen.add(inc.id);
-    const { cls, icon } = teIconFor(inc.category);
+    const { cls, bg, html } = teMarkerContentFor(inc);
     const sevBadge = inc.severity ? `<span class="te-sev-badge">${inc.severity}</span>` : '';
     const tip = [
       inc.category + (inc.severity ? ' • Mức độ ' + inc.severity : ''),
@@ -2868,7 +2889,8 @@ async function loadActiveIncidents() {
       entry = _teMarkers[inc.id] = { marker, el };
     }
     entry.el.className = 'te-marker ' + cls;
-    entry.el.innerHTML = icon + sevBadge;
+    entry.el.style.background = bg;
+    entry.el.innerHTML = html + sevBadge;
     entry.el.title = tip;
   });
   // Drop markers for incidents that aged out of the window since the last poll.
