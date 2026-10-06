@@ -48,9 +48,15 @@ type AppSettings struct {
 	// exactly like a live view. 0 → auto (4× snapshot_interval_sec, floored
 	// at 60s — see snapshotStaleThreshold in proxy.go for why it scales
 	// with the interval instead of a bare fixed value).
-	SnapshotStaleThresholdSec int            `json:"snapshot_stale_threshold_sec"`
-	MapSearchRadiusKm         float64        `json:"map_search_radius_km"` // 0 → default 1 km
-	MapRouteWidthM            float64        `json:"map_route_width_m"`    // "Theo tuyến" tool: 0 → default 100 m
+	SnapshotStaleThresholdSec int     `json:"snapshot_stale_threshold_sec"`
+	MapSearchRadiusKm         float64 `json:"map_search_radius_km"` // 0 → default 1 km
+	MapRouteWidthM            float64 `json:"map_route_width_m"`    // "Theo tuyến" tool: 0 → default 100 m
+	// TrafficEventWindowMinutes: how many minutes back from "now" the Map
+	// page's "🚨 Traffic Event" layer (www/map.html) shows incident bubbles
+	// for. An incident whose Time falls outside [now-window, now] is no
+	// longer "live" and drops off the layer on the next poll. 0 → default
+	// 10 minutes. See internal/incidents/api.go's handleActive.
+	TrafficEventWindowMinutes int            `json:"traffic_event_window_minutes"`
 	HeatmapCfg                *HeatmapConfig `json:"heatmap_cfg,omitempty"`
 	DefaultViewLimitMinutes   int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
 

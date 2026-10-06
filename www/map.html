@@ -345,6 +345,33 @@ body.sb-collapsed           { --map-left:0; }
 .stn-marker-wrap:hover { transform:scale(1.12); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 .stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
 
+/* ── Traffic Event layer markers (recent incident bubbles) ──────
+   Đông xe/Va chạm/Ngập nước each use a dedicated icon (traffic-jam.png /
+   va-cham.png / ngap-nuoc.png) rather than an emoji; anything else falls
+   back to a generic gray ❗. Circle background mirrors incidents.html's
+   .inc-cat-* badge colors — fixed red for Va chạm, fixed blue for Ngập
+   nước — except Đông xe, keyed to Severity instead (1=pale yellow ..
+   4=dark red — see teDongBgColor), since "how jammed" is exactly what
+   severity already encodes. */
+.te-marker {
+  position:relative; width:30px; height:30px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:15px; line-height:1; cursor:pointer;
+  border:2px solid rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(0,0,0,.55);
+  transition:transform .15s, box-shadow .15s;
+}
+.te-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
+.te-marker-dong     { background:#fde68a; } /* Đông xe — overridden per-severity in JS, see teDongBgColor */
+.te-marker-vachaam  { background:var(--red); } /* Va chạm */
+.te-marker-ngap     { background:#0ea5e9; } /* Ngập nước */
+.te-marker-khac     { background:#6b7280; } /* Sự cố khác / unrecognized category */
+.te-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
+.te-sev-badge {
+  position:absolute; top:-5px; right:-5px; min-width:15px; height:15px; padding:0 2px;
+  border-radius:50%; background:#111827; color:#fff; font-size:.62rem; font-weight:800;
+  display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,.85);
+}
+
 /* ── Station / type edit panels ─────────────────────────────── */
 #stnPanel, #stnTypePanel {
   position:fixed; right:.8rem; top:50%; transform:translateY(-50%);
@@ -571,9 +598,12 @@ body.sb-collapsed           { --map-left:0; }
   <button class="map-btn" id="btnRoute" style="display:none" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
     🛣 Theo tuyến
   </button>
-  <!-- Incident quick-add: shown only for admin or users with allow_map_incident_add (and the Incidents tab) -->
-  <button class="map-btn" id="btnIncidentAdd" style="display:none" title="Bật rồi click phải (chuột phải) lên bản đồ tại vị trí cần thêm — tọa độ tự điền vào form">
-    🚨 Thêm sự cố
+  <!-- Traffic Event: shown only for admin or users with allow_map_incident_add (and the Incidents tab).
+       While on: shows "bubble" markers for incidents reported within the admin-configured
+       time window (see loadActiveIncidents), AND lets right-click open the quick-add modal
+       pre-filled with that point's lat/lng — same toggle, two effects of one "layer". -->
+  <button class="map-btn" id="btnIncidentAdd" style="display:none" title="Bật để xem sự cố gần đây trên bản đồ; click phải (chuột phải) để thêm sự cố mới tại vị trí đó — tọa độ tự điền vào form">
+    🚨 Traffic Event
   </button>
   <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
   <button class="map-btn" id="btnTraffic" style="display:none">
@@ -1050,7 +1080,9 @@ let _editMarkers = {};    // id → vietmapgl.Marker (edit mode only)
 let _searchHits  = [];
 let _searchCenter = null; // [lng, lat]
 let _searchMode = false, _editMode = false, _editingID = null;
-let _incidentAddMode = false; // right-click the map opens the "Thêm sự cố" modal, pre-filled with that point's lat/lng
+let _incidentAddMode = false; // "Traffic Event" layer on: right-click opens the add modal, pre-filled with that point's lat/lng
+let _teMarkers = {};      // incident id -> { marker, el } — the layer's live bubble markers
+let _tePollTimer = null;  // setInterval handle refreshing _teMarkers while the layer is on
 // ── Route corridor tool ("Theo tuyến") state ──
 let _routeMode  = false;   // panel open / map clicks add route points
 let _routePoints = [];     // [[lng,lat], ...] clicked points, in click order (start → end)
@@ -2465,6 +2497,15 @@ document.getElementById('btnIncidentAdd').addEventListener('click', function() {
   _incidentAddMode = turningOn;
   this.classList.toggle('active', _incidentAddMode);
   if (map) map.getCanvas().style.cursor = _incidentAddMode ? 'crosshair' : '';
+  if (turningOn) {
+    loadActiveIncidents();
+    if (_tePollTimer) clearInterval(_tePollTimer);
+    _tePollTimer = setInterval(loadActiveIncidents, 20000); // keep bubbles fresh as events age out of the window
+  } else {
+    if (_tePollTimer) { clearInterval(_tePollTimer); _tePollTimer = null; }
+    Object.values(_teMarkers).forEach(({ marker }) => marker.remove());
+    _teMarkers = {};
+  }
 });
 
 document.getElementById('btnEdit').addEventListener('click', async function() {
@@ -2776,6 +2817,7 @@ async function saveMapIncident() {
     await apiFetch('/api/incidents', { method: 'POST', body: payload });
     closeMapIncidentModal();
     if (typeof toast === 'function') toast('Đã thêm sự cố', 'success');
+    if (_incidentAddMode) loadActiveIncidents(); // show the new bubble right away, not just on the next poll
   } catch (e) {
     msg.style.display = '';
     msg.textContent = 'Lỗi: ' + e.message;
@@ -2787,6 +2829,83 @@ async function saveMapIncident() {
 document.getElementById('incAddModalClose').addEventListener('click', closeMapIncidentModal);
 document.getElementById('incAddCancel').addEventListener('click', closeMapIncidentModal);
 document.getElementById('incAddSave').addEventListener('click', saveMapIncident);
+
+// ── Traffic Event layer: recent-incident bubble markers ────────────────
+// Đông xe's circle background is keyed to Severity, not a fixed color —
+// how jammed it is IS the severity, so the bubble itself should read that
+// at a glance: 1 pale yellow .. 4 dark red. 0 (chưa đặt) falls back to the
+// palest shade rather than guessing a "serious" default.
+function teDongBgColor(severity) {
+  switch (severity) {
+    case 2: return '#f97316';  // cam
+    case 3: return '#ef4444';  // đỏ
+    case 4: return '#7f1d1d';  // đỏ sẫm
+    default: return '#fde68a'; // 1 (vàng nhạt) and 0/unset
+  }
+}
+
+// Icon/color keyed off Category. Đông xe/Va chạm/Ngập nước each use a
+// dedicated icon (traffic-jam.png / va-cham.png / ngap-nuoc.png) instead
+// of an emoji; their circle background mirrors incidents.html's
+// .inc-cat-* badge colors — fixed red for Va chạm, fixed blue for Ngập
+// nước, severity-scaled for Đông xe (teDongBgColor above). Any other
+// category falls back to a generic gray ❗ emoji marker.
+function teMarkerContentFor(inc) {
+  if (inc.category === 'Đông xe') {
+    return { cls: 'te-marker-dong', bg: teDongBgColor(inc.severity), html: '<img class="te-marker-img" src="traffic-jam.png" alt="">' };
+  }
+  if (inc.category === 'Va chạm') {
+    return { cls: 'te-marker-vachaam', bg: '', html: '<img class="te-marker-img" src="va-cham.png" alt="">' };
+  }
+  if (inc.category === 'Ngập nước') {
+    return { cls: 'te-marker-ngap', bg: '', html: '<img class="te-marker-img" src="ngap-nuoc.png" alt="">' };
+  }
+  return { cls: 'te-marker-khac', bg: '', html: '❗' };
+}
+
+// Fetches incidents within the admin-configured time window (server-side
+// filtered, see internal/incidents/api.go's handleActive) and syncs
+// _teMarkers to match: updates markers still in range, adds new ones, and
+// removes ones that aged out since the last poll. Called on layer-on, every
+// 20s while the layer stays on, and right after a successful quick-add.
+async function loadActiveIncidents() {
+  if (!_incidentAddMode || !map) return;
+  let list;
+  try { list = await apiFetch('/api/incidents/active'); }
+  catch (e) { return; } // keep showing the last-known set rather than clearing on a transient failure
+  if (!Array.isArray(list)) return;
+
+  const seen = new Set();
+  list.forEach(inc => {
+    seen.add(inc.id);
+    const { cls, bg, html } = teMarkerContentFor(inc);
+    const sevBadge = inc.severity ? `<span class="te-sev-badge">${inc.severity}</span>` : '';
+    const tip = [
+      inc.category + (inc.severity ? ' • Mức độ ' + inc.severity : ''),
+      inc.content, inc.unit,
+    ].filter(Boolean).join('\n');
+
+    let entry = _teMarkers[inc.id];
+    if (!entry) {
+      const el = document.createElement('div');
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        if (typeof toast === 'function') toast(el.title.replace(/\n/g, ' — '), 'info');
+      });
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]);
+      marker.addTo(map);
+      entry = _teMarkers[inc.id] = { marker, el };
+    }
+    entry.el.className = 'te-marker ' + cls;
+    entry.el.style.background = bg;
+    entry.el.innerHTML = html + sevBadge;
+    entry.el.title = tip;
+  });
+  // Drop markers for incidents that aged out of the window since the last poll.
+  Object.keys(_teMarkers).forEach(id => {
+    if (!seen.has(id)) { _teMarkers[id].marker.remove(); delete _teMarkers[id]; }
+  });
+}
 document.getElementById('incAddModalBackdrop').addEventListener('click', e => { if (e.target === e.currentTarget) closeMapIncidentModal(); });
 
 // ── Edit panel ────────────────────────────────────────────────

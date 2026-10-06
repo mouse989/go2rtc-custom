@@ -338,6 +338,17 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị lớp "🚨 Traffic Event" (phút)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="teWindowInput" min="1" max="1440" step="1" value="10"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 10)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Khi bật lớp "🚨 Traffic Event" trên bản đồ (tab Map), chỉ các sự cố có tọa độ và xảy ra trong khoảng thời gian này tính từ hiện tại mới hiển thị dạng bubble trên bản đồ — sự cố cũ hơn tự động biến mất khỏi lớp. Áp dụng cho tất cả user, session.
+            </p>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Giới hạn phiên xem video mặc định (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="viewLimitInput" min="1" step="1" value="15"
@@ -2073,6 +2084,7 @@ async function loadSettings() {
     document.getElementById('snapStaleThresholdInput').value = s.snapshot_stale_threshold_sec || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
+    document.getElementById('teWindowInput').value = s.traffic_event_window_minutes || 10;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
@@ -2202,6 +2214,7 @@ async function saveSettings() {
   const staleThreshold = parseInt(document.getElementById('snapStaleThresholdInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
+  const teWindow    = parseInt(document.getElementById('teWindowInput').value, 10) || 10;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
@@ -2225,6 +2238,7 @@ async function saveSettings() {
     snapshot_stale_threshold_sec: staleThreshold,
     map_search_radius_km: mapRadius,
     map_route_width_m: mapRouteWidth,
+    traffic_event_window_minutes: teWindow,
     default_view_limit_minutes: viewLimit,
     login_hour_range_enabled: loginHourRangeEnabled,
     login_hour_start: loginHourStart,
