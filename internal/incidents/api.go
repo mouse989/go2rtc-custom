@@ -3,6 +3,7 @@ package incidents
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -17,6 +18,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/incidents/export", handleExport)
 	http.HandleFunc("/api/incidents/time-slots", handleTimeSlots)
 	http.HandleFunc("/api/incidents/recompute-slots", handleRecomputeSlots)
+	http.HandleFunc("/api/incidents/active", handleActive)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -291,4 +293,47 @@ func handleRecomputeSlots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]int{"updated": updated})
+}
+
+// handleActive serves the Map page's "🚨 Traffic Event" layer: incidents
+// that have a coordinate (Lat/Lng set) and whose Time falls within the last
+// auth.AppSettings.TrafficEventWindowMinutes minutes (default 10,
+// admin-configurable) — an incident drops off this list, and its map
+// marker with it, once it ages past the window on the layer's next poll.
+// Unlike the main list endpoint this is always "now"-relative and ignores
+// the year/from/to/category/unit/q query params the list view uses; it also
+// checks both the current and previous year's file so a window spanning a
+// New Year's Eve midnight still sees across the file boundary.
+func handleActive(w http.ResponseWriter, r *http.Request) {
+	if !requireTab(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	windowMin := auth.GetSettings().TrafficEventWindowMinutes
+	if windowMin <= 0 {
+		windowMin = 10
+	}
+	now := time.Now()
+	from := now.Add(-time.Duration(windowMin) * time.Minute)
+
+	yearSet := map[int]bool{now.Year(): true, from.Year(): true}
+	out := make([]*Incident, 0, 16)
+	for y := range yearSet {
+		list, err := List(ListFilter{Year: y, From: from, To: now})
+		if err != nil {
+			continue
+		}
+		for _, in := range list {
+			if in.Lat == 0 && in.Lng == 0 {
+				continue // no coordinate, nothing to place on the map
+			}
+			out = append(out, in)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	writeJSON(w, out)
 }
