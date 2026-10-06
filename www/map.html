@@ -346,11 +346,12 @@ body.sb-collapsed           { --map-left:0; }
 .stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
 
 /* ── Traffic Event layer markers (recent incident bubbles) ──────
-   Va chạm/other colors mirror incidents.html's .inc-cat-* badges: Va chạm
-   = red, anything else = gray. Đông xe uses the traffic-jam.png icon
-   instead of an emoji, with its circle background keyed to Severity
-   (1=pale yellow .. 4=dark red — see teDongBgColor) rather than a fixed
-   color, since "how jammed" is exactly what severity already encodes. */
+   Đông xe/Va chạm use dedicated icons (traffic-jam.png / va-cham.png)
+   rather than an emoji; anything else falls back to a generic gray ❗.
+   Circle background mirrors incidents.html's .inc-cat-* badge colors —
+   fixed red for Va chạm — except Đông xe, keyed to Severity instead
+   (1=pale yellow .. 4=dark red — see teDongBgColor), since "how jammed"
+   is exactly what severity already encodes. */
 .te-marker {
   position:relative; width:30px; height:30px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
@@ -2841,16 +2842,17 @@ function teDongBgColor(severity) {
   }
 }
 
-// Icon/color keyed off Category. Va chạm/other mirror incidents.html's
-// .inc-cat-* badge colors (red / gray); Đông xe uses the traffic-jam.png
-// icon with its background from teDongBgColor above instead of the emoji +
-// fixed-amber styling the other categories use.
+// Icon/color keyed off Category. Đông xe/Va chạm each use a dedicated
+// icon (traffic-jam.png / va-cham.png) instead of an emoji; their circle
+// background mirrors incidents.html's .inc-cat-* badge colors — fixed red
+// for Va chạm, severity-scaled for Đông xe (teDongBgColor above). Any
+// other category falls back to a generic gray ❗ emoji marker.
 function teMarkerContentFor(inc) {
   if (inc.category === 'Đông xe') {
     return { cls: 'te-marker-dong', bg: teDongBgColor(inc.severity), html: '<img class="te-marker-img" src="traffic-jam.png" alt="">' };
   }
   if (inc.category === 'Va chạm') {
-    return { cls: 'te-marker-vachaam', bg: '', html: '🚨' };
+    return { cls: 'te-marker-vachaam', bg: '', html: '<img class="te-marker-img" src="va-cham.png" alt="">' };
   }
   return { cls: 'te-marker-khac', bg: '', html: '❗' };
 }
