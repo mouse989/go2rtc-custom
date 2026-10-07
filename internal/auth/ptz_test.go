@@ -99,6 +99,26 @@ func TestSendPTZHomeRejectsNonPTZCameras(t *testing.T) {
 	}
 }
 
+func TestSendPTZFocusRejectsNonPTZCameras(t *testing.T) {
+	setupPTZCameraType(t, "cam-fixed", &CameraType{ID: "fixed", Name: "Fixed", PTZEnabled: false})
+	if err := SendPTZFocus(context.Background(), "cam-fixed", 1); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for a non-PTZ camera, got %v", err)
+	}
+	if err := SendPTZFocus(context.Background(), "cam-unknown", -1); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for an unassigned stream, got %v", err)
+	}
+}
+
+func TestSendPTZFocusStopRejectsNonPTZCameras(t *testing.T) {
+	setupPTZCameraType(t, "cam-fixed", &CameraType{ID: "fixed", Name: "Fixed", PTZEnabled: false})
+	if err := SendPTZFocusStop(context.Background(), "cam-fixed"); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for a non-PTZ camera, got %v", err)
+	}
+	if err := SendPTZFocusStop(context.Background(), "cam-unknown"); err != errPTZNotEnabled {
+		t.Fatalf("expected errPTZNotEnabled for an unassigned stream, got %v", err)
+	}
+}
+
 func TestSendPTZSaveHomeRejectsNonPTZCameras(t *testing.T) {
 	setupPTZCameraType(t, "cam-fixed", &CameraType{ID: "fixed", Name: "Fixed", PTZEnabled: false})
 	if err := SendPTZSaveHome(context.Background(), "cam-fixed"); err != errPTZNotEnabled {

@@ -1,16 +1,24 @@
 package auth
 
-// api_ptz.go — HTTP API for pan/tilt/zoom control.
+// api_ptz.go — HTTP API for pan/tilt/zoom/focus control.
 //
-// POST /api/ptz/move      body: {"stream": "...", "pan": -1..1, "tilt": -1..1, "zoom": -1..1}
-// POST /api/ptz/stop      body: {"stream": "..."}
-// POST /api/ptz/home      body: {"stream": "..."}  — recall preset 1
-// POST /api/ptz/save-home body: {"stream": "..."}  — overwrite preset 1
-//                         with the camera's current position. Any
-//                         "are you sure, this overwrites the existing
-//                         home position" confirmation is the browser's
-//                         job (www/ptz-control.js) — this endpoint does
-//                         exactly what it's asked, no server-side prompt.
+// POST /api/ptz/move        body: {"stream": "...", "pan": -1..1, "tilt": -1..1, "zoom": -1..1}
+// POST /api/ptz/stop        body: {"stream": "..."}
+// POST /api/ptz/focus       body: {"stream": "...", "speed": -1..1}  — -1 near, +1 far
+// POST /api/ptz/focus-stop  body: {"stream": "..."}
+// POST /api/ptz/home        body: {"stream": "..."}  — recall preset 1
+// POST /api/ptz/save-home   body: {"stream": "..."}  — overwrite preset 1
+//                           with the camera's current position. Any
+//                           "are you sure, this overwrites the existing
+//                           home position" confirmation is the browser's
+//                           job (www/ptz-control.js) — this endpoint does
+//                           exactly what it's asked, no server-side prompt.
+//
+// focus/focus-stop are separate endpoints from move/stop, not extra fields
+// on them, because the two underlying drivers genuinely treat focus as a
+// different operation (see ptz.go's SendPTZFocus/SendPTZFocusStop) — a
+// focus call never implicitly touches any in-progress pan/tilt/zoom move,
+// and vice versa.
 //
 // Every call re-checks permission from scratch (ptzAllowed) — a client is
 // never trusted just because /api/proxy/streams once reported "ptz: true"
@@ -26,6 +34,8 @@ import (
 func registerPTZHandlers() {
 	http.HandleFunc("/api/ptz/move", ptzMoveHandler)
 	http.HandleFunc("/api/ptz/stop", ptzStopHandler)
+	http.HandleFunc("/api/ptz/focus", ptzFocusHandler)
+	http.HandleFunc("/api/ptz/focus-stop", ptzFocusStopHandler)
 	http.HandleFunc("/api/ptz/home", ptzHomeHandler)
 	http.HandleFunc("/api/ptz/save-home", ptzSaveHomeHandler)
 }
@@ -97,6 +107,71 @@ func ptzStopHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	if err := SendPTZStop(ctx, req.Stream); err != nil {
 		http.Error(w, "ptz stop failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func ptzFocusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Stream string  `json:"stream"`
+		Speed  float64 `json:"speed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Stream == "" {
+		http.Error(w, "stream required", http.StatusBadRequest)
+		return
+	}
+	if !ptzAllowed(user, req.Stream) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), ptzRequestTimeout)
+	defer cancel()
+	if err := SendPTZFocus(ctx, req.Stream, clampPTZ(req.Speed)); err != nil {
+		http.Error(w, "ptz focus failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func ptzFocusStopHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Stream string `json:"stream"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Stream == "" {
+		http.Error(w, "stream required", http.StatusBadRequest)
+		return
+	}
+	if !ptzAllowed(user, req.Stream) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), ptzRequestTimeout)
+	defer cancel()
+	if err := SendPTZFocusStop(ctx, req.Stream); err != nil {
+		http.Error(w, "ptz focus-stop failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

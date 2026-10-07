@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,15 @@ type Client struct {
 	mediaURL  string
 	imaginURL string
 	ptzURL    string
+
+	// videoSrcTokenMu/videoSrcToken cache videoSourceToken()'s result — the
+	// only field on Client mutated after NewClient returns, so (unlike
+	// every other field here) it needs its own lock: a cached *Client is
+	// shared across requests for the same stream (see ptz_onvif.go's
+	// onvifPTZCache), so two Focus calls can race here even though nothing
+	// else on Client ever gets written twice.
+	videoSrcTokenMu sync.Mutex
+	videoSrcToken   string
 }
 
 func NewClient(rawURL string) (*Client, error) {
@@ -155,6 +165,81 @@ func (c *Client) GetSnapshotUri(token string) ([]byte, error) {
 	return c.Request(
 		c.imaginURL, `<trt:GetSnapshotUri><trt:ProfileToken>`+token+`</trt:ProfileToken></trt:GetSnapshotUri>`,
 	)
+}
+
+// GetVideoSources returns the raw GetVideoSourcesResponse — used by
+// videoSourceToken to resolve the VideoSourceToken that Focus move/stop
+// need, since ONVIF ties Focus to a video source (Imaging service), not
+// the media ProfileToken pan/tilt/zoom use.
+func (c *Client) GetVideoSources() ([]byte, error) {
+	return c.MediaRequest(MediaGetVideoSources)
+}
+
+// videoSourceToken resolves the first reported VideoSourceToken, assuming
+// a single video source — true for every PTZ/fixed camera this talks to;
+// a multi-sensor ONVIF device would need per-sensor selection this doesn't
+// attempt. Resolved lazily (only once Focus is actually used — nothing
+// else on Client needs it) and cached, so repeated focus presses during
+// one cached handle's lifetime (see ptz_onvif.go) don't re-fetch it.
+func (c *Client) videoSourceToken() (string, error) {
+	c.videoSrcTokenMu.Lock()
+	defer c.videoSrcTokenMu.Unlock()
+	if c.videoSrcToken != "" {
+		return c.videoSrcToken, nil
+	}
+
+	b, err := c.GetVideoSources()
+	if err != nil {
+		return "", err
+	}
+	re := regexp.MustCompile(`VideoSources.+?token="([^"]+)`)
+	m := re.FindSubmatch(b)
+	if len(m) != 2 {
+		return "", errors.New("onvif: no video source token found")
+	}
+	c.videoSrcToken = string(m[1])
+	return c.videoSrcToken, nil
+}
+
+// ContinuousFocusMove starts a continuous focus move at the given speed
+// (-1.0..1.0; 0 would just leave it still) via the Imaging service — ONVIF
+// keeps Focus out of ContinuousMove (which only covers pan/tilt/zoom)
+// since it's a lens/imaging setting, not one of the camera's positional
+// axes, so it gets its own service, endpoint and Stop operation.
+func (c *Client) ContinuousFocusMove(speed float64) ([]byte, error) {
+	token, err := c.videoSourceToken()
+	if err != nil {
+		return nil, err
+	}
+	return c.ImagingRequest(fmt.Sprintf(
+		`<timg:Move>
+	<timg:VideoSourceToken>%s</timg:VideoSourceToken>
+	<timg:Focus>
+		<tt:Continuous>
+			<tt:Speed>%g</tt:Speed>
+		</tt:Continuous>
+	</timg:Focus>
+</timg:Move>`,
+		token, speed,
+	))
+}
+
+// StopFocus halts an in-progress ContinuousFocusMove. Deliberately separate
+// from PTZ's Stop (which only ever covers pan/tilt/zoom) — Imaging's Stop
+// is its own SOAP operation against its own service endpoint.
+func (c *Client) StopFocus() ([]byte, error) {
+	token, err := c.videoSourceToken()
+	if err != nil {
+		return nil, err
+	}
+	return c.ImagingRequest(fmt.Sprintf(
+		`<timg:Stop><timg:VideoSourceToken>%s</timg:VideoSourceToken></timg:Stop>`,
+		token,
+	))
+}
+
+func (c *Client) ImagingRequest(body string) ([]byte, error) {
+	return c.Request(c.imaginURL, body)
 }
 
 // ContinuousMove starts a pan/tilt/zoom move at the given velocities (each

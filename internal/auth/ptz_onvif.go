@@ -167,6 +167,41 @@ func onvifPTZHome(ctx context.Context, streamName string) error {
 	return err
 }
 
+// onvifPTZFocus starts a continuous focus move via the Imaging service
+// (see pkg/onvif's ContinuousFocusMove — ONVIF keeps Focus out of the PTZ
+// service's ContinuousMove entirely, so this does NOT reuse the PTZ
+// profile token the move/stop/home functions above share).
+func onvifPTZFocus(ctx context.Context, streamName string, speed float64) error {
+	h, err := getOnvifPTZHandle(ctx, streamName)
+	if err != nil {
+		return err
+	}
+	_, err = h.client.ContinuousFocusMove(speed)
+	if err != nil {
+		onvifPTZCacheMu.Lock()
+		delete(onvifPTZCache, streamName)
+		onvifPTZCacheMu.Unlock()
+	}
+	return err
+}
+
+// onvifPTZFocusStop halts an in-progress continuous focus move via the
+// Imaging service's own Stop operation — distinct from the PTZ service's
+// Stop (onvifPTZStop above), which only ever covers pan/tilt/zoom.
+func onvifPTZFocusStop(ctx context.Context, streamName string) error {
+	h, err := getOnvifPTZHandle(ctx, streamName)
+	if err != nil {
+		return err
+	}
+	_, err = h.client.StopFocus()
+	if err != nil {
+		onvifPTZCacheMu.Lock()
+		delete(onvifPTZCache, streamName)
+		onvifPTZCacheMu.Unlock()
+	}
+	return err
+}
+
 // onvifPTZSaveHome overwrites preset "1" with the camera's current
 // position — the save-side counterpart to onvifPTZHome's recall. Unlike
 // onvifPTZHome, there is no token-discovery fallback here: this assumes

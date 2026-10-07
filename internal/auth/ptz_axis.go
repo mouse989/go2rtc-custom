@@ -7,9 +7,9 @@ package auth
 // exact ptz.cgi endpoint. Plain authenticated HTTP GET, reusing the digest
 // retry helper camera_types.go already has for snapshot fetches.
 //
-// Only the 3 functions this feature covers (pan, tilt, zoom) are
-// implemented — continuouspantiltmove/continuouszoommove and nothing else
-// of VAPIX's wider ptz.cgi surface (presets, focus, iris, ...).
+// Only the 4 functions this feature covers (pan, tilt, zoom, focus) are
+// implemented — continuouspantiltmove/continuouszoommove/continuousfocusmove
+// and nothing else of VAPIX's wider ptz.cgi surface (presets, iris, ...).
 
 import (
 	"context"
@@ -65,6 +65,33 @@ func axisPTZSaveHome(ctx context.Context, streamName string) error {
 		return err
 	}
 	rawURL := fmt.Sprintf("http://%s/axis-cgi/com/ptzconfig.cgi?setserverpresetno=1", host)
+	_, err = fetchHTTPWithDigestRetry(ctx, rawURL, creds)
+	return err
+}
+
+// axisPTZFocus starts a continuous focus move. speed is -1.0..1.0 (negative
+// = near, positive = far) — VAPIX's own range is -100..100, same scale as
+// pan/tilt/zoom (vapixSpeed). Sent on its own query param, independent of
+// any concurrent continuouspantiltmove/continuouszoommove — VAPIX only
+// resets the axes actually named in a request.
+func axisPTZFocus(ctx context.Context, streamName string, speed float64) error {
+	host, creds, err := resolveStreamHostCreds(streamName)
+	if err != nil {
+		return err
+	}
+	rawURL := fmt.Sprintf("http://%s/axis-cgi/com/ptz.cgi?continuousfocusmove=%d", host, vapixSpeed(speed))
+	_, err = fetchHTTPWithDigestRetry(ctx, rawURL, creds)
+	return err
+}
+
+// axisPTZFocusStop halts an in-progress continuous focus move, without
+// touching any pan/tilt/zoom move that might also be in progress.
+func axisPTZFocusStop(ctx context.Context, streamName string) error {
+	host, creds, err := resolveStreamHostCreds(streamName)
+	if err != nil {
+		return err
+	}
+	rawURL := fmt.Sprintf("http://%s/axis-cgi/com/ptz.cgi?continuousfocusmove=0", host)
 	_, err = fetchHTTPWithDigestRetry(ctx, rawURL, creds)
 	return err
 }

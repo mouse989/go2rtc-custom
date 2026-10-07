@@ -1,5 +1,5 @@
-// ptz-control.js — Pan/Tilt/Zoom overlay for the live-video modal, shared by
-// index.html and map.html.
+// ptz-control.js — Pan/Tilt/Zoom/Focus overlay for the live-video modal,
+// shared by index.html and map.html.
 //
 // Call mountPTZOverlay(container, streamName) ONLY when the stream's
 // /api/proxy/streams entry already reported ptz:true — that flag already
@@ -10,8 +10,8 @@
 // without permission never has this overlay appear in the page at all.
 //
 // Returns an unmount() function the host page MUST call, before clearing
-// or replacing `container`, so a direction/zoom button held at the moment
-// the player is torn down (mode switch, modal close) still gets its
+// or replacing `container`, so a direction/zoom/focus button held at the
+// moment the player is torn down (mode switch, modal close) still gets its
 // Stop sent — otherwise a camera using the Axis VAPIX driver (which has no
 // built-in move timeout, unlike the ONVIF driver's Timeout param) would
 // keep moving indefinitely.
@@ -31,7 +31,11 @@ function mountPTZOverlay(container, streamName) {
   const IDLE_BORDER = 'rgba(255,255,255,.22)';
   const ACTIVE_BG = '#2f81f7';
 
-  let pressed = false;
+  // The one hold-button that's currently down, as its own stop() callback —
+  // not a boolean, because unmount() needs to call the *matching* stop
+  // (sendStop for pan/tilt/zoom, sendFocusStop for focus — see
+  // wireHoldButton) rather than always assuming pan/tilt/zoom.
+  let activeStopFn = null;
 
   async function sendMove(pan, tilt, zoom) {
     try {
@@ -45,6 +49,20 @@ function mountPTZOverlay(container, streamName) {
       await apiFetch('/api/ptz/stop', { method: 'POST', body: { stream: streamName } });
     } catch (e) {
       console.error('[ptz] stop failed', e);
+    }
+  }
+  async function sendFocus(speed) {
+    try {
+      await apiFetch('/api/ptz/focus', { method: 'POST', body: { stream: streamName, speed } });
+    } catch (e) {
+      console.error('[ptz] focus failed', e);
+    }
+  }
+  async function sendFocusStop() {
+    try {
+      await apiFetch('/api/ptz/focus-stop', { method: 'POST', body: { stream: streamName } });
+    } catch (e) {
+      console.error('[ptz] focus-stop failed', e);
     }
   }
   async function sendHome() {
@@ -99,20 +117,24 @@ function mountPTZOverlay(container, streamName) {
   });
   pad.appendChild(homeBtn);
 
-  function wireHoldButton(btn, onDown) {
+  // stopFn defaults to sendStop (pan/tilt/zoom) — focus buttons pass
+  // sendFocusStop instead, since releasing a focus button must never issue
+  // a pan/tilt/zoom Stop (and vice versa): the two are genuinely separate
+  // operations on both drivers (see ptz.go's SendPTZFocus doc comment).
+  function wireHoldButton(btn, onDown, stopFn = sendStop) {
     const down = (e) => {
       e.preventDefault();
-      pressed = true;
+      activeStopFn = stopFn;
       btn.style.background = ACTIVE_BG;
       btn.style.borderColor = ACTIVE_BG;
       onDown();
     };
     const up = () => {
-      if (!pressed) return;
-      pressed = false;
+      if (activeStopFn !== stopFn) return; // already released
+      activeStopFn = null;
       btn.style.background = IDLE_BG;
       btn.style.borderColor = IDLE_BORDER;
-      sendStop();
+      stopFn();
     };
     btn.addEventListener('mousedown', down);
     btn.addEventListener('mouseup', up);
@@ -155,6 +177,47 @@ function mountPTZOverlay(container, streamName) {
     }
   });
 
+  // ── Focus near/far ───────────────────────────────────────────────
+  // Icons follow the usual convention on camera control UIs: mountains
+  // (a wide/panoramic scene) for Far, a flower (a macro/close-up shot) for
+  // Near — recognizable without a label at this button size.
+  const focusPill = document.createElement('div');
+  focusPill.style.cssText = 'width:34px;height:76px;border-radius:17px;background:rgba(13,17,23,.6);backdrop-filter:blur(6px);' +
+    'border:1px solid rgba(255,255,255,.14);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0';
+
+  const FOCUS_ICON_FAR = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none">' +
+    '<circle cx="7" cy="6" r="2" fill="currentColor"/>' +
+    '<path d="M3 18 L9 9 L13 14 L16 10 L21 18 Z" fill="currentColor"/></svg>';
+  const FOCUS_ICON_NEAR = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none">' +
+    '<circle cx="12" cy="12" r="2.3" fill="currentColor"/>' +
+    '<circle cx="12" cy="6" r="2.6" fill="currentColor" opacity=".8"/>' +
+    '<circle cx="17" cy="9" r="2.6" fill="currentColor" opacity=".8"/>' +
+    '<circle cx="17" cy="15" r="2.6" fill="currentColor" opacity=".8"/>' +
+    '<circle cx="12" cy="18" r="2.6" fill="currentColor" opacity=".8"/>' +
+    '<circle cx="7" cy="15" r="2.6" fill="currentColor" opacity=".8"/>' +
+    '<circle cx="7" cy="9" r="2.6" fill="currentColor" opacity=".8"/></svg>';
+
+  // speed sign: -1 near / +1 far (see SendPTZFocus's doc comment in
+  // internal/auth/ptz.go) — swap these two speed values if hands-on
+  // testing against real hardware shows a driver's near/far is reversed
+  // from this convention; nothing else here depends on which way is which.
+  [{ icon: FOCUS_ICON_FAR, speed: 1, aria: 'Focus xa (toàn cảnh)' }, { icon: FOCUS_ICON_NEAR, speed: -1, aria: 'Focus gần' }].forEach((f, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', f.aria);
+    btn.title = f.aria;
+    btn.innerHTML = f.icon;
+    btn.style.cssText = 'flex:1;border:none;background:transparent;color:#e6edf3;' +
+      'display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0';
+    wireHoldButton(btn, () => sendFocus(f.speed), sendFocusStop);
+    focusPill.appendChild(btn);
+    if (i === 0) {
+      const divider = document.createElement('div');
+      divider.style.cssText = 'height:1px;background:rgba(255,255,255,.14)';
+      focusPill.appendChild(divider);
+    }
+  });
+
   // ── Save home (overwrites preset 1 with the current position) ───────
   // A separate, plainly destructive action — never hold-to-trigger like
   // the controls above, and always confirmed first since it discards
@@ -187,14 +250,16 @@ function mountPTZOverlay(container, streamName) {
 
   wrap.appendChild(zoomPill);
   wrap.appendChild(pad);
+  wrap.appendChild(focusPill);
   wrap.appendChild(saveBtn);
   if (!container.style.position) container.style.position = 'relative';
   container.appendChild(wrap);
 
   return function unmount() {
-    if (pressed) {
-      pressed = false;
-      sendStop();
+    if (activeStopFn) {
+      const stopFn = activeStopFn;
+      activeStopFn = null;
+      stopFn();
     }
   };
 }
