@@ -212,6 +212,7 @@ tr:hover td { background:var(--surface2); }
     <button class="page-tab" data-tab="traffic" onclick="showTab('traffic')">Traffic</button>
     <button class="page-tab" data-tab="audit" onclick="showTab('audit')">🔍 Đối soát Camera</button>
     <button class="page-tab" data-tab="devbind" onclick="showTab('devbind')">🔐 Xác minh TB</button>
+    <button class="page-tab" data-tab="aievent" onclick="showTab('aievent')">🤖 AI Event</button>
   </div>
 
   <div class="content">
@@ -346,6 +347,28 @@ tr:hover td { background:var(--surface2); }
             </div>
             <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
               Khi bật lớp "🚨 Traffic Event" trên bản đồ (tab Map), chỉ các sự cố có tọa độ và xảy ra trong khoảng thời gian này tính từ hiện tại mới hiển thị dạng bubble trên bản đồ — sự cố cũ hơn tự động biến mất khỏi lớp. Áp dụng cho tất cả user, session.
+            </p>
+          </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị lớp "🤖 AI Event" (phút)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="aiEventWindowInput" min="1" max="1440" step="1" value="10"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 10)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Giống cơ chế của lớp Traffic Event nhưng áp dụng riêng cho sự cố do hệ thống AI ngoài (OMNIA...) đẩy vào — tính theo thời điểm hệ thống nhận được tin, không phải thời điểm OMNIA báo cáo.
+            </p>
+          </div>
+          <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Thời gian lưu ảnh sự cố AI (giờ)</label>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <input type="number" id="aiEventImageRetentionInput" min="1" max="720" step="1" value="4"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">giờ (mặc định: 4)</span>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Ảnh đính kèm sự cố AI (crop/snapshot nhận từ OMNIA) bị xoá khỏi ổ đĩa sau khoảng thời gian này — chỉ ảnh bị xoá, dữ liệu sự cố (thời gian, vị trí, loại...) vẫn được giữ lại.
             </p>
           </div>
           <div>
@@ -1163,6 +1186,125 @@ rtsp:
       </div>
     </div><!-- /devbindSection -->
 
+    <div id="aieventSection" style="display:none">
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">🔑 Tích hợp đẩy dữ liệu (Integration API Key)</h3>
+          <button class="btn btn-primary btn-sm" onclick="openAddIntegration()">+ Tạo tích hợp</button>
+          <button class="btn btn-secondary btn-sm" onclick="loadIntegrationsTab()">🔄 Tải lại</button>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          Mỗi hệ thống bên ngoài (OMNIA/FPT VDS, và các hệ thống khác sau này) cần một API key riêng để đẩy dữ liệu vào
+          đường dẫn được chỉ định. Key hiện ngay sau khi tạo/xoay, và có thể <b>xem lại sau</b> bằng nút 👁 (yêu cầu nhập lại mật khẩu đăng nhập).
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+            <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Đường dẫn cho phép</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Trạng thái</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Dùng lần cuối</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+            </tr></thead>
+            <tbody id="integrationsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.9rem;font-weight:700;margin:0">🧪 Test API Push</h3>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          Gửi thử một bản tin tới chính API nhận sự cố AI — dùng để xác nhận API hoạt động đúng
+          <b>trước khi</b> chuyển thông tin kết nối (đường dẫn + API key) cho bộ phận đối tác (OMNIA/FPT VDS...).
+          Server sẽ tự gửi request này (không gửi trực tiếp từ trình duyệt) để tránh bị chặn bởi CORS khi địa chỉ
+          đích khác domain của trang quản trị này.
+        </div>
+        <div style="padding:0 1.1rem 1.1rem;display:flex;flex-direction:column;gap:.75rem">
+          <div class="f2">
+            <div class="form-group" style="margin:0">
+              <label>Đường dẫn API đầy đủ</label>
+              <input type="text" id="tp-url" class="input" autocomplete="off"
+                placeholder="http://&lt;IP nội bộ&gt;:&lt;port&gt;/api/aievent/omnia/v1/push">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>API Key</label>
+              <input type="text" id="tp-key" class="input" autocomplete="off" placeholder="dán key của tích hợp cần test">
+            </div>
+          </div>
+
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+            <span style="font-size:.75rem;color:var(--text-muted)">Mẫu bản tin:</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushTemplate('created')">📄 event.created (mở sự kiện)</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushTemplate('terminated')">📄 event.terminated (kết thúc sự kiện)</button>
+            <label class="tab-perm-chip" style="margin-left:auto"><input type="checkbox" id="tp-dryrun" checked> ?dry_run=1 (không lưu dữ liệu thật)</label>
+            <label class="tab-perm-chip"><input type="checkbox" id="tp-skiptls"> Bỏ qua xác thực TLS (chứng chỉ tự ký)</label>
+          </div>
+
+          <div class="form-group" style="margin:0">
+            <label>Nội dung bản tin (JSON) — có thể sửa trước khi gửi</label>
+            <textarea id="tp-body" class="input" rows="12" style="font-family:monospace;font-size:.78rem;white-space:pre"></textarea>
+          </div>
+
+          <div class="btn-row" style="margin:0">
+            <button type="button" class="btn btn-primary" id="tp-send-btn" onclick="sendTestPush()">🚀 Gửi test</button>
+          </div>
+
+          <div id="tp-result" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">🗂 Gán icon theo loại sự cố (Category Rules)</h3>
+          <button class="btn btn-primary btn-sm" onclick="openAddCategoryRule()">+ Tạo quy tắc</button>
+          <button class="btn btn-secondary btn-sm" onclick="loadCategoryRulesTab()">🔄 Tải lại</button>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          Mỗi quy tắc gán một <b>typeId</b> (+ <b>subtypeId</b> cụ thể, hoặc để trống = áp dụng cho mọi subtype) với
+          nhãn hiển thị và icon trên bản đồ. Sự cố không khớp quy tắc nào vẫn được lưu và hiển thị, chỉ dùng icon mặc định.
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+            <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">TypeID</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">SubtypeID</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Nhãn</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Icon</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+            </tr></thead>
+            <tbody id="categoryRulesTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">👁 Loại sự cố đã nhận được (Observed Categories)</h3>
+          <button class="btn btn-secondary btn-sm" onclick="loadObservedCategoriesTab()">🔄 Tải lại</button>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          Danh sách tự động ghi nhận mọi (typeId, subtypeId) mà hệ thống đã từng nhận được, kể cả khi chưa có quy tắc
+          gán icon — dùng để biết cần khai báo gán icon cho những loại nào.
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+            <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">TypeID</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">SubtypeID</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">RecordType</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Mô tả mẫu</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Số lần</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Lần cuối</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+            </tr></thead>
+            <tbody id="observedCategoriesTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /aieventSection -->
+
   </div>
 </main>
 
@@ -1298,6 +1440,102 @@ rtsp:
         </form>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ Integration (API Key) Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="integrationDlg">
+  <div class="dlg" style="min-height:unset;width:460px">
+    <h2 id="integrationDlg-title">Tạo tích hợp</h2>
+    <form id="integrationForm" onsubmit="submitIntegration(event)">
+      <input type="hidden" id="integ-id">
+      <div class="form-group">
+        <label>Tên hệ thống</label>
+        <input type="text" id="integ-name" class="input" required autocomplete="off" placeholder="ví dụ: OMNIA / FPT VDS">
+      </div>
+      <div class="form-group">
+        <label>Đường dẫn cho phép</label>
+        <input type="text" id="integ-path" class="input" required autocomplete="off" placeholder="/api/aievent/omnia/v1/push">
+        <p style="font-size:.72rem;color:var(--text-muted);margin:.3rem 0 0">Khóa của tích hợp này chỉ dùng được cho đúng đường dẫn này.</p>
+      </div>
+      <div class="form-group" id="integ-enabled-row" style="display:none">
+        <label class="tab-perm-chip"><input type="checkbox" id="integ-enabled"> Đang bật (cho phép đẩy dữ liệu)</label>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeIntegrationDlg()">Hủy</button>
+        <button type="submit" class="btn btn-primary" id="integrationDlg-btn">Tạo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ Integration API Key Dialog (create/rotate/reveal) ═══════════════════ -->
+<div class="dlg-backdrop" id="integrationKeyDlg">
+  <div class="dlg" style="min-height:unset;width:520px">
+    <h2>🔑 API Key</h2>
+    <p style="font-size:.8rem;color:var(--text-muted);margin:0 0 .6rem">
+      Giữ bí mật key này — không chia sẻ qua kênh không an toàn (chat công khai, email không mã hóa...).
+      Bạn có thể xem lại key này sau bất cứ lúc nào bằng nút <b>👁 Xem key</b> ở danh sách tích hợp
+      (yêu cầu nhập lại mật khẩu đăng nhập của bạn để xác thực).
+    </p>
+    <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+      <input type="text" id="integ-key-value" class="input" readonly style="font-family:monospace;font-size:.82rem">
+      <button type="button" class="btn btn-secondary" onclick="copyIntegrationKey()">Copy</button>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="btn btn-primary" onclick="closeIntegrationKeyDlg()" style="flex:1">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ Integration Reveal-Key (re-auth) Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="integrationRevealDlg">
+  <div class="dlg" style="min-height:unset;width:400px">
+    <h2>🔐 Xác thực để xem key</h2>
+    <form id="integrationRevealForm" onsubmit="submitRevealIntegration(event)">
+      <input type="hidden" id="reveal-integ-id">
+      <div class="form-group">
+        <label>Nhập lại mật khẩu đăng nhập của bạn</label>
+        <input type="password" id="reveal-password" class="input" required autocomplete="current-password">
+      </div>
+      <div id="reveal-err" style="color:var(--red);font-size:.78rem;display:none;margin-bottom:.6rem"></div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeRevealIntegrationDlg()">Hủy</button>
+        <button type="submit" class="btn btn-primary" id="integrationRevealDlg-btn">Xem key</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════ Category Rule Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="categoryRuleDlg">
+  <div class="dlg" style="min-height:unset;width:420px">
+    <h2 id="categoryRuleDlg-title">Tạo quy tắc gán icon</h2>
+    <form id="categoryRuleForm" onsubmit="submitCategoryRule(event)">
+      <input type="hidden" id="catrule-id">
+      <div class="f2">
+        <div class="form-group">
+          <label>TypeID</label>
+          <input type="number" id="catrule-typeid" class="input" required min="0">
+        </div>
+        <div class="form-group">
+          <label>SubtypeID <span style="color:var(--text-muted);font-weight:400">(bỏ trống = mọi subtype)</span></label>
+          <input type="number" id="catrule-subtypeid" class="input" min="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Nhãn hiển thị</label>
+        <input type="text" id="catrule-label" class="input" required autocomplete="off" placeholder="ví dụ: Va chạm giao thông">
+      </div>
+      <div class="form-group">
+        <label>Icon</label>
+        <select id="catrule-icon" class="input"></select>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeCategoryRuleDlg()">Hủy</button>
+        <button type="submit" class="btn btn-primary" id="categoryRuleDlg-btn">Tạo</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -1565,6 +1803,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-search"> 🔍 Search area</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-route"> 🛣 Theo tuyến</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-incident-add"> 🚨 Thêm sự cố từ bản đồ (cần tab Sự cố GT)</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-ai-events"> 🤖 Xem lớp AI Event trên bản đồ</label>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Monitor</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-workers"> 🖥 Xem máy chủ phân tích</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-process"> ⚙ Xem go2rtc process</label>
@@ -1713,6 +1952,7 @@ function showTab(tab) {
   document.getElementById('trafficSection').style.display   = tab === 'traffic'    ? '' : 'none';
   document.getElementById('auditSection').style.display     = tab === 'audit'      ? '' : 'none';
   document.getElementById('devbindSection').style.display   = tab === 'devbind'    ? '' : 'none';
+  document.getElementById('aieventSection').style.display   = tab === 'aievent'    ? '' : 'none';
   const btn = document.getElementById('topbarAddBtn');
   if (tab === 'users') {
     btn.textContent = '+ Add User'; btn.style.display = ''; btn.onclick = openAdd;
@@ -1732,6 +1972,7 @@ function showTab(tab) {
   if (tab === 'traffic')   loadTrafficTab();
   if (tab === 'audit' && !_auditData) runConfigAudit();
   if (tab === 'devbind') loadDeviceBindingsTab();
+  if (tab === 'aievent') loadAIEventTab();
 }
 
 // ════════════════════════════════════════════════════════
@@ -2085,6 +2326,8 @@ async function loadSettings() {
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
     document.getElementById('teWindowInput').value = s.traffic_event_window_minutes || 10;
+    document.getElementById('aiEventWindowInput').value = s.ai_event_window_minutes || 10;
+    document.getElementById('aiEventImageRetentionInput').value = s.ai_event_image_retention_hours || 4;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
@@ -2215,6 +2458,8 @@ async function saveSettings() {
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
   const teWindow    = parseInt(document.getElementById('teWindowInput').value, 10) || 10;
+  const aiEventWindow = parseInt(document.getElementById('aiEventWindowInput').value, 10) || 10;
+  const aiEventImageRetention = parseInt(document.getElementById('aiEventImageRetentionInput').value, 10) || 4;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
@@ -2239,6 +2484,8 @@ async function saveSettings() {
     map_search_radius_km: mapRadius,
     map_route_width_m: mapRouteWidth,
     traffic_event_window_minutes: teWindow,
+    ai_event_window_minutes: aiEventWindow,
+    ai_event_image_retention_hours: aiEventImageRetention,
     default_view_limit_minutes: viewLimit,
     login_hour_range_enabled: loginHourRangeEnabled,
     login_hour_start: loginHourStart,
@@ -2399,6 +2646,7 @@ function openEdit(u) {
   document.getElementById('f-allow-map-search').checked = !!u.allow_map_search;
   document.getElementById('f-allow-map-route').checked = !!u.allow_map_route;
   document.getElementById('f-allow-map-incident-add').checked = !!u.allow_map_incident_add;
+  document.getElementById('f-allow-map-ai-events').checked = !!u.allow_map_ai_events;
   document.getElementById('f-allow-monitor-workers').checked  = !!u.allow_monitor_workers;
   document.getElementById('f-allow-monitor-process').checked  = !!u.allow_monitor_process;
   document.getElementById('f-allow-monitor-streaming').checked = !!u.allow_monitor_streaming;
@@ -2544,6 +2792,448 @@ async function revokeDeviceBinding(id) {
   } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
 }
 
+// ════════════════════════════════════════════════════════
+//  AI EVENT (OMNIA/FPT VDS push) — Integrations, Category Rules,
+//  Observed Categories. See internal/aievent and internal/auth/integrations.go.
+// ════════════════════════════════════════════════════════
+
+const AIEVENT_ICONS = [
+  { key: '',        label: '❓ Mặc định (chưa gán)' },
+  { key: 'dong',    label: '🚗 Đông xe' },
+  { key: 'vachaam', label: '💥 Va chạm' },
+  { key: 'ngap',    label: '🌊 Ngập nước' },
+  { key: 'xesc',    label: '🚧 Xe sự cố' },
+];
+
+function aiEventIconLabel(key) {
+  const found = AIEVENT_ICONS.find(i => i.key === (key || ''));
+  return found ? found.label : (key || '—');
+}
+
+function aiEventFmtTime(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleString('vi-VN'); } catch { return iso; }
+}
+
+async function loadAIEventTab() {
+  await Promise.all([loadIntegrationsTab(), loadCategoryRulesTab(), loadObservedCategoriesTab()]);
+  if (!document.getElementById('tp-body').value.trim()) loadTestPushTemplate('created');
+}
+
+// ── Integrations (API keys) ──────────────────────────────────────────────
+let _integrationsData = [];
+
+async function loadIntegrationsTab() {
+  const tbody = document.getElementById('integrationsTbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  try {
+    _integrationsData = await apiFetch('/api/integrations') || [];
+    renderIntegrationsTable();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderIntegrationsTable() {
+  const tbody = document.getElementById('integrationsTbody');
+  if (!_integrationsData.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted)">Chưa có tích hợp nào.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _integrationsData.map(it => `
+    <tr>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(it.name)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.78rem">${esc(it.allowed_path)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${it.enabled ? '<span style="color:#4ade80">✓ Đang bật</span>' : '<span style="color:var(--text-muted)">✗ Đã tắt</span>'}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${aiEventFmtTime(it.last_used_at)}${it.last_used_ip ? ' · ' + esc(it.last_used_ip) : ''}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;gap:.4rem;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="openRevealIntegration('${esc(it.id)}')">👁 Xem key</button>
+        <button class="btn btn-secondary btn-sm" onclick="openEditIntegration('${esc(it.id)}')">Sửa</button>
+        <button class="btn btn-secondary btn-sm" onclick="rotateIntegration('${esc(it.id)}')">Xoay key</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteIntegration('${esc(it.id)}')">Xóa</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openAddIntegration() {
+  document.getElementById('integrationDlg-title').textContent = 'Tạo tích hợp';
+  document.getElementById('integrationDlg-btn').textContent = 'Tạo';
+  document.getElementById('integ-id').value = '';
+  document.getElementById('integ-name').value = '';
+  document.getElementById('integ-path').value = '/api/aievent/omnia/v1/push';
+  document.getElementById('integ-enabled-row').style.display = 'none';
+  document.getElementById('integrationDlg').classList.add('open');
+}
+
+function openEditIntegration(id) {
+  const it = _integrationsData.find(x => x.id === id);
+  if (!it) return;
+  document.getElementById('integrationDlg-title').textContent = 'Sửa tích hợp';
+  document.getElementById('integrationDlg-btn').textContent = 'Lưu';
+  document.getElementById('integ-id').value = it.id;
+  document.getElementById('integ-name').value = it.name;
+  document.getElementById('integ-path').value = it.allowed_path;
+  document.getElementById('integ-enabled-row').style.display = '';
+  document.getElementById('integ-enabled').checked = !!it.enabled;
+  document.getElementById('integrationDlg').classList.add('open');
+}
+
+function closeIntegrationDlg() { document.getElementById('integrationDlg').classList.remove('open'); }
+
+async function submitIntegration(ev) {
+  ev.preventDefault();
+  const id = document.getElementById('integ-id').value;
+  const name = document.getElementById('integ-name').value.trim();
+  const allowed_path = document.getElementById('integ-path').value.trim();
+  try {
+    if (id) {
+      const enabled = document.getElementById('integ-enabled').checked;
+      await apiFetch(`/api/integrations/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, allowed_path, enabled } });
+      toast('Đã lưu tích hợp.', 'success');
+      closeIntegrationDlg();
+      await loadIntegrationsTab();
+    } else {
+      const resp = await apiFetch('/api/integrations', { method: 'POST', body: { name, allowed_path } });
+      closeIntegrationDlg();
+      await loadIntegrationsTab();
+      showIntegrationKey(resp.key);
+    }
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+async function rotateIntegration(id) {
+  if (!confirm('Xoay (tạo mới) key cho tích hợp này? Key cũ sẽ ngừng hoạt động ngay.')) return;
+  try {
+    const resp = await apiFetch(`/api/integrations/${encodeURIComponent(id)}/rotate`, { method: 'POST' });
+    showIntegrationKey(resp.key);
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+async function deleteIntegration(id) {
+  if (!confirm('Xóa tích hợp này? Key của nó sẽ ngừng hoạt động ngay và không thể khôi phục.')) return;
+  try {
+    await apiFetch(`/api/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('Đã xóa tích hợp.', 'success');
+    await loadIntegrationsTab();
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+function showIntegrationKey(key) {
+  document.getElementById('integ-key-value').value = key;
+  document.getElementById('integrationKeyDlg').classList.add('open');
+}
+
+function closeIntegrationKeyDlg() {
+  document.getElementById('integ-key-value').value = '';
+  document.getElementById('integrationKeyDlg').classList.remove('open');
+}
+
+function copyIntegrationKey() {
+  const input = document.getElementById('integ-key-value');
+  input.select();
+  navigator.clipboard?.writeText(input.value).then(
+    () => toast('Đã copy key.', 'success'),
+    () => document.execCommand('copy')
+  );
+}
+
+// ── Reveal an existing integration's key (re-auth with current password) ──
+function openRevealIntegration(id) {
+  document.getElementById('reveal-integ-id').value = id;
+  document.getElementById('reveal-password').value = '';
+  document.getElementById('reveal-err').style.display = 'none';
+  document.getElementById('integrationRevealDlg').classList.add('open');
+}
+
+function closeRevealIntegrationDlg() {
+  document.getElementById('integrationRevealDlg').classList.remove('open');
+}
+
+async function submitRevealIntegration(ev) {
+  ev.preventDefault();
+  const id = document.getElementById('reveal-integ-id').value;
+  const password = document.getElementById('reveal-password').value;
+  const errEl = document.getElementById('reveal-err');
+  errEl.style.display = 'none';
+  try {
+    const resp = await apiFetch(`/api/integrations/${encodeURIComponent(id)}/reveal`, { method: 'POST', body: { password } });
+    closeRevealIntegrationDlg();
+    showIntegrationKey(resp.key);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = '';
+  }
+}
+
+// ── Category Rules ───────────────────────────────────────────────────────
+let _categoryRulesData = [];
+
+async function loadCategoryRulesTab() {
+  const tbody = document.getElementById('categoryRulesTbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  try {
+    _categoryRulesData = await apiFetch('/api/aievent/category-rules') || [];
+    renderCategoryRulesTable();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderCategoryRulesTable() {
+  const tbody = document.getElementById('categoryRulesTbody');
+  if (!_categoryRulesData.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted)">Chưa có quy tắc nào.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _categoryRulesData.map(r => `
+    <tr>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${r.type_id}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${r.subtype_id == null ? '<span style="color:var(--text-muted)">mọi subtype</span>' : r.subtype_id}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(r.label)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(aiEventIconLabel(r.icon))}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;gap:.4rem">
+        <button class="btn btn-secondary btn-sm" onclick="openEditCategoryRule('${esc(r.id)}')">Sửa</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteCategoryRule('${esc(r.id)}')">Xóa</button>
+      </td>
+    </tr>`).join('');
+}
+
+function fillCategoryRuleIconSelect(selected) {
+  const sel = document.getElementById('catrule-icon');
+  sel.innerHTML = AIEVENT_ICONS.map(i => `<option value="${esc(i.key)}" ${i.key === (selected || '') ? 'selected' : ''}>${esc(i.label)}</option>`).join('');
+}
+
+function openAddCategoryRule(presetTypeID, presetSubtypeID) {
+  document.getElementById('categoryRuleDlg-title').textContent = 'Tạo quy tắc gán icon';
+  document.getElementById('categoryRuleDlg-btn').textContent = 'Tạo';
+  document.getElementById('catrule-id').value = '';
+  document.getElementById('catrule-typeid').value = presetTypeID ?? '';
+  document.getElementById('catrule-subtypeid').value = presetSubtypeID ?? '';
+  document.getElementById('catrule-label').value = '';
+  fillCategoryRuleIconSelect('');
+  document.getElementById('categoryRuleDlg').classList.add('open');
+}
+
+function openEditCategoryRule(id) {
+  const r = _categoryRulesData.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('categoryRuleDlg-title').textContent = 'Sửa quy tắc gán icon';
+  document.getElementById('categoryRuleDlg-btn').textContent = 'Lưu';
+  document.getElementById('catrule-id').value = r.id;
+  document.getElementById('catrule-typeid').value = r.type_id;
+  document.getElementById('catrule-subtypeid').value = r.subtype_id == null ? '' : r.subtype_id;
+  document.getElementById('catrule-label').value = r.label;
+  fillCategoryRuleIconSelect(r.icon);
+  document.getElementById('categoryRuleDlg').classList.add('open');
+}
+
+function closeCategoryRuleDlg() { document.getElementById('categoryRuleDlg').classList.remove('open'); }
+
+async function submitCategoryRule(ev) {
+  ev.preventDefault();
+  const id = document.getElementById('catrule-id').value;
+  const type_id = parseInt(document.getElementById('catrule-typeid').value, 10);
+  const subStr = document.getElementById('catrule-subtypeid').value.trim();
+  const subtype_id = subStr === '' ? null : parseInt(subStr, 10);
+  const label = document.getElementById('catrule-label').value.trim();
+  const icon = document.getElementById('catrule-icon').value;
+  try {
+    if (id) {
+      await apiFetch(`/api/aievent/category-rules/${encodeURIComponent(id)}`, { method: 'PUT', body: { type_id, subtype_id, label, icon } });
+      toast('Đã lưu quy tắc.', 'success');
+    } else {
+      await apiFetch('/api/aievent/category-rules', { method: 'POST', body: { type_id, subtype_id, label, icon } });
+      toast('Đã tạo quy tắc.', 'success');
+    }
+    closeCategoryRuleDlg();
+    await loadCategoryRulesTab();
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+async function deleteCategoryRule(id) {
+  if (!confirm('Xóa quy tắc này? Sự cố thuộc loại này sẽ quay về icon mặc định.')) return;
+  try {
+    await apiFetch(`/api/aievent/category-rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('Đã xóa quy tắc.', 'success');
+    await loadCategoryRulesTab();
+  } catch (e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+// ── Observed Categories (read-only auto-registry) ────────────────────────
+async function loadObservedCategoriesTab() {
+  const tbody = document.getElementById('observedCategoriesTbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  try {
+    const list = await apiFetch('/api/aievent/observed-categories') || [];
+    if (!list.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Chưa nhận được sự cố nào.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map(o => `
+      <tr>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.type_id}</td>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.subtype_id}</td>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(o.record_type || '—')}</td>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${esc(o.description || '—')}</td>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.count}</td>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${aiEventFmtTime(o.last_seen)}</td>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
+          <button class="btn btn-secondary btn-sm" onclick="openAddCategoryRule(${o.type_id}, ${o.subtype_id})">Gán icon</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ── Test API Push — verbatim from docs/omnia-integration-api-spec.md §12 ──
+// recordId gets a fresh "TEST_..." suffix each time a template is loaded (not
+// hardcoded from the spec) so repeated test runs don't collide against the
+// same stored record every time.
+function _tpFreshRecordId() { return 'TEST_' + Date.now(); }
+
+function _tpTemplate(kind, recordId) {
+  if (kind === 'terminated') {
+    return {
+      type: 'event.terminated',
+      publishedAt: new Date().toISOString(),
+      recordId,
+      situationId: 'SIT_' + recordId,
+      recordType: 'VehicleObstruction',
+      eventCode: 'EVT:639270657291513802',
+      category: { typeId: 12, subtypeId: 41, description: '12/41 (Incident - broken down vehicle(s))', rule: 'broken down vehicle' },
+      event: {
+        Description: 'Incident - broken down vehicle(s)',
+        Category: { Type: { Id: 12 }, Subtype: { Id: 41 } },
+        StartTime: { Value: '2026-09-25T03:48:54Z' },
+        EndTime: { Value: '2026-09-25T04:20:00Z' },
+        Classification: { Id: '8' },
+        Status: { Id: 'C' },
+        CreatorUserName: 'fptvds',
+        ValidatorUserName: null,
+        AssigneeUserName: null,
+        Source: { Processor: 'FPT VDS', Delegate: 'Unassigned' },
+        Published: false,
+        Location: { Type: 'Geometry', Geometry: { Type: 'Point' }, X: 106.688, Y: 10.78393 },
+        Attachments: [],
+        IncidentAttributes: {
+          LightVehicles: 0, HeavyVehicles: 0, TrafficFlow: 0,
+          Weather: 0, Fatalities: 0, PersonInjured: 0,
+          DamageToMotorway: 0, SpillageOnMotorway: 0,
+          LanesBitmask: null, Roundabout: 0, OffRamp: 0,
+          OnRamp: 0, ServiceRoad: 0, Shoulder: 0,
+          Bridge: 0, RoadTypeId: null,
+        },
+        IsReadOnly: false,
+        Reliability: 100,
+      },
+      attachmentCount: 0,
+    };
+  }
+  return {
+    type: 'event.created',
+    publishedAt: new Date().toISOString(),
+    recordId,
+    situationId: 'SIT_' + recordId,
+    recordType: 'VehicleObstruction',
+    eventCode: 'EVT:639270657291513802',
+    category: { typeId: 12, subtypeId: 41, description: '12/41 (Incident - broken down vehicle(s))', rule: 'broken down vehicle' },
+    event: {
+      Description: 'Incident - broken down vehicle(s)',
+      Category: { Type: { Id: 12 }, Subtype: { Id: 41 } },
+      StartTime: { Value: '2026-09-25T03:48:54Z' },
+      EndTime: null,
+      Classification: { Id: '8' },
+      Status: { Id: 'A' },
+      CreatorUserName: 'fptvds',
+      ValidatorUserName: null,
+      AssigneeUserName: null,
+      Source: { Processor: 'FPT VDS', Delegate: 'Unassigned' },
+      Published: false,
+      Location: { Type: 'Geometry', Geometry: { Type: 'Point' }, X: 106.688, Y: 10.78393 },
+      Attachments: [
+        { Name: 'snapshot.jpg', Content: '/9j/4AAQSkZJRgABAgAAAQABAAD...' },
+      ],
+      IncidentAttributes: {
+        LightVehicles: 0, HeavyVehicles: 0, TrafficFlow: 0,
+        Weather: 0, Fatalities: 0, PersonInjured: 0,
+        DamageToMotorway: 0, SpillageOnMotorway: 0,
+        LanesBitmask: null, Roundabout: 0, OffRamp: 0,
+        OnRamp: 0, ServiceRoad: 0, Shoulder: 0,
+        Bridge: 0, RoadTypeId: null,
+      },
+      IsReadOnly: false,
+      Reliability: 100,
+    },
+    attachmentCount: 1,
+  };
+}
+
+function loadTestPushTemplate(kind) {
+  document.getElementById('tp-body').value = JSON.stringify(_tpTemplate(kind, _tpFreshRecordId()), null, 2);
+}
+
+async function sendTestPush() {
+  const url = document.getElementById('tp-url').value.trim();
+  const api_key = document.getElementById('tp-key').value.trim();
+  const body = document.getElementById('tp-body').value;
+  const dry_run = document.getElementById('tp-dryrun').checked;
+  const skip_tls_verify = document.getElementById('tp-skiptls').checked;
+  const resultEl = document.getElementById('tp-result');
+
+  if (!url) { toast('Nhập đường dẫn API trước.', 'error'); return; }
+
+  const btn = document.getElementById('tp-send-btn');
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Đang gửi…';
+  resultEl.style.display = 'none';
+
+  try {
+    const res = await apiFetch('/api/aievent/test-push', {
+      method: 'POST',
+      body: { url, api_key, body, dry_run, skip_tls_verify },
+    });
+    renderTestPushResult(res);
+  } catch (e) {
+    resultEl.style.display = '';
+    resultEl.innerHTML = `<div style="padding:.7rem .9rem;border-radius:8px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:var(--red);font-size:.82rem">Lỗi gọi API nội bộ: ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = origText;
+  }
+}
+
+function renderTestPushResult(res) {
+  const resultEl = document.getElementById('tp-result');
+  resultEl.style.display = '';
+
+  if (res.error) {
+    resultEl.innerHTML = `
+      <div style="padding:.7rem .9rem;border-radius:8px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3)">
+        <div style="font-weight:700;color:var(--red);font-size:.85rem;margin-bottom:.3rem">✗ Không gửi được (lỗi kết nối)</div>
+        <div style="font-size:.8rem;color:var(--text)">${esc(res.error)}</div>
+        ${res.elapsed_ms ? `<div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">${res.elapsed_ms} ms</div>` : ''}
+      </div>`;
+    return;
+  }
+
+  const ok2xx = res.status_code >= 200 && res.status_code < 300;
+  const color = ok2xx ? '#4ade80' : '#f87171';
+  const bg = ok2xx ? 'rgba(74,222,128,.08)' : 'rgba(248,81,73,.08)';
+  const border = ok2xx ? 'rgba(74,222,128,.3)' : 'rgba(248,81,73,.3)';
+  let pretty = res.response_body;
+  try { pretty = JSON.stringify(JSON.parse(res.response_body), null, 2); } catch {}
+
+  resultEl.innerHTML = `
+    <div style="padding:.7rem .9rem;border-radius:8px;background:${bg};border:1px solid ${border}">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem">
+        <span style="font-weight:700;font-size:.85rem;color:${color}">${ok2xx ? '✓' : '✗'} HTTP ${esc(res.status_text || String(res.status_code))}</span>
+        <span style="font-size:.72rem;color:var(--text-muted)">${res.elapsed_ms} ms</span>
+        ${res.truncated ? '<span style="font-size:.72rem;color:var(--text-muted)">(đã cắt bớt nội dung)</span>' : ''}
+      </div>
+      <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:.78rem;font-family:monospace;color:var(--text)">${esc(pretty || '(rỗng)')}</pre>
+    </div>`;
+}
+
 function onRoleChange() {
   const isAdmin = document.getElementById('f-role').value === 'admin';
   document.getElementById('cam-section').style.display = isAdmin ? 'none' : '';
@@ -2684,6 +3374,7 @@ async function submitForm(e) {
   const allow_map_search       = role === 'admin' ? true : document.getElementById('f-allow-map-search').checked;
   const allow_map_route        = role === 'admin' ? true : document.getElementById('f-allow-map-route').checked;
   const allow_map_incident_add = role === 'admin' ? true : document.getElementById('f-allow-map-incident-add').checked;
+  const allow_map_ai_events   = role === 'admin' ? true : document.getElementById('f-allow-map-ai-events').checked;
   const allow_monitor_workers  = role === 'admin' ? true : document.getElementById('f-allow-monitor-workers').checked;
   const allow_monitor_process  = role === 'admin' ? true : document.getElementById('f-allow-monitor-process').checked;
   const allow_monitor_streaming = role === 'admin' ? true : document.getElementById('f-allow-monitor-streaming').checked;
@@ -2697,7 +3388,7 @@ async function submitForm(e) {
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
   const device_binding_scopes  = role === 'admin' ? [] : getCheckedDeviceScopes();
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 

@@ -155,6 +155,16 @@ func Init() {
 	}
 	initUserLocations(userLocPath)
 
+	// External push integrations (OMNIA and future sources) — non-fatal
+	integrationsPath := filepath.Join(filepath.Dir(usersPath), "integrations.json")
+	if usersPath == "users.json" {
+		integrationsPath = "integrations.json"
+	}
+	if err := initIntegrations(integrationsPath); err != nil {
+		log.Warn().Err(err).Msg("[auth] integrations load failed (continuing)")
+	}
+	startIntegrationThrottleSweeper()
+
 	registerHandlers()
 	registerProxyHandlers()
 	registerLocationHandlers()
@@ -174,6 +184,7 @@ func Init() {
 	registerDeviceBindingHandler()
 	registerTrafficLiveHandler()
 	registerPTZHandlers()
+	registerIntegrationsHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }

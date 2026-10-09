@@ -57,6 +57,12 @@ type User struct {
 	// this flag only controls whether the map shows the convenience button,
 	// same client-only-gate convention as AllowMapSearch/AllowMapRoute above.
 	AllowMapIncidentAdd bool `json:"allow_map_incident_add"`
+	// AllowMapAIEvents gates map.html's "🤖 AI Event" layer — bubbles for
+	// incidents an external AI system (OMNIA/FPT VDS and, later, other
+	// sources — see internal/aievent) pushed in. View-only, unlike
+	// AllowMapIncidentAdd: there's no manual-entry counterpart to this
+	// layer, so this flag alone fully controls whether a user can see it.
+	AllowMapAIEvents bool `json:"allow_map_ai_events"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process

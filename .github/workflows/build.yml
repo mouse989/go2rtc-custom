@@ -121,14 +121,37 @@ jobs:
   build-yolo-linux64:
     name: Build yolo_counter (Linux x64)
     runs-on: ubuntu-22.04
+    # bookworm (Debian 12), not bullseye (Debian 11): bullseye's
+    # debian-security pool has been getting its older point-release .deb
+    # files pruned as it moves through its LTS/ELTS sunset, which is what
+    # caused "404 Not Found" apt-get fetch failures here — bookworm is the
+    # current stable release and isn't going through that churn.
     container:
-      image: python:3.11-slim-bullseye
+      image: python:3.11-slim-bookworm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install system libs
-        run: apt-get update -y && apt-get install -y libglib2.0-0 libgl1 binutils
+        # Retried: deb.debian.org is a CDN of mirrors that can momentarily
+        # disagree with each other right after a security point release
+        # (Release metadata vs. actual pool contents) — a transient 404 on
+        # one attempt is usually gone by the next, so this is cheap
+        # insurance against the same class of flake even on bookworm. The
+        # explicit exit codes matter: a bare `cmd && break` loop under
+        # bash's default `-e` would exit this step 0 even if every attempt
+        # failed (the last command run would be `sleep`, not the failing
+        # apt-get), silently skipping these libs instead of failing the build.
+        run: |
+          for i in 1 2 3; do
+            if apt-get update -y && apt-get install -y libglib2.0-0 libgl1 binutils; then
+              exit 0
+            fi
+            echo "apt-get attempt $i failed, retrying..." >&2
+            sleep 5
+          done
+          echo "apt-get install failed after 3 attempts" >&2
+          exit 1
 
       - name: Install CPU-only PyTorch (lighter build)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu

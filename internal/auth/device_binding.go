@@ -66,6 +66,11 @@ var deviceScopeCatalog = []DeviceScope{
 		Label:        "Giám sát thiết bị hạ tầng",
 		PathPrefixes: []string{"/api/device-stats"},
 	},
+	{
+		Key:          "ai_event_image",
+		Label:        "Xem ảnh sự cố AI (OMNIA)",
+		PathPrefixes: []string{"/api/aievent/image"},
+	},
 }
 
 // DeviceScopeCatalog returns the fixed catalog (for the admin UI / API).

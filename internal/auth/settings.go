@@ -56,9 +56,22 @@ type AppSettings struct {
 	// for. An incident whose Time falls outside [now-window, now] is no
 	// longer "live" and drops off the layer on the next poll. 0 → default
 	// 10 minutes. See internal/incidents/api.go's handleActive.
-	TrafficEventWindowMinutes int            `json:"traffic_event_window_minutes"`
-	HeatmapCfg                *HeatmapConfig `json:"heatmap_cfg,omitempty"`
-	DefaultViewLimitMinutes   int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
+	TrafficEventWindowMinutes int `json:"traffic_event_window_minutes"`
+	// AIEventWindowMinutes: same idea as TrafficEventWindowMinutes above but
+	// for the separate "🤖 AI Event" map layer (internal/aievent) — events
+	// pushed in by an external AI system (OMNIA and, later, others). Kept as
+	// its own setting rather than reusing TrafficEventWindowMinutes since
+	// the two layers are independent data sources with independent
+	// toggles. 0 → default 10 minutes.
+	AIEventWindowMinutes int `json:"ai_event_window_minutes"`
+	// AIEventImageRetentionHours: how many hours an AI-event attachment
+	// image stays on disk before the cleanup sweep deletes it (the event's
+	// own metadata record is kept indefinitely — only the image files are
+	// pruned, since they're only useful for a short review window after the
+	// fact). 0 → default 4 hours. See internal/aievent's image retention job.
+	AIEventImageRetentionHours int            `json:"ai_event_image_retention_hours"`
+	HeatmapCfg                 *HeatmapConfig `json:"heatmap_cfg,omitempty"`
+	DefaultViewLimitMinutes    int            `json:"default_view_limit_minutes"` // 0 → built-in default (see ViewSessionLimit)
 
 	// Security-alert "normal login hours" window (Asia/Ho_Chi_Minh). When
 	// enabled, a successful login outside [LoginHourStart, LoginHourEnd)

@@ -376,6 +376,55 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,.85);
 }
 
+/* ── AI Event layer markers (OMNIA/FPT VDS push) ─────────────────
+   Same bubble mechanics as .te-marker, distinct cyan border so the two
+   independent layers read apart at a glance; icon mapping is admin-
+   configured server-side (internal/aievent/categories.go) rather than a
+   fixed per-category list, so unmapped/unmatched events fall back to a
+   generic gray ❓ instead of ❗ (Traffic Event's fallback) to signal
+   "unclassified AI source", not "unrecognized category". */
+.aie-marker {
+  position:relative; width:30px; height:30px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:15px; line-height:1; cursor:pointer;
+  border:2px solid #22d3ee; box-shadow:0 2px 8px rgba(0,0,0,.55);
+  transition:transform .15s, box-shadow .15s;
+  background:#6b7280;
+}
+.aie-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
+.aie-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
+
+/* ── AI Event image preview box ("Xem trước"-style, no LIVE badge) ───
+   Same floating-box mechanics/size as .snap-preview (always shown near
+   the marker while the layer is on, no separate toggle) but cyan-bordered
+   to match .aie-marker, and intentionally has no live/blinking badge —
+   these are static attachment snapshots from the source push, not a
+   live camera feed. */
+.aie-preview {
+  position:absolute;
+  width:148px;
+  background:#0b0e13;
+  border:1.5px solid #22d3ee;
+  border-radius:6px;
+  overflow:hidden;
+  box-shadow:0 3px 14px rgba(0,0,0,.6);
+  cursor:pointer;
+  user-select:none;
+  pointer-events:all;
+}
+.aie-preview:hover { border-color:#67e8f9; }
+.aie-preview img { width:100%; aspect-ratio:16/10; display:block; object-fit:cover; background:#111; }
+.aie-preview .aie-count {
+  position:absolute; top:.25rem; right:.35rem;
+  font-size:.58rem; font-weight:700; color:#fff;
+  background:rgba(0,0,0,.6); padding:.05rem .35rem; border-radius:3px;
+}
+.aie-preview .aie-label {
+  font-size:.64rem; padding:.22rem .4rem; color:#e6edf3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  background:rgba(0,0,0,.55);
+}
+
 /* ── Station / type edit panels ─────────────────────────────── */
 #stnPanel, #stnTypePanel {
   position:fixed; right:.8rem; top:50%; transform:translateY(-50%);
@@ -608,6 +657,13 @@ body.sb-collapsed           { --map-left:0; }
        pre-filled with that point's lat/lng — same toggle, two effects of one "layer". -->
   <button class="map-btn" id="btnIncidentAdd" style="display:none" title="Bật để xem sự cố gần đây trên bản đồ; click phải (chuột phải) để thêm sự cố mới tại vị trí đó — tọa độ tự điền vào form">
     🚨 Traffic Event
+  </button>
+  <!-- AI Event: shown only for admin or users with allow_map_ai_events. Independent layer/toggle
+       from Traffic Event — shows bubble markers for events pushed by external AI sources
+       (OMNIA/FPT VDS...) within the admin-configured time window, plus a floating image
+       preview near any event that has an attachment (may require device verification). -->
+  <button class="map-btn" id="btnAIEvent" style="display:none" title="Bật để xem sự cố AI (OMNIA/FPT VDS...) gần đây trên bản đồ">
+    🤖 AI Event
   </button>
   <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
   <button class="map-btn" id="btnTraffic" style="display:none">
@@ -1087,6 +1143,12 @@ let _searchMode = false, _editMode = false, _editingID = null;
 let _incidentAddMode = false; // "Traffic Event" layer on: right-click opens the add modal, pre-filled with that point's lat/lng
 let _teMarkers = {};      // incident id -> { marker, el } — the layer's live bubble markers
 let _tePollTimer = null;  // setInterval handle refreshing _teMarkers while the layer is on
+// ── AI Event layer ("🤖 AI Event" toggle) state ──
+let _aiEventMode = false;       // layer on: shows AI-source event bubbles + image previews
+let _aiEventMarkers = {};       // record_id -> { marker, el } — bubble markers
+let _aiEventPreviews = new Map(); // record_id -> { el, img, lon, lat } — floating image preview boxes
+let _aiEventPollTimer = null;   // setInterval handle refreshing the above while the layer is on
+let _aiEventImgDenied = false;  // true once the user has declined device verification this session (avoid re-prompting every poll)
 // ── Route corridor tool ("Theo tuyến") state ──
 let _routeMode  = false;   // panel open / map clicks add route points
 let _routePoints = [];     // [[lng,lat], ...] clicked points, in click order (start → end)
@@ -1426,6 +1488,7 @@ async function initMap(apiKey) {
   map.on('render', scheduleClusterUpdate);
   // Snapshot preview thumbnails — same throttled render hook (no-op unless enabled)
   map.on('render', schedulePreviewUpdate);
+  map.on('render', scheduleAIEventPreviewUpdate);
 
   // Click events are registered once (survive style change)
   map.on('click', 'clusters', async e => {
@@ -2517,6 +2580,28 @@ document.getElementById('btnIncidentAdd').addEventListener('click', function() {
 // another tab/page, switched back to Map to check it".
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && _incidentAddMode) loadActiveIncidents();
+  if (!document.hidden && _aiEventMode) loadActiveAIEvents();
+});
+
+// Independent layer, not mutually exclusive with Traffic Event or any other
+// map tool — same as 🚦 Traffic / 🌡 Heatmap / 📷 Xem trước, it's a passive
+// display layer, not an editing mode, so it's intentionally left out of
+// exitOtherMapModes().
+document.getElementById('btnAIEvent').addEventListener('click', function() {
+  const turningOn = !_aiEventMode;
+  _aiEventMode = turningOn;
+  this.classList.toggle('active', _aiEventMode);
+  if (turningOn) {
+    _aiEventImgDenied = false; // give the step-up prompt a fresh chance each time the layer is turned on
+    loadActiveAIEvents();
+    if (_aiEventPollTimer) clearInterval(_aiEventPollTimer);
+    _aiEventPollTimer = setInterval(loadActiveAIEvents, 10000); // keep bubbles/previews fresh as events age out of the window
+  } else {
+    if (_aiEventPollTimer) { clearInterval(_aiEventPollTimer); _aiEventPollTimer = null; }
+    Object.values(_aiEventMarkers).forEach(({ marker }) => marker.remove());
+    _aiEventMarkers = {};
+    clearAIEventPreviews();
+  }
 });
 
 document.getElementById('btnEdit').addEventListener('click', async function() {
@@ -2923,6 +3008,152 @@ async function loadActiveIncidents() {
   });
 }
 document.getElementById('incAddModalBackdrop').addEventListener('click', e => { if (e.target === e.currentTarget) closeMapIncidentModal(); });
+
+// ── AI Event layer: bubble markers + image previews (OMNIA/FPT VDS push) ──
+// Icon file for a given icon key reported by GET /api/aievent/active (see
+// internal/aievent/categories.go's ValidIconKeys — the mapping itself is
+// admin-configured server-side, this is just "which artwork for which
+// key", same 4 files the Traffic Event layer already ships).
+function aieMarkerContentFor(ev) {
+  switch (ev.icon) {
+    case 'dong':    return { html: '<img class="aie-marker-img" src="traffic-jam.png" alt="">' };
+    case 'vachaam': return { html: '<img class="aie-marker-img" src="va-cham.png" alt="">' };
+    case 'ngap':    return { html: '<img class="aie-marker-img" src="ngap-nuoc.png" alt="">' };
+    case 'xesc':    return { html: '<img class="aie-marker-img" src="xe-su-co.png" alt="">' };
+    default:        return { html: '❓' }; // unmapped/unclassified — see .aie-marker's comment
+  }
+}
+
+// Fetches events within the admin-configured AI Event time window
+// (internal/aievent/api.go's handleActive) and syncs both the bubble
+// markers and the floating image previews to match — same "diff against
+// last-known set" approach as loadActiveIncidents, applied to two parallel
+// collections (_aiEventMarkers, _aiEventPreviews) instead of one.
+async function loadActiveAIEvents() {
+  if (!_aiEventMode || !map) return;
+  let list;
+  try { list = await apiFetch('/api/aievent/active'); }
+  catch (e) { return; } // keep showing the last-known set rather than clearing on a transient failure
+  if (!Array.isArray(list)) return;
+
+  const seen = new Set();
+  const withImages = [];
+  list.forEach(ev => {
+    seen.add(ev.record_id);
+    const { html } = aieMarkerContentFor(ev);
+    const tip = [ev.category_label, ev.description, ev.source_processor].filter(Boolean).join('\n');
+
+    let entry = _aiEventMarkers[ev.record_id];
+    if (!entry) {
+      const el = document.createElement('div');
+      el.className = 'aie-marker';
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        if (typeof toast === 'function') toast(el.title.replace(/\n/g, ' — '), 'info');
+      });
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([ev.lng, ev.lat]);
+      marker.addTo(map);
+      entry = _aiEventMarkers[ev.record_id] = { marker, el };
+    }
+    entry.el.innerHTML = html;
+    entry.el.title = tip;
+
+    if (ev.image_paths && ev.image_paths.length) withImages.push(ev);
+  });
+  // Drop markers for events that aged out of the window since the last poll.
+  Object.keys(_aiEventMarkers).forEach(id => {
+    if (!seen.has(id)) { _aiEventMarkers[id].marker.remove(); delete _aiEventMarkers[id]; }
+  });
+
+  await syncAIEventPreviews(withImages);
+}
+
+// ── AI Event image previews ("Xem trước"-style floating box, no LIVE badge) ──
+// Reuses the camera-preview box's exact size/overlap-avoidance algorithm
+// (PREVIEW_W/H, resolvePreviewOverlaps) — same visual footprint as
+// buildPreviewEl's .snap-preview, just its own CSS class (.aie-preview,
+// no .sp-badge) and a different image source (GET /api/aievent/image,
+// gated behind the "ai_event_image" device-binding scope rather than a
+// live camera snapshot).
+function buildAIEventPreviewEl(ev) {
+  const el = document.createElement('div');
+  el.className = 'aie-preview';
+  const countBadge = ev.image_paths.length > 1 ? `<span class="aie-count">1/${ev.image_paths.length}</span>` : '';
+  el.innerHTML = `<img alt="">${countBadge}<div class="aie-label"></div>`;
+  el.querySelector('.aie-label').textContent = ev.category_label || ev.description || 'Sự cố AI';
+  el.querySelector('img').src = aiEventImageURL(ev.image_paths[0]);
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    const entry = _aiEventMarkers[ev.record_id];
+    if (entry) entry.el.click(); // same tooltip toast as clicking the bubble underneath
+  });
+  return el;
+}
+
+function aiEventImageURL(relPath) {
+  return `/api/aievent/image?path=${encodeURIComponent(relPath)}&token=${encodeURIComponent(_token || '')}`;
+}
+
+function clearAIEventPreviews() {
+  _aiEventPreviews.forEach(entry => entry.el.remove());
+  _aiEventPreviews.clear();
+}
+
+function positionAIEventPreviews() {
+  if (!map || !_aiEventPreviews.size) return;
+  const cont = document.getElementById('mapOverlays');
+  const cW = cont.offsetWidth, cH = cont.offsetHeight;
+  const items = [];
+  _aiEventPreviews.forEach((entry, id) => {
+    const pt = map.project([entry.lon, entry.lat]);
+    items.push({ id, x: pt.x - PREVIEW_W/2, y: pt.y - PREVIEW_H - 14 });
+  });
+  resolvePreviewOverlaps(items, cW, cH);
+  items.forEach(item => {
+    const entry = _aiEventPreviews.get(item.id);
+    if (entry) { entry.el.style.left = item.x+'px'; entry.el.style.top = item.y+'px'; }
+  });
+}
+
+// Rebuilds the preview-box set from the current withImages list. Requires
+// device verification (scope "ai_event_image") before showing ANY image —
+// prompted once per layer-on, not re-prompted every 10s poll if declined
+// (see _aiEventImgDenied), same spirit as setPreviewMode's one-time prompt
+// when the 📷 Xem trước layer is turned on.
+async function syncAIEventPreviews(withImages) {
+  if (!withImages.length) { clearAIEventPreviews(); return; }
+  if (!_aiEventImgDenied) {
+    const ok = await ensureDeviceVerified('ai_event_image');
+    if (!ok) _aiEventImgDenied = true;
+  }
+  if (_aiEventImgDenied) { clearAIEventPreviews(); return; }
+
+  const seen = new Set();
+  const cont = document.getElementById('mapOverlays');
+  withImages.forEach(ev => {
+    seen.add(ev.record_id);
+    let entry = _aiEventPreviews.get(ev.record_id);
+    if (!entry) {
+      const el = buildAIEventPreviewEl(ev);
+      cont.appendChild(el);
+      entry = { el, img: el.querySelector('img'), lon: ev.lng, lat: ev.lat };
+      _aiEventPreviews.set(ev.record_id, entry);
+    } else {
+      entry.lon = ev.lng; entry.lat = ev.lat;
+    }
+  });
+  for (const [id, entry] of _aiEventPreviews) {
+    if (!seen.has(id)) { entry.el.remove(); _aiEventPreviews.delete(id); }
+  }
+  positionAIEventPreviews();
+}
+
+let _aiEventPreviewUpdatePending = false;
+function scheduleAIEventPreviewUpdate() {
+  if (!_aiEventMode || !_aiEventPreviews.size || _aiEventPreviewUpdatePending) return;
+  _aiEventPreviewUpdatePending = true;
+  requestAnimationFrame(() => { _aiEventPreviewUpdatePending = false; positionAIEventPreviews(); });
+}
 
 // ── Edit panel ────────────────────────────────────────────────
 // Kept in the order the server returns it (declaration order in
@@ -4327,6 +4558,9 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   }
   if (canMapIncidentAdd()) {
     document.getElementById('btnIncidentAdd').style.display = '';
+  }
+  if (canMapAIEvent()) {
+    document.getElementById('btnAIEvent').style.display = '';
   }
   const snapPreviewAllowed = canMapSnapshotPreview();
   if (snapPreviewAllowed) {

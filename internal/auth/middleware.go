@@ -329,6 +329,14 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
+	if u.AllowMapAIEvents {
+		// /api/aievent/omnia/v1/push (the inbound webhook) is intentionally
+		// NOT covered here — it's listed in isPublicPath below and does its
+		// own API-key auth (see internal/aievent), never a user permission.
+		if strings.HasPrefix(path, "/api/aievent/active") || strings.HasPrefix(path, "/api/aievent/image") {
+			return true
+		}
+	}
 	return false
 }
 
@@ -371,6 +379,13 @@ func isPublicPath(path string) bool {
 	public := []string{
 		"/api/auth/login",
 		"/api/auth/logout",
+		// Inbound push from an external AI detection system (OMNIA today —
+		// see docs/omnia-integration-api-spec.md). There is no go2rtc user
+		// on the other end of this call, so it can't go through the normal
+		// JWT check at all; it authenticates itself via X-API-Key against
+		// the Integration store (internal/auth/integrations.go) instead,
+		// entirely inside the handler — see internal/aievent's push handler.
+		"/api/aievent/omnia/v1/push",
 	}
 	for _, p := range public {
 		if path == p {
