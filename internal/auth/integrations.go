@@ -7,16 +7,25 @@ package auth
 //
 // Deliberately NOT modeled as a User: these have no password, no session, no
 // page permissions — just a long-lived secret scoped to exactly one API path
-// prefix. The plaintext key is shown to the admin ONLY ONCE, at creation or
-// rotation time; only its SHA-256 hash is ever persisted, so a leaked
-// integrations.json file (backup, misconfigured access...) doesn't hand out
-// a usable key the way storing it in plaintext would — the same reasoning
-// that keeps User.Password as a bcrypt hash, not the password itself.
-
+// prefix. Validation (ValidateIntegrationKey) only ever needs the SHA-256
+// hash, same as a password check. But unlike a password, an admin
+// legitimately needs to hand this exact same secret to an external team
+// again later (re-provisioning, debugging a mismatch) without forcing an
+// unplanned rotation that would break whatever is already pushing with the
+// old key — so the plaintext is ALSO kept, encrypted at rest (AES-256-GCM,
+// key derived from the server's own JWT secret — never a separate
+// plaintext-on-disk secret) in KeyEnc. Revealing it (RevealIntegrationKey)
+// is gated at the API layer behind re-entering the admin's own login
+// password, throttled through the exact same brute-force lockout as
+// POST /api/auth/login — see api_integrations.go's reveal handler.
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,9 +39,10 @@ import (
 // Integration is one registered external system allowed to push data in.
 type Integration struct {
 	ID          string    `json:"id"`
-	Name        string    `json:"name"`         // admin-facing label, e.g. "OMNIA / FPT VDS"
-	KeyHash     string    `json:"key_hash"`     // sha256(plaintext key), hex — never the key itself
-	AllowedPath string    `json:"allowed_path"` // path PREFIX this key may call, e.g. "/api/aievent/omnia/v1/push"
+	Name        string    `json:"name"`              // admin-facing label, e.g. "OMNIA / FPT VDS"
+	KeyHash     string    `json:"key_hash"`          // sha256(plaintext key), hex — used for validation
+	KeyEnc      string    `json:"key_enc,omitempty"` // AES-GCM(plaintext key), base64 — used only to let an admin reveal it again
+	AllowedPath string    `json:"allowed_path"`      // path PREFIX this key may call, e.g. "/api/aievent/omnia/v1/push"
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	LastUsedAt  time.Time `json:"last_used_at,omitempty"`
@@ -131,11 +141,16 @@ func CreateIntegration(name, allowedPath string) (*Integration, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	enc, err := encryptIntegrationKey(plaintext)
+	if err != nil {
+		return nil, "", err
+	}
 
 	in := &Integration{
 		ID:          newIntegrationID(),
 		Name:        name,
 		KeyHash:     hash,
+		KeyEnc:      enc,
 		AllowedPath: allowedPath,
 		Enabled:     true,
 		CreatedAt:   time.Now(),
@@ -188,6 +203,10 @@ func RotateIntegrationKey(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	enc, err := encryptIntegrationKey(plaintext)
+	if err != nil {
+		return "", err
+	}
 
 	istore.mu.Lock()
 	defer istore.mu.Unlock()
@@ -196,10 +215,37 @@ func RotateIntegrationKey(id string) (string, error) {
 		return "", errIntegrationNotFound
 	}
 	in.KeyHash = hash
+	in.KeyEnc = enc
 	if err := istore.saveLocked(); err != nil {
 		return "", err
 	}
 	return plaintext, nil
+}
+
+// RevealIntegrationKey decrypts and returns the plaintext key for an
+// existing integration, so an admin can hand it to an external team again
+// (re-provisioning, debugging a mismatch) without forcing a rotation that
+// would break whatever is already pushing with the current key. Callers
+// (api_integrations.go's reveal handler) MUST re-verify the admin's own
+// password before calling this — it performs no auth check of its own.
+// Returns errIntegrationKeyUnavailable for an integration created before
+// this field existed (KeyEnc empty) — rotating once enables reveal for it
+// going forward.
+func RevealIntegrationKey(id string) (string, error) {
+	istore.mu.RLock()
+	in, ok := istore.integrations[id]
+	enc := ""
+	if ok {
+		enc = in.KeyEnc
+	}
+	istore.mu.RUnlock()
+	if !ok {
+		return "", errIntegrationNotFound
+	}
+	if enc == "" {
+		return "", errIntegrationKeyUnavailable
+	}
+	return decryptIntegrationKey(enc)
 }
 
 // DeleteIntegration removes an integration permanently — its key stops
@@ -264,4 +310,62 @@ func newIntegrationID() string {
 	return hex.EncodeToString(b)
 }
 
+// integrationEncKey derives a dedicated AES-256 key from the server's JWT
+// secret via HMAC, rather than reusing jwtSecretRef directly — a distinct
+// key per purpose so this encryption and token signing never share key
+// material, without needing a second secret file on disk (jwtSecretRef is
+// already generated/persisted once at startup — see jwt.go's initSecret).
+func integrationEncKey() []byte {
+	mac := hmac.New(sha256.New, jwtSecretRef)
+	mac.Write([]byte("integration-key-enc-v1"))
+	return mac.Sum(nil)
+}
+
+// encryptIntegrationKey/decryptIntegrationKey store the plaintext key
+// recoverably (AES-256-GCM, random nonce prepended, base64) so
+// RevealIntegrationKey can hand it back out later — see this file's top
+// comment for why that's acceptable here even though a password never
+// gets the same treatment.
+func encryptIntegrationKey(plaintext string) (string, error) {
+	block, err := aes.NewCipher(integrationEncKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(sealed), nil
+}
+
+func decryptIntegrationKey(enc string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(enc)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(integrationEncKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(raw) < gcm.NonceSize() {
+		return "", errors.New("encrypted key is corrupt")
+	}
+	nonce, ciphertext := raw[:gcm.NonceSize()], raw[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
 var errIntegrationNotFound = errors.New("integration not found")
+var errIntegrationKeyUnavailable = errors.New("this integration's key was created before the reveal feature existed — rotate it to enable this")

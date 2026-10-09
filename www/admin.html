@@ -1425,20 +1425,41 @@ rtsp:
   </div>
 </div>
 
-<!-- ═══════════════════ Integration Key-Shown-Once Dialog ═══════════════════ -->
+<!-- ═══════════════════ Integration API Key Dialog (create/rotate/reveal) ═══════════════════ -->
 <div class="dlg-backdrop" id="integrationKeyDlg">
   <div class="dlg" style="min-height:unset;width:520px">
     <h2>🔑 API Key</h2>
-    <p style="font-size:.8rem;color:var(--red);font-weight:600;margin:0 0 .6rem">
-      Khóa này chỉ hiển thị DUY NHẤT một lần. Hãy copy và lưu lại ngay — sau khi đóng cửa sổ này sẽ không thể xem lại.
+    <p style="font-size:.8rem;color:var(--text-muted);margin:0 0 .6rem">
+      Giữ bí mật key này — không chia sẻ qua kênh không an toàn (chat công khai, email không mã hóa...).
+      Bạn có thể xem lại key này sau bất cứ lúc nào bằng nút <b>👁 Xem key</b> ở danh sách tích hợp
+      (yêu cầu nhập lại mật khẩu đăng nhập của bạn để xác thực).
     </p>
     <div style="display:flex;gap:.5rem;margin-bottom:1rem">
       <input type="text" id="integ-key-value" class="input" readonly style="font-family:monospace;font-size:.82rem">
       <button type="button" class="btn btn-secondary" onclick="copyIntegrationKey()">Copy</button>
     </div>
     <div class="btn-row">
-      <button type="button" class="btn btn-primary" onclick="closeIntegrationKeyDlg()" style="flex:1">Đã lưu, đóng lại</button>
+      <button type="button" class="btn btn-primary" onclick="closeIntegrationKeyDlg()" style="flex:1">Đóng</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ Integration Reveal-Key (re-auth) Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="integrationRevealDlg">
+  <div class="dlg" style="min-height:unset;width:400px">
+    <h2>🔐 Xác thực để xem key</h2>
+    <form id="integrationRevealForm" onsubmit="submitRevealIntegration(event)">
+      <input type="hidden" id="reveal-integ-id">
+      <div class="form-group">
+        <label>Nhập lại mật khẩu đăng nhập của bạn</label>
+        <input type="password" id="reveal-password" class="input" required autocomplete="current-password">
+      </div>
+      <div id="reveal-err" style="color:var(--red);font-size:.78rem;display:none;margin-bottom:.6rem"></div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-secondary" onclick="closeRevealIntegrationDlg()">Hủy</button>
+        <button type="submit" class="btn btn-primary" id="integrationRevealDlg-btn">Xem key</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -2781,6 +2802,7 @@ function renderIntegrationsTable() {
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${it.enabled ? '<span style="color:#4ade80">✓ Đang bật</span>' : '<span style="color:var(--text-muted)">✗ Đã tắt</span>'}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${aiEventFmtTime(it.last_used_at)}${it.last_used_ip ? ' · ' + esc(it.last_used_ip) : ''}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;gap:.4rem;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="openRevealIntegration('${esc(it.id)}')">👁 Xem key</button>
         <button class="btn btn-secondary btn-sm" onclick="openEditIntegration('${esc(it.id)}')">Sửa</button>
         <button class="btn btn-secondary btn-sm" onclick="rotateIntegration('${esc(it.id)}')">Xoay key</button>
         <button class="btn btn-danger btn-sm" onclick="deleteIntegration('${esc(it.id)}')">Xóa</button>
@@ -2868,6 +2890,34 @@ function copyIntegrationKey() {
     () => toast('Đã copy key.', 'success'),
     () => document.execCommand('copy')
   );
+}
+
+// ── Reveal an existing integration's key (re-auth with current password) ──
+function openRevealIntegration(id) {
+  document.getElementById('reveal-integ-id').value = id;
+  document.getElementById('reveal-password').value = '';
+  document.getElementById('reveal-err').style.display = 'none';
+  document.getElementById('integrationRevealDlg').classList.add('open');
+}
+
+function closeRevealIntegrationDlg() {
+  document.getElementById('integrationRevealDlg').classList.remove('open');
+}
+
+async function submitRevealIntegration(ev) {
+  ev.preventDefault();
+  const id = document.getElementById('reveal-integ-id').value;
+  const password = document.getElementById('reveal-password').value;
+  const errEl = document.getElementById('reveal-err');
+  errEl.style.display = 'none';
+  try {
+    const resp = await apiFetch(`/api/integrations/${encodeURIComponent(id)}/reveal`, { method: 'POST', body: { password } });
+    closeRevealIntegrationDlg();
+    showIntegrationKey(resp.key);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = '';
+  }
 }
 
 // ── Category Rules ───────────────────────────────────────────────────────

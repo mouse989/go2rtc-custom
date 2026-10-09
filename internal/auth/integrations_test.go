@@ -7,7 +7,14 @@ import (
 
 func setupIntegrationsTest(t *testing.T) {
 	t.Helper()
-	if err := initIntegrations(filepath.Join(t.TempDir(), "integrations.json")); err != nil {
+	dir := t.TempDir()
+	// KeyEnc's encryption is derived from jwtSecretRef (see integrationEncKey) —
+	// explicitly initialized here rather than relying on some other test in
+	// this package having already called initSecret first.
+	if err := initSecret(filepath.Join(dir, ".jwt_secret")); err != nil {
+		t.Fatalf("initSecret: %v", err)
+	}
+	if err := initIntegrations(filepath.Join(dir, "integrations.json")); err != nil {
 		t.Fatalf("initIntegrations: %v", err)
 	}
 }
@@ -138,5 +145,75 @@ func TestListIntegrationsOmitsNothingButIsSortedByName(t *testing.T) {
 	}
 	if list[0].Name != "Alpha" || list[1].Name != "Zebra" {
 		t.Errorf("expected alphabetical order, got %s, %s", list[0].Name, list[1].Name)
+	}
+}
+
+func TestRevealIntegrationKeyReturnsTheSameKeyCreateGave(t *testing.T) {
+	setupIntegrationsTest(t)
+	in, key, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revealed, err := RevealIntegrationKey(in.ID)
+	if err != nil {
+		t.Fatalf("RevealIntegrationKey: %v", err)
+	}
+	if revealed != key {
+		t.Errorf("expected the revealed key to match the originally issued one, got %q want %q", revealed, key)
+	}
+}
+
+func TestRevealIntegrationKeyReflectsRotation(t *testing.T) {
+	setupIntegrationsTest(t)
+	in, _, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKey, err := RotateIntegrationKey(in.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revealed, err := RevealIntegrationKey(in.ID)
+	if err != nil {
+		t.Fatalf("RevealIntegrationKey: %v", err)
+	}
+	if revealed != newKey {
+		t.Errorf("expected the revealed key to be the rotated one, got %q want %q", revealed, newKey)
+	}
+}
+
+func TestIntegrationNeverStoresThePlaintextKeyItself(t *testing.T) {
+	setupIntegrationsTest(t)
+	in, key, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.KeyEnc == key {
+		t.Fatal("KeyEnc must never equal the plaintext key — it must be encrypted")
+	}
+	if in.KeyEnc == "" {
+		t.Fatal("expected a non-empty KeyEnc")
+	}
+}
+
+func TestRevealIntegrationKeyErrorsForMissingIntegration(t *testing.T) {
+	setupIntegrationsTest(t)
+	if _, err := RevealIntegrationKey("does-not-exist"); err != errIntegrationNotFound {
+		t.Errorf("expected errIntegrationNotFound, got %v", err)
+	}
+}
+
+func TestRevealIntegrationKeyErrorsWhenKeyEncMissing(t *testing.T) {
+	setupIntegrationsTest(t)
+	in, _, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an integration persisted before KeyEnc existed.
+	istore.mu.Lock()
+	istore.integrations[in.ID].KeyEnc = ""
+	istore.mu.Unlock()
+	if _, err := RevealIntegrationKey(in.ID); err != errIntegrationKeyUnavailable {
+		t.Errorf("expected errIntegrationKeyUnavailable, got %v", err)
 	}
 }
