@@ -323,6 +323,19 @@ body.sb-collapsed           { --map-left:0; }
 .cam-marker-wrap svg { width:15px; height:15px; fill:#fff; }
 .cam-marker-wrap.edit { background:#22c55e; }
 
+/* ── Right-click-on-camera context menu (Traffic Event layer) ──── */
+.map-ctx-menu {
+  display:none; position:fixed; z-index:9999;
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.4); padding:.4rem 0; min-width:200px; font-size:.82rem;
+}
+.map-ctx-menu.show { display:block; }
+.map-ctx-menu button {
+  width:100%; text-align:left; padding:.5rem 1rem; background:none; border:none;
+  color:var(--text); cursor:pointer; font-size:.82rem; font-weight:600;
+}
+.map-ctx-menu button:hover { background:var(--surface2); }
+
 /* ── VietMap attribution tweak ─────────────────────────────── */
 .mapboxgl-ctrl-attrib { font-size:.62rem !important; }
 
@@ -736,6 +749,16 @@ body.sb-collapsed           { --map-left:0; }
 
 <!-- ── Overlay container ──────────────────────────────────────── -->
 <div id="mapOverlays"></div>
+
+<!-- ── Right-click-on-camera context menu (Traffic Event layer) ──
+     Right-clicking a camera while the 🚨 Traffic Event layer is on would
+     otherwise silently consume the click for "add incident here" with no
+     way to also check the camera's live view at that exact moment — this
+     menu offers both actions instead of picking one for the user. -->
+<div id="mapCtxMenu" class="map-ctx-menu">
+  <button onclick="mapCtxAddIncident()">🚨 Thêm sự cố tại đây</button>
+  <button onclick="mapCtxViewCamera()">📷 Xem camera này</button>
+</div>
 
 <!-- ── Edit panel ────────────────────────────────────────────── -->
 <div id="editPanel">
@@ -1566,6 +1589,16 @@ async function initMap(apiKey) {
   map.on('contextmenu', e => {
     if (!_incidentAddMode) return;
     e.originalEvent.preventDefault();
+
+    // Right-clicking directly on a camera: offer a choice (add incident here
+    // vs. view this camera) instead of silently consuming the click for
+    // incident-creation — during incident creation the camera at/near that
+    // point is often exactly what needs checking first.
+    const camFeatures = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point'] });
+    if (camFeatures.length) {
+      openMapCtxMenu(e.originalEvent, e.lngLat, camFeatures[0].properties.id);
+      return;
+    }
     openMapIncidentModal(e.lngLat);
   });
 
@@ -2858,7 +2891,7 @@ function closeModal() {
 }
 document.getElementById('modalClose').addEventListener('click', closeModal);
 document.getElementById('modalBackdrop').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeModal(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeModal();clearSearch();closeMapIncidentModal();} });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeModal();clearSearch();closeMapIncidentModal();closeMapCtxMenu();} });
 
 // ── Incident quick-add modal (btnIncidentAdd + map right-click) ───────
 // Own copy of incidents.html's Add form (Mức độ/Lat/Lng included) — map.html
@@ -2877,6 +2910,44 @@ function _miPad2(n) { return String(n).padStart(2, '0'); }
 function _miLocalInputValue(d) {
   return `${d.getFullYear()}-${_miPad2(d.getMonth() + 1)}-${_miPad2(d.getDate())}T${_miPad2(d.getHours())}:${_miPad2(d.getMinutes())}`;
 }
+
+// ── Right-click-on-camera context menu ──────────────────────────
+let _mapCtxLngLat = null; // the right-clicked point, for "add incident here"
+let _mapCtxCamID = null;  // the camera under that point, for "view this camera"
+
+function openMapCtxMenu(originalEvent, lngLat, camID) {
+  _mapCtxLngLat = lngLat;
+  _mapCtxCamID = camID;
+  const menu = document.getElementById('mapCtxMenu');
+  menu.style.left = originalEvent.clientX + 'px';
+  menu.style.top = originalEvent.clientY + 'px';
+  menu.classList.add('show');
+}
+
+function closeMapCtxMenu() {
+  document.getElementById('mapCtxMenu').classList.remove('show');
+  _mapCtxLngLat = null;
+  _mapCtxCamID = null;
+}
+
+function mapCtxAddIncident() {
+  const lngLat = _mapCtxLngLat;
+  closeMapCtxMenu();
+  if (lngLat) openMapIncidentModal(lngLat);
+}
+
+function mapCtxViewCamera() {
+  const id = _mapCtxCamID;
+  closeMapCtxMenu();
+  if (id) openModal(id);
+}
+
+// Close on a click anywhere else — Escape is handled by the existing
+// Escape listener below (closeModal/clearSearch/closeMapIncidentModal).
+document.addEventListener('click', e => {
+  const menu = document.getElementById('mapCtxMenu');
+  if (menu.classList.contains('show') && !menu.contains(e.target)) closeMapCtxMenu();
+});
 
 // lngLat: a maplibre/vietmapgl LngLat from the map's 'contextmenu' event —
 // the whole point of this mode is never having to type coordinates by hand.
