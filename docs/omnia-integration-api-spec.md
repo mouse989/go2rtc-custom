@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Phiên bản tài liệu | 1.0 |
-| Ngày | 2026-10-08 |
+| Phiên bản tài liệu | 1.1 |
+| Ngày | 2026-10-09 |
 | Trạng thái | Dự thảo — chờ xác nhận từ đội OMNIA/FPT VDS trước khi triển khai |
 | Đối tượng đọc | Đội phát triển hệ thống OMNIA/FPT VDS |
 
@@ -35,19 +35,24 @@
 
 Mỗi khi OMNIA phát hiện một sự kiện/sự cố giao thông (xe hỏng, va chạm, ùn tắc, ngập nước...), hệ thống OMNIA **chủ động gửi HTTP POST** một bản tin JSON mô tả sự kiện đó tới endpoint do chúng tôi cung cấp. Chúng tôi lưu lại, hiển thị dưới dạng biểu tượng (bong bóng) trên bản đồ giám sát giao thông kèm ảnh chụp hiện trường (nếu có), trong một khoảng thời gian nhất định.
 
+Một sự kiện có **vòng đời 2 pha**, cùng gửi tới **cùng một endpoint**, cùng khuôn dạng payload đầy đủ, chỉ khác giá trị trường `type`:
+
+1. **Mở sự kiện** — `type = "event.created"` — gửi khi OMNIA phát hiện sự cố.
+2. **Kết thúc sự kiện** — `type = "event.terminated"` — gửi khi sự cố đã kết thúc trên thực tế. Bản tin này **vẫn mang đầy đủ các trường như lần gửi đầu** (không phải bản tin rút gọn), chỉ khác: `type` đổi thành `"event.terminated"`, `publishedAt` cập nhật mốc thời gian mới, và thường `event.EndTime.Value` lúc này được điền (trước đó là `null`). `recordId` **giữ nguyên giá trị như lần `event.created` trước đó** — đây là khoá để hệ thống chúng tôi khớp lại đúng sự kiện đã mở, chứ không phải tạo sự kiện mới.
+
 Luồng tổng quát:
 
 ```
-OMNIA phát hiện sự kiện
-        │
-        ▼
-POST JSON (+ ảnh base64) ──► Endpoint của chúng tôi (xác thực bằng API Key)
-        │
-        ▼
-Trả về HTTP response xác nhận thành công/lỗi (đồng bộ, ngay trong request đó)
+OMNIA phát hiện sự kiện ──► POST "event.created" (recordId = X)
+                                        │
+                              (sự kiện hiển thị trên bản đồ)
+                                        │
+OMNIA xác định sự kiện đã kết thúc ──► POST "event.terminated" (recordId = X, vẫn đầy đủ trường)
+                                        │
+                              (sự kiện ngừng hiển thị "đang diễn ra" trên bản đồ)
 ```
 
-Không có cơ chế kéo (polling) — toàn bộ là đẩy (push) một chiều từ OMNIA.
+Mỗi lần gửi đều là 1 request `POST JSON (+ ảnh base64)` tới cùng endpoint, xác thực bằng API Key, và nhận lại HTTP response xác nhận thành công/lỗi ngay trong cùng request đó (xử lý đồng bộ). Không có cơ chế kéo (polling) — toàn bộ là đẩy (push) một chiều từ OMNIA.
 
 ---
 
@@ -177,7 +182,7 @@ Cột **Bắt buộc** là yêu cầu từ phía hệ thống chúng tôi để 
 
 | Trường | Kiểu | Bắt buộc | Mô tả |
 |---|---|---|---|
-| `type` | string | **Có** | Loại sự kiện. Hiện hỗ trợ `"event.created"`. Giá trị khác (vd `event.updated`) sẽ được chấp nhận và xử lý như cập nhật nếu `recordId` đã tồn tại — xem [mục 8](#8-cơ-chế-chống-trùng-lặp-idempotency). |
+| `type` | string | **Có** | Trạng thái vòng đời sự kiện. Chỉ chấp nhận 2 giá trị ở phiên bản này: `"event.created"` (mở sự kiện) hoặc `"event.terminated"` (kết thúc sự kiện). Giá trị khác → lỗi `400 invalid_field_value` trên trường `type`. Xem [mục 8](#8-cơ-chế-chống-trùng-lặp-idempotency) về cách 2 giá trị này ảnh hưởng tới bản ghi. |
 | `publishedAt` | string (RFC 3339, UTC) | Khuyến nghị | Thời điểm OMNIA phát hành bản tin. Chỉ dùng để tham khảo/đối chiếu log, **không** dùng làm thời gian hiển thị sự cố. |
 | `recordId` | string | **Có** | Định danh duy nhất của sự kiện phía OMNIA. **Đây là khoá chống trùng** — xem mục 8. Phải ổn định cho cùng một sự kiện xuyên suốt các lần gửi. |
 | `situationId` | string | Khuyến nghị | Định danh nhóm tình huống (nếu một tình huống có thể sinh nhiều bản ghi liên quan). |
@@ -205,7 +210,7 @@ Cột **Bắt buộc** là yêu cầu từ phía hệ thống chúng tôi để 
 | `event.Description` | string | Khuyến nghị | Mô tả sự kiện, hiển thị trong chi tiết sự cố. |
 | `event.Category.Type.Id` / `event.Category.Subtype.Id` | integer | Không | Trùng thông tin với `category.typeId`/`subtypeId` ở cấp ngoài — gửi kèm để nhất quán với cấu trúc gốc, hệ thống chúng tôi ưu tiên đọc từ `category` ở cấp ngoài. |
 | `event.StartTime.Value` | string (RFC 3339, UTC) | **Có** | Thời điểm sự cố **thực tế xảy ra** — đây là mốc thời gian chính được dùng để hiển thị/lọc sự cố, khác với `publishedAt`. |
-| `event.EndTime` | object `{ "Value": "..." }` hoặc `null` | Không | `null` nếu sự cố chưa kết thúc. |
+| `event.EndTime` | object `{ "Value": "..." }` hoặc `null` | Không | `null` nếu sự cố chưa kết thúc. Khi gửi bản tin `type = "event.terminated"`, trường này thường được điền giá trị (thời điểm kết thúc) — nhưng hệ thống chúng tôi coi `type = "event.terminated"` là tín hiệu chính thức để đóng sự kiện, **không** suy luận việc kết thúc chỉ từ `EndTime` khác `null`. |
 | `event.Classification.Id` | string | Không | Mã phân loại nội bộ OMNIA — lưu tham khảo. |
 | `event.Status.Id` | string | Không | Trạng thái xử lý phía OMNIA — lưu tham khảo, hiện **không** điều khiển trạng thái hiển thị bên chúng tôi. |
 | `event.CreatorUserName` | string | Không | Lưu tham khảo. |
@@ -248,13 +253,17 @@ Cột **Bắt buộc** là yêu cầu từ phía hệ thống chúng tôi để 
 
 ---
 
-## 8. Cơ chế chống trùng lặp (Idempotency)
+## 8. Cơ chế chống trùng lặp (Idempotency) & vòng đời sự kiện
 
-- `recordId` là **khoá duy nhất** để nhận diện một sự kiện xuyên suốt các lần gửi.
-- Gửi một request với `recordId` **chưa từng thấy** → tạo bản ghi mới.
-- Gửi một request với `recordId` **đã tồn tại** → **cập nhật đè** lên bản ghi đó (toàn bộ các trường trong request mới sẽ thay thế giá trị cũ của các trường tương ứng; trường không có trong request mới giữ nguyên giá trị cũ).
-- **An toàn khi gửi lại (retry)**: nếu gửi trùng y hệt một request (vd do timeout nhưng thực ra đã xử lý thành công), việc gửi lại **không** tạo ra bản ghi trùng lặp thứ hai.
-- Do đó, **khuyến nghị OMNIA luôn dùng cùng một `recordId` cho mọi lần cập nhật của cùng một sự kiện thực tế** (ví dụ khi `Status`/`EndTime`/độ tin cậy thay đổi theo thời gian), thay vì sinh `recordId` mới cho mỗi lần gửi.
+- `recordId` là **khoá duy nhất** để nhận diện một sự kiện xuyên suốt các lần gửi — dùng chung cho cả `event.created` lẫn `event.terminated` của cùng một sự kiện thực tế.
+- **`type = "event.created"`:**
+  - `recordId` **chưa từng thấy** → tạo bản ghi mới, trạng thái "đang diễn ra" (hiển thị trên bản đồ nếu trong cửa sổ thời gian).
+  - `recordId` **đã tồn tại** (kể cả đã từng bị đóng bởi một bản tin `event.terminated` trước đó) → **cập nhật đè** toàn bộ các trường, và đưa trạng thái về lại "đang diễn ra" (mở lại). Trường hợp này hiếm xảy ra trong vận hành bình thường nhưng được xử lý an toàn, không lỗi.
+- **`type = "event.terminated"`:**
+  - `recordId` **đã tồn tại** → cập nhật các trường (giống `event.created`) **và** đánh dấu bản ghi là "đã kết thúc" — bản ghi **ngừng hiển thị trên bản đồ ngay lập tức**, bất kể còn nằm trong cửa sổ thời gian hiển thị hay chưa. Dữ liệu (text) vẫn được giữ lại theo chính sách lưu trữ chung, chỉ trạng thái hiển thị thay đổi.
+  - `recordId` **chưa từng thấy** (vd do `event.created` trước đó gửi thất bại, hoặc 2 bản tin tới không đúng thứ tự) → **không báo lỗi** (vẫn trả `200 OK`), hệ thống lưu lại một bản ghi ở trạng thái "đã kết thúc" ngay từ đầu với dữ liệu kèm theo trong chính bản tin `event.terminated` đó. Nếu sau đó bản tin `event.created` bị trễ cũng tới nơi, dữ liệu sẽ được bổ sung nhưng trạng thái vẫn giữ "đã kết thúc" (không tự động mở lại).
+- **An toàn khi gửi lại (retry)**: nếu gửi trùng y hệt một request (vd do timeout nhưng thực ra đã xử lý thành công), việc gửi lại **không** tạo ra bản ghi trùng lặp thứ hai, và không đổi trạng thái ngoài ý muốn.
+- Do đó, **bắt buộc OMNIA dùng cùng một `recordId` cho cả bản tin mở (`event.created`) lẫn bản tin kết thúc (`event.terminated`) của cùng một sự kiện thực tế** — đây là cách duy nhất để hệ thống chúng tôi biết 2 bản tin đó nói về cùng một sự cố.
 
 ---
 
@@ -290,7 +299,7 @@ Mọi response (thành công lẫn lỗi) đều có `Content-Type: application/
 | Trường | Mô tả |
 |---|---|
 | `status` | Luôn là `"ok"` khi HTTP status là 2xx. |
-| `action` | `"created"` (bản ghi mới) hoặc `"updated"` (đã có `recordId` này, vừa cập nhật). |
+| `action` | `"created"` (bản ghi mới), `"updated"` (đã có `recordId` này, vừa cập nhật dữ liệu, sự kiện vẫn "đang diễn ra"), hoặc `"terminated"` (bản tin `event.terminated` đã được xử lý, sự kiện chuyển sang "đã kết thúc"). |
 | `recordId` | Trả lại đúng `recordId` đã gửi, để đối chiếu. |
 | `id` | Định danh nội bộ phía chúng tôi — không bắt buộc OMNIA phải lưu, chỉ hỗ trợ khi cần tra cứu/hỗ trợ sự cố. |
 
@@ -401,7 +410,7 @@ X-API-Key: 7f3a1c9e8b2d4f6a0c1e5b7d9f2a4c6e8b0d1f3a5c7e9b1d3f5a7c9e1b3d5f7a
 }
 ```
 
-### 12.2. Response thành công
+### 12.2. Response thành công (mở sự kiện)
 
 ```
 HTTP/1.1 200 OK
@@ -410,6 +419,72 @@ Content-Type: application/json; charset=utf-8
 {
   "status": "ok",
   "action": "created",
+  "recordId": "ABS_068_VoThiSau_LeQuyDon_10_9_162_34_af40d99f-9bb4-4f8f-8996-c19b965fd840_b9fa5d0b-e573-4163-ba88-dc08ca507d84",
+  "id": "a1b2c3d4e5f6"
+}
+```
+
+### 12.2b. Request mẫu — kết thúc sự kiện (`event.terminated`)
+
+Gửi tới **cùng endpoint**, **cùng đầy đủ các trường** như lúc mở (mục 12.1) — chỉ khác `type`, `publishedAt`, và `event.EndTime` nay được điền; `recordId` **giữ nguyên** để khớp lại đúng sự kiện đã mở ở 12.1:
+
+```json
+{
+  "type": "event.terminated",
+  "publishedAt": "2026-09-25T04:20:10.000Z",
+  "recordId": "ABS_068_VoThiSau_LeQuyDon_10_9_162_34_af40d99f-9bb4-4f8f-8996-c19b965fd840_b9fa5d0b-e573-4163-ba88-dc08ca507d84",
+  "situationId": "SIT_ABS_068_VoThiSau_LeQuyDon_10_9_162_34_af40d99f-9bb4-4f8f-8996-c19b965fd840_b9fa5d0b-e573-4163-ba88-dc08ca507d84",
+  "recordType": "VehicleObstruction",
+  "eventCode": "EVT:639270657291513802",
+  "category": {
+    "typeId": 12,
+    "subtypeId": 41,
+    "description": "12/41 (Incident - broken down vehicle(s))",
+    "rule": "broken down vehicle"
+  },
+  "event": {
+    "Description": "Incident - broken down vehicle(s)",
+    "Category": { "Type": { "Id": 12 }, "Subtype": { "Id": 41 } },
+    "StartTime": { "Value": "2026-09-25T03:48:54Z" },
+    "EndTime": { "Value": "2026-09-25T04:20:00Z" },
+    "Classification": { "Id": "8" },
+    "Status": { "Id": "C" },
+    "CreatorUserName": "fptvds",
+    "ValidatorUserName": null,
+    "AssigneeUserName": null,
+    "Source": { "Processor": "FPT VDS", "Delegate": "Unassigned" },
+    "Published": false,
+    "Location": {
+      "Type": "Geometry",
+      "Geometry": { "Type": "Point" },
+      "X": 106.688,
+      "Y": 10.78393
+    },
+    "Attachments": [],
+    "IncidentAttributes": {
+      "LightVehicles": 0, "HeavyVehicles": 0, "TrafficFlow": 0,
+      "Weather": 0, "Fatalities": 0, "PersonInjured": 0,
+      "DamageToMotorway": 0, "SpillageOnMotorway": 0,
+      "LanesBitmask": null, "Roundabout": 0, "OffRamp": 0,
+      "OnRamp": 0, "ServiceRoad": 0, "Shoulder": 0,
+      "Bridge": 0, "RoadTypeId": null
+    },
+    "IsReadOnly": false,
+    "Reliability": 100
+  },
+  "attachmentCount": 0
+}
+```
+
+Response:
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+
+{
+  "status": "ok",
+  "action": "terminated",
   "recordId": "ABS_068_VoThiSau_LeQuyDon_10_9_162_34_af40d99f-9bb4-4f8f-8996-c19b965fd840_b9fa5d0b-e573-4163-ba88-dc08ca507d84",
   "id": "a1b2c3d4e5f6"
 }
@@ -483,6 +558,7 @@ Nếu sau này cần **thu hồi/tạo lại khoá** (nghi lộ, đổi hợp đ
 - [ ] Đã nhận API Key production (khác với khoá sandbox).
 - [ ] Đã test thành công với `?dry_run=1` — nhận `200 OK` với dữ liệu mẫu thật.
 - [ ] Đã test ít nhất 1 trường hợp lỗi (vd thiếu `recordId`) và xác nhận nhận đúng `400` kèm `error.code` tương ứng.
+- [ ] Đã test đủ vòng đời: gửi `event.created` rồi gửi `event.terminated` **cùng `recordId`** — xác nhận response lần 2 trả `"action": "terminated"` và sự kiện không còn hiển thị "đang diễn ra" phía chúng tôi.
 - [ ] Đã xác nhận ảnh gửi lên hiển thị đúng ở phía chúng tôi (không bị méo/lỗi giải mã).
 - [ ] Đã cấu hình retry theo đúng khuyến nghị ở [mục 11](#11-chính-sách-gửi-lại-retry) (không retry vô hạn cho lỗi 4xx).
 - [ ] Đã thống nhất kênh liên hệ khi có sự cố tích hợp (mục 17).
@@ -516,3 +592,4 @@ Nếu sau này cần **thu hồi/tạo lại khoá** (nghi lộ, đổi hợp đ
 | Phiên bản | Ngày | Thay đổi |
 |---|---|---|
 | 1.0 | 2026-10-08 | Phát hành bản đặc tả đầu tiên |
+| 1.1 | 2026-10-09 | Bổ sung vòng đời 2 pha của sự kiện: `type = "event.terminated"` (kết thúc sự kiện) — payload đầy đủ như `event.created`, cùng `recordId`, khác `type`/`publishedAt`/`event.EndTime`. Cập nhật mục 1, 6.1, 8, 10.1, 12, 16. |
