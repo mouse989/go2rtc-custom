@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Phiên bản tài liệu | 1.1 |
+| Phiên bản tài liệu | 1.2 |
 | Ngày | 2026-10-09 |
 | Trạng thái | Dự thảo — chờ xác nhận từ đội OMNIA/FPT VDS trước khi triển khai |
 | Đối tượng đọc | Đội phát triển hệ thống OMNIA/FPT VDS |
@@ -60,13 +60,16 @@ Mỗi lần gửi đều là 1 request `POST JSON (+ ảnh base64)` tới cùng 
 
 | Mục | Giá trị |
 |---|---|
-| Giao thức | HTTPS **bắt buộc** — không hỗ trợ HTTP thuần |
-| TLS | TLS 1.2 trở lên |
+| Giao thức | **HTTP** (giai đoạn hiện tại — xem ghi chú bên dưới) |
 | Phương thức HTTP | `POST` |
 | `Content-Type` yêu cầu | `application/json; charset=utf-8` |
 | Mã hoá ký tự | UTF-8 |
 
-Một request không phải `POST`, không phải HTTPS, hoặc sai `Content-Type` sẽ bị từ chối trước khi hệ thống đọc nội dung body (xem [mục 10](#10-định-dạng-response)).
+Một request không phải `POST`, hoặc sai `Content-Type` sẽ bị từ chối trước khi hệ thống đọc nội dung body (xem [mục 10](#10-định-dạng-response)).
+
+> **Ghi chú — vì sao HTTP, không phải HTTPS:** kết nối giữa OMNIA/FPT VDS và hệ thống chúng tôi cho tích hợp này đi qua **mạng nội bộ**, định danh nhau bằng **địa chỉ IP** (không qua domain/Internet công khai), không đi qua hạ tầng HTTPS/Let's Encrypt đang phục vụ các dịch vụ domain công khai khác của chúng tôi. Hai bên đã thống nhất dùng HTTP thuần cho giai đoạn này để đơn giản hoá triển khai. Vì vậy:
+> - `X-API-Key` và toàn bộ nội dung bản tin (kể cả ảnh đính kèm) truyền ở dạng **không mã hoá** trên đoạn mạng này — cả hai bên cần đảm bảo đoạn mạng kết nối 2 hệ thống được kiểm soát (không public ra Internet, giới hạn đúng dải IP đã thống nhất).
+> - Nếu sau này cần nâng cấp lên HTTPS (ví dụ khi đổi sang kết nối qua domain, hoặc yêu cầu bảo mật thay đổi), chúng tôi sẽ thông báo trước và cập nhật tài liệu này.
 
 ---
 
@@ -106,10 +109,10 @@ X-API-Key: <api-key-được-cấp>
 ## 4. Endpoint
 
 ```
-POST https://<domain-hệ-thống-của-chúng-tôi>/api/aievent/omnia/v1/push
+POST http://<IP-nội-bộ-hệ-thống-của-chúng-tôi>:<port>/api/aievent/omnia/v1/push
 ```
 
-- `<domain-hệ-thống-của-chúng-tôi>` sẽ được cung cấp cụ thể khi hoàn tất đăng ký tích hợp (mục 14) — có thể khác nhau giữa môi trường sandbox và production.
+- `<IP-nội-bộ-hệ-thống-của-chúng-tôi>:<port>` sẽ được cung cấp cụ thể khi hoàn tất đăng ký tích hợp (mục 14) — là địa chỉ IP + cổng trong mạng nội bộ (không phải domain công khai), có thể khác nhau giữa môi trường sandbox và production.
 - Đường dẫn chứa `v1` — xem [mục 15](#15-versioning--thay-đổi-trong-tương-lai) về chính sách versioning.
 
 ---
@@ -357,7 +360,7 @@ Vì `recordId` đảm bảo an toàn khi gửi trùng (mục 8), việc retry kh
 
 ```
 POST /api/aievent/omnia/v1/push HTTP/1.1
-Host: <domain-he-thong-cua-chung-toi>
+Host: <ip-noi-bo-he-thong-cua-chung-toi>:<port>
 Content-Type: application/json; charset=utf-8
 X-API-Key: 7f3a1c9e8b2d4f6a0c1e5b7d9f2a4c6e8b0d1f3a5c7e9b1d3f5a7c9e1b3d5f7a
 
@@ -528,7 +531,7 @@ Content-Type: application/json; charset=utf-8
 Trước khi gửi dữ liệu thật, đề xuất OMNIA kiểm thử theo 2 bước:
 
 1. **Chế độ `dry_run`** — gọi cùng endpoint, cùng xác thực, nhưng thêm query param `?dry_run=1`. Hệ thống sẽ validate toàn bộ request **và trả về response y hệt như thật** nhưng **không lưu dữ liệu, không ghi ảnh xuống đĩa**. Dùng để OMNIA tự kiểm tra định dạng dữ liệu trước khi tích hợp chính thức.
-2. **API Key riêng cho môi trường sandbox** (không phải khoá dùng cho production) — sẽ được cấp kèm theo domain sandbox riêng khi đăng ký tích hợp, dữ liệu gửi vào sandbox không xuất hiện trên hệ thống production.
+2. **API Key riêng cho môi trường sandbox** (không phải khoá dùng cho production) — sẽ được cấp kèm theo địa chỉ IP/cổng sandbox riêng khi đăng ký tích hợp, dữ liệu gửi vào sandbox không xuất hiện trên hệ thống production.
 
 ---
 
@@ -593,3 +596,4 @@ Nếu sau này cần **thu hồi/tạo lại khoá** (nghi lộ, đổi hợp đ
 |---|---|---|
 | 1.0 | 2026-10-08 | Phát hành bản đặc tả đầu tiên |
 | 1.1 | 2026-10-09 | Bổ sung vòng đời 2 pha của sự kiện: `type = "event.terminated"` (kết thúc sự kiện) — payload đầy đủ như `event.created`, cùng `recordId`, khác `type`/`publishedAt`/`event.EndTime`. Cập nhật mục 1, 6.1, 8, 10.1, 12, 16. |
+| 1.2 | 2026-10-09 | Đổi giao thức từ HTTPS sang **HTTP**: hai bên đã thống nhất kết nối qua mạng nội bộ, định danh bằng địa chỉ IP thay vì domain, cho giai đoạn hiện tại. Cập nhật mục 2, 4, 12.1, 13. |
