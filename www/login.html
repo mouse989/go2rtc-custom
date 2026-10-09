@@ -111,10 +111,12 @@
             font-size: 1.3rem;
             font-weight: 700;
             letter-spacing: 0.8px;
-            color: #ffffff;
             display: flex;
             align-items: center;
             gap: 8px;
+            background: linear-gradient(135deg, #ffffff 40%, var(--accent-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .status-pill {
@@ -311,29 +313,13 @@
             color: var(--accent-cyan);
         }
 
-        /* Row ghi nhớ + quên mật khẩu */
+        /* Row quên mật khẩu */
         .options-row {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-end;
             margin-bottom: 24px;
             font-size: 0.82rem;
-        }
-
-        .remember-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            color: var(--text-secondary);
-            user-select: none;
-        }
-
-        .remember-checkbox input {
-            accent-color: var(--accent-cyan);
-            width: 16px;
-            height: 16px;
-            cursor: pointer;
         }
 
         .forgot-pw-link {
@@ -569,12 +555,8 @@
                     </div>
                 </div>
 
-                <!-- Tuỳ chọn: Ghi nhớ & Quên mật khẩu -->
+                <!-- Quên mật khẩu -->
                 <div class="options-row">
-                    <label class="remember-checkbox">
-                        <input type="checkbox" id="rememberMe">
-                        <span>Ghi nhớ đăng nhập</span>
-                    </label>
                     <button type="button" class="forgot-pw-link" id="forgotPwBtn">Quên mật khẩu?</button>
                 </div>
 
