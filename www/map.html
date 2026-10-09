@@ -3006,12 +3006,25 @@ async function loadActiveIncidents() {
     let entry = _teMarkers[inc.id];
     if (!entry) {
       const el = document.createElement('div');
+      // className (carries width/height) MUST be set before constructing the
+      // Marker, not after — vietmapgl's anchor:'center' centering reads the
+      // element's size at that point; an unstyled 0×0 div bakes in a wrong
+      // (zero) center offset that stays off by a fixed SCREEN-pixel amount
+      // from then on. A fixed pixel error is negligible zoomed in (few
+      // meters) but drifts far from the real point zoomed out (many meters) —
+      // exactly the symptom this fixes.
+      el.className = 'te-marker ' + cls;
+      el.style.background = bg;
       el.addEventListener('click', e => {
         e.stopPropagation();
         if (typeof toast === 'function') toast(el.title.replace(/\n/g, ' — '), 'info');
       });
       const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]);
       marker.addTo(map);
+      // Re-set once more now that el is actually attached to the map (with
+      // its real, final size) — belt-and-suspenders in case anything about
+      // the center-offset calculation above still used a stale measurement.
+      marker.setLngLat([inc.lng, inc.lat]);
       entry = _teMarkers[inc.id] = { marker, el };
     }
     entry.el.className = 'te-marker ' + cls;
@@ -3070,6 +3083,10 @@ async function loadActiveAIEvents() {
       });
       const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([ev.lng, ev.lat]);
       marker.addTo(map);
+      // Re-set once more now that el is actually attached to the map (with
+      // its real, final size) — belt-and-suspenders in case anything about
+      // the center-offset calculation above still used a stale measurement.
+      marker.setLngLat([ev.lng, ev.lat]);
       entry = _aiEventMarkers[ev.record_id] = { marker, el };
     }
     entry.el.innerHTML = html + '<span class="aie-badge">AI</span>';
