@@ -97,6 +97,7 @@ function canMapRoute()  { const u = getUser(); return u && (u.role === 'admin' |
 // would show the map button to someone who can't actually create incidents
 // (POST /api/incidents requires the Incidents tab server-side regardless).
 function canMapIncidentAdd() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_incident_add) && hasTab('incidents'); }
+function canMapAIEvent() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_ai_events); }
 function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
 function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
 function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }
