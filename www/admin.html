@@ -1195,7 +1195,7 @@ rtsp:
         </div>
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
           Mỗi hệ thống bên ngoài (OMNIA/FPT VDS, và các hệ thống khác sau này) cần một API key riêng để đẩy dữ liệu vào
-          đường dẫn được chỉ định. Khóa chỉ hiển thị <b>một lần</b> ngay sau khi tạo hoặc xoay khóa — hãy lưu lại ngay.
+          đường dẫn được chỉ định. Key hiện ngay sau khi tạo/xoay, và có thể <b>xem lại sau</b> bằng nút 👁 (yêu cầu nhập lại mật khẩu đăng nhập).
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
@@ -1208,6 +1208,50 @@ rtsp:
             </tr></thead>
             <tbody id="integrationsTbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.9rem;font-weight:700;margin:0">🧪 Test API Push</h3>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          Gửi thử một bản tin tới chính API nhận sự cố AI — dùng để xác nhận API hoạt động đúng
+          <b>trước khi</b> chuyển thông tin kết nối (đường dẫn + API key) cho bộ phận đối tác (OMNIA/FPT VDS...).
+          Server sẽ tự gửi request này (không gửi trực tiếp từ trình duyệt) để tránh bị chặn bởi CORS khi địa chỉ
+          đích khác domain của trang quản trị này.
+        </div>
+        <div style="padding:0 1.1rem 1.1rem;display:flex;flex-direction:column;gap:.75rem">
+          <div class="f2">
+            <div class="form-group" style="margin:0">
+              <label>Đường dẫn API đầy đủ</label>
+              <input type="text" id="tp-url" class="input" autocomplete="off"
+                placeholder="https://&lt;IP hoặc domain&gt;/api/aievent/omnia/v1/push">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>API Key</label>
+              <input type="text" id="tp-key" class="input" autocomplete="off" placeholder="dán key của tích hợp cần test">
+            </div>
+          </div>
+
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+            <span style="font-size:.75rem;color:var(--text-muted)">Mẫu bản tin:</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushTemplate('created')">📄 event.created (mở sự kiện)</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushTemplate('terminated')">📄 event.terminated (kết thúc sự kiện)</button>
+            <label class="tab-perm-chip" style="margin-left:auto"><input type="checkbox" id="tp-dryrun" checked> ?dry_run=1 (không lưu dữ liệu thật)</label>
+            <label class="tab-perm-chip"><input type="checkbox" id="tp-skiptls"> Bỏ qua xác thực TLS (chứng chỉ tự ký)</label>
+          </div>
+
+          <div class="form-group" style="margin:0">
+            <label>Nội dung bản tin (JSON) — có thể sửa trước khi gửi</label>
+            <textarea id="tp-body" class="input" rows="12" style="font-family:monospace;font-size:.78rem;white-space:pre"></textarea>
+          </div>
+
+          <div class="btn-row" style="margin:0">
+            <button type="button" class="btn btn-primary" id="tp-send-btn" onclick="sendTestPush()">🚀 Gửi test</button>
+          </div>
+
+          <div id="tp-result" style="display:none"></div>
         </div>
       </div>
 
@@ -2773,6 +2817,7 @@ function aiEventFmtTime(iso) {
 
 async function loadAIEventTab() {
   await Promise.all([loadIntegrationsTab(), loadCategoryRulesTab(), loadObservedCategoriesTab()]);
+  if (!document.getElementById('tp-body').value.trim()) loadTestPushTemplate('created');
 }
 
 // ── Integrations (API keys) ──────────────────────────────────────────────
@@ -3039,6 +3084,154 @@ async function loadObservedCategoriesTab() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="7" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
   }
+}
+
+// ── Test API Push — verbatim from docs/omnia-integration-api-spec.md §12 ──
+// recordId gets a fresh "TEST_..." suffix each time a template is loaded (not
+// hardcoded from the spec) so repeated test runs don't collide against the
+// same stored record every time.
+function _tpFreshRecordId() { return 'TEST_' + Date.now(); }
+
+function _tpTemplate(kind, recordId) {
+  if (kind === 'terminated') {
+    return {
+      type: 'event.terminated',
+      publishedAt: new Date().toISOString(),
+      recordId,
+      situationId: 'SIT_' + recordId,
+      recordType: 'VehicleObstruction',
+      eventCode: 'EVT:639270657291513802',
+      category: { typeId: 12, subtypeId: 41, description: '12/41 (Incident - broken down vehicle(s))', rule: 'broken down vehicle' },
+      event: {
+        Description: 'Incident - broken down vehicle(s)',
+        Category: { Type: { Id: 12 }, Subtype: { Id: 41 } },
+        StartTime: { Value: '2026-09-25T03:48:54Z' },
+        EndTime: { Value: '2026-09-25T04:20:00Z' },
+        Classification: { Id: '8' },
+        Status: { Id: 'C' },
+        CreatorUserName: 'fptvds',
+        ValidatorUserName: null,
+        AssigneeUserName: null,
+        Source: { Processor: 'FPT VDS', Delegate: 'Unassigned' },
+        Published: false,
+        Location: { Type: 'Geometry', Geometry: { Type: 'Point' }, X: 106.688, Y: 10.78393 },
+        Attachments: [],
+        IncidentAttributes: {
+          LightVehicles: 0, HeavyVehicles: 0, TrafficFlow: 0,
+          Weather: 0, Fatalities: 0, PersonInjured: 0,
+          DamageToMotorway: 0, SpillageOnMotorway: 0,
+          LanesBitmask: null, Roundabout: 0, OffRamp: 0,
+          OnRamp: 0, ServiceRoad: 0, Shoulder: 0,
+          Bridge: 0, RoadTypeId: null,
+        },
+        IsReadOnly: false,
+        Reliability: 100,
+      },
+      attachmentCount: 0,
+    };
+  }
+  return {
+    type: 'event.created',
+    publishedAt: new Date().toISOString(),
+    recordId,
+    situationId: 'SIT_' + recordId,
+    recordType: 'VehicleObstruction',
+    eventCode: 'EVT:639270657291513802',
+    category: { typeId: 12, subtypeId: 41, description: '12/41 (Incident - broken down vehicle(s))', rule: 'broken down vehicle' },
+    event: {
+      Description: 'Incident - broken down vehicle(s)',
+      Category: { Type: { Id: 12 }, Subtype: { Id: 41 } },
+      StartTime: { Value: '2026-09-25T03:48:54Z' },
+      EndTime: null,
+      Classification: { Id: '8' },
+      Status: { Id: 'A' },
+      CreatorUserName: 'fptvds',
+      ValidatorUserName: null,
+      AssigneeUserName: null,
+      Source: { Processor: 'FPT VDS', Delegate: 'Unassigned' },
+      Published: false,
+      Location: { Type: 'Geometry', Geometry: { Type: 'Point' }, X: 106.688, Y: 10.78393 },
+      Attachments: [
+        { Name: 'snapshot.jpg', Content: '/9j/4AAQSkZJRgABAgAAAQABAAD...' },
+      ],
+      IncidentAttributes: {
+        LightVehicles: 0, HeavyVehicles: 0, TrafficFlow: 0,
+        Weather: 0, Fatalities: 0, PersonInjured: 0,
+        DamageToMotorway: 0, SpillageOnMotorway: 0,
+        LanesBitmask: null, Roundabout: 0, OffRamp: 0,
+        OnRamp: 0, ServiceRoad: 0, Shoulder: 0,
+        Bridge: 0, RoadTypeId: null,
+      },
+      IsReadOnly: false,
+      Reliability: 100,
+    },
+    attachmentCount: 1,
+  };
+}
+
+function loadTestPushTemplate(kind) {
+  document.getElementById('tp-body').value = JSON.stringify(_tpTemplate(kind, _tpFreshRecordId()), null, 2);
+}
+
+async function sendTestPush() {
+  const url = document.getElementById('tp-url').value.trim();
+  const api_key = document.getElementById('tp-key').value.trim();
+  const body = document.getElementById('tp-body').value;
+  const dry_run = document.getElementById('tp-dryrun').checked;
+  const skip_tls_verify = document.getElementById('tp-skiptls').checked;
+  const resultEl = document.getElementById('tp-result');
+
+  if (!url) { toast('Nhập đường dẫn API trước.', 'error'); return; }
+
+  const btn = document.getElementById('tp-send-btn');
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Đang gửi…';
+  resultEl.style.display = 'none';
+
+  try {
+    const res = await apiFetch('/api/aievent/test-push', {
+      method: 'POST',
+      body: { url, api_key, body, dry_run, skip_tls_verify },
+    });
+    renderTestPushResult(res);
+  } catch (e) {
+    resultEl.style.display = '';
+    resultEl.innerHTML = `<div style="padding:.7rem .9rem;border-radius:8px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:var(--red);font-size:.82rem">Lỗi gọi API nội bộ: ${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = origText;
+  }
+}
+
+function renderTestPushResult(res) {
+  const resultEl = document.getElementById('tp-result');
+  resultEl.style.display = '';
+
+  if (res.error) {
+    resultEl.innerHTML = `
+      <div style="padding:.7rem .9rem;border-radius:8px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3)">
+        <div style="font-weight:700;color:var(--red);font-size:.85rem;margin-bottom:.3rem">✗ Không gửi được (lỗi kết nối)</div>
+        <div style="font-size:.8rem;color:var(--text)">${esc(res.error)}</div>
+        ${res.elapsed_ms ? `<div style="font-size:.72rem;color:var(--text-muted);margin-top:.3rem">${res.elapsed_ms} ms</div>` : ''}
+      </div>`;
+    return;
+  }
+
+  const ok2xx = res.status_code >= 200 && res.status_code < 300;
+  const color = ok2xx ? '#4ade80' : '#f87171';
+  const bg = ok2xx ? 'rgba(74,222,128,.08)' : 'rgba(248,81,73,.08)';
+  const border = ok2xx ? 'rgba(74,222,128,.3)' : 'rgba(248,81,73,.3)';
+  let pretty = res.response_body;
+  try { pretty = JSON.stringify(JSON.parse(res.response_body), null, 2); } catch {}
+
+  resultEl.innerHTML = `
+    <div style="padding:.7rem .9rem;border-radius:8px;background:${bg};border:1px solid ${border}">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem">
+        <span style="font-weight:700;font-size:.85rem;color:${color}">${ok2xx ? '✓' : '✗'} HTTP ${esc(res.status_text || String(res.status_code))}</span>
+        <span style="font-size:.72rem;color:var(--text-muted)">${res.elapsed_ms} ms</span>
+        ${res.truncated ? '<span style="font-size:.72rem;color:var(--text-muted)">(đã cắt bớt nội dung)</span>' : ''}
+      </div>
+      <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:.78rem;font-family:monospace;color:var(--text)">${esc(pretty || '(rỗng)')}</pre>
+    </div>`;
 }
 
 function onRoleChange() {

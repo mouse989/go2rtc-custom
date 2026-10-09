@@ -22,6 +22,7 @@ package aievent
 //                                            prefix — no extra code needed here.
 //   GET/POST/PUT/DELETE /api/aievent/category-rules[/{id}] — admin-only.
 //   GET  /api/aievent/observed-categories — admin-only, read-only.
+//   POST /api/aievent/test-push            — admin-only, see testpush.go.
 //
 // Every handler re-checks permission itself rather than trusting that a
 // request reached it at all — same "never trust the outer gate alone"
@@ -46,6 +47,7 @@ func RegisterHandlers() {
 	http.HandleFunc("/api/aievent/category-rules", handleCategoryRules)
 	http.HandleFunc("/api/aievent/category-rules/", handleCategoryRules)
 	http.HandleFunc("/api/aievent/observed-categories", handleObservedCategories)
+	http.HandleFunc("/api/aievent/test-push", handleTestPush)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
