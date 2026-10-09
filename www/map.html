@@ -1571,7 +1571,12 @@ async function initMap(apiKey) {
 
   ['unclustered-point','clusters'].forEach(layer => {
     map.on('mouseenter', layer, () => {
-      if (!_editMode && !_regionDrawing && !_routeMode && !_incidentAddMode) map.getCanvas().style.cursor = 'pointer';
+      // _incidentAddMode left out on purpose: left-click still opens the
+      // camera/cluster normally in that mode (the right-click handler is
+      // the only thing Traffic Event mode changes), so the cursor should
+      // say so — otherwise hovering a camera shows the same crosshair as
+      // empty map, which reads as "not clickable" when it still is.
+      if (!_editMode && !_regionDrawing && !_routeMode) map.getCanvas().style.cursor = 'pointer';
     });
     map.on('mouseleave', layer, () => {
       map.getCanvas().style.cursor = (_regionDrawing || _routeMode || _incidentAddMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
