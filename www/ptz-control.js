@@ -82,9 +82,45 @@ function mountPTZOverlay(container, streamName) {
     }
   }
 
+  // ── Show/hide toggle ─────────────────────────────────────────────
+  // The full cluster (joystick + 2 side pills) is ~210px wide — fine over a
+  // desktop-size video, but on a phone/tablet modal (often well under
+  // 400px wide, see the live-video modal on map.html/index.html) it covers
+  // a large share of the frame. Collapsed by default below that width;
+  // always shown above it, preserving the previous always-visible
+  // behaviour on desktop. Once the viewer taps the toggle, their choice is
+  // remembered (per browser) and wins over that width guess from then on.
+  const VISIBLE_KEY = 'go2rtc_ptz_overlay_visible';
+  const NARROW_WIDTH = 480;
+  const savedVisible = localStorage.getItem(VISIBLE_KEY);
+  let visible = savedVisible !== null ? savedVisible === '1' : window.innerWidth > NARROW_WIDTH;
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.setAttribute('aria-label', 'Hiện/ẩn điều khiển PTZ');
+  toggleBtn.title = 'Hiện/ẩn điều khiển PTZ';
+  toggleBtn.style.cssText = `position:absolute;left:10px;bottom:10px;width:34px;height:34px;border-radius:50%;` +
+    `border:1px solid ${IDLE_BORDER};background:${IDLE_BG};backdrop-filter:blur(6px);color:#e6edf3;` +
+    `display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;z-index:6`;
+  toggleBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none">' +
+    '<circle cx="12" cy="12" r="3" fill="currentColor"/>' +
+    '<path d="M12 2 L15 7 L9 7 Z" fill="currentColor"/><path d="M12 22 L15 17 L9 17 Z" fill="currentColor"/>' +
+    '<path d="M2 12 L7 9 L7 15 Z" fill="currentColor"/><path d="M22 12 L17 9 L17 15 Z" fill="currentColor"/></svg>';
+
   const wrap = document.createElement('div');
   wrap.className = 'ptz-overlay';
-  wrap.style.cssText = 'position:absolute;right:16px;bottom:16px;display:flex;align-items:center;gap:12px;z-index:5';
+  wrap.style.cssText = 'position:absolute;right:16px;bottom:16px;align-items:center;gap:12px;z-index:5';
+
+  function applyVisibility() {
+    wrap.style.display = visible ? 'flex' : 'none';
+    toggleBtn.style.background = visible ? ACTIVE_BG : IDLE_BG;
+    toggleBtn.style.borderColor = visible ? ACTIVE_BG : IDLE_BORDER;
+  }
+  toggleBtn.addEventListener('click', () => {
+    visible = !visible;
+    localStorage.setItem(VISIBLE_KEY, visible ? '1' : '0');
+    applyVisibility();
+  });
 
   // ── Pan/Tilt joystick (8-direction), with a Home button at its center ──
   const pad = document.createElement('div');
@@ -254,6 +290,8 @@ function mountPTZOverlay(container, streamName) {
   wrap.appendChild(saveBtn);
   if (!container.style.position) container.style.position = 'relative';
   container.appendChild(wrap);
+  container.appendChild(toggleBtn);
+  applyVisibility();
 
   return function unmount() {
     if (activeStopFn) {
