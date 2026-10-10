@@ -83,17 +83,14 @@ function mountPTZOverlay(container, streamName) {
   }
 
   // ── Show/hide toggle ─────────────────────────────────────────────
-  // The full cluster (joystick + 2 side pills) is ~210px wide — fine over a
-  // desktop-size video, but on a phone/tablet modal (often well under
-  // 400px wide, see the live-video modal on map.html/index.html) it covers
-  // a large share of the frame. Collapsed by default below that width;
-  // always shown above it, preserving the previous always-visible
-  // behaviour on desktop. Once the viewer taps the toggle, their choice is
-  // remembered (per browser) and wins over that width guess from then on.
+  // The full cluster (joystick + 2 side pills) is ~210px wide and sits
+  // right on top of the video — collapsed by default on every screen size
+  // (not just narrow ones), so it never blocks the view until the viewer
+  // actually wants to steer the camera. Once they tap the toggle, their
+  // choice is remembered per browser (localStorage) for next time.
   const VISIBLE_KEY = 'go2rtc_ptz_overlay_visible';
-  const NARROW_WIDTH = 480;
   const savedVisible = localStorage.getItem(VISIBLE_KEY);
-  let visible = savedVisible !== null ? savedVisible === '1' : window.innerWidth > NARROW_WIDTH;
+  let visible = savedVisible === '1';
 
   const toggleBtn = document.createElement('button');
   toggleBtn.type = 'button';
