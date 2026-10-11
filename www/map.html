@@ -1470,8 +1470,9 @@ function rebuildMapLayers() {
 // file (checked the whole thing, not just this excerpt), so VietMap's own
 // iconic-building 3D models (e.g. Bitexco) are not reachable through this
 // public web style at all — this layer only extrudes plain building
-// footprints, matching minzoom and fill-color to VietMap's own "building"
-// layer above so it blends in rather than inventing its own convention.
+// footprints, matching fill-color to VietMap's own "building" layer above
+// so it blends in. minzoom is intentionally NOT matched to theirs (17) —
+// this system wants buildings visible further out; see the minzoom line.
 function _ensure3DBuildingsLayer() {
   if (!map || map.getLayer(MAP_3D_BUILDINGS_LAYER)) return;
   try {
@@ -1488,7 +1489,11 @@ function _ensure3DBuildingsLayer() {
       type: 'fill-extrusion',
       source: vectorSourceId,
       'source-layer': 'building',
-      minzoom: 17,
+      // VietMap's own "building" layer uses minzoom 17, but this system
+      // wants 3D buildings visible a bit further out than VietMap's own
+      // default — kept deliberately lower per explicit choice, not an
+      // oversight.
+      minzoom: 14,
       layout: { visibility: _map3DMode ? 'visible' : 'none' },
       paint: {
         'fill-extrusion-color': extrusionColor,
