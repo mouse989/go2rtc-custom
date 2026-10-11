@@ -1534,12 +1534,13 @@ async function initMap(apiKey) {
     attributionControl: false,
     // MapLibre's own default maxPitch is 60 — without overriding it here,
     // that cap applies to BOTH the 🧊 3D button's target pitch (MAP_3D_PITCH,
-    // already under 60 so unaffected) AND any manual drag-tilt gesture
-    // (ctrl+drag / two-finger drag) a user tries beyond it. VietMap's docs
+    // already under 70 so unaffected) AND any manual drag-tilt gesture
+    // (ctrl+drag / two-finger drag) a user tries beyond it. Locked at 70 —
+    // an explicit ceiling, not just "higher than before": VietMap's docs
     // call >60 "experimental, may render incorrectly" up to a hard ceiling
-    // of 85 — 75 leaves headroom for a steeper manual tilt without reaching
-    // that documented-risky top end.
-    maxPitch: 75,
+    // of 85, so this stops short of that riskier top end rather than
+    // chasing it.
+    maxPitch: 70,
   });
 
   map.addControl(new vietmapgl.NavigationControl(), 'top-left');
