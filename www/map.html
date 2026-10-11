@@ -1460,16 +1460,12 @@ function rebuildMapLayers() {
   map.easeTo({ pitch: _map3DMode ? MAP_3D_PITCH : 0, duration: 0 });
 }
 
-// _ensure3DBuildingsLayer adds a fill-extrusion layer for buildings, reading
-// height from whichever property VietMap's vector tiles actually use. We
-// can't inspect VietMap's tile schema ahead of time (no public/queryable
-// list of a vector source's source-layers from the JS SDK), so this tries
-// the common OpenMapTiles-family property names via `coalesce` and falls
-// back to a flat 6 m box when none are present — if the source-layer name
-// itself ('building') turns out wrong for VietMap's schema, the layer simply
-// renders nothing (MapLibre doesn't error on an unmatched source-layer),
-// degrading gracefully to "3D tilt works, no building shapes" rather than
-// breaking the map.
+// _ensure3DBuildingsLayer adds a fill-extrusion layer for buildings.
+// Confirmed live (2026-10-11, via the browser console against the real
+// VietMap style): the vector source is named "openmaptiles" and it does
+// have a "building" source-layer, i.e. standard OpenMapTiles schema — this
+// function's source lookup (first vector-type source) and 'source-layer'
+// both check out.
 function _ensure3DBuildingsLayer() {
   if (!map || map.getLayer(MAP_3D_BUILDINGS_LAYER)) return;
   try {
@@ -1485,7 +1481,17 @@ function _ensure3DBuildingsLayer() {
       layout: { visibility: _map3DMode ? 'visible' : 'none' },
       paint: {
         'fill-extrusion-color': '#c8d0dc',
-        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], ['*', ['get', 'levels'], 3], 6],
+        // `coalesce` only skips a null from `get` itself — an inner
+        // expression that ERRORS on null input (e.g. `*` with a missing
+        // `levels` property) throws instead of being skipped, which is
+        // what crashed tile evaluation here: ["Expected value to be of
+        // type number, but found null instead."] on every feature missing
+        // `levels`. Dropped the levels*3 estimate entirely rather than
+        // guard it — render_height/render_min_height are OpenMapTiles'
+        // own purpose-built extrusion fields, present on the building
+        // layer whenever it has one at all, so the extra fallback wasn't
+        // pulling its weight.
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 6],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
         'fill-extrusion-opacity': 0.82,
       },
