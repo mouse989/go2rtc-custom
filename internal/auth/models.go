@@ -63,6 +63,12 @@ type User struct {
 	// AllowMapIncidentAdd: there's no manual-entry counterpart to this
 	// layer, so this flag alone fully controls whether a user can see it.
 	AllowMapAIEvents bool `json:"allow_map_ai_events"`
+	// AllowMap3D gates map.html's "🧊 3D" toggle — tilts the camera (pitch)
+	// and shows a 3D building-extrusion layer rendered client-side from the
+	// same VietMap vector tiles the base map already fetches (no separate
+	// API/endpoint involved, unlike AllowTrafficLive/AllowMapAIEvents above —
+	// purely a map-rendering mode, so there's nothing to gate server-side).
+	AllowMap3D bool `json:"allow_map_3d"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process

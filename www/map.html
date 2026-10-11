@@ -687,6 +687,11 @@ body.sb-collapsed           { --map-left:0; }
   <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
   <button class="map-btn" id="btnSnapPreview" style="display:none" title="Bật/tắt hiển thị snapshot camera trực tiếp trên bản đồ">📷 Xem trước</button>
   <button class="map-btn" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
+  <!-- 3D view: shown only for admin or users with allow_map_3d. Tilts the camera
+       (pitch) and shows a building-extrusion layer rendered from the base map's
+       own vector tiles — purely a rendering mode, independent of every other
+       layer/tool above (left on while e.g. Traffic/AI Event are also on). -->
+  <button class="map-btn" id="btn3D" style="display:none" title="Bật/tắt chế độ xem 3D (nghiêng camera + hiển thị khối nhà)">🧊 3D</button>
   <!-- Map style toggle (single button, shows current mode) -->
   <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
   <button class="map-btn admin-only" id="btnEdit" style="display:none">
@@ -1157,6 +1162,10 @@ let _aiEventMarkers = {};       // record_id -> { marker, el } — bubble marker
 let _aiEventPreviews = new Map(); // record_id -> { el, img, lon, lat } — floating image preview boxes
 let _aiEventPollTimer = null;   // setInterval handle refreshing the above while the layer is on
 let _aiEventImgDenied = false;  // true once the user has declined device verification this session (avoid re-prompting every poll)
+// ── 3D view ("🧊 3D" toggle) state ──
+const MAP_3D_PITCH = 55;        // degrees; VietMap/MapLibre docs call >60 "experimental, may render incorrectly"
+const MAP_3D_BUILDINGS_LAYER = 'map-3d-buildings';
+let _map3DMode = localStorage.getItem('map_3d_mode') === '1'; // persisted per-browser, same convention as _trafficSource
 // ── Route corridor tool ("Theo tuyến") state ──
 let _routeMode  = false;   // panel open / map clicks add route points
 let _routePoints = [];     // [[lng,lat], ...] clicked points, in click order (start → end)
@@ -1441,6 +1450,49 @@ function rebuildMapLayers() {
 
   // Re-add region-drawing layers if a region was being drawn/edited
   if (_regionDrawing) { ensureRegionLayers(); updateRegionDraftLayers(); }
+
+  // Re-add the 3D buildings layer (wiped by setStyle like every other custom
+  // layer above) and restore pitch — setStyle itself doesn't reset camera
+  // pitch/bearing, but a style.load this function is the single place every
+  // custom layer gets rebuilt, so keep this with the rest rather than
+  // splitting the "was 3D on" check into its own listener.
+  _ensure3DBuildingsLayer();
+  map.easeTo({ pitch: _map3DMode ? MAP_3D_PITCH : 0, duration: 0 });
+}
+
+// _ensure3DBuildingsLayer adds a fill-extrusion layer for buildings, reading
+// height from whichever property VietMap's vector tiles actually use. We
+// can't inspect VietMap's tile schema ahead of time (no public/queryable
+// list of a vector source's source-layers from the JS SDK), so this tries
+// the common OpenMapTiles-family property names via `coalesce` and falls
+// back to a flat 6 m box when none are present — if the source-layer name
+// itself ('building') turns out wrong for VietMap's schema, the layer simply
+// renders nothing (MapLibre doesn't error on an unmatched source-layer),
+// degrading gracefully to "3D tilt works, no building shapes" rather than
+// breaking the map.
+function _ensure3DBuildingsLayer() {
+  if (!map || map.getLayer(MAP_3D_BUILDINGS_LAYER)) return;
+  try {
+    const sources = map.getStyle().sources || {};
+    const vectorSourceId = Object.keys(sources).find(id => sources[id].type === 'vector');
+    if (!vectorSourceId) return;
+    map.addLayer({
+      id: MAP_3D_BUILDINGS_LAYER,
+      type: 'fill-extrusion',
+      source: vectorSourceId,
+      'source-layer': 'building',
+      minzoom: 14,
+      layout: { visibility: _map3DMode ? 'visible' : 'none' },
+      paint: {
+        'fill-extrusion-color': '#c8d0dc',
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], ['*', ['get', 'levels'], 3], 6],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+        'fill-extrusion-opacity': 0.82,
+      },
+    }, map.getLayer('unclustered-point') ? 'unclustered-point' : undefined);
+  } catch (e) {
+    console.warn('[map] 3D buildings layer unavailable:', e);
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -2614,6 +2666,21 @@ document.getElementById('btnAIEvent').addEventListener('click', function() {
     Object.values(_aiEventMarkers).forEach(({ marker }) => marker.remove());
     _aiEventMarkers = {};
     clearAIEventPreviews();
+  }
+});
+
+// Independent view mode, not mutually exclusive with any layer/tool above —
+// same convention as 🚦 Traffic / 🌡 Heatmap: a passive rendering toggle.
+document.getElementById('btn3D').addEventListener('click', function() {
+  _map3DMode = !_map3DMode;
+  this.classList.toggle('active', _map3DMode);
+  localStorage.setItem('map_3d_mode', _map3DMode ? '1' : '0');
+  if (map) {
+    map.easeTo({ pitch: _map3DMode ? MAP_3D_PITCH : 0, duration: 500 });
+    _ensure3DBuildingsLayer(); // no-op if already added
+    if (map.getLayer(MAP_3D_BUILDINGS_LAYER)) {
+      map.setLayoutProperty(MAP_3D_BUILDINGS_LAYER, 'visibility', _map3DMode ? 'visible' : 'none');
+    }
   }
 });
 
@@ -4591,6 +4658,12 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   }
   if (canMapAIEvent()) {
     document.getElementById('btnAIEvent').style.display = '';
+  }
+  if (canMap3D()) {
+    document.getElementById('btn3D').style.display = '';
+    document.getElementById('btn3D').classList.toggle('active', _map3DMode);
+  } else {
+    _map3DMode = false; // ignore a stale localStorage flag if permission was revoked
   }
   const snapPreviewAllowed = canMapSnapshotPreview();
   if (snapPreviewAllowed) {
