@@ -1461,39 +1461,49 @@ function rebuildMapLayers() {
 }
 
 // _ensure3DBuildingsLayer adds a fill-extrusion layer for buildings.
-// Confirmed live (2026-10-11, via the browser console against the real
-// VietMap style): the vector source is named "openmaptiles" and it does
-// have a "building" source-layer, i.e. standard OpenMapTiles schema — this
-// function's source lookup (first vector-type source) and 'source-layer'
-// both check out.
+// Verified against VietMap's own exported style.json (2026-10-11, "SEA Map
+// Light" / lm): the vector source is "openmaptiles" (standard OpenMapTiles
+// schema) with exactly one building geometry layer —
+//   {id:"building", type:"fill", source-layer:"building", minzoom:17,
+//    paint:{"fill-color":"rgba(195,198,209,1)", ...}}
+// — no fill-extrusion, landmark or 3D-model layer exists anywhere in that
+// file (checked the whole thing, not just this excerpt), so VietMap's own
+// iconic-building 3D models (e.g. Bitexco) are not reachable through this
+// public web style at all — this layer only extrudes plain building
+// footprints, matching minzoom and fill-color to VietMap's own "building"
+// layer above so it blends in rather than inventing its own convention.
 function _ensure3DBuildingsLayer() {
   if (!map || map.getLayer(MAP_3D_BUILDINGS_LAYER)) return;
   try {
     const sources = map.getStyle().sources || {};
     const vectorSourceId = Object.keys(sources).find(id => sources[id].type === 'vector');
     if (!vectorSourceId) return;
+    // VietMap's own "building" layer uses one flat gray for light ('lm')
+    // style; that gray would be nearly invisible on the dark ('dm') style's
+    // near-black basemap, so pick per current style the same way the rest
+    // of this file treats lm/dm as a light/dark pair.
+    const extrusionColor = _currentStyle === 'dm' ? '#4a5568' : 'rgba(195, 198, 209, 1)';
     map.addLayer({
       id: MAP_3D_BUILDINGS_LAYER,
       type: 'fill-extrusion',
       source: vectorSourceId,
       'source-layer': 'building',
-      minzoom: 14,
+      minzoom: 17,
       layout: { visibility: _map3DMode ? 'visible' : 'none' },
       paint: {
-        'fill-extrusion-color': '#c8d0dc',
+        'fill-extrusion-color': extrusionColor,
         // `coalesce` only skips a null from `get` itself — an inner
         // expression that ERRORS on null input (e.g. `*` with a missing
         // `levels` property) throws instead of being skipped, which is
         // what crashed tile evaluation here: ["Expected value to be of
         // type number, but found null instead."] on every feature missing
-        // `levels`. Dropped the levels*3 estimate entirely rather than
+        // `levels`. Dropped that levels*3 estimate entirely rather than
         // guard it — render_height/render_min_height are OpenMapTiles'
-        // own purpose-built extrusion fields, present on the building
-        // layer whenever it has one at all, so the extra fallback wasn't
-        // pulling its weight.
+        // own purpose-built extrusion fields, standard on its building
+        // layer, so the extra fallback wasn't pulling its weight.
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 6],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
-        'fill-extrusion-opacity': 0.82,
+        'fill-extrusion-opacity': 0.9,
       },
     }, map.getLayer('unclustered-point') ? 'unclustered-point' : undefined);
   } catch (e) {
