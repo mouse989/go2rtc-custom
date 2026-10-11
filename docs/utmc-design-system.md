@@ -9,7 +9,13 @@ Tài liệu này mô tả **bộ nhận diện giao diện dùng chung** cho to�
 - Trang quản trị https-proxy (`cmd/https-proxy/admin.html`)
 - Từng hệ thống nghiệp vụ: Điều hành Giao thông (go2rtc), Quản lý hiệu suất công việc (KPI), Quản lý tuần tra, và các hệ thống tương lai
 
-**Hiện trạng:** Các giao diện trên (login.html, landing page UTMC Platform, https-proxy admin) đã triển khai theo **1 theme duy nhất** — nền rất tối, gọi là **Dark theme** (mặc định/chính thức). Tài liệu này bổ sung thêm **Light theme** làm lựa chọn thứ hai, và chuẩn hoá toàn bộ token/thành phần để mọi hệ thống — kể cả hệ thống KPI, Quản lý tuần tra sau này — dùng chung một ngôn ngữ thiết kế, chuyển đổi được giữa 2 theme.
+**Hiện trạng (đã triển khai thật trong go2rtc):** `www/login.html` và toàn bộ trang nội bộ của go2rtc (`map.html`, `index.html`, `admin.html`, `incidents.html`, `config.html`... — mọi trang dùng chung `www/app.css`/`www/app.js`) nay đều có **Dark theme** (mặc định) và **Light theme** (bật bằng nút chuyển đổi), cùng một cơ chế `[data-theme="light"]` trên `<html>` + khoá `localStorage['utmc_theme']` dùng chung. Đây là bản tham chiếu thực tế (nguồn chân lý về giá trị token) cho các hệ thống khác — KPI, Quản lý tuần tra, https-proxy — áp dụng theo, thay vì chỉ coi các bảng dưới đây là đề xuất.
+
+**Lưu ý quan trọng — 2 bộ token song song trong go2rtc, CÙNG MỘT MÀU NHƯNG KHÁC TÊN BIẾN:**
+- `www/login.html` (trang đăng nhập + landing-style): các biến `--bg-deep`, `--bg-card`, `--text-primary`, `--accent-cyan`... (namespace riêng cho giao diện "thương hiệu", xem mục 2.1).
+- `www/app.css` (khung ứng dụng nội bộ — sidebar/topbar/bảng/dialog của mọi trang nghiệp vụ): các biến `--bg`, `--surface`, `--text`, `--accent`... (namespace ngắn gọn hơn, xem mục 2.2) — đây là bộ biến **đã có từ trước** khi xây dựng tài liệu này, nay chỉ đổi **giá trị** sang bộ màu navy/cyan, giữ nguyên **tên biến** để không phải sửa hàng trăm chỗ `var(--bg)` rải rác trong `app.css`.
+
+Một hệ thống mới (KPI, tuần tra...) có thể chọn 1 trong 2 bộ tên biến này tuỳ loại trang (trang "thương hiệu" như landing/login dùng bộ 2.1; trang "khung ứng dụng" nhiều bảng/dialog dùng bộ 2.2) — quan trọng là **giá trị màu** và **cơ chế `data-theme` + `utmc_theme`** phải giống nhau.
 
 **Phong cách chủ đạo:** hiện đại, công nghệ, tinh thần "trung tâm điều hành số / chuyển đổi số" — nền động dạng lưới mạng (network canvas), gradient thương hiệu xanh dương → cyan, bo góc mềm, hiệu ứng kính mờ (glassmorphism) cho các khối nổi, không dùng icon emoji (chỉ SVG tự vẽ).
 
@@ -30,85 +36,131 @@ Tài liệu này mô tả **bộ nhận diện giao diện dùng chung** cho to�
 
 ---
 
-## 2. Design tokens — CSS variables dùng chung
+## 2. Design tokens — CSS variables (giá trị thật, lấy từ code đã chạy)
 
-**Nguyên tắc:** `:root` chứa giá trị **Dark theme (mặc định)** — giữ nguyên hành vi hiện tại của mọi hệ thống đã triển khai, không ai cần đổi gì nếu chưa làm theme toggle. **Light theme** là override, kích hoạt bằng thuộc tính `data-theme="light"` trên thẻ `<html>`.
+**Nguyên tắc chung:** `:root` chứa giá trị **Dark theme (mặc định)**. **Light theme** là override qua `:root[data-theme="light"]`, kích hoạt bằng thuộc tính `data-theme="light"` trên thẻ `<html>` (không phải class trên `<body>`). Một script nhỏ, đồng bộ, đặt ngay đầu `<head>` (trước mọi CSS) đọc `localStorage['utmc_theme']` và set thuộc tính này sớm nhất có thể để tránh nháy (flash) sai theme lúc tải trang — xem mẫu ở mục 4.6.
+
+### 2.1 Trang "thương hiệu" (đăng nhập, landing) — theo đúng `www/login.html`
 
 ```css
 :root {
-  /* ---- Dark theme (mặc định) ---- */
-  --bg: #050b16;
-  --bg-glow-1: rgba(0,119,255,.16);
-  --bg-glow-2: rgba(0,240,255,.12);
-
-  --surface: rgba(10,19,35,.82);
-  --surface-border: rgba(255,255,255,.1);
-  --surface-hover-border: rgba(0,240,255,.45);
-
-  --glass-bg: rgba(255,255,255,.055);
-  --glass-border: rgba(255,255,255,.32);
-  --glass-sheen: rgba(255,255,255,.07);
-
-  --text-primary: #e6edf3;
+  --bg-deep: #050b16;
+  --bg-card: rgba(10, 19, 35, 0.82);
+  --bg-card-border: rgba(0, 240, 255, 0.35);
+  --accent-cyan: #00f0ff;
+  --accent-blue: #0077ff;
+  --accent-glow: rgba(0, 240, 255, 0.5);
+  --text-primary: #ffffff;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
-
-  --brand-grad: linear-gradient(135deg, #0077ff, #00f0ff);
-  --brand-grad-text: linear-gradient(135deg, #ffffff 40%, #00f0ff 100%);
-  --brand-on-grad: #04121f;      /* chữ/icon đặt TRÊN nền gradient */
-  --accent: #00f0ff;             /* dùng cho icon/chữ nhấn, viền hover */
-  --accent-2: #0077ff;
-
-  --border-subtle: rgba(255,255,255,.08);
-  --shadow-card: 0 14px 34px -10px rgba(0,0,0,.6), 0 0 0 1px rgba(0,240,255,.12);
-  --shadow-btn: 0 6px 18px -4px rgba(0,119,255,.5);
-
-  --input-bg: #0b1422;
-  --input-border: rgba(255,255,255,.14);
-  --error: #ef4444;
-
-  --particle-color: #00f0ff;     /* nền network canvas: màu hạt */
-  --particle-line: rgba(0,240,255,.18); /* nền network canvas: màu đường nối */
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --input-border: rgba(148, 163, 184, 0.28);
+  --input-focus: #00f0ff;
+  --input-text: #ffffff;
+  --input-hover-border: rgba(0, 240, 255, 0.45);
+  --input-hover-bg: rgba(255, 255, 255, 0.08);
+  --focus-tint-bg: rgba(0, 240, 255, 0.06);
+  --focus-ring: rgba(0, 240, 255, 0.2);
+  --field-label-color: #cbd5e1;
+  --link-hover-color: #ffffff;
+  --danger: #f85149;
+  --glow-1: rgba(0, 119, 255, 0.18);       /* radial-gradient góc trên-trái */
+  --glow-2: rgba(0, 240, 255, 0.14);       /* radial-gradient góc dưới-phải */
+  --vignette: linear-gradient(to bottom, rgba(5, 11, 22, 0.5) 0%, rgba(3, 7, 15, 0.85) 100%);
+  --topbar-bg: rgba(5, 11, 22, 0.72);
+  --badge-bg: rgba(255, 255, 255, 0.06);   /* khung logo giữa thẻ */
+  --badge-border: rgba(255, 255, 255, 0.14);
+  --hairline: rgba(255, 255, 255, 0.08);   /* viền phân cách mảnh */
+  --overlay-bg: rgba(5, 11, 22, 0.9);      /* lớp phủ loading radar */
+  --title-grad: linear-gradient(135deg, #ffffff 40%, var(--accent-cyan) 100%);
+  --status-pill-text: #e2e8f0;
+  --radius-lg: 22px;
+  --radius-md: 12px;
+  --transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 :root[data-theme="light"] {
-  /* ---- Light theme (mới) ---- */
-  --bg: #f2f6fb;
-  --bg-glow-1: rgba(0,119,255,.08);
-  --bg-glow-2: rgba(0,180,255,.08);
-
-  --surface: rgba(255,255,255,.92);
-  --surface-border: rgba(15,27,45,.09);
-  --surface-hover-border: rgba(0,119,255,.4);
-
-  --glass-bg: rgba(255,255,255,.6);
-  --glass-border: rgba(15,27,45,.14);
-  --glass-sheen: rgba(255,255,255,.5);
-
+  --bg-deep: #f2f6fb;
+  --bg-card: rgba(255, 255, 255, 0.92);
+  --bg-card-border: rgba(0, 119, 255, 0.25);
+  --accent-cyan: #0077ff;    /* cyan #00f0ff gần như vô hình trên nền trắng — dùng xanh dương đậm hơn */
+  --accent-blue: #0077ff;
+  --accent-glow: rgba(0, 119, 255, 0.35);
   --text-primary: #0f1b2d;
   --text-secondary: #46536b;
   --text-muted: #7c8aa0;
-
-  --brand-grad: linear-gradient(135deg, #0077ff, #00c2ff);
-  --brand-grad-text: linear-gradient(135deg, #0b3a66 20%, #0090c7 100%);
-  --brand-on-grad: #ffffff;
-  --accent: #0077ff;
-  --accent-2: #0062d6;
-
-  --border-subtle: rgba(15,27,45,.08);
-  --shadow-card: 0 12px 28px -12px rgba(15,27,45,.18), 0 0 0 1px rgba(0,119,255,.07);
-  --shadow-btn: 0 6px 16px -4px rgba(0,119,255,.3);
-
-  --input-bg: #ffffff;
-  --input-border: rgba(15,27,45,.16);
-  --error: #dc2626;
-
-  --particle-color: #0077ff;
-  --particle-line: rgba(0,119,255,.16);
+  --input-bg: rgba(15, 27, 45, 0.035);
+  --input-border: rgba(15, 27, 45, 0.16);
+  --input-focus: #0077ff;
+  --input-text: #0f1b2d;
+  --input-hover-border: rgba(0, 119, 255, 0.4);
+  --input-hover-bg: rgba(15, 27, 45, 0.05);
+  --focus-tint-bg: rgba(0, 119, 255, 0.05);
+  --focus-ring: rgba(0, 119, 255, 0.16);
+  --field-label-color: #334155;
+  --link-hover-color: #0f1b2d;
+  --danger: #dc2626;
+  --glow-1: rgba(0, 119, 255, 0.1);
+  --glow-2: rgba(0, 150, 255, 0.08);
+  --vignette: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(214, 227, 242, 0.55) 100%);
+  --topbar-bg: rgba(255, 255, 255, 0.78);
+  --badge-bg: rgba(15, 27, 45, 0.04);
+  --badge-border: rgba(15, 27, 45, 0.12);
+  --hairline: rgba(15, 27, 45, 0.08);
+  --overlay-bg: rgba(242, 246, 251, 0.92);
+  /* Gradient tiêu đề "trắng → cyan" không đọc được trên nền trắng — bắt
+     đầu bằng màu chữ tối thay vì trắng. Cùng lý do với --status-pill-text:
+     chữ xám-trắng #e2e8f0 trên pill xanh lá NHẠT (nền sáng) gần như vô
+     hình, nên light theme cần chữ pill tối màu hơn. */
+  --title-grad: linear-gradient(135deg, #0f1b2d 20%, var(--accent-cyan) 100%);
+  --status-pill-text: #065f46;
 }
 ```
 
-**Vì sao chữ/gradient thương hiệu khác nhẹ giữa 2 theme:** `#00f0ff` (cyan sáng) đọc rất rõ trên nền tối nhưng **mờ/kém tương phản trên nền trắng** — ở Light theme dùng `#0077ff`/`#00c2ff` đậm hơn cho chữ/viền nhấn, trong khi nút bấm nền-gradient vẫn đủ tương phản ở cả 2 theme vì luôn có nền đặc phía sau.
+Màu nút gradient chính (`.btn-submit-login`, `linear-gradient(135deg, #0077ff 0%, #00f0ff 100%)`) và nền `.auth-card::before` **không đổi theo theme** — luôn có nền đặc phía sau nên chữ/viền trắng trên đó vẫn đủ tương phản ở cả 2 theme; đây là phần "thương hiệu" cố định, không nên biến thành biến theo theme.
+
+### 2.2 Khung ứng dụng nội bộ (sidebar/topbar/bảng/dialog mọi trang nghiệp vụ) — theo đúng `www/app.css`
+
+Bộ biến này **đã tồn tại từ trước** (tên biến ngắn, dùng ở hàng trăm nơi trong `app.css` và các trang nghiệp vụ); khi thống nhất nhận diện, chỉ cần đổi **giá trị** sang navy/cyan, giữ nguyên **tên biến** — nên nếu hệ thống khác (KPI...) đã có sẵn một bộ biến tương tự, cách rẻ nhất là làm y hệt: đổi giá trị, giữ tên.
+
+```css
+:root {
+  --bg:          #050b16;
+  --surface:     #0b1422;
+  --surface2:    #111c30;
+  --border:      #1e2d45;
+  --border-soft: #152238;
+  --text:        #e6edf3;
+  --text-muted:  #94a3b8;
+  --accent:      #0077ff;
+  --accent-h:    #00c2ff;
+  --green:       #3fb950;   /* trạng thái — không đổi theo thương hiệu/theme */
+  --red:         #f85149;
+  --yellow:      #d29922;
+  --radius:      8px;
+  --radius-lg:   12px;
+  --sidebar-w:   220px;
+  --topbar-h:    56px;
+  --transition:  .15s ease;
+}
+
+:root[data-theme="light"] {
+  --bg:          #f2f6fb;
+  --surface:     #ffffff;
+  --surface2:    #eef2f8;
+  --border:      #d7dfea;
+  --border-soft: #e2e8f1;
+  --text:        #0f1b2d;
+  --text-muted:  #46536b;
+  --accent:      #0077ff;
+  --accent-h:    #0062d6;
+  --green:       #1a7f37;
+  --red:         #d1242f;
+  --yellow:      #9a6700;
+}
+```
+
+Màu trạng thái (`--green`/`--red`/`--yellow`) chỉ đổi sắc độ nhẹ cho đủ tương phản ở Light, **không** đổi theo logic thương hiệu — đây là màu ngữ nghĩa (thành công/lỗi/cảnh báo), giữ tinh thần "xanh=ổn, đỏ=lỗi" xuyên suốt, không phải là thứ cần đồng bộ theo mục 2.1.
 
 ---
 
@@ -186,7 +238,9 @@ Tài liệu này mô tả **bộ nhận diện giao diện dùng chung** cho to�
 })();
 ```
 
-> Script đọc màu hạt/đường nối trực tiếp từ CSS variable `--particle-color` / `--particle-line` mỗi khung hình — khi người dùng đổi theme (đổi `data-theme` trên `<html>`), nền tự đổi màu theo, không cần viết lại logic canvas.
+> Script đọc màu hạt/đường nối trực tiếp từ CSS variable mỗi khung hình — khi người dùng đổi theme (đổi `data-theme` trên `<html>`), nền tự đổi màu theo, không cần viết lại logic canvas.
+
+**Bản đầy đủ đã triển khai thật** (đậm chất hơn: node "nhịp thở"/pulse, các chấm telemetry trôi dọc theo cạnh giữa 2 node với nhiều màu khác nhau) nằm ở `www/login.html` (hàm `initMeshNetwork()`/`render()`/`currentPalette()`). Nguyên tắc tương tự khối code trên — chỉ phức tạp hơn; `currentPalette()` đọc `document.documentElement.getAttribute('data-theme')` mỗi khung hình thay vì đọc CSS variable trực tiếp (để đổi được nhiều giá trị màu cùng lúc theo theme — mảng màu particle, màu ring...), nhưng là cùng một kỹ thuật "tính lại palette mỗi frame, không cần reinit". Hệ thống nào muốn hiệu ứng nền giống hệt trang đăng nhập go2rtc nên copy trực tiếp khối JS này thay vì viết lại từ mẫu rút gọn ở trên.
 
 ---
 
@@ -302,13 +356,14 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 
 ## 5. Hướng dẫn tích hợp theo từng hệ thống
 
-| Hệ thống | Việc cần làm |
+| Hệ thống | Trạng thái |
 |---|---|
-| **go2rtc** (`www/login.html`, `map.html`, `admin.html`, `ptz-control.js`...) | Đã dùng đúng bảng màu Dark ở mục 2 (hard-code). Để hỗ trợ Light theme: refactor các giá trị màu hard-code hiện có sang CSS variable theo mục 2, thêm nút theme toggle (mục 4.6) vào topbar. |
-| **UTMC Platform landing** (xem `docs/utmc-platform-landing-spec.md`, host trên hạ tầng KPI) | Khi code, dùng ngay CSS variables ở mục 2 thay vì màu hard-code trong mockup gốc, để Light theme hoạt động ngay từ đầu. |
-| **https-proxy admin** (`cmd/https-proxy/admin.html`) | Tương tự go2rtc — trang đăng nhập đã theo Dark theme; phần dashboard quản trị còn lại giữ nguyên giao diện cũ, không bắt buộc đổi theo bộ token này trong giai đoạn 1. |
-| **KPI** (`kpi.utmc.io.vn/utmc`) | Trang đăng nhập + landing đã triển khai theo Dark theme thống nhất. Bổ sung Light theme bằng cách nhúng bộ CSS variables + script toggle ở mục 2/3/4.6 vào trang hiện có, đổi các màu hard-code (nếu có) sang `var(--...)`. |
-| **Quản lý tuần tra** (tương lai) | Khi phát triển giao diện, dùng trực tiếp bộ token + component ở tài liệu này làm nền tảng, không tạo bảng màu riêng. |
+| **go2rtc — `www/login.html`** | ✅ Đã triển khai đầy đủ: token mục 2.1, nền network canvas theme-aware (mục 3), nút toggle ở topbar (mục 4.6), script chống-nháy ở đầu `<head>`. |
+| **go2rtc — mọi trang nội bộ** (`map.html`, `index.html`, `admin.html`, `incidents.html`, `config.html`... qua `www/app.css`/`www/app.js`) | ✅ Đã triển khai đầy đủ: token mục 2.2, nút toggle tự động chèn vào chân sidebar mọi trang (`#btnTheme`, `www/app.js`), cùng khoá `utmc_theme`. Map tự thân (basemap VietMap sáng/tối) là nút **khác**, không liên quan — xem ghi chú ở mục 0. |
+| **UTMC Platform landing** (xem `docs/utmc-platform-landing-spec.md`, host trên hạ tầng KPI) | ⏳ Chưa code — khi code, dùng ngay CSS variables ở mục 2.1 (cùng namespace với login.html, vì đây cũng là trang "thương hiệu") thay vì màu hard-code trong mockup gốc. |
+| **https-proxy admin** (`cmd/https-proxy/admin.html`) | ⏳ Trang đăng nhập đã theo Dark theme (chưa có Light/toggle); phần dashboard quản trị còn lại giữ giao diện cũ. Khi làm Light theme cho hệ thống này, áp dụng đúng mục 2.1 + 4.6 như đã làm cho `login.html`. |
+| **KPI** (`kpi.utmc.io.vn/utmc`) | ⏳ Trang đăng nhập + landing đã triển khai Dark theo thống nhất trước đó. Bổ sung Light theme bằng cách nhúng bộ CSS variables mục 2.1 + script toggle mục 4.6, đổi màu hard-code sang `var(--...)` — theo đúng cách `www/login.html` vừa làm (xem diff của file đó nếu cần một ví dụ "trước/sau" cụ thể). |
+| **Quản lý tuần tra** (tương lai) | ⏳ Khi phát triển giao diện, dùng trực tiếp bộ token + component ở tài liệu này làm nền tảng, không tạo bảng màu riêng. |
 
 ---
 
