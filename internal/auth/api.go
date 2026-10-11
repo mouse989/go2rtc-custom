@@ -207,6 +207,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_map_route":            user.AllowMapRoute,
 		"allow_map_incident_add":     user.AllowMapIncidentAdd,
 		"allow_map_ai_events":        user.AllowMapAIEvents,
+		"allow_map_3d":               user.AllowMap3D,
 		"allow_monitor_workers":      user.AllowMonitorWorkers,
 		"allow_monitor_process":      user.AllowMonitorProcess,
 		"allow_monitor_streaming":    user.AllowMonitorStreaming,
@@ -273,6 +274,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapRoute           bool     `json:"allow_map_route"`
 			AllowMapIncidentAdd     bool     `json:"allow_map_incident_add"`
 			AllowMapAIEvents        bool     `json:"allow_map_ai_events"`
+			AllowMap3D              bool     `json:"allow_map_3d"`
 			AllowMonitorWorkers     bool     `json:"allow_monitor_workers"`
 			AllowMonitorProcess     bool     `json:"allow_monitor_process"`
 			AllowMonitorStreaming   bool     `json:"allow_monitor_streaming"`
@@ -325,6 +327,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapRoute:           req.AllowMapRoute,
 			AllowMapIncidentAdd:     req.AllowMapIncidentAdd,
 			AllowMapAIEvents:        req.AllowMapAIEvents,
+			AllowMap3D:              req.AllowMap3D,
 			AllowMonitorWorkers:     req.AllowMonitorWorkers,
 			AllowMonitorProcess:     req.AllowMonitorProcess,
 			AllowMonitorStreaming:   req.AllowMonitorStreaming,
@@ -375,6 +378,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapRoute           *bool    `json:"allow_map_route"`
 			AllowMapIncidentAdd     *bool    `json:"allow_map_incident_add"`
 			AllowMapAIEvents        *bool    `json:"allow_map_ai_events"`
+			AllowMap3D              *bool    `json:"allow_map_3d"`
 			AllowMonitorWorkers     *bool    `json:"allow_monitor_workers"`
 			AllowMonitorProcess     *bool    `json:"allow_monitor_process"`
 			AllowMonitorStreaming   *bool    `json:"allow_monitor_streaming"`
@@ -456,6 +460,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowMapAIEvents != nil {
 			existing.AllowMapAIEvents = *req.AllowMapAIEvents
+		}
+		if req.AllowMap3D != nil {
+			existing.AllowMap3D = *req.AllowMap3D
 		}
 		if req.AllowMonitorWorkers != nil {
 			existing.AllowMonitorWorkers = *req.AllowMonitorWorkers

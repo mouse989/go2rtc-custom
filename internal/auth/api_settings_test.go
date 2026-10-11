@@ -98,3 +98,57 @@ func TestSettingsHandlerNeverLeaksLiveTrafficKey(t *testing.T) {
 		t.Fatalf("expected the key to be cleared, got %q", got)
 	}
 }
+
+// TestSettingsHandlerVietmapAPIKeyBehavesLikeLiveTrafficKeyInTheForm verifies
+// the main VietMap API key (map tiles/traffic overlay) now follows the same
+// admin.html form convention as the Live Traffic key — "leave blank to keep,
+// explicit empty string to clear" — while remaining UNREDACTED on GET,
+// unlike the Live Traffic key: www/map.html reads vietmap_api_key straight
+// from this endpoint for every user to build tile URLs, so (unlike the
+// IP-allow-listed Live Traffic key) it must keep appearing in the response.
+func TestSettingsHandlerVietmapAPIKeyBehavesLikeLiveTrafficKeyInTheForm(t *testing.T) {
+	initTestSettings(t)
+	if err := UpdateSettings(AppSettings{VietmapAPIKey: "existing-map-key"}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+
+	// Still visible on GET — map.html depends on this.
+	w := doSettingsRequest(t, http.MethodGet, nil)
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got["vietmap_api_key"] != "existing-map-key" {
+		t.Fatalf("expected vietmap_api_key to still be visible on GET (map.html needs it), got %v", got["vietmap_api_key"])
+	}
+
+	// Saving other settings without the field preserves the existing key —
+	// this is what admin.html's saveSettings() now does when the input was
+	// left blank.
+	w2 := doSettingsRequest(t, http.MethodPost, map[string]any{"map_search_radius_km": 2.5})
+	if w2.Code != http.StatusOK {
+		t.Fatalf("POST (no key field): expected 200, got %d (body: %s)", w2.Code, w2.Body.String())
+	}
+	if got := GetSettings().VietmapAPIKey; got != "existing-map-key" {
+		t.Fatalf("expected the key to survive an unrelated save, got %q", got)
+	}
+
+	// Explicitly sending a new key updates it.
+	w3 := doSettingsRequest(t, http.MethodPost, map[string]any{"vietmap_api_key": "rotated-map-key"})
+	if w3.Code != http.StatusOK {
+		t.Fatalf("POST (new key): expected 200, got %d", w3.Code)
+	}
+	if got := GetSettings().VietmapAPIKey; got != "rotated-map-key" {
+		t.Fatalf("expected the key to be updated to the new value, got %q", got)
+	}
+
+	// Explicitly sending an empty string clears it (the admin.html "Xoá"
+	// button's path, clearVietmapKey()).
+	w4 := doSettingsRequest(t, http.MethodPost, map[string]any{"vietmap_api_key": ""})
+	if w4.Code != http.StatusOK {
+		t.Fatalf("POST (clear key): expected 200, got %d", w4.Code)
+	}
+	if got := GetSettings().VietmapAPIKey; got != "" {
+		t.Fatalf("expected the key to be cleared, got %q", got)
+	}
+}

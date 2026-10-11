@@ -98,6 +98,7 @@ function canMapRoute()  { const u = getUser(); return u && (u.role === 'admin' |
 // (POST /api/incidents requires the Incidents tab server-side regardless).
 function canMapIncidentAdd() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_incident_add) && hasTab('incidents'); }
 function canMapAIEvent() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_ai_events); }
+function canMap3D() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_3d); }
 function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
 function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
 function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }
@@ -580,9 +581,12 @@ async function initApp(requiredTab) {
   const SUN_SVG  = `<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/></svg>`;
   const MOON_SVG = `<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/></svg>`;
 
-  // Apply saved preference before render to avoid flash
+  // Apply saved preference before render to avoid flash. `data-theme` lives
+  // on <html>, not a body class — same mechanism as login.html and the UTMC
+  // Platform landing page (docs/utmc-design-system.md), so the one
+  // `utmc_theme` localStorage value means the same thing everywhere.
   const savedTheme = localStorage.getItem('utmc_theme');
-  if (savedTheme === 'light') document.body.classList.add('light-theme');
+  if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
 
   const sidebarFooter = document.querySelector('.sidebar-footer');
   if (sidebarFooter) {
@@ -590,13 +594,15 @@ async function initApp(requiredTab) {
     themeBtn.id    = 'btnTheme';
     themeBtn.className = 'btn-logout';
     themeBtn.title = 'Toggle light / dark theme';
+    const isLight = () => document.documentElement.getAttribute('data-theme') === 'light';
     const updateIcon = () => {
-      themeBtn.innerHTML = document.body.classList.contains('light-theme') ? MOON_SVG : SUN_SVG;
+      themeBtn.innerHTML = isLight() ? MOON_SVG : SUN_SVG;
     };
     updateIcon();
     themeBtn.addEventListener('click', () => {
-      document.body.classList.toggle('light-theme');
-      localStorage.setItem('utmc_theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+      if (isLight()) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('utmc_theme', isLight() ? 'light' : 'dark');
       updateIcon();
     });
     // Insert before the logout button

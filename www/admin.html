@@ -245,11 +245,18 @@ tr:hover td { background:var(--surface2); }
         <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:1rem">
           <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">VietMap API Key</label>
-            <input type="text" id="vietmapKeyInput" placeholder="e.g. xxxxxxxxxxxxxxxxxxxxxxxx"
-                   style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;font-family:monospace;box-sizing:border-box">
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <input type="password" id="vietmapKeyInput" placeholder="để trống = giữ nguyên khóa đã lưu" autocomplete="off"
+                     style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;font-family:monospace;box-sizing:border-box">
+              <button type="button" class="btn btn-danger btn-sm" id="vietmapKeyClearBtn" onclick="clearVietmapKey()">🗑 Xoá</button>
+            </div>
+            <p id="vietmapKeyStatus" style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0"></p>
             <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
               Register at <a href="https://maps.vietmap.vn/console/register" target="_blank" style="color:var(--accent)">maps.vietmap.vn/console</a>.
-              Used for map display and traffic overlay. Restrict by domain for security.
+              Used for map display and traffic overlay. Restrict by domain for security. Khác với khóa Live Traffic bên
+              dưới, khóa này <b>được gửi cho trình duyệt của mọi người dùng</b> (để tải tile bản đồ) — an toàn nhờ VietMap
+              giới hạn theo domain, không phải nhờ giữ bí mật. Để trống và lưu Settings sẽ <b>giữ nguyên</b> khóa đã có;
+              bấm "Xoá" để gỡ khóa đang lưu.
             </p>
           </div>
           <div style="border-top:1px solid var(--border);padding-top:1rem">
@@ -1804,6 +1811,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-route"> 🛣 Theo tuyến</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-incident-add"> 🚨 Thêm sự cố từ bản đồ (cần tab Sự cố GT)</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-ai-events"> 🤖 Xem lớp AI Event trên bản đồ</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-3d"> 🧊 Bật chế độ xem 3D trên bản đồ</label>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Monitor</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-workers"> 🖥 Xem máy chủ phân tích</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-process"> ⚙ Xem go2rtc process</label>
@@ -2315,7 +2323,9 @@ function topbarAdd() {
 async function loadSettings() {
   try {
     const s = await apiFetch('/api/settings');
-    document.getElementById('vietmapKeyInput').value = s.vietmap_api_key || '';
+    document.getElementById('vietmapKeyInput').value = '';
+    document.getElementById('vietmapKeyStatus').textContent = s.vietmap_api_key
+      ? '✓ Đã cấu hình khóa (ẩn, không hiển thị lại).' : '○ Chưa cấu hình khóa.';
     document.getElementById('vmlTrafficKeyInput').value = '';
     document.getElementById('vmlTrafficKeyStatus').textContent = s.vietmap_live_traffic_configured
       ? '✓ Đã cấu hình khóa (ẩn, không hiển thị lại).' : '○ Chưa cấu hình khóa.';
@@ -2450,6 +2460,11 @@ function copyRtspCreds(user, pass, port) {
 }
 
 async function saveSettings() {
+  // vietmap_api_key, like vietmap_live_traffic_api_key below, is deliberately
+  // omitted entirely (not sent as "") when left blank — the server keeps
+  // whatever is already saved when the field is absent from the request body
+  // (see api_settings.go), and the key is never sent back to the browser to
+  // re-populate this field in the first place (see loadSettings()).
   const key         = document.getElementById('vietmapKeyInput').value.trim();
   const interval    = parseInt(document.getElementById('snapIntervalInput').value, 10) || 15;
   const concurrency = parseInt(document.getElementById('snapConcurrencyInput').value, 10) || 0;
@@ -2476,7 +2491,6 @@ async function saveSettings() {
   // field in the first place (see loadSettings()).
   const vmlTrafficKey = document.getElementById('vmlTrafficKeyInput').value.trim();
   const body = {
-    vietmap_api_key: key,
     snapshot_interval_sec: interval,
     snapshot_concurrency: concurrency,
     snapshot_rtsp_keepalive: rtspKeepAlive,
@@ -2496,6 +2510,7 @@ async function saveSettings() {
     device_binding_rp_origins: devBindOrigins,
     device_verify_valid_hours: devBindValidHours,
   };
+  if (key) body.vietmap_api_key = key;
   if (vmlTrafficKey) body.vietmap_live_traffic_api_key = vmlTrafficKey;
   try {
     await apiFetch('/api/settings', {
@@ -2504,7 +2519,7 @@ async function saveSettings() {
       body: JSON.stringify(body),
     });
     document.getElementById('vmlTrafficKeyInput').value = '';
-    loadSettings(); // refresh the "configured" indicator if the key just changed
+    loadSettings(); // refresh the "configured" indicators if either key just changed
     const msg = document.getElementById('settingsSaveMsg');
     msg.style.display = '';
     setTimeout(() => { msg.style.display = 'none'; }, 2500);
@@ -2528,6 +2543,24 @@ async function clearLiveTrafficKey() {
     document.getElementById('vmlTrafficKeyInput').value = '';
     loadSettings();
     toast('Đã xoá khóa VietMap Live Traffic.', 'success');
+  } catch (e) {
+    toast('Lỗi: ' + e.message, 'error');
+  }
+}
+
+// clearVietmapKey explicitly blanks the main VietMap API key (map tiles /
+// traffic overlay). Unlike the Live Traffic key, this one is actively used
+// by every user's browser (see map.html), so clearing it breaks the map
+// immediately for everyone, not just admin-only features — warn accordingly.
+async function clearVietmapKey() {
+  if (!confirm('Xoá VietMap API Key đang lưu? Bản đồ (tile, lớp traffic) sẽ ngừng hiển thị cho TẤT CẢ người dùng cho tới khi nhập khóa mới.')) return;
+  try {
+    const s = await apiFetch('/api/settings');
+    s.vietmap_api_key = '';
+    await apiFetch('/api/settings', { method: 'POST', body: s });
+    document.getElementById('vietmapKeyInput').value = '';
+    loadSettings();
+    toast('Đã xoá VietMap API Key.', 'success');
   } catch (e) {
     toast('Lỗi: ' + e.message, 'error');
   }
@@ -2647,6 +2680,7 @@ function openEdit(u) {
   document.getElementById('f-allow-map-route').checked = !!u.allow_map_route;
   document.getElementById('f-allow-map-incident-add').checked = !!u.allow_map_incident_add;
   document.getElementById('f-allow-map-ai-events').checked = !!u.allow_map_ai_events;
+  document.getElementById('f-allow-map-3d').checked = !!u.allow_map_3d;
   document.getElementById('f-allow-monitor-workers').checked  = !!u.allow_monitor_workers;
   document.getElementById('f-allow-monitor-process').checked  = !!u.allow_monitor_process;
   document.getElementById('f-allow-monitor-streaming').checked = !!u.allow_monitor_streaming;
@@ -3375,6 +3409,7 @@ async function submitForm(e) {
   const allow_map_route        = role === 'admin' ? true : document.getElementById('f-allow-map-route').checked;
   const allow_map_incident_add = role === 'admin' ? true : document.getElementById('f-allow-map-incident-add').checked;
   const allow_map_ai_events   = role === 'admin' ? true : document.getElementById('f-allow-map-ai-events').checked;
+  const allow_map_3d          = role === 'admin' ? true : document.getElementById('f-allow-map-3d').checked;
   const allow_monitor_workers  = role === 'admin' ? true : document.getElementById('f-allow-monitor-workers').checked;
   const allow_monitor_process  = role === 'admin' ? true : document.getElementById('f-allow-monitor-process').checked;
   const allow_monitor_streaming = role === 'admin' ? true : document.getElementById('f-allow-monitor-streaming').checked;
@@ -3388,7 +3423,7 @@ async function submitForm(e) {
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
   const device_binding_scopes  = role === 'admin' ? [] : getCheckedDeviceScopes();
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_map_3d, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 
