@@ -43,11 +43,17 @@ func parseListFilter(r *http.Request) ListFilter {
 		Unit:     r.URL.Query().Get("unit"),
 		Q:        r.URL.Query().Get("q"),
 	}
+	// Parsed in vnLocation, not UTC: the UI's date inputs mean a Vietnam
+	// calendar day (00:00–23:59:59 ICT). Parsing with the default UTC zone
+	// would shift that window 7 hours later in absolute time, so an
+	// incident timestamped e.g. 06:05 ICT on the "from" day — stored in
+	// vnLocation per Incident.Time's convention — would wrongly compare as
+	// before the (UTC-interpreted) start of that day and get excluded.
 	if s := r.URL.Query().Get("from"); s != "" {
-		f.From, _ = time.Parse("2006-01-02", s)
+		f.From, _ = time.ParseInLocation("2006-01-02", s, vnLocation)
 	}
 	if s := r.URL.Query().Get("to"); s != "" {
-		if t, err := time.Parse("2006-01-02", s); err == nil {
+		if t, err := time.ParseInLocation("2006-01-02", s, vnLocation); err == nil {
 			f.To = t.Add(24*time.Hour - time.Second)
 		}
 	}
