@@ -1637,7 +1637,7 @@ rtsp:
 
 <!-- ═══════════════════ Sensor Mapping Dialog (Hawkwise) ═══════════════════ -->
 <div class="dlg-backdrop" id="sensorDlg">
-  <div class="dlg" style="min-height:unset;width:460px">
+  <div class="dlg" style="min-height:unset;width:560px">
     <h2 id="sensorDlg-title">Tạo điểm đo</h2>
     <form id="sensorForm" onsubmit="submitSensor(event)">
       <input type="hidden" id="sensor-id">
@@ -1656,12 +1656,16 @@ rtsp:
       <div class="f2">
         <div class="form-group" style="margin:0">
           <label>Lat</label>
-          <input type="number" id="sensor-lat" class="input" step="any" required>
+          <input type="number" id="sensor-lat" class="input" step="any" required onblur="_syncSensorMarkerFromInputs()">
         </div>
         <div class="form-group" style="margin:0">
           <label>Lon</label>
-          <input type="number" id="sensor-lon" class="input" step="any" required>
+          <input type="number" id="sensor-lon" class="input" step="any" required onblur="_syncSensorMarkerFromInputs()">
         </div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:.78rem;color:var(--text-muted);display:block;margin-bottom:.35rem">🖱 Click trên bản đồ để chọn vị trí — Lat/Lon ở trên sẽ tự điền</label>
+        <div id="sensorMapPicker" style="height:220px;border-radius:8px;border:1px solid var(--border);background:var(--surface2)"></div>
       </div>
       <div class="form-group">
         <label class="tab-perm-chip"><input type="checkbox" id="sensor-enabled" checked> Đang bật (hiện trên bản đồ)</label>
@@ -3533,6 +3537,9 @@ function openAddSensor(prefill) {
   document.getElementById('sensor-lon').value = prefill && prefill.reported_lng != null ? prefill.reported_lng : '';
   document.getElementById('sensor-enabled').checked = true;
   document.getElementById('sensorDlg').classList.add('open');
+  const lat = prefill && prefill.reported_lat != null ? prefill.reported_lat : null;
+  const lon = prefill && prefill.reported_lng != null ? prefill.reported_lng : null;
+  _loadVietmapGL(() => _initSensorMap(lat, lon));
 }
 
 function openEditSensor(id) {
@@ -3548,9 +3555,73 @@ function openEditSensor(id) {
   document.getElementById('sensor-lon').value = sn.lon;
   document.getElementById('sensor-enabled').checked = !!sn.enabled;
   document.getElementById('sensorDlg').classList.add('open');
+  _loadVietmapGL(() => _initSensorMap(sn.lat, sn.lon));
 }
 
 function closeSensorDlg() { document.getElementById('sensorDlg').classList.remove('open'); }
+
+// ── Sensor dialog map picker — click the map to fill Lat/Lon ────────────
+// Reuses _loadVietmapGL/_mkEl (see "Map helpers" below, travel-time's route
+// editor) rather than a separate map library; the map instance is created
+// once and reused across dialog opens, same convention as _initTTMap.
+let _sensorMap = null;
+let _sensorMarker = null;
+
+async function _initSensorMap(lat, lon) {
+  const hasPrefill = lat != null && lon != null && !isNaN(lat) && !isNaN(lon);
+  const center = hasPrefill ? [lon, lat] : [106.700, 10.776];
+  const zoom = hasPrefill ? 15 : 12;
+
+  if (_sensorMap) {
+    _sensorMap.setCenter(center);
+    _sensorMap.setZoom(zoom);
+    if (hasPrefill) _setSensorMarker(lat, lon, false);
+    else if (_sensorMarker) { _sensorMarker.remove(); _sensorMarker = null; }
+    return;
+  }
+
+  try {
+    const { apikey } = await apiFetch('/api/vietmap/key');
+    if (!apikey) { document.getElementById('sensorMapPicker').textContent = 'Chưa cấu hình VietMap API Key trong Settings'; return; }
+
+    _sensorMap = new vietmapgl.Map({
+      container: 'sensorMapPicker',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apikey}`,
+      center, zoom,
+    });
+    _sensorMap.addControl(new vietmapgl.NavigationControl(), 'top-right');
+    _sensorMap.on('click', e => _setSensorMarker(e.lngLat.lat, e.lngLat.lng, false));
+
+    if (hasPrefill) _setSensorMarker(lat, lon, false);
+  } catch (err) {
+    document.getElementById('sensorMapPicker').textContent = 'Lỗi khởi tạo bản đồ: ' + err.message;
+  }
+}
+
+// Places/moves the marker and fills the Lat/Lon inputs. recenter=true also
+// pans the map there (used when typing Lat/Lon by hand — see
+// _syncSensorMarkerFromInputs); a map click already has the point in view,
+// so it passes false.
+function _setSensorMarker(lat, lng, recenter) {
+  document.getElementById('sensor-lat').value = lat.toFixed(6);
+  document.getElementById('sensor-lon').value = lng.toFixed(6);
+  if (!_sensorMap) return;
+  if (_sensorMarker) {
+    _sensorMarker.setLngLat([lng, lat]);
+  } else {
+    _sensorMarker = new vietmapgl.Marker({ element: _mkEl('#a78bfa') }).setLngLat([lng, lat]).addTo(_sensorMap);
+  }
+  if (recenter) _sensorMap.setCenter([lng, lat]);
+}
+
+// Typing Lat/Lon directly (instead of clicking the map) also moves the
+// marker, so the two input methods never visibly disagree.
+function _syncSensorMarkerFromInputs() {
+  const lat = parseFloat(document.getElementById('sensor-lat').value);
+  const lon = parseFloat(document.getElementById('sensor-lon').value);
+  if (isNaN(lat) || isNaN(lon)) return;
+  _setSensorMarker(lat, lon, true);
+}
 
 async function submitSensor(ev) {
   ev.preventDefault();
