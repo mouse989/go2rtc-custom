@@ -181,14 +181,48 @@ Tóm lại để bạn dễ quyết: toàn bộ phần **giao thức/kết nối
 
 ---
 
-## 4. Câu hỏi còn treo — cần bạn quyết định trước khi code
+## 4. Quyết định phạm vi (đã chốt với bạn)
 
-1. **Hiển thị lên đâu?** Chỉ lưu trữ dữ liệu (phục vụ xuất báo cáo/API nội bộ sau này), hay cần hiện ngay thành 1 layer mới trên `map.html` (kiểu như 📊 Trạm đo hiện có) / 1 trang dashboard riêng?
-2. **Số lượng camera Hawkwise thực tế** sẽ kết nối ở giai đoạn đầu là bao nhiêu? (Quyết định cỡ rate-limit, cách lưu trữ theo ngày có cần tối ưu thêm không — tài liệu doc 2 giả định 1.000 camera nhưng chưa rõ đây có phải số thật của triển khai này không.)
-3. **Thời gian lưu giữ dữ liệu** (retention) bao nhiêu ngày? (`internal/counting` đang mặc định 30 ngày cho dữ liệu đếm xe tự thân — có thể dùng chung mốc này hay cần khác.)
-4. **`avg_speed` (km/h?) và `avg_occupancy` (0–1 hay %?)** — chính tài liệu Hawkwise cũng ghi "CẦN XÁC NHẬN". Cần hỏi lại đội Hawkwise bằng văn bản trước khi đưa số liệu này lên UI, tránh hiển thị sai đơn vị.
-5. **`trigger_code` lạ** (không phải `"AdvancedTrafficDensity"`) → từ chối hẳn hay log cảnh báo rồi vẫn nhận? (Ảnh hưởng tới việc endpoint này có dùng chung cho các luồng AI khác của Hawkwise sau này không.)
-6. **Số lần/khoảng cách gửi lại (N, T)** phía Hawkwise khi endpoint lỗi — tài liệu nói "thống nhất khi cấu hình tích hợp" — cần xin con số cụ thể từ đội Hawkwise để biết endpoint của ta có bao lâu để tự phục hồi trước khi mất vĩnh viễn 1 chu kỳ dữ liệu (nhắc lại: Hawkwise **không** đệm bù dài hạn).
+### 4.1. Hiển thị lên đâu — ĐÃ CHỐT
+
+> "đây là trường đo đếm lưu lượng, nên hãy bố trí thêm database quản lý nó, tôi sẽ phải mapping nó với ID bên hawkwise, sau đó chấm điểm trên bản đồ, và số lượng lưu lượng trên bản đồ... giống trạm đo. nhưng tách riêng ra một phân hệ quản lý dữ liệu khác."
+
+→ 3 việc cần làm, không phải 1:
+
+1. **Database/kho dữ liệu riêng** cho lưu lượng Hawkwise (đã có trong kiến trúc mục 2 — package `internal/trafficflow`, JSON theo ngày).
+2. **Bảng ánh xạ (mapping) do admin tự quản lý**: `Hawkwise source_uuid ↔ 1 bản ghi điểm đo phía ta` — **không** tự động tin tưởng `latitude`/`longitude` Hawkwise gửi kèm mỗi bản tin làm nguồn chấm điểm chính; admin **chủ động tạo/sửa** bản ghi điểm đo (tên hiển thị, vị trí trên bản đồ, có thể copy tọa độ Hawkwise gửi lần đầu làm gợi ý rồi admin chỉnh lại cho khớp bản đồ nội bộ). Giống hệt mô hình `Station` của `internal/counting` (`Station{ID, CameraID, Lat, Lon, Label}`), nhưng khóa theo `source_uuid` thay vì `CameraID`, và **tách Integration/mapping này thành phân hệ riêng**, không merge vào bảng Station đếm xe hiện có.
+3. **Layer mới trên `map.html`**, cùng kiểu "📊 Trạm đo": chấm điểm theo bản ghi mapping (mục 2) + số liệu lưu lượng mới nhất theo điểm đó (tổng xe/5 phút, có thể màu theo `traffic_status`).
+
+Thiết kế sơ bộ phân hệ mapping (bảng mới, ví dụ `internal/trafficflow/sensors.go`):
+
+```go
+type Sensor struct {
+    ID           string  // khóa nội bộ, vd "hws-001"
+    SourceUUID   string  // general.camera.source_uuid từ Hawkwise — khóa đối chiếu khi nhận push
+    HardwareUUID string  // tham khảo, không bắt buộc duy nhất
+    Label        string  // tên admin tự đặt, vd "Ngã tư Võ Thị Sáu - Lê Quý Đôn"
+    Lat, Lon     float64 // admin xác nhận/chỉnh — khác tọa độ Hawkwise gửi mỗi lần (có thể lệch nhẹ)
+    Enabled      bool    // tắt mapping = ẩn khỏi bản đồ, dữ liệu vẫn lưu (không mất)
+    CreatedAt    time.Time
+}
+```
+
+- Bản tin Hawkwise đẩy về mà **chưa có mapping tương ứng** (`source_uuid` lạ) → **vẫn lưu dữ liệu bình thường** (không rớt dữ liệu), chỉ **không hiển thị trên bản đồ** cho tới khi admin tạo mapping. Admin UI nên có 1 bảng "Chưa mapping" (liệt kê `source_uuid` đã thấy nhưng chưa gán điểm đo) để dễ rà soát — giống `ObservedCategory` bên AI Event (ghi tự động, admin xử lý sau).
+- Quyền xem layer bản đồ: thêm permission mới `AllowMapTrafficFlow` (hoặc tên khác bạn muốn), theo đúng pattern `AllowViewStations` hiện có.
+
+### 4.2. Quy mô triển khai — ĐÃ CHỐT: ~500 camera
+
+Ảnh hưởng tới 2 chỗ:
+
+- **Rate limit tích hợp**: baseline ổn định ≈ 500 bản tin / 5 phút ≈ **100 req/phút**, nhưng do nhiều camera chốt chu kỳ gần cùng lúc (đầu mỗi mốc 5 phút), cần dư tải đột biến. Đề xuất cấu hình rate-limit cho Integration này ở mức **~800–1000 req/phút** (gấp ~8-10 lần baseline, theo đúng tinh thần khuyến nghị burst của tài liệu Hawkwise/đặc tả cũ, nhưng co lại tương xứng 500 thay vì 1.000 camera) — khác với giới hạn cố định 60/phút hiện đang dùng cho OMNIA (vốn thiết kế cho tần suất sự kiện bất thường, không phải time-series đều đặn).
+- **Lưu trữ theo ngày**: 500 camera × 288 chu kỳ/ngày ≈ **144.000 bản ghi/ngày** nếu mọi camera đều hoạt động liên tục. Vẫn nằm trong khả năng của mô hình "1 file JSON/ngày" đã dùng cho AI Event (mỗi bản ghi theo tài liệu ~1-3KB raw, hẹp hơn nhiều khi chỉ lưu các field thật sự cần) — nhưng **nặng hơn đáng kể** so với AI Event (vốn chỉ vài chục sự kiện/ngày). Cần cân nhắc thêm: **gộp theo sensor** thay vì 1 file chung toàn hệ thống (`flow_<sensorID>_<YYYY-MM-DD>.json`) để tránh 1 file quá lớn khi đọc/ghi, hoặc dùng SQLite nhẹ thay JSON nếu khối lượng này gây chậm khi truy vấn theo khoảng thời gian (dashboard sau này). **Đề xuất bắt đầu với JSON theo (sensor, ngày)** — đơn giản, nhất quán quy ước hiện có — và chỉ chuyển sang SQLite nếu thực tế đo được là cần thiết.
+
+## 5. Câu hỏi còn treo (không chặn việc bắt đầu code, có thể trả lời song song)
+
+1. **Thời gian lưu giữ dữ liệu** (retention) bao nhiêu ngày? (`internal/counting` đang mặc định 30 ngày — đề xuất dùng chung mốc này cho nhất quán trừ khi bạn cần khác, vì 144k bản ghi/ngày × nhiều ngày sẽ chiếm dung lượng đáng kể.)
+2. **`avg_speed` (km/h?) và `avg_occupancy` (0–1 hay %?)** — chính tài liệu Hawkwise cũng ghi "CẦN XÁC NHẬN". Nên hỏi lại đội Hawkwise bằng văn bản trước khi đưa số liệu này lên UI, tránh hiển thị sai đơn vị — **không chặn việc code phần nhận/lưu dữ liệu**, chỉ ảnh hưởng cách hiển thị.
+3. **`trigger_code` lạ** (không phải `"AdvancedTrafficDensity"`) → từ chối hẳn hay log cảnh báo rồi vẫn nhận?
+4. **Số lần/khoảng cách gửi lại (N, T)** phía Hawkwise khi endpoint lỗi — cần xin con số cụ thể từ đội Hawkwise để biết thời gian tự phục hồi trước khi mất vĩnh viễn 1 chu kỳ dữ liệu (nhắc lại: Hawkwise **không** đệm bù dài hạn).
 
 ---
 
