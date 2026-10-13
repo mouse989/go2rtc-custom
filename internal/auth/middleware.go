@@ -324,6 +324,18 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
+	// AllowMapRoute gates map.html's "🛣 Theo tuyến" tool client-side
+	// (canMapRoute() hides the button), but that was never matched by a
+	// server-side allow — /api/vietmap/route sat in neither
+	// viewerDefaultPaths nor tabExtraPaths[TabMap] (no such key exists),
+	// so every viewer request 403'd regardless of this flag. Admin never
+	// hit this path (role check short-circuits above), which is why only
+	// non-admin users saw it.
+	if u.AllowMapRoute {
+		if strings.HasPrefix(path, "/api/vietmap/route") {
+			return true
+		}
+	}
 	if u.AllowPTZ {
 		if strings.HasPrefix(path, "/api/ptz/") {
 			return true
