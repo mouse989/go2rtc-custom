@@ -349,6 +349,15 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
+	if u.AllowMapTrafficFlow {
+		// /api/trafficdata/hawkwise/v1/flow-push (the inbound webhook) is
+		// intentionally NOT covered here, same reasoning as
+		// /api/aievent/omnia/v1/push above — it's in isPublicPath and does
+		// its own API-key auth (see internal/trafficflow).
+		if strings.HasPrefix(path, "/api/trafficflow/latest") {
+			return true
+		}
+	}
 	return false
 }
 
@@ -398,6 +407,12 @@ func isPublicPath(path string) bool {
 		// the Integration store (internal/auth/integrations.go) instead,
 		// entirely inside the handler — see internal/aievent's push handler.
 		"/api/aievent/omnia/v1/push",
+		// Inbound push from Hawkwise's Advanced Traffic Density product
+		// (see docs/hawkwise-flow-integration-plan.md) — same reasoning as
+		// the OMNIA push above: no go2rtc user on the other end, auth is
+		// X-API-Key against the Integration store inside the handler itself
+		// (internal/trafficflow's push handler).
+		"/api/trafficdata/hawkwise/v1/flow-push",
 	}
 	for _, p := range public {
 		if path == p {

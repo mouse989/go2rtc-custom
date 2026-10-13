@@ -19,3 +19,19 @@ func TestUserCanAccessPathMapRoute(t *testing.T) {
 		t.Fatal("a viewer without AllowMapRoute must not reach /api/vietmap/route")
 	}
 }
+
+// TestUserCanAccessPathMapTrafficFlow mirrors
+// TestUserCanAccessPathMapRoute above — added at the same time as
+// AllowMapTrafficFlow itself specifically so this permission never ships
+// with the "frontend gate exists, server-side allow forgotten" bug that
+// AllowMapRoute shipped with.
+func TestUserCanAccessPathMapTrafficFlow(t *testing.T) {
+	gated := &User{Role: RoleViewer, AllowMapTrafficFlow: true}
+	if !userCanAccessPath(gated, "/api/trafficflow/latest") {
+		t.Fatal("a viewer with AllowMapTrafficFlow should reach /api/trafficflow/latest")
+	}
+	ungated := &User{Role: RoleViewer, AllowMapTrafficFlow: false}
+	if userCanAccessPath(ungated, "/api/trafficflow/latest") {
+		t.Fatal("a viewer without AllowMapTrafficFlow must not reach /api/trafficflow/latest")
+	}
+}

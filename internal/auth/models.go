@@ -69,6 +69,14 @@ type User struct {
 	// API/endpoint involved, unlike AllowTrafficLive/AllowMapAIEvents above —
 	// purely a map-rendering mode, so there's nothing to gate server-side).
 	AllowMap3D bool `json:"allow_map_3d"`
+	// AllowMapTrafficFlow gates map.html's Hawkwise traffic-flow layer —
+	// points for admin-mapped Sensor records (internal/trafficflow) showing
+	// each one's latest pushed vehicle volume/traffic_status. View-only,
+	// same single-flag convention as AllowMapAIEvents above; the push
+	// endpoint itself (POST /api/trafficdata/hawkwise/v1/flow-push) is
+	// authenticated via the Integration API Key system, never this flag —
+	// see internal/trafficflow's own doc comments.
+	AllowMapTrafficFlow bool `json:"allow_map_traffic_flow"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process
