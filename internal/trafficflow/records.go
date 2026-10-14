@@ -1,22 +1,14 @@
 package trafficflow
 
-// records.go — storage for FlowRecord, one Hawkwise push cycle per camera.
-// Bucketed by (source_uuid, day) rather than one shared daily file — see
-// docs/hawkwise-flow-integration-plan.md §4.2 on why: at ~500 cameras ×
-// 288 cycles/day, a single shared file would grow far larger than
-// internal/aievent's equivalent (a handful of events/day) ever does.
-// Bucketing by source_uuid (Hawkwise's own stable camera key) rather than
-// by the internal Sensor.ID means history survives a sensor being remapped,
-// renamed, or not yet mapped at all.
+// records.go — SQLite storage for FlowRecord, one Hawkwise push cycle per
+// camera. See db.go's doc comment for why this moved off the earlier
+// day-bucketed-JSON-files design (a single global flow_index.json rewritten
+// in full on every push, with no cap now that retention is meant to be
+// indefinite for this dataset).
 
 import (
+	"database/sql"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
-	"sync"
 	"time"
 )
 
@@ -45,7 +37,7 @@ type LaneFlow struct {
 // from the raw wire struct (hawkwisePush in api.go) to the fields this
 // system actually stores/displays.
 type FlowRecord struct {
-	EventID       int64  `json:"event_id"` // dedup key, per Hawkwise doc §6.1
+	EventID       int64  `json:"event_id"` // dedup key, per Hawkwise doc §6.1 — this table's PRIMARY KEY
 	EventIDString string `json:"event_id_string,omitempty"`
 	SourceUUID    string `json:"source_uuid"`
 
@@ -82,269 +74,198 @@ type FlowRecord struct {
 	ReceivedAt time.Time `json:"received_at"`
 }
 
-type flowIndexEntry struct {
-	SourceUUID string `json:"source_uuid"`
-	DayKey     string `json:"day_key"`
-}
-
-var (
-	recMu sync.Mutex
-	// days: "sanitized(source_uuid)|dayKey" -> eventID -> *FlowRecord.
-	days = map[string]map[int64]*FlowRecord{}
-	// index: eventID -> {source_uuid, day_key}, ALWAYS fully loaded (unlike
-	// days) so Exists/dedup works across a server restart without needing
-	// every day file loaded into RAM.
-	index = map[int64]flowIndexEntry{}
-	// latest: source_uuid -> most recent FlowRecord, an in-memory cache
-	// rebuilt at startup (primeLatestFromDisk) and kept current by Ingest.
-	// This is the Map layer's data source (GET /api/trafficflow/latest) —
-	// querying it never touches disk.
-	latest = map[string]*FlowRecord{}
-)
-
-func indexFile() string { return filepath.Join(dataDir, "flow_index.json") }
-
-var sanitizeUUIDRe = regexp.MustCompile(`[^A-Za-z0-9_-]`)
-
-// sanitizeSourceUUID replaces anything outside [A-Za-z0-9_-] so a
-// source_uuid (attacker-controlled input from the push payload) can never
-// escape its intended directory when building an on-disk file path —
-// defense against a source_uuid like "../../etc/passwd", same convention as
-// internal/aievent.SanitizeRecordID.
-func sanitizeSourceUUID(id string) string {
-	id = sanitizeUUIDRe.ReplaceAllString(id, "_")
-	if id == "" {
-		id = "unknown"
-	}
-	return id
-}
-
-func dayFile(sourceUUID, dayKey string) string {
-	return filepath.Join(dataDir, "flow_"+sanitizeSourceUUID(sourceUUID)+"_"+dayKey+".json")
-}
-
-func bucketKey(sourceUUID, dayKey string) string { return sourceUUID + "|" + dayKey }
-
-func initRecords(dir string) error {
-	data, err := os.ReadFile(indexFile())
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &index)
-}
-
-func saveIndexLocked() error {
-	data, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(indexFile(), data, 0644)
-}
-
-func loadDayLocked(sourceUUID, dayKey string) error {
-	bk := bucketKey(sourceUUID, dayKey)
-	if _, ok := days[bk]; ok {
-		return nil
-	}
-	m := map[int64]*FlowRecord{}
-	data, err := os.ReadFile(dayFile(sourceUUID, dayKey))
-	if os.IsNotExist(err) {
-		days[bk] = m
-		return nil
-	}
-	if err != nil {
-		days[bk] = m
-		return err
-	}
-	var list []*FlowRecord
-	if err := json.Unmarshal(data, &list); err != nil {
-		days[bk] = m
-		return err
-	}
-	for _, rec := range list {
-		m[rec.EventID] = rec
-	}
-	days[bk] = m
-	return nil
-}
-
-func saveDayLocked(sourceUUID, dayKey string) error {
-	bk := bucketKey(sourceUUID, dayKey)
-	m := days[bk]
-	list := make([]*FlowRecord, 0, len(m))
-	for _, rec := range m {
-		list = append(list, rec)
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].ReceivedAt.After(list[j].ReceivedAt) })
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dayFile(sourceUUID, dayKey), data, 0644)
-}
-
 // Exists reports whether eventID has already been ingested — used by the
 // push handler's dry_run mode and dedup fast path.
 func Exists(eventID int64) bool {
-	recMu.Lock()
-	defer recMu.Unlock()
-	_, ok := index[eventID]
-	return ok
+	var one int
+	err := db.QueryRow(`SELECT 1 FROM flow_records WHERE event_id = ?`, eventID).Scan(&one)
+	return err == nil
 }
 
-// Ingest stores a new FlowRecord, keyed by rec.EventID. A duplicate
-// EventID (Hawkwise retried the same push cycle) is a no-op — per Hawkwise
-// doc §6.1, "nhận trùng → không cộng dồn, vẫn trả 2xx" — returns
-// created=false without touching storage.
+// Ingest stores a new FlowRecord, keyed by rec.EventID, stamping
+// ReceivedAt with our own server clock (immune to Hawkwise's clock skew —
+// see FlowRecord.ReceivedAt's doc comment). A duplicate EventID (Hawkwise
+// retried the same push cycle) is a no-op — per Hawkwise doc §6.1,
+// "nhận trùng → không cộng dồn, vẫn trả 2xx" — returns created=false
+// without touching storage.
 func Ingest(rec *FlowRecord) (created bool, err error) {
-	recMu.Lock()
-	defer recMu.Unlock()
-
-	if _, dup := index[rec.EventID]; dup {
-		return false, nil
-	}
-
-	now := time.Now()
 	cp := *rec
-	cp.ReceivedAt = now
-	dayKey := dayKeyFor(now)
-
-	if err := loadDayLocked(rec.SourceUUID, dayKey); err != nil {
-		return false, err
-	}
-	bk := bucketKey(rec.SourceUUID, dayKey)
-	days[bk][cp.EventID] = &cp
-	index[cp.EventID] = flowIndexEntry{SourceUUID: rec.SourceUUID, DayKey: dayKey}
-
-	if err := saveDayLocked(rec.SourceUUID, dayKey); err != nil {
-		return false, err
-	}
-	if err := saveIndexLocked(); err != nil {
-		return false, err
-	}
-
-	latestCp := cp
-	latest[rec.SourceUUID] = &latestCp
-	return true, nil
+	cp.ReceivedAt = time.Now()
+	return insertFlowRecord(&cp)
 }
+
+// insertFlowRecord is the low-level insert, trusting rec.ReceivedAt as
+// given rather than stamping it — Ingest (the live push path) always sets
+// it to "now" first; migrateJSONData (restoring history from the old
+// day-bucketed-JSON format) calls this directly to preserve each record's
+// real original ReceivedAt instead of rewriting history to "now". The
+// INSERT OR IGNORE + the table's PRIMARY KEY on event_id make this atomic
+// and race-safe even under concurrent pushes, unlike the old
+// mutex-guarded full-file-rewrite.
+func insertFlowRecord(rec *FlowRecord) (created bool, err error) {
+	vehicleCountsJSON, err := marshalOrNil(rec.VehicleCounts)
+	if err != nil {
+		return false, err
+	}
+	lanesJSON, err := marshalOrNil(rec.Lanes)
+	if err != nil {
+		return false, err
+	}
+
+	res, err := db.Exec(`
+		INSERT OR IGNORE INTO flow_records (
+			event_id, event_id_string, source_uuid, trigger_code, severity_level, event_state,
+			start_time, end_time, traffic_status, avg_occupancy, avg_speed, total,
+			vehicle_counts, lanes, frame_url, reported_lat, reported_lng, received_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		rec.EventID, rec.EventIDString, rec.SourceUUID, rec.TriggerCode, rec.SeverityLevel, nullInt(rec.EventState),
+		rec.StartTime.Format(time.RFC3339), rec.EndTime.Format(time.RFC3339), nullString(rec.TrafficStatus),
+		rec.AvgOccupancy, rec.AvgSpeed, rec.Total,
+		vehicleCountsJSON, lanesJSON, nullString(rec.FrameURL), nullFloat(rec.ReportedLat), nullFloat(rec.ReportedLng),
+		rec.ReceivedAt.UnixNano(),
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// flowRow scans one row from a query selecting exactly the 18 flow_records
+// columns in the same order Ingest inserts them in — shared by
+// GetLatestForSensor/ListLatest.
+func flowRow(row interface{ Scan(...any) error }) (*FlowRecord, error) {
+	var rec FlowRecord
+	var eventState sql.NullInt64
+	var trafficStatus, frameURL sql.NullString
+	var vehicleCountsJSON, lanesJSON sql.NullString
+	var reportedLat, reportedLng sql.NullFloat64
+	var startTime, endTime string
+	var receivedAtNano int64
+
+	if err := row.Scan(
+		&rec.EventID, &rec.EventIDString, &rec.SourceUUID, &rec.TriggerCode, &rec.SeverityLevel, &eventState,
+		&startTime, &endTime, &trafficStatus, &rec.AvgOccupancy, &rec.AvgSpeed, &rec.Total,
+		&vehicleCountsJSON, &lanesJSON, &frameURL, &reportedLat, &reportedLng, &receivedAtNano,
+	); err != nil {
+		return nil, err
+	}
+
+	if eventState.Valid {
+		v := int(eventState.Int64)
+		rec.EventState = &v
+	}
+	rec.StartTime, _ = time.Parse(time.RFC3339, startTime)
+	rec.EndTime, _ = time.Parse(time.RFC3339, endTime)
+	if trafficStatus.Valid {
+		rec.TrafficStatus = &trafficStatus.String
+	}
+	if frameURL.Valid {
+		rec.FrameURL = &frameURL.String
+	}
+	rec.ReportedLat = floatPtr(reportedLat)
+	rec.ReportedLng = floatPtr(reportedLng)
+	rec.ReceivedAt = time.Unix(0, receivedAtNano)
+	if vehicleCountsJSON.Valid {
+		_ = json.Unmarshal([]byte(vehicleCountsJSON.String), &rec.VehicleCounts)
+	}
+	if lanesJSON.Valid {
+		_ = json.Unmarshal([]byte(lanesJSON.String), &rec.Lanes)
+	}
+	return &rec, nil
+}
+
+const flowRecordColumns = `
+	event_id, event_id_string, source_uuid, trigger_code, severity_level, event_state,
+	start_time, end_time, traffic_status, avg_occupancy, avg_speed, total,
+	vehicle_counts, lanes, frame_url, reported_lat, reported_lng, received_at
+`
 
 // GetLatestForSensor returns the most recent FlowRecord for sourceUUID, if
-// any has ever been ingested (in this process's lifetime, or recovered at
-// startup by primeLatestFromDisk).
+// any has ever been ingested. Backed by idx_flow_records_source_received —
+// an indexed lookup, not a scan of every record ever stored for this sensor.
 func GetLatestForSensor(sourceUUID string) (*FlowRecord, bool) {
-	recMu.Lock()
-	defer recMu.Unlock()
-	rec, ok := latest[sourceUUID]
-	if !ok {
+	row := db.QueryRow(`
+		SELECT `+flowRecordColumns+`
+		FROM flow_records WHERE source_uuid = ?
+		ORDER BY received_at DESC, event_id DESC LIMIT 1
+	`, sourceUUID)
+	rec, err := flowRow(row)
+	if err != nil {
 		return nil, false
 	}
-	cp := *rec
-	return &cp, true
+	return rec, true
 }
 
 // ListLatest returns the most recent FlowRecord for every source_uuid ever
-// seen, most recently received first.
+// seen, most recently received first. Uses a window function to pick each
+// group's top row in one indexed pass, rather than N per-sensor queries.
 func ListLatest() []*FlowRecord {
-	recMu.Lock()
-	defer recMu.Unlock()
-	out := make([]*FlowRecord, 0, len(latest))
-	for _, rec := range latest {
-		cp := *rec
-		out = append(out, &cp)
+	rows, err := db.Query(`
+		SELECT ` + flowRecordColumns + `
+		FROM (
+			SELECT *, ROW_NUMBER() OVER (PARTITION BY source_uuid ORDER BY received_at DESC, event_id DESC) AS rn
+			FROM flow_records
+		) AS sub
+		WHERE rn = 1
+		ORDER BY received_at DESC
+	`)
+	if err != nil {
+		log.Warn().Err(err).Msg("[trafficflow] ListLatest query failed")
+		return nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ReceivedAt.After(out[j].ReceivedAt) })
+	defer rows.Close()
+
+	out := make([]*FlowRecord, 0, 64)
+	for rows.Next() {
+		rec, err := flowRow(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, rec)
+	}
 	return out
 }
 
-// primeLatestFromDisk rebuilds the in-memory `latest` cache after a restart
-// by reading today's (then, if empty, yesterday's) day file for every
-// source_uuid this server has ever seen — from both mapped Sensors and the
-// ObservedSensor registry, so the map layer and the admin's
-// "chưa mapping" list both have data immediately rather than waiting for
-// the next live push. Best-effort: a read failure for one sensor never
-// blocks the others.
-func primeLatestFromDisk() {
-	seen := map[string]bool{}
-	for _, sn := range ListSensors() {
-		seen[sn.SourceUUID] = true
-	}
-	for _, o := range ListObservedSensors() {
-		seen[o.SourceUUID] = true
-	}
-	if len(seen) == 0 {
-		return
-	}
-
-	now := time.Now()
-	todayKey := dayKeyFor(now)
-	yesterdayKey := dayKeyFor(now.Add(-24 * time.Hour))
-
-	recMu.Lock()
-	defer recMu.Unlock()
-	for sourceUUID := range seen {
-		var best *FlowRecord
-		for _, dk := range []string{todayKey, yesterdayKey} {
-			if err := loadDayLocked(sourceUUID, dk); err != nil {
-				continue
-			}
-			for _, rec := range days[bucketKey(sourceUUID, dk)] {
-				if best == nil || rec.ReceivedAt.After(best.ReceivedAt) {
-					cp := *rec
-					best = &cp
-				}
-			}
-		}
-		if best != nil {
-			latest[sourceUUID] = best
-		}
-	}
-}
-
-// deleteRecordFilesOlderThan removes day files whose date is more than days
-// old, scanning dataDir's flow_*.json files directly (there is no
-// in-memory list of every source_uuid's file set to iterate instead) —
-// same approach as internal/counting's dailyStore.deleteOlderThan. Also
-// prunes matching entries from the index and days caches so both stay
-// bounded instead of growing forever across a long-running server.
-func deleteRecordFilesOlderThan(retentionDays int) int {
-	cutoff := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02")
-	entries, err := os.ReadDir(dataDir)
+// deleteRecordsOlderThan removes flow_records rows older than retentionDays
+// — a single indexed DELETE (via idx_flow_records_received), not a
+// directory scan + per-file remove. Returns the number of rows removed.
+func deleteRecordsOlderThan(retentionDays int) int64 {
+	cutoff := time.Now().AddDate(0, 0, -retentionDays).UnixNano()
+	res, err := db.Exec(`DELETE FROM flow_records WHERE received_at < ?`, cutoff)
 	if err != nil {
+		log.Warn().Err(err).Msg("[trafficflow] retention delete failed")
 		return 0
 	}
-
-	recMu.Lock()
-	defer recMu.Unlock()
-	n := 0
-	for _, e := range entries {
-		name := e.Name()
-		if len(name) < len("flow_YYYY-MM-DD.json") || name[:5] != "flow_" || name[len(name)-5:] != ".json" {
-			continue
-		}
-		dateStr := name[len(name)-15 : len(name)-5] // "YYYY-MM-DD" just before ".json"
-		if len(dateStr) != 10 || dateStr >= cutoff {
-			continue
-		}
-		if err := os.Remove(filepath.Join(dataDir, name)); err != nil {
-			continue
-		}
-		n++
-		for eventID, entry := range index {
-			if entry.DayKey == dateStr {
-				delete(index, eventID)
-			}
-		}
-		for bk := range days {
-			if strings.HasSuffix(bk, "|"+dateStr) {
-				delete(days, bk)
-			}
-		}
-	}
-	if n > 0 {
-		_ = saveIndexLocked() // best-effort — a failed write here just means the index trims on the next sweep instead
-	}
+	n, _ := res.RowsAffected()
 	return n
+}
+
+func marshalOrNil[T any](v []T) (any, error) {
+	if len(v) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+func nullInt(v *int) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func nullString(v *string) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

@@ -2,16 +2,8 @@ package trafficflow
 
 import "testing"
 
-func setupSensorsTest(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	if err := initSensors(dir); err != nil {
-		t.Fatalf("initSensors: %v", err)
-	}
-}
-
 func TestCreateSensorRequiresSourceUUIDAndLabel(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	if _, err := CreateSensor(Sensor{Label: "no uuid"}); err == nil {
 		t.Error("expected an error when source_uuid is empty")
 	}
@@ -21,7 +13,7 @@ func TestCreateSensorRequiresSourceUUIDAndLabel(t *testing.T) {
 }
 
 func TestCreateSensorRejectsDuplicateSourceUUID(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	if _, err := CreateSensor(Sensor{SourceUUID: "cam-1", Label: "A"}); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +23,7 @@ func TestCreateSensorRejectsDuplicateSourceUUID(t *testing.T) {
 }
 
 func TestUpdateSensorPreservesCreatedAtAndAllowsRename(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	sn, err := CreateSensor(Sensor{SourceUUID: "cam-1", Label: "A", Lat: 10, Lon: 106})
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +41,7 @@ func TestUpdateSensorPreservesCreatedAtAndAllowsRename(t *testing.T) {
 }
 
 func TestUpdateSensorRejectsSourceUUIDUsedByAnother(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	_, err := CreateSensor(Sensor{SourceUUID: "cam-1", Label: "A"})
 	if err != nil {
 		t.Fatal(err)
@@ -64,14 +56,14 @@ func TestUpdateSensorRejectsSourceUUIDUsedByAnother(t *testing.T) {
 }
 
 func TestUpdateSensorUnknownIDFails(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	if _, err := UpdateSensor("no-such-id", Sensor{SourceUUID: "cam-1", Label: "A"}); err != errTrafficFlowNotFound {
 		t.Errorf("expected errTrafficFlowNotFound, got %v", err)
 	}
 }
 
 func TestDeleteSensor(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	sn, err := CreateSensor(Sensor{SourceUUID: "cam-1", Label: "A"})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +80,7 @@ func TestDeleteSensor(t *testing.T) {
 }
 
 func TestObserveSensorTracksCountAndCoordinates(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	lat, lng := 10.123, 106.456
 	observeSensor("cam-1", "hw-1", &lat, &lng)
 	observeSensor("cam-1", "hw-1", &lat, &lng)
@@ -117,7 +109,7 @@ func TestObserveSensorTracksCountAndCoordinates(t *testing.T) {
 }
 
 func TestObserveSensorIgnoresEmptySourceUUID(t *testing.T) {
-	setupSensorsTest(t)
+	setupTestDB(t)
 	observeSensor("", "", nil, nil)
 	if len(ListObservedSensors()) != 0 {
 		t.Error("expected an empty source_uuid to be ignored, not recorded")
