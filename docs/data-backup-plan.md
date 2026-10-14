@@ -48,7 +48,7 @@ Dữ liệu người dùng/phân quyền/API key **không** nằm trong file nà
 | incidents | `incidents_data/incidents_<year>.json` + `meta.json` | 1 file/năm + 1 meta | **không** (lưu vĩnh viễn, có chủ đích — nhập tay) | thấp |
 | traffic — config | `traffic.json` | 1 file | n/a | config |
 | traffic — lịch sử quét | `traffic_data/<YYYY-MM-DD>.json` | 1 file/ngày | **có — mặc định 30 ngày** | theo chu kỳ quét |
-| **trafficflow (Đo đếm lưu lượng)** | `trafficflow_data/flow_<source_uuid>_<ngày>.json` + `flow_index.json` + sensor mapping | 1 file/(sensor,ngày) | **có — 30 ngày**, quét mỗi 6h | **cao nhất trong hệ thống**: ~500 camera × 288 chu kỳ/ngày ≈ 144.000 bản ghi/ngày |
+| **trafficflow (Đo đếm lưu lượng)** | ✅ **đã chuyển sang SQLite** — `trafficflow_data/trafficflow.db` (1 file duy nhất, bảng `sensors`/`observed_sensors`/`flow_records`) | 1 file CSDL | **có — 30 ngày** (`deleteRecordsOlderThan`, quét mỗi 6h — vẫn giữ nguyên, chưa tắt theo §3 mục 1, chờ quyết định riêng) | **cao nhất trong hệ thống**: ~500 camera × 288 chu kỳ/ngày ≈ 144.000 bản ghi/ngày — lỗi ghi-lại-toàn-bộ-chỉ-mục ở §8 **đã được vá** bằng migration này |
 | aievent — sự kiện | `aievent_data/events_<ngày>.json` + `record_index.json` | 1 file/ngày | **không** (lưu vĩnh viễn, có chủ đích) | thấp (vài chục sự kiện/ngày) |
 | aievent — ảnh đính kèm | `aievent_data/images/<RecordID>/...` | file ảnh JPEG/PNG | **có — mặc định 4 giờ** | tối đa 5 ảnh/sự kiện, 5MB/ảnh |
 | traveltime — config | `traveltime.json` | 1 file | n/a | config |
@@ -70,7 +70,7 @@ Dữ liệu người dùng/phân quyền/API key **không** nằm trong file nà
 ├── counting.json  counting_stations.json  counting_data/
 ├── incidents_data/
 ├── traffic.json  traffic_data/
-├── trafficflow_data/
+├── trafficflow_data/ (nay chỉ còn trafficflow.db — SQLite, kèm -wal/-shm khi đang chạy ở WAL mode)
 ├── aievent_data/ (kèm images/)
 ├── traveltime.json  travel_routes.json  holiday_overrides.json
 └── workers.json
@@ -172,10 +172,10 @@ File chỉ mục này **không có cơ chế dọn** (không theo retention 30 n
 
 ### 8.5. Thứ tự ưu tiên đề xuất
 
-1. **Ngay** (không phụ thuộc quyết định CSDL): vá lỗi `flow_index.json` của trafficflow — đổi sang chỉ mục không phải ghi-lại-toàn-bộ-mỗi-lần (vd tách theo ngày giống file dữ liệu, hoặc chuyển thẳng sang SQLite luôn cho module này — xem mục 2).
-2. **Ngắn hạn**: nếu đồng ý hướng SQLite — làm trước cho `trafficflow` (khối lượng lớn nhất + đang có lỗi cần sửa, 1 công 2 việc), sau đó `counting`, cuối cùng `traffic` (khối lượng nhỏ nhất trong 3).
-3. **Trước khi tắt retention 30 ngày** của 3 module trên: nên hoàn tất ít nhất mục 1, để tránh "giữ lâu dài" vô tình làm lộ bug nhanh hơn trong lúc chưa kịp vá.
-4. **Song song, độc lập**: bổ sung sweep 90 ngày cho `login_history/`, `security_alerts/`, `user_locations/` (đã chốt ở §3 mục 1) — việc này không liên quan CSDL, làm được ngay.
+1. ✅ **Đã làm (2026-10-14)**: `trafficflow` đã chuyển sang SQLite (`internal/trafficflow/db.go`), vá triệt để lỗi `flow_index.json` (dedup giờ là `UNIQUE`/`PRIMARY KEY` trên `event_id`, không còn ghi-lại-toàn-bộ-file mỗi push). Tự động nhập lại dữ liệu JSON cũ (nếu có) vào SQLite một lần khi khởi động (`migrate.go`), file JSON cũ được đổi tên `.migrated` sau khi nhập thành công, không xoá. Retention 30 ngày hiện vẫn giữ nguyên (chưa tắt theo quyết định "giữ lâu dài" ở §3 mục 1 — đây là 2 việc tách biệt, cần quyết định riêng).
+2. **Còn lại**: `counting_data/`, `traffic_data/` chưa chuyển — vẫn JSON theo ngày như trước.
+3. **Trước khi tắt retention 30 ngày** của `trafficflow`: đã xong (mục 1) — có thể tắt an toàn bất cứ lúc nào nếu muốn.
+4. **Song song, độc lập**: bổ sung sweep 90 ngày cho `login_history/`, `security_alerts/`, `user_locations/` (đã chốt ở §3 mục 1) — việc này không liên quan CSDL, chưa làm, làm được ngay.
 
 ---
 
@@ -185,3 +185,4 @@ File chỉ mục này **không có cơ chế dọn** (không theo retention 30 n
 |---|---|---|
 | 1.0 | 2026-10-14 | Rà soát toàn bộ dữ liệu + cách tổ chức hiện có, phân loại theo mức độ quan trọng, đề xuất kế hoạch backup. Trạng thái: planning, chưa triển khai. |
 | 1.1 | 2026-10-14 | Chốt chính sách retention theo quyết định của bạn (login_history/security_alerts/user_locations: 3 tháng; phần còn lại kể cả 3 dataset khối lượng lớn: giữ lâu dài). Thêm §8: đánh giá performance khi giữ lâu dài (dẫn chứng thật từ comment có sẵn trong `internal/traffic/storage.go`), phát hiện lỗi ghi-lại-toàn-bộ-chỉ-mục trong trafficflow, và khuyến nghị chuyển 3 dataset khối lượng lớn sang SQLite (giữ nguyên JSON cho phần cấu hình/user). Trạng thái: planning, chưa triển khai. |
+| 1.2 | 2026-10-14 | **Đã triển khai**: chuyển `trafficflow` (Đo đếm lưu lượng) sang SQLite (`internal/trafficflow/db.go` — bảng `sensors`/`observed_sensors`/`flow_records`, dùng `modernc.org/sqlite` pure-Go), vá lỗi `flow_index.json` ghi-lại-toàn-bộ-mỗi-push (dedup giờ qua `PRIMARY KEY`/`UNIQUE` của SQLite). Tự nhập lại dữ liệu JSON cũ (nếu có) một lần khi khởi động, không mất dữ liệu cũ. `counting_data/`, `traffic_data/` vẫn chưa chuyển, để sau. |

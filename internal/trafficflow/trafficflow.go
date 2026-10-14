@@ -27,9 +27,9 @@ var log zerolog.Logger
 
 var dataDir string
 
-// Init loads sensor mappings, the observed-sensor registry, and the flow
-// record index, then registers HTTP handlers — called once at startup (see
-// main.go's module list), same no-argument convention as
+// Init opens (and, on first run, creates and migrates) the SQLite database
+// backing this package, then registers HTTP handlers — called once at
+// startup (see main.go's module list), same no-argument convention as
 // internal/aievent.Init.
 func Init() {
 	log = app.GetLogger("trafficflow")
@@ -42,13 +42,11 @@ func Init() {
 		log.Error().Err(err).Msg("[trafficflow] cannot create data dir")
 	}
 
-	if err := initSensors(dataDir); err != nil {
-		log.Warn().Err(err).Msg("[trafficflow] sensor store load failed (continuing)")
+	if err := initDB(dataDir); err != nil {
+		log.Error().Err(err).Msg("[trafficflow] cannot open database")
+		return
 	}
-	if err := initRecords(dataDir); err != nil {
-		log.Warn().Err(err).Msg("[trafficflow] flow record index load failed (continuing)")
-	}
-	primeLatestFromDisk()
+	migrateJSONData(dataDir)
 
 	RegisterHandlers()
 	startRetentionSweeper()
@@ -64,9 +62,9 @@ const flowRetentionDays = 30
 func startRetentionSweeper() {
 	go func() {
 		for range time.Tick(6 * time.Hour) {
-			n := deleteRecordFilesOlderThan(flowRetentionDays)
+			n := deleteRecordsOlderThan(flowRetentionDays)
 			if n > 0 {
-				log.Info().Int("deleted_files", n).Msg("[trafficflow] retention sweep")
+				log.Info().Int64("deleted_records", n).Msg("[trafficflow] retention sweep")
 			}
 		}
 	}()

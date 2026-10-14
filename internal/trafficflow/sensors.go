@@ -1,9 +1,9 @@
 package trafficflow
 
-// sensors.go — two related stores, mirroring internal/aievent/categories.go's
-// ObservedCategory/CategoryRule split:
+// sensors.go — two related SQLite-backed tables, mirroring
+// internal/aievent/categories.go's ObservedCategory/CategoryRule split:
 //
-//   - ObservedSensor: auto-logged, one entry per distinct source_uuid the
+//   - ObservedSensor: auto-logged, one row per distinct source_uuid the
 //     push endpoint has ever seen, with Hawkwise's own reported coordinates
 //     as a convenience suggestion. Needs zero admin setup — exists purely so
 //     an admin can see what Hawkwise is actually sending before mapping it.
@@ -17,13 +17,9 @@ package trafficflow
 // until an admin maps it.
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -52,169 +48,110 @@ type ObservedSensor struct {
 	LastSeen     time.Time `json:"last_seen"`
 }
 
-type sensorStore struct {
-	mu       sync.Mutex
-	sensF    string
-	obsF     string
-	sensors  map[string]*Sensor         // by ID
-	observed map[string]*ObservedSensor // by source_uuid
-}
-
-var sstore *sensorStore
-
-func initSensors(dir string) error {
-	sstore = &sensorStore{
-		sensF:    filepath.Join(dir, "sensors.json"),
-		obsF:     filepath.Join(dir, "observed_sensors.json"),
-		sensors:  map[string]*Sensor{},
-		observed: map[string]*ObservedSensor{},
-	}
-	if err := sstore.loadSensors(); err != nil {
-		return err
-	}
-	return sstore.loadObserved()
-}
-
-func (s *sensorStore) loadSensors() error {
-	data, err := os.ReadFile(s.sensF)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var list []*Sensor
-	if err := json.Unmarshal(data, &list); err != nil {
-		return err
-	}
-	for _, sn := range list {
-		s.sensors[sn.ID] = sn
-	}
-	return nil
-}
-
-func (s *sensorStore) saveSensorsLocked() error {
-	list := make([]*Sensor, 0, len(s.sensors))
-	for _, sn := range s.sensors {
-		list = append(list, sn)
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].Label < list[j].Label })
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.sensF, data, 0644)
-}
-
-func (s *sensorStore) loadObserved() error {
-	data, err := os.ReadFile(s.obsF)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var list []*ObservedSensor
-	if err := json.Unmarshal(data, &list); err != nil {
-		return err
-	}
-	for _, o := range list {
-		s.observed[o.SourceUUID] = o
-	}
-	return nil
-}
-
-func (s *sensorStore) saveObservedLocked() error {
-	list := make([]*ObservedSensor, 0, len(s.observed))
-	for _, o := range s.observed {
-		list = append(list, o)
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].LastSeen.After(list[j].LastSeen) })
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.obsF, data, 0644)
-}
-
 // observeSensor records one sighting of sourceUUID — called on every push,
 // regardless of whether a Sensor mapping already exists, so the "what has
 // Hawkwise actually sent" view stays complete even after sensors are mapped.
+// Implemented as a single UPSERT (INSERT ... ON CONFLICT DO UPDATE) — one
+// indexed write, not a read-modify-write-whole-file cycle.
 func observeSensor(sourceUUID, hardwareUUID string, lat, lng *float64) {
 	if sourceUUID == "" {
 		return
 	}
-	now := time.Now()
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	o, ok := sstore.observed[sourceUUID]
-	if !ok {
-		o = &ObservedSensor{SourceUUID: sourceUUID, FirstSeen: now}
-		sstore.observed[sourceUUID] = o
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := db.Exec(`
+		INSERT INTO observed_sensors (source_uuid, hardware_uuid, reported_lat, reported_lng, count, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, 1, ?, ?)
+		ON CONFLICT(source_uuid) DO UPDATE SET
+			hardware_uuid = CASE WHEN excluded.hardware_uuid != '' THEN excluded.hardware_uuid ELSE observed_sensors.hardware_uuid END,
+			reported_lat  = CASE WHEN excluded.reported_lat  IS NOT NULL THEN excluded.reported_lat  ELSE observed_sensors.reported_lat  END,
+			reported_lng  = CASE WHEN excluded.reported_lng  IS NOT NULL THEN excluded.reported_lng  ELSE observed_sensors.reported_lng  END,
+			count         = observed_sensors.count + 1,
+			last_seen     = excluded.last_seen
+	`, sourceUUID, hardwareUUID, nullFloat(lat), nullFloat(lng), now, now)
+	if err != nil {
+		log.Warn().Err(err).Str("source_uuid", sourceUUID).Msg("[trafficflow] observeSensor failed (continuing)")
 	}
-	o.Count++
-	o.LastSeen = now
-	if hardwareUUID != "" {
-		o.HardwareUUID = hardwareUUID
-	}
-	if lat != nil && lng != nil {
-		o.ReportedLat, o.ReportedLng = lat, lng
-	}
-	_ = sstore.saveObservedLocked() // best-effort — never blocks ingestion on a write failure
 }
 
 // ListObservedSensors returns every distinct source_uuid seen, most recently
 // seen first.
 func ListObservedSensors() []ObservedSensor {
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	out := make([]ObservedSensor, 0, len(sstore.observed))
-	for _, o := range sstore.observed {
-		out = append(out, *o)
+	rows, err := db.Query(`
+		SELECT source_uuid, hardware_uuid, reported_lat, reported_lng, count, first_seen, last_seen
+		FROM observed_sensors ORDER BY last_seen DESC
+	`)
+	if err != nil {
+		log.Warn().Err(err).Msg("[trafficflow] ListObservedSensors query failed")
+		return nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
+	defer rows.Close()
+
+	out := make([]ObservedSensor, 0, 64)
+	for rows.Next() {
+		var o ObservedSensor
+		var lat, lng sql.NullFloat64
+		var firstSeen, lastSeen string
+		if err := rows.Scan(&o.SourceUUID, &o.HardwareUUID, &lat, &lng, &o.Count, &firstSeen, &lastSeen); err != nil {
+			continue
+		}
+		o.ReportedLat = floatPtr(lat)
+		o.ReportedLng = floatPtr(lng)
+		o.FirstSeen, _ = time.Parse(time.RFC3339Nano, firstSeen)
+		o.LastSeen, _ = time.Parse(time.RFC3339Nano, lastSeen)
+		out = append(out, o)
+	}
 	return out
 }
 
 // ListSensors returns every configured mapping, by label.
 func ListSensors() []Sensor {
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	out := make([]Sensor, 0, len(sstore.sensors))
-	for _, sn := range sstore.sensors {
-		out = append(out, *sn)
+	rows, err := db.Query(`SELECT id, source_uuid, hardware_uuid, label, lat, lon, enabled, created_at FROM sensors ORDER BY label`)
+	if err != nil {
+		log.Warn().Err(err).Msg("[trafficflow] ListSensors query failed")
+		return nil
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	defer rows.Close()
+
+	out := make([]Sensor, 0, 64)
+	for rows.Next() {
+		sn, err := scanSensor(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, sn)
+	}
 	return out
 }
 
-// sensorBySourceUUIDLocked finds a sensor by its source_uuid. Caller must
-// hold sstore.mu.
-func sensorBySourceUUIDLocked(sourceUUID string) (*Sensor, bool) {
-	for _, sn := range sstore.sensors {
-		if sn.SourceUUID == sourceUUID {
-			return sn, true
-		}
+// scanSensor scans one row from a query selecting exactly
+// (id, source_uuid, hardware_uuid, label, lat, lon, enabled, created_at),
+// shared by ListSensors/GetSensorBySourceUUID/the single-row lookups below.
+func scanSensor(row interface{ Scan(...any) error }) (Sensor, error) {
+	var sn Sensor
+	var enabled int
+	var createdAt string
+	if err := row.Scan(&sn.ID, &sn.SourceUUID, &sn.HardwareUUID, &sn.Label, &sn.Lat, &sn.Lon, &enabled, &createdAt); err != nil {
+		return Sensor{}, err
 	}
-	return nil, false
+	sn.Enabled = enabled != 0
+	sn.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+	return sn, nil
 }
 
-// GetSensorBySourceUUID returns a copy of the mapping for sourceUUID, if any.
+// GetSensorBySourceUUID returns the mapping for sourceUUID, if any.
 func GetSensorBySourceUUID(sourceUUID string) (*Sensor, bool) {
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	sn, ok := sensorBySourceUUIDLocked(sourceUUID)
-	if !ok {
+	row := db.QueryRow(`SELECT id, source_uuid, hardware_uuid, label, lat, lon, enabled, created_at FROM sensors WHERE source_uuid = ?`, sourceUUID)
+	sn, err := scanSensor(row)
+	if err != nil {
 		return nil, false
 	}
-	cp := *sn
-	return &cp, true
+	return &sn, true
 }
 
 // CreateSensor registers a new source_uuid -> map point mapping. SourceUUID
 // must be non-empty and not already mapped by another Sensor — Hawkwise's
 // doc describes source_uuid as the camera's own stable key, so a 1:1
-// mapping is enforced here.
+// mapping is enforced here via the table's UNIQUE constraint.
 func CreateSensor(sn Sensor) (*Sensor, error) {
 	sn.SourceUUID = strings.TrimSpace(sn.SourceUUID)
 	sn.Label = strings.TrimSpace(sn.Label)
@@ -225,16 +162,16 @@ func CreateSensor(sn Sensor) (*Sensor, error) {
 		return nil, errTrafficFlow("label required")
 	}
 
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	if _, exists := sensorBySourceUUIDLocked(sn.SourceUUID); exists {
-		return nil, errTrafficFlow("source_uuid already mapped to another sensor")
-	}
 	sn.ID = fmt.Sprintf("hws-%d", time.Now().UnixNano())
 	sn.CreatedAt = time.Now()
-	sstore.sensors[sn.ID] = &sn
-	if err := sstore.saveSensorsLocked(); err != nil {
-		delete(sstore.sensors, sn.ID)
+	_, err := db.Exec(`
+		INSERT INTO sensors (id, source_uuid, hardware_uuid, label, lat, lon, enabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, sn.ID, sn.SourceUUID, sn.HardwareUUID, sn.Label, sn.Lat, sn.Lon, boolInt(sn.Enabled), sn.CreatedAt.Format(time.RFC3339Nano))
+	if err != nil {
+		if isUniqueConstraintErr(err) {
+			return nil, errTrafficFlow("source_uuid already mapped to another sensor")
+		}
 		return nil, err
 	}
 	cp := sn
@@ -254,35 +191,38 @@ func UpdateSensor(id string, upd Sensor) (*Sensor, error) {
 		return nil, errTrafficFlow("label required")
 	}
 
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	existing, ok := sstore.sensors[id]
+	res, err := db.Exec(`
+		UPDATE sensors SET source_uuid = ?, hardware_uuid = ?, label = ?, lat = ?, lon = ?, enabled = ?
+		WHERE id = ?
+	`, upd.SourceUUID, upd.HardwareUUID, upd.Label, upd.Lat, upd.Lon, boolInt(upd.Enabled), id)
+	if err != nil {
+		if isUniqueConstraintErr(err) {
+			return nil, errTrafficFlow("source_uuid already mapped to another sensor")
+		}
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, errTrafficFlowNotFound
+	}
+
+	sn, ok := GetSensorBySourceUUID(upd.SourceUUID)
 	if !ok {
 		return nil, errTrafficFlowNotFound
 	}
-	if other, exists := sensorBySourceUUIDLocked(upd.SourceUUID); exists && other.ID != id {
-		return nil, errTrafficFlow("source_uuid already mapped to another sensor")
-	}
-	upd.ID = id
-	upd.CreatedAt = existing.CreatedAt
-	sstore.sensors[id] = &upd
-	if err := sstore.saveSensorsLocked(); err != nil {
-		return nil, err
-	}
-	cp := upd
-	return &cp, nil
+	return sn, nil
 }
 
 // DeleteSensor removes a mapping — matching pushes keep being stored under
 // their source_uuid, they just stop appearing on the map.
 func DeleteSensor(id string) error {
-	sstore.mu.Lock()
-	defer sstore.mu.Unlock()
-	if _, ok := sstore.sensors[id]; !ok {
+	res, err := db.Exec(`DELETE FROM sensors WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return errTrafficFlowNotFound
 	}
-	delete(sstore.sensors, id)
-	return sstore.saveSensorsLocked()
+	return nil
 }
 
 type trafficFlowError string
@@ -291,3 +231,33 @@ func (e trafficFlowError) Error() string { return string(e) }
 func errTrafficFlow(msg string) error    { return trafficFlowError(msg) }
 
 var errTrafficFlowNotFound = trafficFlowError("not found")
+
+// isUniqueConstraintErr reports whether err is a SQLite UNIQUE constraint
+// violation — modernc.org/sqlite reports this via a plain error whose text
+// contains "UNIQUE constraint failed" (it doesn't expose a typed sentinel
+// the way some other drivers do).
+func isUniqueConstraintErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func nullFloat(f *float64) any {
+	if f == nil {
+		return nil
+	}
+	return *f
+}
+
+func floatPtr(n sql.NullFloat64) *float64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Float64
+	return &v
+}
