@@ -758,7 +758,13 @@ body.sb-collapsed           { --map-left:0; }
 </div>
 
 <!-- ── Overlay container ──────────────────────────────────────── -->
-<div id="mapOverlays"></div>
+<div id="mapOverlays">
+  <!-- Leader lines connecting a camera-overlap-nudged event bubble back to
+       its true lat/lng — see applyEventBubbleOverlapAvoidance(). Shares
+       #mapOverlays' exact box (and therefore map.project()'s pixel space)
+       with the PiP preview windows below it. -->
+  <svg id="eventBubbleLeadersSvg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none"></svg>
+</div>
 
 <!-- ── Edit panel ────────────────────────────────────────────── -->
 <div id="editPanel">
@@ -1606,6 +1612,10 @@ async function initMap(apiKey) {
   // Snapshot preview thumbnails — same throttled render hook (no-op unless enabled)
   map.on('render', schedulePreviewUpdate);
   map.on('render', scheduleAIEventPreviewUpdate);
+  // Event-bubble camera-overlap nudge + leader lines — same throttled
+  // render hook; screen-pixel proximity to a camera icon changes with
+  // every zoom/pan even though no bubble's real lat/lng ever changes.
+  map.on('render', scheduleEventBubbleRefresh);
 
   // Click events are registered once (survive style change)
   map.on('click', 'clusters', async e => {
@@ -2692,7 +2702,7 @@ document.getElementById('btnIncidentAdd').addEventListener('click', function() {
     _tePollTimer = setInterval(loadActiveIncidents, 10000); // keep bubbles fresh as events age out of the window
   } else {
     if (_tePollTimer) { clearInterval(_tePollTimer); _tePollTimer = null; }
-    Object.values(_teMarkers).forEach(({ marker }) => marker.remove());
+    Object.keys(_teMarkers).forEach(id => { _teMarkers[id].marker.remove(); removeEventBubbleLeader('te:' + id); });
     _teMarkers = {};
   }
 });
@@ -2721,7 +2731,7 @@ document.getElementById('btnAIEvent').addEventListener('click', function() {
     _aiEventPollTimer = setInterval(loadActiveAIEvents, 10000); // keep bubbles/previews fresh as events age out of the window
   } else {
     if (_aiEventPollTimer) { clearInterval(_aiEventPollTimer); _aiEventPollTimer = null; }
-    Object.values(_aiEventMarkers).forEach(({ marker }) => marker.remove());
+    Object.keys(_aiEventMarkers).forEach(id => { _aiEventMarkers[id].marker.remove(); removeEventBubbleLeader('aie:' + id); });
     _aiEventMarkers = {};
     clearAIEventPreviews();
   }
@@ -2740,7 +2750,7 @@ document.getElementById('btnTrafficFlow').addEventListener('click', function() {
     _trafficFlowPollTimer = setInterval(loadActiveTrafficFlow, 15000); // ~5-min push cycle; 15s keeps bubbles reasonably fresh without hammering the API
   } else {
     if (_trafficFlowPollTimer) { clearInterval(_trafficFlowPollTimer); _trafficFlowPollTimer = null; }
-    Object.values(_trafficFlowMarkers).forEach(({ marker }) => marker.remove());
+    Object.keys(_trafficFlowMarkers).forEach(id => { _trafficFlowMarkers[id].marker.remove(); removeEventBubbleLeader('tf:' + id); });
     _trafficFlowMarkers = {};
   }
 });
@@ -3082,6 +3092,103 @@ document.getElementById('incAddModalClose').addEventListener('click', closeMapIn
 document.getElementById('incAddCancel').addEventListener('click', closeMapIncidentModal);
 document.getElementById('incAddSave').addEventListener('click', saveMapIncident);
 
+// ── Event-bubble camera-overlap avoidance + leader line ─────────────────
+// Shared by the three independent event-bubble layers below (Traffic
+// Event, AI Event, Đo đếm lưu lượng): each bubble's true geographic
+// position always stays exactly at its real lat/lng — marker.setLngLat is
+// the only thing that ever sets it, never altered for layout reasons. When
+// that position renders within EVENT_CAM_OVERLAP_PX screen pixels of a
+// camera icon, the bubble is visually nudged aside with marker.setOffset()
+// — a pure rendering offset in screen pixels, independent of lngLat — and
+// a short dashed leader line is drawn from the true point to the nudged
+// bubble so the real location is never ambiguous. Re-applied on every
+// 'move' (pan/zoom/rotate), since how close two points render in SCREEN
+// pixels changes with zoom even though neither point's lngLat changed.
+const EVENT_CAM_OVERLAP_PX = 24;   // bubble nudges aside once its true screen position is this close to a camera icon
+const EVENT_CAM_NUDGE = [22, -22]; // fixed screen-pixel nudge (up-right), independent of zoom
+let _eventBubbleLeaders = new Map(); // "layer:id" -> SVGLineElement
+let _evbRefreshPending = false;
+
+// Every real plotted camera's current screen position — real cameras only
+// (_locations filtered to ones with an active stream, matching how the
+// base "cameras" GeoJSON layer itself is built, see buildCamerasGeoJSON),
+// not every known location (unplaced cameras aren't drawn on the map at
+// all). Computed once per refresh pass (scheduleEventBubbleRefresh) and
+// shared across every bubble's check that pass, rather than re-projecting
+// the same few hundred cameras once per bubble — matters during a
+// pan/zoom gesture re-running this every animation frame.
+function cameraPixelPositions() {
+  if (!map || !Array.isArray(_locations)) return [];
+  const out = [];
+  for (const loc of _locations) {
+    if (!_streamByID[loc.id] || loc.lat == null || loc.lon == null) continue;
+    out.push(map.project([loc.lon, loc.lat]));
+  }
+  return out;
+}
+
+function nearestPixelDist(px, py, camPix) {
+  let best = Infinity;
+  for (const p of camPix) {
+    const d = Math.hypot(p.x - px, p.y - py);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+// Call once per marker whenever its true lon/lat is (re)set, and again on
+// every map 'move' (see scheduleEventBubbleRefresh) — never changes the
+// marker's lngLat, only its rendering offset and leader line. camPix is
+// optional — omitted on the infrequent (poll-triggered) call sites, where
+// computing it fresh each time is cheap; scheduleEventBubbleRefresh passes
+// one shared array computed once for the whole per-frame pass.
+function applyEventBubbleOverlapAvoidance(key, marker, lon, lat, camPix) {
+  if (!map) return;
+  const pix = camPix || cameraPixelPositions();
+  const truePt = map.project([lon, lat]);
+  const overlapping = nearestPixelDist(truePt.x, truePt.y, pix) < EVENT_CAM_OVERLAP_PX;
+
+  marker.setOffset(overlapping ? EVENT_CAM_NUDGE : [0, 0]);
+
+  if (!overlapping) {
+    removeEventBubbleLeader(key);
+    return;
+  }
+  let line = _eventBubbleLeaders.get(key);
+  if (!line) {
+    line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('stroke', 'rgba(255,255,255,.9)');
+    line.setAttribute('stroke-width', '1.5');
+    line.setAttribute('stroke-dasharray', '3,2');
+    document.getElementById('eventBubbleLeadersSvg').appendChild(line);
+    _eventBubbleLeaders.set(key, line);
+  }
+  line.setAttribute('x1', truePt.x);
+  line.setAttribute('y1', truePt.y);
+  line.setAttribute('x2', truePt.x + EVENT_CAM_NUDGE[0]);
+  line.setAttribute('y2', truePt.y + EVENT_CAM_NUDGE[1]);
+}
+
+function removeEventBubbleLeader(key) {
+  const line = _eventBubbleLeaders.get(key);
+  if (line) { line.remove(); _eventBubbleLeaders.delete(key); }
+}
+
+// Re-applies overlap avoidance for every currently-shown bubble across all
+// three layers — throttled to one pass per animation frame so a drag/zoom
+// gesture (many rapid 'move' events) doesn't recompute repeatedly per frame.
+function scheduleEventBubbleRefresh() {
+  if (_evbRefreshPending) return;
+  _evbRefreshPending = true;
+  requestAnimationFrame(() => {
+    _evbRefreshPending = false;
+    const camPix = cameraPixelPositions();
+    Object.entries(_teMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('te:' + id, e.marker, e.lon, e.lat, camPix));
+    Object.entries(_aiEventMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('aie:' + id, e.marker, e.lon, e.lat, camPix));
+    Object.entries(_trafficFlowMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('tf:' + id, e.marker, e.lon, e.lat, camPix));
+  });
+}
+
 // ── Traffic Event layer: recent-incident bubble markers ────────────────
 // Đông xe's circle background is keyed to Severity, not a fixed color —
 // how jammed it is IS the severity, so the bubble itself should read that
@@ -3164,16 +3271,19 @@ async function loadActiveIncidents() {
       // its real, final size) — belt-and-suspenders in case anything about
       // the center-offset calculation above still used a stale measurement.
       marker.setLngLat([inc.lng, inc.lat]);
-      entry = _teMarkers[inc.id] = { marker, el };
+      entry = _teMarkers[inc.id] = { marker, el, lon: inc.lng, lat: inc.lat };
     }
+    entry.lon = inc.lng;
+    entry.lat = inc.lat;
     entry.el.className = 'te-marker ' + cls;
     entry.el.style.background = bg;
     entry.el.innerHTML = html + sevBadge;
     entry.el.title = tip;
+    applyEventBubbleOverlapAvoidance('te:' + inc.id, entry.marker, inc.lng, inc.lat);
   });
   // Drop markers for incidents that aged out of the window since the last poll.
   Object.keys(_teMarkers).forEach(id => {
-    if (!seen.has(id)) { _teMarkers[id].marker.remove(); delete _teMarkers[id]; }
+    if (!seen.has(id)) { _teMarkers[id].marker.remove(); removeEventBubbleLeader('te:' + id); delete _teMarkers[id]; }
   });
 }
 document.getElementById('incAddModalBackdrop').addEventListener('click', e => { if (e.target === e.currentTarget) closeMapIncidentModal(); });
@@ -3226,16 +3336,19 @@ async function loadActiveAIEvents() {
       // its real, final size) — belt-and-suspenders in case anything about
       // the center-offset calculation above still used a stale measurement.
       marker.setLngLat([ev.lng, ev.lat]);
-      entry = _aiEventMarkers[ev.record_id] = { marker, el };
+      entry = _aiEventMarkers[ev.record_id] = { marker, el, lon: ev.lng, lat: ev.lat };
     }
+    entry.lon = ev.lng;
+    entry.lat = ev.lat;
     entry.el.innerHTML = html + '<span class="aie-badge">AI</span>';
     entry.el.title = tip;
+    applyEventBubbleOverlapAvoidance('aie:' + ev.record_id, entry.marker, ev.lng, ev.lat);
 
     if (ev.image_paths && ev.image_paths.length) withImages.push(ev);
   });
   // Drop markers for events that aged out of the window since the last poll.
   Object.keys(_aiEventMarkers).forEach(id => {
-    if (!seen.has(id)) { _aiEventMarkers[id].marker.remove(); delete _aiEventMarkers[id]; }
+    if (!seen.has(id)) { _aiEventMarkers[id].marker.remove(); removeEventBubbleLeader('aie:' + id); delete _aiEventMarkers[id]; }
   });
 
   await syncAIEventPreviews(withImages);
@@ -3281,15 +3394,18 @@ async function loadActiveTrafficFlow() {
       const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([s.lon, s.lat]);
       marker.addTo(map);
       marker.setLngLat([s.lon, s.lat]);
-      entry = _trafficFlowMarkers[s.sensor_id] = { marker, el };
+      entry = _trafficFlowMarkers[s.sensor_id] = { marker, el, lon: s.lon, lat: s.lat };
     }
+    entry.lon = s.lon;
+    entry.lat = s.lat;
     entry.el.style.background = color;
     entry.el.textContent = tfFmtNum(s.total);
     entry.el.title = tip;
+    applyEventBubbleOverlapAvoidance('tf:' + s.sensor_id, entry.marker, s.lon, s.lat);
   });
   // Drop markers for sensors no longer reported (unmapped/disabled since the last poll).
   Object.keys(_trafficFlowMarkers).forEach(id => {
-    if (!seen.has(id)) { _trafficFlowMarkers[id].marker.remove(); delete _trafficFlowMarkers[id]; }
+    if (!seen.has(id)) { _trafficFlowMarkers[id].marker.remove(); removeEventBubbleLeader('tf:' + id); delete _trafficFlowMarkers[id]; }
   });
 }
 
