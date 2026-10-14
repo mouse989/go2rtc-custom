@@ -317,7 +317,12 @@ body.sb-collapsed           { --map-left:0; }
   background:#2f81f7; border:2px solid rgba(255,255,255,.9); border-radius:50%;
   width:30px; height:30px; display:flex; align-items:center; justify-content:center;
   box-shadow:0 2px 8px rgba(0,0,0,.5); cursor:pointer;
-  transition:transform .15s, background .15s;
+  /* transform is NOT transitioned — vietmapgl.Marker sets this same
+     element's transform to position it on the map (pan/zoom/drag), and a
+     CSS transition on it would animate/lag every map movement instead of
+     tracking it exactly, same fix as .te-marker/.aie-marker/.tf-marker/
+     .stn-marker-wrap below. */
+  transition:background .15s;
 }
 .cam-marker-wrap:hover { transform:scale(1.2); }
 .cam-marker-wrap svg { width:15px; height:15px; fill:#fff; }
@@ -338,7 +343,11 @@ body.sb-collapsed           { --map-left:0; }
   padding:0 8px; gap:3px;
   font-size:11px; font-weight:700; color:#fff;
   cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  white-space:nowrap; transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above:
+     vietmapgl.Marker positions this exact element via its own transform,
+     so a transition on it would make the marker visibly lag/glide behind
+     the map instead of staying pinned to its real lat/lon. */
+  white-space:nowrap; transition:box-shadow .15s;
   font-family:system-ui,-apple-system,Arial,sans-serif;
   background: #6b7280;
 }
@@ -361,7 +370,10 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; justify-content:center;
   font-size:15px; line-height:1; cursor:pointer;
   border:2px solid rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above.
+     margin-left/margin-top ARE — that's how applyEventBubbleOverlapAvoidance's
+     camera-nudge animates smoothly without touching transform. */
+  transition:box-shadow .15s, margin-left .2s, margin-top .2s;
 }
 .te-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 .te-marker-dong     { background:#fde68a; } /* Đông xe — overridden per-severity in JS, see teDongBgColor */
@@ -388,7 +400,9 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; justify-content:center;
   font-size:15px; line-height:1; cursor:pointer;
   border:2px solid #22d3ee; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above;
+     margin-left/margin-top ARE — see .te-marker's comment above. */
+  transition:box-shadow .15s, margin-left .2s, margin-top .2s;
   background:#6b7280;
 }
 .aie-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
@@ -439,19 +453,29 @@ body.sb-collapsed           { --map-left:0; }
 
 /* ── Hawkwise traffic-flow layer markers ─────────────────────────
    Own subsystem from .stn-marker-wrap (counting Station) per the user's
-   explicit instruction — same round-bubble-with-number mechanics, but
-   colored by Hawkwise's own traffic_status field rather than a configurable
-   threshold, and purple-bordered so the two independently-toggleable
-   layers never read as the same thing even when both are on at once. */
+   explicit instruction, but shaped identically to it (same pill shape) —
+   purple-bordered and colored by Hawkwise's own traffic_status field (vs.
+   Trạm đo's configurable-threshold color) so the two independently-
+   toggleable layers still read apart at a glance. Unlike Trạm đo, this
+   layer DOES participate in applyEventBubbleOverlapAvoidance's
+   camera-overlap nudge + leader line (a sensor is routinely installed
+   right at a camera's spot) — see that function's doc comment for how the
+   margin-based nudge avoids the earlier instant-pop "jump" a plain
+   marker.setOffset() produced. */
 .tf-marker {
-  position:relative; width:32px; height:32px; border-radius:50%;
+  border:2px solid #a78bfa;
+  border-radius:14px; min-width:40px; height:26px;
   display:flex; align-items:center; justify-content:center;
-  font-size:.72rem; font-weight:800; color:#fff; line-height:1; cursor:pointer;
-  border:2px solid #a78bfa; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:transform .15s, box-shadow .15s;
+  padding:0 8px; gap:3px;
+  font-size:11px; font-weight:700; color:#fff;
+  cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.55);
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above;
+     margin-left/margin-top ARE — see .te-marker's comment above. */
+  white-space:nowrap; transition:box-shadow .15s, margin-left .2s, margin-top .2s;
+  font-family:system-ui,-apple-system,Arial,sans-serif;
   background:#6b7280; /* traffic_status unknown/null fallback */
 }
-.tf-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
+.tf-marker:hover { transform:scale(1.12); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 
 /* ── Station / type edit panels ─────────────────────────────── */
 #stnPanel, #stnTypePanel {
@@ -1193,7 +1217,7 @@ let _aiEventImgDenied = false;  // true once the user has declined device verifi
 // ── Hawkwise traffic-flow layer ("📊 Đo đếm lưu lượng" toggle) state — own
 // subsystem from the "📊 Trạm đo" counting Station layer, per plan §4.1 ──
 let _trafficFlowMode = false;     // layer on: shows per-sensor volume/traffic_status bubbles
-let _trafficFlowMarkers = {};     // sensor_id -> { marker, el }
+let _trafficFlowMarkers = {};     // sensor_id -> { marker, el, lon, lat }
 let _trafficFlowPollTimer = null; // setInterval handle while the layer is on
 // ── 3D view ("🧊 3D" toggle) state ──
 const MAP_3D_PITCH = 55;        // degrees; VietMap/MapLibre docs call >60 "experimental, may render incorrectly"
@@ -3093,19 +3117,30 @@ document.getElementById('incAddCancel').addEventListener('click', closeMapIncide
 document.getElementById('incAddSave').addEventListener('click', saveMapIncident);
 
 // ── Event-bubble camera-overlap avoidance + leader line ─────────────────
-// Shared by the three independent event-bubble layers below (Traffic
-// Event, AI Event, Đo đếm lưu lượng): each bubble's true geographic
-// position always stays exactly at its real lat/lng — marker.setLngLat is
-// the only thing that ever sets it, never altered for layout reasons. When
-// that position renders within EVENT_CAM_OVERLAP_PX screen pixels of a
-// camera icon, the bubble is visually nudged aside with marker.setOffset()
-// — a pure rendering offset in screen pixels, independent of lngLat — and
-// a short dashed leader line is drawn from the true point to the nudged
-// bubble so the real location is never ambiguous. Re-applied on every
-// 'move' (pan/zoom/rotate), since how close two points render in SCREEN
-// pixels changes with zoom even though neither point's lngLat changed.
-const EVENT_CAM_OVERLAP_PX = 24;   // bubble nudges aside once its true screen position is this close to a camera icon
-const EVENT_CAM_NUDGE = [22, -22]; // fixed screen-pixel nudge (up-right), independent of zoom
+// Shared by all three bubble layers (Traffic Event, AI Event, Đo đếm lưu
+// lượng). Each bubble's true geographic position always stays exactly at
+// its real lat/lng — marker.setLngLat is the only thing that ever sets it,
+// never altered for layout reasons. When that position renders within
+// EVENT_CAM_OVERLAP_PX screen pixels of a camera icon, the bubble is
+// visually nudged aside a little, and a short thin solid leader line is
+// drawn from the true point to the nudged bubble so the real location is
+// never ambiguous. Re-applied on every render frame (pan/zoom/rotate),
+// since how close two points render in SCREEN pixels changes with zoom
+// even though neither point's lngLat changed.
+//
+// The nudge is applied via margin-left/margin-top on the marker's own
+// element, NOT marker.setOffset()/transform: vietmapgl.Marker repositions
+// a marker by writing a fresh `transform` to this same element on every
+// map move, with no CSS transition on `transform` (see .te-marker's CSS
+// comment — that transition caused bubbles to visibly glide/lag behind
+// the map). margin is a different CSS property, laid out BEFORE transform
+// is applied on top, so it combines additively with the library's own
+// positioning without touching it — and CAN have its own short transition,
+// so crossing the overlap threshold reads as a small, smooth, deliberate
+// nudge instead of an instant, jarring pop (the "nhảy" a plain
+// marker.setOffset() produced when first tried for Đo đếm lưu lượng).
+const EVENT_CAM_OVERLAP_PX = 22;   // bubble nudges aside once its true screen position is this close to a camera icon
+const EVENT_CAM_NUDGE = [14, -14]; // small fixed screen-pixel nudge (up-right), independent of zoom
 let _eventBubbleLeaders = new Map(); // "layer:id" -> SVGLineElement
 let _evbRefreshPending = false;
 
@@ -3138,17 +3173,21 @@ function nearestPixelDist(px, py, camPix) {
 
 // Call once per marker whenever its true lon/lat is (re)set, and again on
 // every map 'move' (see scheduleEventBubbleRefresh) — never changes the
-// marker's lngLat, only its rendering offset and leader line. camPix is
-// optional — omitted on the infrequent (poll-triggered) call sites, where
-// computing it fresh each time is cheap; scheduleEventBubbleRefresh passes
-// one shared array computed once for the whole per-frame pass.
-function applyEventBubbleOverlapAvoidance(key, marker, lon, lat, camPix) {
+// marker's lngLat, only its element's margin (the nudge) and the leader
+// line. el is the marker's own DOM element — callers already have it from
+// their own {marker, el} entry, no need to go through the Marker object at
+// all here. camPix is optional — omitted on the infrequent (poll-triggered)
+// call sites, where computing it fresh each time is cheap;
+// scheduleEventBubbleRefresh passes one shared array computed once for the
+// whole per-frame pass.
+function applyEventBubbleOverlapAvoidance(key, el, lon, lat, camPix) {
   if (!map) return;
   const pix = camPix || cameraPixelPositions();
   const truePt = map.project([lon, lat]);
   const overlapping = nearestPixelDist(truePt.x, truePt.y, pix) < EVENT_CAM_OVERLAP_PX;
 
-  marker.setOffset(overlapping ? EVENT_CAM_NUDGE : [0, 0]);
+  el.style.marginLeft = overlapping ? EVENT_CAM_NUDGE[0] + 'px' : '0';
+  el.style.marginTop  = overlapping ? EVENT_CAM_NUDGE[1] + 'px' : '0';
 
   if (!overlapping) {
     removeEventBubbleLeader(key);
@@ -3158,8 +3197,7 @@ function applyEventBubbleOverlapAvoidance(key, marker, lon, lat, camPix) {
   if (!line) {
     line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('stroke', 'rgba(255,255,255,.9)');
-    line.setAttribute('stroke-width', '1.5');
-    line.setAttribute('stroke-dasharray', '3,2');
+    line.setAttribute('stroke-width', '1.2');
     document.getElementById('eventBubbleLeadersSvg').appendChild(line);
     _eventBubbleLeaders.set(key, line);
   }
@@ -3183,9 +3221,9 @@ function scheduleEventBubbleRefresh() {
   requestAnimationFrame(() => {
     _evbRefreshPending = false;
     const camPix = cameraPixelPositions();
-    Object.entries(_teMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('te:' + id, e.marker, e.lon, e.lat, camPix));
-    Object.entries(_aiEventMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('aie:' + id, e.marker, e.lon, e.lat, camPix));
-    Object.entries(_trafficFlowMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('tf:' + id, e.marker, e.lon, e.lat, camPix));
+    Object.entries(_teMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('te:' + id, e.el, e.lon, e.lat, camPix));
+    Object.entries(_aiEventMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('aie:' + id, e.el, e.lon, e.lat, camPix));
+    Object.entries(_trafficFlowMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('tf:' + id, e.el, e.lon, e.lat, camPix));
   });
 }
 
@@ -3279,7 +3317,7 @@ async function loadActiveIncidents() {
     entry.el.style.background = bg;
     entry.el.innerHTML = html + sevBadge;
     entry.el.title = tip;
-    applyEventBubbleOverlapAvoidance('te:' + inc.id, entry.marker, inc.lng, inc.lat);
+    applyEventBubbleOverlapAvoidance('te:' + inc.id, entry.el, inc.lng, inc.lat);
   });
   // Drop markers for incidents that aged out of the window since the last poll.
   Object.keys(_teMarkers).forEach(id => {
@@ -3342,7 +3380,7 @@ async function loadActiveAIEvents() {
     entry.lat = ev.lat;
     entry.el.innerHTML = html + '<span class="aie-badge">AI</span>';
     entry.el.title = tip;
-    applyEventBubbleOverlapAvoidance('aie:' + ev.record_id, entry.marker, ev.lng, ev.lat);
+    applyEventBubbleOverlapAvoidance('aie:' + ev.record_id, entry.el, ev.lng, ev.lat);
 
     if (ev.image_paths && ev.image_paths.length) withImages.push(ev);
   });
@@ -3396,12 +3434,10 @@ async function loadActiveTrafficFlow() {
       marker.setLngLat([s.lon, s.lat]);
       entry = _trafficFlowMarkers[s.sensor_id] = { marker, el, lon: s.lon, lat: s.lat };
     }
-    entry.lon = s.lon;
-    entry.lat = s.lat;
     entry.el.style.background = color;
     entry.el.textContent = tfFmtNum(s.total);
     entry.el.title = tip;
-    applyEventBubbleOverlapAvoidance('tf:' + s.sensor_id, entry.marker, s.lon, s.lat);
+    applyEventBubbleOverlapAvoidance('tf:' + s.sensor_id, entry.el, s.lon, s.lat);
   });
   // Drop markers for sensors no longer reported (unmapped/disabled since the last poll).
   Object.keys(_trafficFlowMarkers).forEach(id => {
