@@ -7,10 +7,15 @@ package trafficflow
 //                                            endpoint. Public path
 //                                            (internal/auth's isPublicPath)
 //                                            — authenticates itself via
-//                                            X-API-Key against
-//                                            internal/auth's Integration
-//                                            store, never a user session.
-//                                            Same pattern as
+//                                            X-API-Key (or, since Hawkwise's
+//                                            own doc leaves the header
+//                                            scheme up to the receiver and
+//                                            real deployments have been
+//                                            observed sending the latter,
+//                                            "Authorization: Bearer <key>")
+//                                            against internal/auth's
+//                                            Integration store, never a
+//                                            user session. Same pattern as
 //                                            internal/aievent's OMNIA push
 //                                            handler.
 //   GET  /api/trafficflow/latest          — Map layer data source: the most
@@ -159,6 +164,21 @@ func validatePush(req *hawkwisePush) *errorBody {
 	return nil
 }
 
+// extractPushAPIKey reads the integration key from either X-API-Key or
+// "Authorization: Bearer <key>" — Hawkwise's own doc explicitly leaves the
+// header scheme up to the receiver ("Bên nhận tự chọn"), and a real
+// deployment has been observed sending Bearer instead of X-API-Key, so both
+// must work. X-API-Key takes priority if a caller somehow sends both.
+func extractPushAPIKey(r *http.Request) string {
+	if key := r.Header.Get("X-API-Key"); key != "" {
+		return key
+	}
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	return ""
+}
+
 func handlePush(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only POST is supported", "")
@@ -176,9 +196,9 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := r.Header.Get("X-API-Key")
+	key := extractPushAPIKey(r)
 	if key == "" {
-		writeError(w, http.StatusUnauthorized, "missing_api_key", "X-API-Key header is required", "")
+		writeError(w, http.StatusUnauthorized, "missing_api_key", "X-API-Key (or Authorization: Bearer <key>) header is required", "")
 		return
 	}
 	integration, ok := auth.ValidateIntegrationKey(r.URL.Path, key, ip)
