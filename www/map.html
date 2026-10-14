@@ -713,7 +713,7 @@ body.sb-collapsed           { --map-left:0; }
        internal counting Station layer) — its own admin-managed Sensor
        mapping (internal/trafficflow), kept as a separate subsystem per the
        user's explicit instruction, not merged into Station. -->
-  <button class="map-btn" id="btnTrafficFlow" style="display:none" title="Bật/tắt hiển thị lưu lượng Hawkwise trên bản đồ">📊 Hawkwise</button>
+  <button class="map-btn" id="btnTrafficFlow" style="display:none" title="Bật/tắt hiển thị Đo đếm lưu lượng trên bản đồ">📊 Đo đếm lưu lượng</button>
   <!-- Map style toggle (single button, shows current mode) -->
   <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
   <button class="map-btn admin-only" id="btnEdit" style="display:none">
@@ -1184,7 +1184,7 @@ let _aiEventMarkers = {};       // record_id -> { marker, el } — bubble marker
 let _aiEventPreviews = new Map(); // record_id -> { el, img, lon, lat } — floating image preview boxes
 let _aiEventPollTimer = null;   // setInterval handle refreshing the above while the layer is on
 let _aiEventImgDenied = false;  // true once the user has declined device verification this session (avoid re-prompting every poll)
-// ── Hawkwise traffic-flow layer ("📊 Hawkwise" toggle) state — own
+// ── Hawkwise traffic-flow layer ("📊 Đo đếm lưu lượng" toggle) state — own
 // subsystem from the "📊 Trạm đo" counting Station layer, per plan §4.1 ──
 let _trafficFlowMode = false;     // layer on: shows per-sensor volume/traffic_status bubbles
 let _trafficFlowMarkers = {};     // sensor_id -> { marker, el }
