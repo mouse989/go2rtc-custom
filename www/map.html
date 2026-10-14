@@ -317,7 +317,12 @@ body.sb-collapsed           { --map-left:0; }
   background:#2f81f7; border:2px solid rgba(255,255,255,.9); border-radius:50%;
   width:30px; height:30px; display:flex; align-items:center; justify-content:center;
   box-shadow:0 2px 8px rgba(0,0,0,.5); cursor:pointer;
-  transition:transform .15s, background .15s;
+  /* transform is NOT transitioned — vietmapgl.Marker sets this same
+     element's transform to position it on the map (pan/zoom/drag), and a
+     CSS transition on it would animate/lag every map movement instead of
+     tracking it exactly, same fix as .te-marker/.aie-marker/.tf-marker/
+     .stn-marker-wrap below. */
+  transition:background .15s;
 }
 .cam-marker-wrap:hover { transform:scale(1.2); }
 .cam-marker-wrap svg { width:15px; height:15px; fill:#fff; }
@@ -338,7 +343,11 @@ body.sb-collapsed           { --map-left:0; }
   padding:0 8px; gap:3px;
   font-size:11px; font-weight:700; color:#fff;
   cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  white-space:nowrap; transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above:
+     vietmapgl.Marker positions this exact element via its own transform,
+     so a transition on it would make the marker visibly lag/glide behind
+     the map instead of staying pinned to its real lat/lon. */
+  white-space:nowrap; transition:box-shadow .15s;
   font-family:system-ui,-apple-system,Arial,sans-serif;
   background: #6b7280;
 }
@@ -361,7 +370,8 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; justify-content:center;
   font-size:15px; line-height:1; cursor:pointer;
   border:2px solid rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above. */
+  transition:box-shadow .15s;
 }
 .te-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 .te-marker-dong     { background:#fde68a; } /* Đông xe — overridden per-severity in JS, see teDongBgColor */
@@ -388,7 +398,8 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; justify-content:center;
   font-size:15px; line-height:1; cursor:pointer;
   border:2px solid #22d3ee; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above. */
+  transition:box-shadow .15s;
   background:#6b7280;
 }
 .aie-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
@@ -448,7 +459,11 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; justify-content:center;
   font-size:.72rem; font-weight:800; color:#fff; line-height:1; cursor:pointer;
   border:2px solid #a78bfa; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:transform .15s, box-shadow .15s;
+  /* transform is NOT transitioned — see .cam-marker-wrap's comment above;
+     this one matters even more here since applyEventBubbleOverlapAvoidance
+     toggles this element's effective transform (via marker.setOffset)
+     every render frame while nudged aside from a camera icon. */
+  transition:box-shadow .15s;
   background:#6b7280; /* traffic_status unknown/null fallback */
 }
 .tf-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
