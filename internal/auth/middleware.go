@@ -324,6 +324,18 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
+	// AllowMapRoute gates map.html's "🛣 Theo tuyến" tool client-side
+	// (canMapRoute() hides the button), but that was never matched by a
+	// server-side allow — /api/vietmap/route sat in neither
+	// viewerDefaultPaths nor tabExtraPaths[TabMap] (no such key exists),
+	// so every viewer request 403'd regardless of this flag. Admin never
+	// hit this path (role check short-circuits above), which is why only
+	// non-admin users saw it.
+	if u.AllowMapRoute {
+		if strings.HasPrefix(path, "/api/vietmap/route") {
+			return true
+		}
+	}
 	if u.AllowPTZ {
 		if strings.HasPrefix(path, "/api/ptz/") {
 			return true
@@ -334,6 +346,15 @@ func userCanAccessPath(u *User, path string) bool {
 		// NOT covered here — it's listed in isPublicPath below and does its
 		// own API-key auth (see internal/aievent), never a user permission.
 		if strings.HasPrefix(path, "/api/aievent/active") || strings.HasPrefix(path, "/api/aievent/image") {
+			return true
+		}
+	}
+	if u.AllowMapTrafficFlow {
+		// /api/trafficdata/hawkwise/v1/flow-push (the inbound webhook) is
+		// intentionally NOT covered here, same reasoning as
+		// /api/aievent/omnia/v1/push above — it's in isPublicPath and does
+		// its own API-key auth (see internal/trafficflow).
+		if strings.HasPrefix(path, "/api/trafficflow/latest") {
 			return true
 		}
 	}
@@ -386,6 +407,12 @@ func isPublicPath(path string) bool {
 		// the Integration store (internal/auth/integrations.go) instead,
 		// entirely inside the handler — see internal/aievent's push handler.
 		"/api/aievent/omnia/v1/push",
+		// Inbound push from Hawkwise's Advanced Traffic Density product
+		// (see docs/hawkwise-flow-integration-plan.md) — same reasoning as
+		// the OMNIA push above: no go2rtc user on the other end, auth is
+		// X-API-Key against the Integration store inside the handler itself
+		// (internal/trafficflow's push handler).
+		"/api/trafficdata/hawkwise/v1/flow-push",
 	}
 	for _, p := range public {
 		if path == p {
