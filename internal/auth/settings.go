@@ -115,6 +115,14 @@ type AppSettings struct {
 	// HTTP handler (api_settings.go) always redacts this field on GET and
 	// only overwrites it on POST when a new non-empty value is sent.
 	VietmapLiveTrafficAPIKey string `json:"vietmap_live_traffic_api_key,omitempty"`
+
+	// TrafficFlowRetentionDays: how many days of "📊 Đo đếm lưu lượng" data
+	// (internal/trafficflow — Hawkwise push records, stored in
+	// trafficflow_data/trafficflow.db) to keep before the retention sweep
+	// deletes older rows. 0 → default 30 days. -1 → keep forever (the sweep
+	// never deletes anything). Admin-configurable per explicit request —
+	// this used to be a hardcoded Go constant.
+	TrafficFlowRetentionDays int `json:"traffic_flow_retention_days"`
 }
 
 var (

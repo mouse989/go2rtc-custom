@@ -380,6 +380,18 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Thời gian lưu dữ liệu "📊 Đo đếm lưu lượng" (ngày)</label>
+            <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+              <input type="number" id="trafficFlowRetentionInput" min="1" max="3650" step="1" value="30"
+                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
+              <span style="font-size:.78rem;color:var(--text-muted)">ngày (mặc định: 30)</span>
+              <label class="tab-perm-chip"><input type="checkbox" id="trafficFlowRetentionUnlimited" onchange="onTrafficFlowRetentionUnlimitedChange()"> Không giới hạn (giữ lâu dài)</label>
+            </div>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Dữ liệu lưu lượng Hawkwise (trafficflow_data/trafficflow.db) cũ hơn khoảng thời gian này bị xoá định kỳ (quét mỗi 6 giờ). Bật "Không giới hạn" để giữ vĩnh viễn, không tự xoá — phù hợp nếu bạn muốn thu thập/phân tích dữ liệu lâu dài.
+            </p>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Giới hạn phiên xem video mặc định (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="viewLimitInput" min="1" step="1" value="15"
@@ -2505,6 +2517,10 @@ async function loadSettings() {
     document.getElementById('teWindowInput').value = s.traffic_event_window_minutes || 10;
     document.getElementById('aiEventWindowInput').value = s.ai_event_window_minutes || 10;
     document.getElementById('aiEventImageRetentionInput').value = s.ai_event_image_retention_hours || 4;
+    const tfRetention = s.traffic_flow_retention_days;
+    document.getElementById('trafficFlowRetentionUnlimited').checked = tfRetention === -1;
+    document.getElementById('trafficFlowRetentionInput').value = (tfRetention && tfRetention > 0) ? tfRetention : 30;
+    document.getElementById('trafficFlowRetentionInput').disabled = tfRetention === -1;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
@@ -2642,6 +2658,8 @@ async function saveSettings() {
   const teWindow    = parseInt(document.getElementById('teWindowInput').value, 10) || 10;
   const aiEventWindow = parseInt(document.getElementById('aiEventWindowInput').value, 10) || 10;
   const aiEventImageRetention = parseInt(document.getElementById('aiEventImageRetentionInput').value, 10) || 4;
+  const trafficFlowRetentionUnlimited = document.getElementById('trafficFlowRetentionUnlimited').checked;
+  const trafficFlowRetention = trafficFlowRetentionUnlimited ? -1 : (parseInt(document.getElementById('trafficFlowRetentionInput').value, 10) || 30);
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
@@ -2667,6 +2685,7 @@ async function saveSettings() {
     traffic_event_window_minutes: teWindow,
     ai_event_window_minutes: aiEventWindow,
     ai_event_image_retention_hours: aiEventImageRetention,
+    traffic_flow_retention_days: trafficFlowRetention,
     default_view_limit_minutes: viewLimit,
     login_hour_range_enabled: loginHourRangeEnabled,
     login_hour_start: loginHourStart,
@@ -3799,6 +3818,13 @@ function renderTestPushResultFlow(res) {
       </div>
       <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:.78rem;font-family:monospace;color:var(--text)">${esc(pretty || '(rỗng)')}</pre>
     </div>`;
+}
+
+// Disables the day-count input while "Không giới hạn" is checked, so it's
+// visually clear the number is ignored (saveSettings() sends -1 regardless
+// of whatever is left in the input while this is checked).
+function onTrafficFlowRetentionUnlimitedChange() {
+  document.getElementById('trafficFlowRetentionInput').disabled = document.getElementById('trafficFlowRetentionUnlimited').checked;
 }
 
 function onRoleChange() {

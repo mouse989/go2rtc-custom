@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/app"
+	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/rs/zerolog"
 )
 
@@ -54,17 +55,35 @@ func Init() {
 	log.Info().Str("dir", dataDir).Msg("[trafficflow] ready")
 }
 
-// flowRetentionDays mirrors internal/counting's default retention (30 days)
-// per docs/hawkwise-flow-integration-plan.md §5.1 — not yet configurable via
-// AppSettings, since the user hasn't asked for a different value.
-const flowRetentionDays = 30
+// defaultFlowRetentionDays mirrors internal/counting's default retention
+// (30 days) per docs/hawkwise-flow-integration-plan.md §5.1 — used when
+// AppSettings.TrafficFlowRetentionDays is 0 (admin hasn't set an explicit
+// value yet). See flowRetentionDays for the -1 "keep forever" sentinel.
+const defaultFlowRetentionDays = 30
+
+// flowRetentionDays resolves the admin-configurable
+// AppSettings.TrafficFlowRetentionDays into either a positive day count or
+// -1 (no limit, per explicit admin choice — "giữ lâu dài, không có hạn").
+// 0 (unset) falls back to defaultFlowRetentionDays, same "0 → built-in
+// default" convention every other AppSettings int field uses.
+func flowRetentionDays() int {
+	days := auth.GetSettings().TrafficFlowRetentionDays
+	if days == 0 {
+		return defaultFlowRetentionDays
+	}
+	return days
+}
 
 func startRetentionSweeper() {
 	go func() {
 		for range time.Tick(6 * time.Hour) {
-			n := deleteRecordsOlderThan(flowRetentionDays)
+			days := flowRetentionDays()
+			if days < 0 {
+				continue // admin chose "no limit" — never delete anything
+			}
+			n := deleteRecordsOlderThan(days)
 			if n > 0 {
-				log.Info().Int64("deleted_records", n).Msg("[trafficflow] retention sweep")
+				log.Info().Int64("deleted_records", n).Int("retention_days", days).Msg("[trafficflow] retention sweep")
 			}
 		}
 	}()
