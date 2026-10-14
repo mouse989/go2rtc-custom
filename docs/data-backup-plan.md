@@ -93,7 +93,9 @@ Dữ liệu người dùng/phân quyền/API key **không** nằm trong file nà
 
 ## 3. Rủi ro phát hiện qua rà soát (cần biết **trước khi** backup)
 
-1. **6 loại log chưa có retention, tăng vô hạn theo thời gian**: `device_events.jsonl`, `login_history/`, `security_alerts/` (phần log sự kiện), `user_locations/`, `access_log/`, `travel_logs/`. Nếu không dọn, dung lượng cần backup sẽ phình to dần vô thời hạn — xem khuyến nghị §6.
+1. **6 loại log chưa có retention — ĐÃ CHỐT chính sách với bạn:**
+   - `login_history/`, `security_alerts/`, `user_locations/` → **giới hạn 3 tháng (90 ngày)**, cần bổ sung sweep (hiện chưa có).
+   - `device_events.jsonl`, `access_log/`, `travel_logs/`, và cả 3 dataset time-series khối lượng lớn (`counting_data/`, `traffic_data/`, `trafficflow_data/`) → **giữ lâu dài, không giới hạn theo thời gian** (dữ liệu bạn muốn thu thập/phân tích lâu dài). Lưu ý: `counting_data/` và `traffic_data/`/`trafficflow_data/` hiện đang có sweep xoá sau 30 ngày (mặc định) — cần **tắt/nâng retention này lên "không giới hạn"** để khớp quyết định này; xem đánh giá ảnh hưởng performance ở §8 trước khi tắt.
 
 2. **Một số secret lưu dạng plaintext, chưa mã hoá tại rest**: `VietmapAPIKey`/`VietmapLiveTrafficAPIKey` (trong `settings.json`), Telegram bot token (trong `traffic.json`), `Worker.Username`/`Password` (trong `workers.json`). Bản backup chứa các file này **cần được mã hoá khi lưu ra ngoài máy** (đặc biệt nếu đẩy lên cloud/NAS chia sẻ).
 
@@ -128,9 +130,52 @@ Dữ liệu người dùng/phân quyền/API key **không** nằm trong file nà
 ## 7. Việc cần bạn quyết định trước khi triển khai
 
 1. Server đang chạy trên hạ tầng gì (bare-metal/VM/container)? Có sẵn LVM/ZFS/btrfs snapshot không? → quyết định cách lấy bản chụp nhất quán.
-2. Đã có nơi lưu off-site chưa (S3, NAS khác, SFTP server khác...)?
+2. ✅ Nơi lưu off-site: **NAS Synology** (đã có — xem §8.4 về cách gắn vào kế hoạch).
 3. RPO/RTO mong muốn: chấp nhận mất tối đa bao nhiêu giờ dữ liệu? Cần khôi phục xong trong bao lâu?
 4. Muốn tự viết script backup (ví dụ `scripts/backup.sh` + cron, dễ tuỳ biến) hay dùng công cụ backup có sẵn (Restic, BorgBackup — có mã hoá + dedup + versioning tích hợp sẵn, ít phải tự code)?
+
+---
+
+## 8. Đánh giá performance với cách lưu hiện tại + có cần đổi CSDL không
+
+### 8.1. Vì sao hỏi câu này đúng lúc
+
+Quyết định ở §3 mục 1 ("giữ lâu dài" cho `counting_data/`, `traffic_data/`, `trafficflow_data/`, tức **tắt retention 30 ngày hiện có**) làm lộ ra 2 vấn đề performance thật, không phải giả định — một đã từng xảy ra thật trong chính codebase này, một là lỗi kiến trúc cụ thể trong module Đo đếm lưu lượng (trafficflow) cần sửa **trước khi** tắt retention.
+
+### 8.2. Vấn đề 1 (đã từng xảy ra thật) — đọc nhiều file ngày càng chậm khi không giới hạn thời gian
+
+Module `traffic` (quét kẹt xe) từng gặp đúng việc này và đã phải vá: comment gốc trong `internal/traffic/storage.go:28-36` ghi rõ — khi giữ tới ~100 file lịch sử (ứng với retention mặc định), việc đọc+parse lại toàn bộ file mỗi lần gọi `GET /api/traffic/data` "mất vài giây và càng chậm dần khi dữ liệu tích lũy", phải thêm một cache tổng hợp (`summaryCache`) để né việc đọc lại từ đĩa mỗi lần.
+
+→ Đây là **bằng chứng thật, không phải suy đoán**: lưu theo kiểu "1 file JSON/ngày" hoạt động tốt cho dữ liệu "hôm nay" (mỗi lần chỉ đọc 1 file), nhưng **bất kỳ tính năng nào cần tổng hợp/so sánh nhiều ngày** (báo cáo xu hướng, dashboard lịch sử, export theo khoảng ngày) sẽ chậm dần tuyến tính theo số ngày đã tích lũy — đúng là hậu quả của việc "giữ lâu dài" nếu không xử lý thêm. Hiện `counting`/`trafficflow` chưa có tính năng truy vấn nhiều-ngày nào (chỉ có dữ liệu "hôm nay"/"gần nhất"), nên **chưa bị chậm ngay bây giờ** — nhưng sẽ gặp đúng vấn đề này ngay khi bạn làm thêm 1 trong các tính năng: thống kê theo tuần/tháng, dashboard lịch sử, hoặc export CSV theo khoảng ngày.
+
+### 8.3. Vấn đề 2 (nghiêm trọng hơn, cần sửa SỚM — không chỉ là rủi ro tương lai)
+
+Module `trafficflow` (Đo đếm lưu lượng — dữ liệu khối lượng lớn nhất hệ thống, do chính tôi xây trong các phiên trước) có **1 file chỉ mục toàn cục** (`trafficflow_data/flow_index.json`) dùng để chống trùng (`internal/trafficflow/records.go:139-144`): mỗi lần có 1 bản tin Hawkwise mới (tại baseline ~100 req/phút với ~500 camera), hàm `Ingest()` sẽ **ghi lại TOÀN BỘ file chỉ mục này** (marshal lại hết + `os.WriteFile` đè file) — không phải chỉ thêm 1 dòng.
+
+File chỉ mục này **không có cơ chế dọn** (không theo retention 30 ngày như file dữ liệu từng-sensor-từng-ngày) — nó cộng dồn **vĩnh viễn**, kể cả khi vẫn còn giữ 30-ngày retention cho dữ liệu chi tiết. Ước tính: ~144.000 bản ghi/ngày × 365 ngày ≈ **52 triệu dòng/năm** trong 1 file JSON — và file này bị ghi lại toàn bộ mỗi lần có request mới. Đây là lỗi kiến trúc **sẽ làm hệ thống chậm dần mỗi tháng**, độc lập với quyết định "giữ dữ liệu lâu dài" — và quyết định đó (đúng, hợp lý về mặt nghiệp vụ) sẽ làm lỗi này **lộ ra nhanh hơn**, vì trước đây sweep 30 ngày từng vô tình giới hạn một phần tốc độ phình to của chỉ mục theo thời gian không hề giới hạn tổng số record mà chỉ ảnh hưởng tới cách sweep xoá file — nói đúng hơn: **sweep hiện tại không hề dọn `flow_index.json`** (tôi vừa xác nhận lại code — sweep `deleteRecordFilesOlderThan` có dọn `index`/`days` trong RAM theo ngày đã xoá, nhưng vẫn phải đọc/viết lại index mỗi request trong khi nó tiếp tục phình to vô hạn).
+
+**→ Khuyến nghị: sửa cái này sớm, không chờ đến lúc chuyển CSDL** (xem §8.5 mục ưu tiên).
+
+### 8.4. Có cần đổi sang CSDL khác không?
+
+**Không cần đổi toàn bộ hệ thống** — phần cấu hình/user (Nhóm A ở §2: `users.json`, `settings.json`, `camera_*.json`, `integrations.json`...) nhỏ, ít viết, và ở dạng JSON còn có lợi (admin/bạn có thể mở xem/sửa tay khi cần) — giữ nguyên JSON là hợp lý, không nên động vào.
+
+**Nên đổi sang CSDL nhúng (embedded) cho đúng 3 dataset khối lượng lớn**: `counting_data/`, `traffic_data/`, `trafficflow_data/`. Đề xuất **SQLite** (qua `database/sql` + driver Go, ví dụ `modernc.org/sqlite` — bản pure-Go, không cần biên dịch C, dễ build/deploy hơn `mattn/go-sqlite3`):
+
+- Vẫn là **1 file duy nhất trên đĩa**, không cần cài thêm server CSDL, không phá nguyên tắc "không hạ tầng phụ" hiện tại của hệ thống.
+- Insert có **index** (vd trên `event_id`, `(sensor_id, received_at)`) → giải quyết triệt để Vấn đề 2 (không còn khái niệm "ghi lại toàn bộ file chỉ mục" — chỉ update 1 dòng + index tự cập nhật).
+- Truy vấn theo khoảng ngày/theo camera **nhanh và không chậm dần theo số ngày tích lũy** (giải quyết Vấn đề 1) — khác hẳn việc phải mở/đọc/parse N file JSON.
+- Ghi đồng thời từ nhiều goroutine được SQLite tự lo (WAL mode), không cần tự quản mutex + ghi đè file như hiện tại.
+- Hạ tầng backup ở §4 **không đổi nhiều** — vẫn tar.gz + mã hoá + đẩy lên NAS; chỉ cần dùng `sqlite3 .backup` (hoặc snapshot khi DB đang idle) để lấy bản chụp nhất quán của file `.db` thay vì tar trực tiếp 1 file đang mở (SQLite hỗ trợ lệnh backup online an toàn, không cần dừng service).
+
+**Không cần Postgres/MySQL** (cần 1 server riêng, thêm hạ tầng phải quản lý/backup riêng) — quy mô dữ liệu này (trăm nghìn dòng/ngày) vẫn nằm hoàn toàn trong khả năng xử lý tốt của SQLite.
+
+### 8.5. Thứ tự ưu tiên đề xuất
+
+1. **Ngay** (không phụ thuộc quyết định CSDL): vá lỗi `flow_index.json` của trafficflow — đổi sang chỉ mục không phải ghi-lại-toàn-bộ-mỗi-lần (vd tách theo ngày giống file dữ liệu, hoặc chuyển thẳng sang SQLite luôn cho module này — xem mục 2).
+2. **Ngắn hạn**: nếu đồng ý hướng SQLite — làm trước cho `trafficflow` (khối lượng lớn nhất + đang có lỗi cần sửa, 1 công 2 việc), sau đó `counting`, cuối cùng `traffic` (khối lượng nhỏ nhất trong 3).
+3. **Trước khi tắt retention 30 ngày** của 3 module trên: nên hoàn tất ít nhất mục 1, để tránh "giữ lâu dài" vô tình làm lộ bug nhanh hơn trong lúc chưa kịp vá.
+4. **Song song, độc lập**: bổ sung sweep 90 ngày cho `login_history/`, `security_alerts/`, `user_locations/` (đã chốt ở §3 mục 1) — việc này không liên quan CSDL, làm được ngay.
 
 ---
 
@@ -139,3 +184,4 @@ Dữ liệu người dùng/phân quyền/API key **không** nằm trong file nà
 | Phiên bản | Ngày | Nội dung |
 |---|---|---|
 | 1.0 | 2026-10-14 | Rà soát toàn bộ dữ liệu + cách tổ chức hiện có, phân loại theo mức độ quan trọng, đề xuất kế hoạch backup. Trạng thái: planning, chưa triển khai. |
+| 1.1 | 2026-10-14 | Chốt chính sách retention theo quyết định của bạn (login_history/security_alerts/user_locations: 3 tháng; phần còn lại kể cả 3 dataset khối lượng lớn: giữ lâu dài). Thêm §8: đánh giá performance khi giữ lâu dài (dẫn chứng thật từ comment có sẵn trong `internal/traffic/storage.go`), phát hiện lỗi ghi-lại-toàn-bộ-chỉ-mục trong trafficflow, và khuyến nghị chuyển 3 dataset khối lượng lớn sang SQLite (giữ nguyên JSON cho phần cấu hình/user). Trạng thái: planning, chưa triển khai. |
