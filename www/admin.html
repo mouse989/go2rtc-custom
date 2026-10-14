@@ -213,7 +213,7 @@ tr:hover td { background:var(--surface2); }
     <button class="page-tab" data-tab="audit" onclick="showTab('audit')">🔍 Đối soát Camera</button>
     <button class="page-tab" data-tab="devbind" onclick="showTab('devbind')">🔐 Xác minh TB</button>
     <button class="page-tab" data-tab="aievent" onclick="showTab('aievent')">🤖 AI Event</button>
-    <button class="page-tab" data-tab="trafficflow" onclick="showTab('trafficflow')">📊 Hawkwise</button>
+    <button class="page-tab" data-tab="trafficflow" onclick="showTab('trafficflow')">📊 Đo đếm lưu lượng</button>
   </div>
 
   <div class="content">
@@ -1313,19 +1313,19 @@ rtsp:
       </div>
     </div><!-- /aieventSection -->
 
-    <!-- ── Hawkwise traffic-flow section ── -->
+    <!-- ── Đo đếm lưu lượng (Hawkwise) traffic-flow section ── -->
     <div id="trafficflowSection" style="display:none">
       <div class="card" style="margin-bottom:1rem">
         <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
           <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">🔑 Tích hợp đẩy dữ liệu (Integration API Key)</h3>
-          <button class="btn btn-primary btn-sm" onclick="openAddHawkwiseIntegration()">+ Tạo tích hợp Hawkwise</button>
+          <button class="btn btn-primary btn-sm" onclick="openAddTrafficFlowIntegration()">+ Tạo tích hợp Đo đếm lưu lượng</button>
           <button class="btn btn-secondary btn-sm" onclick="loadIntegrationsTab().then(renderTrafficFlowIntegrationsTable)">🔄 Tải lại</button>
         </div>
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
           Dùng chung cơ chế Integration API Key với AI Event (tab 🤖 AI Event) — chỉ cần tạo 1 tích hợp với
           đường dẫn <code>/api/trafficdata/hawkwise/v1/flow-push</code> rồi gửi key cho đội Hawkwise cấu hình bên họ.
-          Bảng dưới đây chỉ hiển thị các tích hợp dùng đường dẫn Hawkwise; quản lý toàn bộ (xoay key, xem lại key...)
-          vẫn làm chung ở tab 🤖 AI Event.
+          Bảng dưới đây chỉ hiển thị các tích hợp dùng đúng đường dẫn đẩy dữ liệu đo đếm lưu lượng nêu trên;
+          quản lý toàn bộ (xoay key, xem lại key...) vẫn làm chung ở tab 🤖 AI Event.
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
@@ -1348,9 +1348,9 @@ rtsp:
           <button class="btn btn-secondary btn-sm" onclick="loadTrafficFlowTab()">🔄 Tải lại</button>
         </div>
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
-          Gán <b>source_uuid</b> (khóa camera cố định bên Hawkwise) với 1 điểm đo trên bản đồ của hệ thống —
-          tọa độ do admin xác nhận/chỉnh, <b>không</b> tự động tin theo tọa độ Hawkwise gửi kèm mỗi bản tin
-          (có thể lệch nhẹ). Tắt "Đang bật" chỉ ẩn khỏi bản đồ, dữ liệu vẫn được lưu bình thường.
+          Gán <b>source_uuid</b> (khóa camera cố định bên hệ thống đo đếm lưu lượng) với 1 điểm đo trên bản đồ
+          của hệ thống — tọa độ do admin xác nhận/chỉnh, <b>không</b> tự động tin theo tọa độ hệ thống đo đếm
+          lưu lượng gửi kèm mỗi bản tin (có thể lệch nhẹ). Tắt "Đang bật" chỉ ẩn khỏi bản đồ, dữ liệu vẫn được lưu bình thường.
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
@@ -1374,13 +1374,13 @@ rtsp:
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
           Mọi source_uuid đã từng đẩy dữ liệu, kể cả chưa có điểm đo tương ứng — dữ liệu vẫn được lưu đầy đủ,
           chỉ chưa hiện trên bản đồ. Bấm "+ Tạo điểm đo" để mở form tạo mapping, điền sẵn source_uuid và tọa độ
-          Hawkwise gửi lần gần nhất làm gợi ý (bạn vẫn có thể chỉnh lại trước khi lưu).
+          hệ thống đo đếm lưu lượng gửi lần gần nhất làm gợi ý (bạn vẫn có thể chỉnh lại trước khi lưu).
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
             <thead><tr>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">source_uuid</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tọa độ Hawkwise gửi</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tọa độ hệ thống gửi</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Số lần</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Lần cuối</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
@@ -1396,8 +1396,8 @@ rtsp:
         </div>
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
           Dùng lại công cụ test chung (server tự gửi request, tránh CORS) — mẫu bản tin dưới đây đúng theo
-          format thật của Hawkwise (nested <code>general/evidence/details</code>, snake_case), không phải
-          đặc tả camelCase cũ.
+          format thật đang được hệ thống đo đếm lưu lượng gửi về (nested <code>general/evidence/details</code>,
+          snake_case), không phải đặc tả camelCase cũ.
         </div>
         <div style="padding:0 1.1rem 1.1rem;display:flex;flex-direction:column;gap:.75rem">
           <div class="f2">
@@ -1408,7 +1408,7 @@ rtsp:
             </div>
             <div class="form-group" style="margin:0">
               <label>API Key</label>
-              <input type="text" id="tpf-key" class="input" autocomplete="off" placeholder="dán key của tích hợp Hawkwise cần test">
+              <input type="text" id="tpf-key" class="input" autocomplete="off" placeholder="dán key của tích hợp cần test">
             </div>
           </div>
 
@@ -1635,14 +1635,14 @@ rtsp:
   </div>
 </div>
 
-<!-- ═══════════════════ Sensor Mapping Dialog (Hawkwise) ═══════════════════ -->
+<!-- ═══════════════════ Sensor Mapping Dialog (Đo đếm lưu lượng) ═══════════════════ -->
 <div class="dlg-backdrop" id="sensorDlg">
   <div class="dlg" style="min-height:unset;width:560px">
     <h2 id="sensorDlg-title">Tạo điểm đo</h2>
     <form id="sensorForm" onsubmit="submitSensor(event)">
       <input type="hidden" id="sensor-id">
       <div class="form-group">
-        <label>source_uuid (khóa camera bên Hawkwise)</label>
+        <label>source_uuid (khóa camera bên hệ thống đo đếm lưu lượng)</label>
         <input type="text" id="sensor-source-uuid" class="input" required autocomplete="off">
       </div>
       <div class="form-group">
@@ -1976,7 +1976,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-incident-add"> 🚨 Thêm sự cố từ bản đồ (cần tab Sự cố GT)</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-ai-events"> 🤖 Xem lớp AI Event trên bản đồ</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-3d"> 🧊 Bật chế độ xem 3D trên bản đồ</label>
-          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-traffic-flow"> 📊 Xem lớp lưu lượng Hawkwise trên bản đồ</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-traffic-flow"> 📊 Xem lớp Đo đếm lưu lượng trên bản đồ</label>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Monitor</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-workers"> 🖥 Xem máy chủ phân tích</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-monitor-process"> ⚙ Xem go2rtc process</label>
@@ -3481,7 +3481,7 @@ function renderTrafficFlowIntegrationsTable() {
     </tr>`).join('');
 }
 
-function openAddHawkwiseIntegration() {
+function openAddTrafficFlowIntegration() {
   openAddIntegration();
   document.getElementById('integ-path').value = TRAFFICFLOW_PUSH_PATH;
 }

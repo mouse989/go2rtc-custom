@@ -1,6 +1,53 @@
 package trafficflow
 
-import "testing"
+import (
+	"net/http/httptest"
+	"testing"
+)
+
+// extractPushAPIKey must accept both header schemes — Hawkwise's own doc
+// leaves the choice to the receiver, and a real deployment was observed
+// sending Authorization: Bearer instead of the originally-assumed
+// X-API-Key, which caused every push to 401 until this was fixed.
+func TestExtractPushAPIKeyAcceptsXAPIKey(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", nil)
+	r.Header.Set("X-API-Key", "secret123")
+	if got := extractPushAPIKey(r); got != "secret123" {
+		t.Errorf("expected %q, got %q", "secret123", got)
+	}
+}
+
+func TestExtractPushAPIKeyAcceptsAuthorizationBearer(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", nil)
+	r.Header.Set("Authorization", "Bearer secret123")
+	if got := extractPushAPIKey(r); got != "secret123" {
+		t.Errorf("expected %q, got %q", "secret123", got)
+	}
+}
+
+func TestExtractPushAPIKeyPrefersXAPIKeyOverBearer(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", nil)
+	r.Header.Set("X-API-Key", "from-header")
+	r.Header.Set("Authorization", "Bearer from-bearer")
+	if got := extractPushAPIKey(r); got != "from-header" {
+		t.Errorf("expected X-API-Key to take priority, got %q", got)
+	}
+}
+
+func TestExtractPushAPIKeyEmptyWhenNeitherHeaderPresent(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", nil)
+	if got := extractPushAPIKey(r); got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+func TestExtractPushAPIKeyIgnoresNonBearerAuthorization(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", nil)
+	r.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	if got := extractPushAPIKey(r); got != "" {
+		t.Errorf("expected empty string for a non-Bearer Authorization header, got %q", got)
+	}
+}
 
 func validMinimalPush() *hawkwisePush {
 	var req hawkwisePush
