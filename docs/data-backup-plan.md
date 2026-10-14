@@ -105,16 +105,15 @@ Dữ liệu người dùng/phân quyền/API key **không** nằm trong file nà
 
 ---
 
-## 4. Đề xuất kế hoạch backup
+## 4. Đề xuất kế hoạch backup (nguyên tắc chung — hạ tầng-trung lập)
 
 - **Phạm vi**: toàn bộ thư mục chứa `go2rtc.yaml` (một thư mục duy nhất, theo đúng cấu trúc ở §1.2).
-- **Loại trừ** (giảm dung lượng, giá trị thấp): `aievent_data/images/` (Nhóm C).
-- **Tần suất**:
-  - Backup đầy đủ: **1 lần/ngày**, vào giờ ít tải (ví dụ 02:00 sáng).
-  - Nếu cần RPO ngắn hơn cho dữ liệu Nhóm A (cấu hình/user ít thay đổi nhưng quan trọng): có thể thêm 1 bản backup nhẹ (chỉ các file Nhóm A, không kèm `*_data/` time-series) mỗi vài giờ.
-- **Phương pháp**: đóng gói `tar.gz` → **mã hoá** (gpg hoặc `age`) → đẩy ra ngoài máy bằng `rsync`/`rclone`. Để giảm rủi ro đọc file đang ghi nửa chừng (mục 4 ở §3): dùng snapshot filesystem (LVM/ZFS/btrfs snapshot) nếu hạ tầng có hỗ trợ, trước khi tar; nếu không có, chấp nhận rủi ro thấp còn lại (đã phân tích ở trên) và dùng `tar --ignore-failed-read` để một file lỗi hiếm gặp không làm hỏng cả bản backup.
-- **Nơi lưu**: nguyên tắc 3-2-1 — ít nhất 1 bản sao cục bộ (đĩa khác), 1 bản off-site (NAS/S3/SFTP...); lưu dạng **versioned** (không ghi đè bản cũ ngay lập tức).
-- **Retention bản backup** (đề xuất, có thể chỉnh theo nhu cầu thực tế): giữ 7 bản ngày gần nhất + 4 bản cuối-tuần gần nhất + 3 bản cuối-tháng gần nhất — giảm dần dung lượng theo thời gian mà vẫn có điểm khôi phục xa.
+- **Tần suất**: 1 lần/ngày, vào giờ ít tải (ví dụ 02:00 sáng).
+- **Nguyên tắc 3-2-1**: ít nhất 1 bản sao cục bộ (đĩa khác), 1 bản off-site (NAS...); lưu dạng **versioned** (không ghi đè bản cũ ngay lập tức).
+- **Retention bản backup**: giữ 7 bản ngày gần nhất + 4 bản cuối-tuần gần nhất + vài bản cuối-tháng gần nhất — giảm dần dung lượng theo thời gian mà vẫn có điểm khôi phục xa.
+- **Giảm rủi ro đọc file đang ghi nửa chừng** (mục 4 ở §3): snapshot filesystem (nếu hạ tầng hỗ trợ) cho các file JSON; với `trafficflow.db` (SQLite) dùng lệnh backup online an toàn của chính SQLite (`.backup`) thay vì copy thô file đang mở.
+
+**→ Triển khai thực tế (công cụ cụ thể, đã chốt với bạn): xem §9.** Mục này chỉ còn giữ lại làm nguyên tắc tham khảo khi đổi hạ tầng sau này.
 
 ## 5. Khôi phục (restore)
 
@@ -179,6 +178,43 @@ File chỉ mục này **không có cơ chế dọn** (không theo retention 30 n
 
 ---
 
+## 9. Triển khai thực tế trên Windows Server 2016 (đã chốt, có script)
+
+Server thật chạy **Windows Server 2016**, go2rtc chạy trực tiếp bằng
+`.exe` (không phải Windows Service), thư mục dữ liệu thật là
+`D:\Working\Counting\`. Công cụ đã chốt với bạn: **Restic** (mã hoá + dedupe
++ retention có sẵn, không tự viết), kết nối NAS Synology qua **SMB/CIFS**.
+
+**Kiến trúc**: 2 Restic repo độc lập — 1 trên ổ cứng local khác ổ chứa dữ
+liệu, 1 trên NAS Synology qua UNC path (`\\NAS-IP\...`) — hỏng 1 bên không
+ảnh hưởng bên kia (đúng nguyên tắc 3-2-1 ở §4). Tự động hoá bằng **Windows
+Task Scheduler** (không phải cron) chạy 1 PowerShell script mỗi ngày
+02:00.
+
+**Vấn đề `trafficflow.db` đang live-write (WAL mode)**: giải quyết bằng
+`sqlite3.exe <db> ".backup '<đích>'"` — lệnh backup online, nhất quán, an
+toàn ngay cả khi go2rtc.exe đang ghi — chạy trước mỗi lần Restic backup,
+ghi bản chụp vào `trafficflow_data\_sqlite_snapshot\trafficflow.db` (nằm
+trong chính `$DataDir` nên tự được backup cùng, không cần thêm path/exclude
+riêng cho Restic).
+
+**Code/script cụ thể — xem [`scripts/backup/`](../scripts/backup/README.md)**:
+- `Backup-Go2rtc.ps1` — script chạy hàng ngày (snapshot SQLite → backup vào
+  repo local → backup vào repo NAS → dọn bản cũ theo retention cả 2 repo
+  độc lập; 1 bên lỗi không chặn bên kia).
+- `Restore-Go2rtc.ps1` — khôi phục từ 1 snapshot Restic vào thư mục mới
+  (không bao giờ đè trực tiếp lên thư mục đang chạy).
+- `README.md` — hướng dẫn cài đặt lần đầu: cài `restic.exe`/`sqlite3.exe`,
+  tạo + giới hạn quyền file mật khẩu Restic, lưu thông tin đăng nhập NAS qua
+  `cmdkey` (không map ổ đĩa, không lưu mật khẩu trong script), đăng ký Task
+  Scheduler.
+
+Đây đã là trả lời cụ thể cho §7 mục 1 và mục 4 (Restic, không tự viết tool
+mới) — chỉ còn §7 mục 3 (RPO/RTO chính xác bạn muốn) là chưa chốt; mặc định
+đang dùng RPO = 24h (backup 1 lần/ngày) theo §4, có thể rút ngắn nếu cần.
+
+---
+
 ## Phụ lục: Lịch sử phiên bản
 
 | Phiên bản | Ngày | Nội dung |
@@ -186,3 +222,4 @@ File chỉ mục này **không có cơ chế dọn** (không theo retention 30 n
 | 1.0 | 2026-10-14 | Rà soát toàn bộ dữ liệu + cách tổ chức hiện có, phân loại theo mức độ quan trọng, đề xuất kế hoạch backup. Trạng thái: planning, chưa triển khai. |
 | 1.1 | 2026-10-14 | Chốt chính sách retention theo quyết định của bạn (login_history/security_alerts/user_locations: 3 tháng; phần còn lại kể cả 3 dataset khối lượng lớn: giữ lâu dài). Thêm §8: đánh giá performance khi giữ lâu dài (dẫn chứng thật từ comment có sẵn trong `internal/traffic/storage.go`), phát hiện lỗi ghi-lại-toàn-bộ-chỉ-mục trong trafficflow, và khuyến nghị chuyển 3 dataset khối lượng lớn sang SQLite (giữ nguyên JSON cho phần cấu hình/user). Trạng thái: planning, chưa triển khai. |
 | 1.2 | 2026-10-14 | **Đã triển khai**: chuyển `trafficflow` (Đo đếm lưu lượng) sang SQLite (`internal/trafficflow/db.go` — bảng `sensors`/`observed_sensors`/`flow_records`, dùng `modernc.org/sqlite` pure-Go), vá lỗi `flow_index.json` ghi-lại-toàn-bộ-mỗi-push (dedup giờ qua `PRIMARY KEY`/`UNIQUE` của SQLite). Tự nhập lại dữ liệu JSON cũ (nếu có) một lần khi khởi động, không mất dữ liệu cũ. `counting_data/`, `traffic_data/` vẫn chưa chuyển, để sau. |
+| 1.3 | 2026-10-14 | **Đã triển khai** phần backup thật cho server Windows Server 2016 (`D:\Working\Counting\`, go2rtc chạy `.exe` trực tiếp): thêm §9 + script `scripts/backup/` (Restic, 2 repo độc lập local-HDD + NAS Synology qua SMB/CIFS, snapshot nhất quán `trafficflow.db` qua `sqlite3 .backup`, tự động qua Windows Task Scheduler). §4 rút lại thành nguyên tắc chung, trỏ sang §9 cho phần triển khai cụ thể. |
