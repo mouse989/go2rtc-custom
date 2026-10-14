@@ -178,40 +178,74 @@ File chỉ mục này **không có cơ chế dọn** (không theo retention 30 n
 
 ---
 
-## 9. Triển khai thực tế trên Windows Server 2016 (đã chốt, có script)
+## 9. Triển khai thực tế trên Windows Server 2016
 
 Server thật chạy **Windows Server 2016**, go2rtc chạy trực tiếp bằng
 `.exe` (không phải Windows Service), thư mục dữ liệu thật là
-`D:\Working\Counting\`. Công cụ đã chốt với bạn: **Restic** (mã hoá + dedupe
-+ retention có sẵn, không tự viết), kết nối NAS Synology qua **SMB/CIFS**.
+`D:\Working\Counting\`.
 
-**Kiến trúc**: 2 Restic repo độc lập — 1 trên ổ cứng local khác ổ chứa dữ
-liệu, 1 trên NAS Synology qua UNC path (`\\NAS-IP\...`) — hỏng 1 bên không
-ảnh hưởng bên kia (đúng nguyên tắc 3-2-1 ở §4). Tự động hoá bằng **Windows
-Task Scheduler** (không phải cron) chạy 1 PowerShell script mỗi ngày
-02:00.
+### 9.1. Cách đã chọn (đơn giản nhất): Synology Active Backup for Business — **toàn GUI, không cần script**
 
-**Vấn đề `trafficflow.db` đang live-write (WAL mode)**: giải quyết bằng
-`sqlite3.exe <db> ".backup '<đích>'"` — lệnh backup online, nhất quán, an
-toàn ngay cả khi go2rtc.exe đang ghi — chạy trước mỗi lần Restic backup,
-ghi bản chụp vào `trafficflow_data\_sqlite_snapshot\trafficflow.db` (nằm
-trong chính `$DataDir` nên tự được backup cùng, không cần thêm path/exclude
-riêng cho Restic).
+Vì NAS đã là Synology, dùng chính package **Active Backup for Business
+(ABB)** của Synology (miễn phí, có sẵn trong Package Center của DSM) —
+toàn bộ thiết lập làm qua giao diện, không chạm dòng lệnh nào:
 
-**Code/script cụ thể — xem [`scripts/backup/`](../scripts/backup/README.md)**:
-- `Backup-Go2rtc.ps1` — script chạy hàng ngày (snapshot SQLite → backup vào
-  repo local → backup vào repo NAS → dọn bản cũ theo retention cả 2 repo
-  độc lập; 1 bên lỗi không chặn bên kia).
-- `Restore-Go2rtc.ps1` — khôi phục từ 1 snapshot Restic vào thư mục mới
-  (không bao giờ đè trực tiếp lên thư mục đang chạy).
-- `README.md` — hướng dẫn cài đặt lần đầu: cài `restic.exe`/`sqlite3.exe`,
-  tạo + giới hạn quyền file mật khẩu Restic, lưu thông tin đăng nhập NAS qua
-  `cmdkey` (không map ổ đĩa, không lưu mật khẩu trong script), đăng ký Task
-  Scheduler.
+1. **Trên NAS (DSM)**: Package Center → cài **Active Backup for Business**
+   (nếu chưa có) → mở app → mục **Physical Server** → "+Add" → chọn
+   **Windows**.
+2. DSM sẽ cho tải 1 bộ cài **agent** (`.exe`) — chạy trên chính server
+   Windows Server 2016, nhập địa chỉ NAS để đăng ký server đó với ABB.
+   Cài xong, server xuất hiện trong danh sách "Physical Server" trên DSM.
+3. Vẫn trên DSM, tạo **backup task** cho server đó:
+   - Loại backup: **File-level backup** (không cần backup toàn bộ ổ đĩa) →
+     chỉ chọn đúng 1 thư mục `D:\Working\Counting\` (đúng theo nguyên tắc
+     "toàn hệ thống nằm trong 1 thư mục" ở §0/§1.2).
+   - Lịch chạy: hàng ngày, giờ ít tải (ví dụ 02:00) — chọn trực tiếp trên
+     GUI.
+   - Retention/số phiên bản giữ lại: cấu hình ngay trong GUI của task (ABB
+     hỗ trợ versioning + dedupe khối (block-level) có sẵn, không cần tự
+     viết logic retention).
+4. **Không cần xử lý riêng cho `trafficflow.db` (SQLite, WAL mode)**: agent
+   ABB dùng **Windows VSS (Volume Shadow Copy Service)** để chụp ảnh ổ đĩa
+   tại đúng 1 thời điểm trước khi copy — nghĩa là `trafficflow.db` cùng các
+   file `-wal`/`-shm` đi kèm được chụp **đồng thời, nhất quán** dù
+   go2rtc.exe đang chạy. SQLite không có VSS writer riêng nên đây là bản
+   "crash-consistent" (tương đương trạng thái sau khi mất điện đột ngột) —
+   **SQLite tự phục hồi sạch từ trạng thái này khi mở lại** (đúng cơ chế
+   WAL được thiết kế để xử lý), không cần bước `sqlite3 .backup` thủ công
+   như cách Restic ở §9.2.
+5. **Restore**: cũng hoàn toàn qua GUI — DSM → ABB → chọn server → chọn
+   đúng 1 phiên bản backup theo thời điểm → "Restore files" → chọn
+   file/thư mục cần khôi phục → chọn khôi phục vào vị trí gốc hoặc nơi khác
+   để kiểm tra trước.
+   ⚠️ Lưu ý **vẫn giữ nguyên** dù dùng tool nào: `.jwt_secret` và
+   `integrations.json` **phải phục hồi từ cùng 1 phiên bản/thời điểm**,
+   không chọn lẻ từng file từ 2 thời điểm khác nhau (xem §3 mục 3) — khi
+   restore qua GUI dễ bị bấm chọn nhầm file riêng lẻ hơn là khi restore cả
+   thư mục, nên cẩn thận bước này.
+6. **Mở rộng thêm (tuỳ chọn, không bắt buộc ngay)**: ABB chỉ cho 1 bản sao
+   (trên chính NAS đó). Nếu muốn đúng tinh thần 3-2-1 đầy đủ hơn (thêm 1
+   bản sao thứ 2, ở nơi khác), có thể dùng tiếp **Hyper Backup** hoặc
+   **Cloud Sync** — cả 2 đều là package khác của Synology, cấu hình hoàn
+   toàn trên DSM, để tự sao lại dữ liệu ABB đã backup sang 1 NAS/cloud/USB
+   khác theo lịch.
 
-Đây đã là trả lời cụ thể cho §7 mục 1 và mục 4 (Restic, không tự viết tool
-mới) — chỉ còn §7 mục 3 (RPO/RTO chính xác bạn muốn) là chưa chốt; mặc định
-đang dùng RPO = 24h (backup 1 lần/ngày) theo §4, có thể rút ngắn nếu cần.
+### 9.2. Phương án thay thế (đã viết sẵn, dùng khi cần nhiều quyền kiểm soát hơn): Restic + PowerShell
+
+Vẫn giữ lại ở [`scripts/backup/`](../scripts/backup/README.md) — dùng
+**Restic** (mã hoá, dedupe, retention tự quản lý qua dòng lệnh) + Windows
+Task Scheduler, backup song song ra 2 repo độc lập (ổ cứng local + NAS qua
+SMB/CIFS UNC path), tự chụp snapshot nhất quán cho `trafficflow.db` qua
+`sqlite3 .backup` trước mỗi lần backup. Phù hợp nếu sau này muốn thêm 1 bản
+sao ở nơi không phải Synology (ví dụ 1 ổ cứng rời khác, hoặc 1 server
+khác), hoặc cần mã hoá đầu-cuối mà không phụ thuộc hạ tầng Synology — nếu
+không có nhu cầu đó, **§9.1 (Synology ABB) là đủ và đơn giản hơn**, không
+cần dùng tới mục này.
+
+Đây đã là trả lời cụ thể cho §7 mục 1 và mục 4 — chỉ còn §7 mục 3 (RPO/RTO
+chính xác bạn muốn) là chưa chốt; mặc định đang dùng RPO = 24h (backup 1
+lần/ngày), có thể rút ngắn nếu cần (ABB hỗ trợ chạy nhiều lần/ngày nếu
+muốn, chỉnh ngay trong lịch của task).
 
 ---
 
@@ -223,3 +257,4 @@ mới) — chỉ còn §7 mục 3 (RPO/RTO chính xác bạn muốn) là chưa c
 | 1.1 | 2026-10-14 | Chốt chính sách retention theo quyết định của bạn (login_history/security_alerts/user_locations: 3 tháng; phần còn lại kể cả 3 dataset khối lượng lớn: giữ lâu dài). Thêm §8: đánh giá performance khi giữ lâu dài (dẫn chứng thật từ comment có sẵn trong `internal/traffic/storage.go`), phát hiện lỗi ghi-lại-toàn-bộ-chỉ-mục trong trafficflow, và khuyến nghị chuyển 3 dataset khối lượng lớn sang SQLite (giữ nguyên JSON cho phần cấu hình/user). Trạng thái: planning, chưa triển khai. |
 | 1.2 | 2026-10-14 | **Đã triển khai**: chuyển `trafficflow` (Đo đếm lưu lượng) sang SQLite (`internal/trafficflow/db.go` — bảng `sensors`/`observed_sensors`/`flow_records`, dùng `modernc.org/sqlite` pure-Go), vá lỗi `flow_index.json` ghi-lại-toàn-bộ-mỗi-push (dedup giờ qua `PRIMARY KEY`/`UNIQUE` của SQLite). Tự nhập lại dữ liệu JSON cũ (nếu có) một lần khi khởi động, không mất dữ liệu cũ. `counting_data/`, `traffic_data/` vẫn chưa chuyển, để sau. |
 | 1.3 | 2026-10-14 | **Đã triển khai** phần backup thật cho server Windows Server 2016 (`D:\Working\Counting\`, go2rtc chạy `.exe` trực tiếp): thêm §9 + script `scripts/backup/` (Restic, 2 repo độc lập local-HDD + NAS Synology qua SMB/CIFS, snapshot nhất quán `trafficflow.db` qua `sqlite3 .backup`, tự động qua Windows Task Scheduler). §4 rút lại thành nguyên tắc chung, trỏ sang §9 cho phần triển khai cụ thể. |
+| 1.4 | 2026-10-14 | Theo yêu cầu "đơn giản hơn, dùng GUI": đổi phương án chính sang **Synology Active Backup for Business** (§9.1 — toàn bộ cấu hình qua GUI trên DSM + agent cài trên Windows Server, không cần script; VSS tự xử lý nhất quán cho `trafficflow.db` thay cho `sqlite3 .backup` thủ công). Script Restic ở §9.2 (scripts/backup/) giữ lại làm phương án thay thế khi cần kiểm soát nhiều hơn, không xoá. |
