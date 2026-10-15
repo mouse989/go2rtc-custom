@@ -225,6 +225,15 @@ table.inc-table { min-width:920px; }
           <input type="number" step="any" class="form-input" id="fiLng" placeholder="Tuỳ chọn">
         </div>
       </div>
+      <!-- Set automatically by map.html's "Thêm sự cố" (right-click on map,
+           near a GIS layer flagged for this) — here it's just a manual
+           toggle, no auto-detection (this form has no map to check against). -->
+      <div class="form-group" style="padding:.5rem .6rem;border-radius:6px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35)">
+        <label style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="fiCongestionRisk" style="width:16px;height:16px">
+          ⚠️ Thuộc 28 vị trí có nguy cơ ùn tắc giao thông
+        </label>
+      </div>
       <div id="fiMsg" style="font-size:.82rem;color:var(--red);display:none;margin-bottom:.6rem"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end">
         <button class="btn btn-ghost" onclick="closeIncModal()">Huỷ</button>
@@ -483,6 +492,7 @@ function openAddModal() {
   document.getElementById('fiNote').value = '';
   document.getElementById('fiLat').value = '';
   document.getElementById('fiLng').value = '';
+  document.getElementById('fiCongestionRisk').checked = false;
   document.getElementById('fiMsg').style.display = 'none';
   document.getElementById('fiMsg').dataset.id = '';
   updateSlotPreview();
@@ -502,6 +512,7 @@ function openEditModal(i) {
   document.getElementById('fiNote').value = inc.note || '';
   document.getElementById('fiLat').value = inc.lat || '';
   document.getElementById('fiLng').value = inc.lng || '';
+  document.getElementById('fiCongestionRisk').checked = !!inc.congestion_risk_point;
   document.getElementById('fiMsg').style.display = 'none';
   document.getElementById('fiMsg').dataset.id = inc.id;
   updateSlotPreview();
@@ -530,6 +541,7 @@ async function saveIncident() {
     note: document.getElementById('fiNote').value.trim(),
     lat: latVal ? parseFloat(latVal) : 0,
     lng: lngVal ? parseFloat(lngVal) : 0,
+    congestion_risk_point: document.getElementById('fiCongestionRisk').checked,
   };
 
   const id = msg.dataset.id;

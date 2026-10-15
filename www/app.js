@@ -100,6 +100,7 @@ function canMapIncidentAdd() { const u = getUser(); return u && (u.role === 'adm
 function canMapAIEvent() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_ai_events); }
 function canMap3D() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_3d); }
 function canMapTrafficFlow() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_traffic_flow); }
+function canMapGIS() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_gis); }
 function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
 function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
 function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }
