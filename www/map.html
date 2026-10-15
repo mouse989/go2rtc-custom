@@ -64,7 +64,12 @@ body.sb-collapsed           { --map-left:0; }
    from covering most of the map on a phone screen (see #btnToolbarCollapse).
    The selector matches .map-btn regardless of nesting depth, so it still
    hides every button once they're grouped inside .map-group-body below. */
-#btnToolbarCollapse { justify-content:center; width:38px; padding:.42rem 0 !important; font-size:1rem !important; }
+/* align-self:flex-end — #mapToolbar is a column flex container with no
+   align-items set (default: stretch), so without this the 38px-wide button
+   (an explicit width overrides stretch, but not its position) lands at the
+   cross axis's start, i.e. the LEFT edge of the right-docked 300px panel —
+   same side as the map itself, not the panel's own right edge. */
+#btnToolbarCollapse { align-self:flex-end; justify-content:center; width:38px; padding:.42rem 0 !important; font-size:1rem !important; }
 #mapToolbar.collapsed .map-btn:not(#btnToolbarCollapse) { display:none !important; }
 #mapToolbar.collapsed .map-group { display:none !important; }
 
@@ -4341,7 +4346,17 @@ function redrawGisFeaturesLayer() {
 
   _gisLayers.forEach(layer => {
     const color = layer.color || '#f59e0b';
-    if (layer.icon_content_type) ensureGisLayerIcon(layer);
+    if (layer.icon_content_type) {
+      ensureGisLayerIcon(layer);
+      // Pre-seed with an empty array (rather than only creating the key once
+      // a visible feature is found below) so a layer whose every feature is
+      // hidden — e.g. its own menu checkbox toggled off — still gets a
+      // setData() call at the end of this function to CLEAR its icon
+      // source. Without this, Object.entries(iconPointFeaturesByLayer) below
+      // would simply omit that layer's ID and its last-rendered icons would
+      // stay stuck on the map forever.
+      iconPointFeaturesByLayer[layer.id] = [];
+    }
 
     (layer.features || []).forEach(f => {
       if (_hiddenGisFeatureIds.has(f.id)) return;
@@ -4351,7 +4366,7 @@ function redrawGisFeaturesLayer() {
         const feat = { type: 'Feature', properties: { color, label: f.label, radiusM: f.radius_m },
           geometry: { type: 'Point', coordinates: [f.lng, f.lat] } };
         if (layer.icon_content_type) {
-          (iconPointFeaturesByLayer[layer.id] = iconPointFeaturesByLayer[layer.id] || []).push(feat);
+          iconPointFeaturesByLayer[layer.id].push(feat);
         } else {
           pointFeatures.push(feat);
         }
