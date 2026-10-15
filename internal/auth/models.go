@@ -77,6 +77,13 @@ type User struct {
 	// authenticated via the Integration API Key system, never this flag —
 	// see internal/trafficflow's own doc comments.
 	AllowMapTrafficFlow bool `json:"allow_map_traffic_flow"`
+	// AllowMapGIS gates map.html's "Dữ liệu GIS" layers — admin-managed
+	// point/segment reference geometry (e.g. "28 điểm nguy cơ ùn tắc", and
+	// later layers like "Đèn giao thông"/"Bảng VMS" — see internal/gis).
+	// View-only, same single-flag convention as AllowMapAIEvents/
+	// AllowMapTrafficFlow above; layer/feature CRUD stays admin-only
+	// (Role == RoleAdmin), never gated by this flag.
+	AllowMapGIS bool `json:"allow_map_gis"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process

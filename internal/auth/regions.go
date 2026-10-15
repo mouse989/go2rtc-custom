@@ -123,6 +123,28 @@ func ListRegions() []*Region {
 	return list
 }
 
+// RegionsContaining returns every region whose polygon(s) or buffer zone
+// contain (lat,lng) — used to suggest a "Đơn vị" (unit) when logging an
+// incident at a known location: the admin's own convention is that a
+// region's Name IS the responsible unit's name (e.g. a region named "ĐỘI
+// CSGT SỐ 3"), so callers use Region.Name directly as the suggested value,
+// no separate "owning unit" field needed. A point can fall inside more than
+// one region (overlapping territories, or a buffer zone reaching into a
+// neighbor's area) — callers decide how to present multiple matches.
+func RegionsContaining(lat, lng float64) []*Region {
+	rstore.mu.RLock()
+	defer rstore.mu.RUnlock()
+	var out []*Region
+	for _, r := range rstore.regions {
+		if pointInRegion(lng, lat, r) {
+			cp := *r
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // GetRegion returns a copy of the region with the given ID.
 func GetRegion(id string) (*Region, bool) {
 	rstore.mu.RLock()

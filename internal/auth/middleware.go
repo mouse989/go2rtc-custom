@@ -358,6 +358,14 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
+	if u.AllowMapGIS {
+		// Layer/feature CRUD under /api/gis/layers stays admin-only (checked
+		// inside internal/gis itself) — this flag only unlocks the view-only
+		// /api/gis/data endpoint for a non-admin viewer.
+		if strings.HasPrefix(path, "/api/gis/data") {
+			return true
+		}
+	}
 	return false
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/expr"
 	"github.com/AlexxIT/go2rtc/internal/ffmpeg"
 	"github.com/AlexxIT/go2rtc/internal/flussonic"
+	"github.com/AlexxIT/go2rtc/internal/gis"
 	"github.com/AlexxIT/go2rtc/internal/gopro"
 	"github.com/AlexxIT/go2rtc/internal/hass"
 	"github.com/AlexxIT/go2rtc/internal/hls"
@@ -131,6 +132,7 @@ func main() {
 		{"incidents", incidents.Init},
 		{"aievent", aievent.Init},
 		{"trafficflow", trafficflow.Init},
+		{"gis", gis.Init},
 		// Helper modules
 		{"debug", debug.Init},
 		{"ngrok", ngrok.Init},

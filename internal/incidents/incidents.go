@@ -37,13 +37,21 @@ type Incident struct {
 	// text Location is enough), so both stay the zero value unless set
 	// explicitly (either typed by hand or auto-filled by map.html's
 	// right-click "Thêm sự cố" mode — see openMapIncidentModal there).
-	Lat       float64   `json:"lat,omitempty"`
-	Lng       float64   `json:"lng,omitempty"`
-	TimeSlot  string    `json:"time_slot"` // Khung giờ — auto-computed from Time
-	CreatedBy string    `json:"created_by,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedBy string    `json:"updated_by,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	Lat float64 `json:"lat,omitempty"`
+	Lng float64 `json:"lng,omitempty"`
+	// CongestionRiskPoint: whether this incident's location falls within
+	// (or near) one of the admin-configured "28 điểm nguy cơ ùn tắc"
+	// points/segments (internal/gis, layers with
+	// FlagsIncidentCongestionRisk) — map.html auto-ticks this when Lat/Lng
+	// is set, based on the same proximity check gis.MatchesCongestionRisk
+	// provides server-side; the admin can still untick it by hand. Always
+	// false for incidents with no coordinates.
+	CongestionRiskPoint bool      `json:"congestion_risk_point,omitempty"`
+	TimeSlot            string    `json:"time_slot"` // Khung giờ — auto-computed from Time
+	CreatedBy           string    `json:"created_by,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedBy           string    `json:"updated_by,omitempty"`
+	UpdatedAt           time.Time `json:"updated_at,omitempty"`
 }
 
 // Time-slot windows (Khung giờ) are admin-configurable — see timeslots.go for
