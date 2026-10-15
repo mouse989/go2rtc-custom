@@ -417,7 +417,14 @@ body.sb-collapsed           { --map-left:0; }
 
 /* .main on map page: pass clicks through except topbar; transparent so map shows through */
 .main { pointer-events:none; background:transparent; }
-.topbar { pointer-events:all; background:var(--surface); }
+/* #map is position:fixed with its own z-index (0) — any positioned element
+   paints after static in-flow content regardless of that z-index value, so
+   without position+z-index here the map canvas silently painted OVER the
+   topbar (title + sidebar-toggle button were in the DOM, clickable even,
+   just visually hidden underneath #map). Pre-existing bug, not something
+   the GIS-menu changes introduced — just surfaced once the user went
+   looking for the sidebar-collapse button on this page specifically. */
+.topbar { pointer-events:all; background:var(--surface); position:relative; z-index:10; }
 
 /* ── Traffic counting station markers ───────────────────────── */
 .stn-marker-wrap {
@@ -1055,9 +1062,17 @@ body.sb-collapsed           { --map-left:0; }
         <input type="color" id="gisLayerColor" value="#f59e0b">
       </div>
       <div style="flex:1">
-        <label>Icon (emoji)</label>
+        <label>Icon (emoji, hiện trong menu)</label>
         <input type="text" id="gisLayerIcon" placeholder="⚠️" maxlength="4">
       </div>
+    </div>
+    <!-- Custom marker IMAGE (vd lấy tự động từ file .kmz) — khác với emoji
+         ở trên: cái này dùng để vẽ icon thật trên bản đồ thay vì chấm tròn
+         màu mặc định. Chỉ hiện khi lớp đã có icon. -->
+    <div id="gisLayerIconImageWrap" style="display:none;align-items:center;gap:.6rem;padding:.4rem .5rem;border:1px solid var(--border);border-radius:6px;background:var(--surface2)">
+      <img id="gisLayerIconImagePreview" style="width:28px;height:28px;object-fit:contain" alt="icon lớp">
+      <span style="font-size:.72rem;color:var(--text-muted);flex:1">Icon bản đồ hiện tại (lấy từ KMZ)</span>
+      <button type="button" class="btn btn-secondary" id="gisLayerIconImageRemove" style="font-size:.68rem;padding:.2rem .5rem">Xóa icon</button>
     </div>
     <label class="chk-row"><input type="checkbox" id="gisLayerDefaultOn"> Hiện mặc định trên bản đồ (khi user chưa tự bật/tắt)</label>
     <label class="chk-row"><input type="checkbox" id="gisLayerCongestionFlag"> Dùng lớp này để tự động tích "⚠️ Thuộc 28 vị trí có nguy cơ ùn tắc" khi tạo sự cố gần đây</label>
@@ -1073,8 +1088,9 @@ body.sb-collapsed           { --map-left:0; }
         <button class="btn btn-secondary" id="gisFeatureAddPointBtn" style="font-size:.74rem;flex:1">+ Điểm mới</button>
         <button class="btn btn-secondary" id="gisFeatureAddSegmentBtn" style="font-size:.74rem;flex:1">+ Đoạn mới</button>
       </div>
-      <button class="btn btn-secondary" id="gisImportKmlBtn" style="font-size:.74rem;width:100%">⬆ Nhập Point/LineString từ KML</button>
-      <input type="file" id="gisImportKmlFile" accept=".kml" style="display:none">
+      <button class="btn btn-secondary" id="gisImportKmlBtn" style="font-size:.74rem;width:100%">⬆ Nhập Point/LineString từ KML/KMZ</button>
+      <p style="font-size:.68rem;color:var(--text-muted);margin:.2rem 0 0">File .kmz (vd xuất từ Google My Maps) sẽ tự lấy luôn icon biểu tượng làm icon của lớp này, nếu có.</p>
+      <input type="file" id="gisImportKmlFile" accept=".kml,.kmz" style="display:none">
       <div id="gisFeatureListWrap"></div>
     </div>
   </div>
@@ -4149,6 +4165,17 @@ let _hiddenGisFeatureIds = new Set(JSON.parse(localStorage.getItem('map_gis_hidd
 function saveHiddenRegionIds()     { localStorage.setItem('map_gis_hidden_regions', JSON.stringify([..._hiddenRegionIds])); }
 function saveHiddenGisFeatureIds() { localStorage.setItem('map_gis_hidden_features', JSON.stringify([..._hiddenGisFeatureIds])); }
 
+// A plain <img src> or map.loadImage() request carries no Authorization
+// header, so the token travels as a query param — the exact same fallback
+// internal/auth/middleware.go already supports for this, and the same
+// convention aiEventImageURL() uses for AI-event attachment images.
+// &v= cache-busts by the layer's own updated_at, so replacing an icon
+// (delete + re-import) doesn't keep serving a stale cached image.
+function gisLayerIconURL(layer) {
+  return '/api/gis/layers/' + encodeURIComponent(layer.id) + '/icon?token=' + encodeURIComponent(_token || '') +
+    '&v=' + encodeURIComponent(layer.updated_at || '');
+}
+
 function ensureGisDisplayLayers() {
   // Guard against the map never having initialized (e.g. the VietMap GL
   // script failed to load) — the "📂 Dữ liệu GIS" admin panel and menu
@@ -4222,24 +4249,69 @@ function gisFeatureAreaPolygon(f, color) {
   return null;
 }
 
+// A layer with a captured custom icon (layer.icon_content_type, e.g. from a
+// .kmz import) gets its own image + symbol layer instead of lumping its
+// points into the shared generic circle layer — see ensureGisLayerIcon().
+let _gisIconLayerIds = new Set(); // layer IDs whose image/source/symbol-layer are already set up
+
+function ensureGisLayerIcon(layer) {
+  if (!map || !layer.icon_content_type || _gisIconLayerIds.has(layer.id)) return;
+  _gisIconLayerIds.add(layer.id); // mark immediately — loadImage is async, avoid starting it twice
+  const imgId = 'gis-icon-' + layer.id;
+  map.loadImage(gisLayerIconURL(layer), (err, image) => {
+    if (err || !image) {
+      console.warn('[gis] failed to load custom icon for layer', layer.id, err);
+      _gisIconLayerIds.delete(layer.id); // allow a retry on the next redraw
+      return;
+    }
+    if (!map.hasImage(imgId)) map.addImage(imgId, image);
+    const srcId = 'gis-icon-points-' + layer.id;
+    if (!map.getSource(srcId)) {
+      map.addSource(srcId, { type: 'geojson', data: emptyFC() });
+      map.addLayer({
+        id: srcId + '-layer', type: 'symbol', source: srcId,
+        layout: { 'icon-image': imgId, 'icon-size': 0.5, 'icon-allow-overlap': true, 'icon-anchor': 'bottom' },
+      });
+    }
+    redrawGisFeaturesLayer(); // the source above was empty until now — populate it
+  });
+}
+
 function redrawGisFeaturesLayer() {
   if (!map || !map.getSource('gis-features-area')) return;
   const areaFeatures = [];
-  const pointFeatures = [];
+  const pointFeatures = [];              // layers WITHOUT a custom icon → shared circle layer
+  const iconPointFeaturesByLayer = {};   // layer.id -> features, for layers WITH a custom icon
+
   _gisLayers.forEach(layer => {
     const color = layer.color || '#f59e0b';
+    if (layer.icon_content_type) ensureGisLayerIcon(layer);
+
     (layer.features || []).forEach(f => {
       if (_hiddenGisFeatureIds.has(f.id)) return;
       const area = gisFeatureAreaPolygon(f, color);
       if (area) areaFeatures.push(area);
       if (f.kind === 'point') {
-        pointFeatures.push({ type: 'Feature', properties: { color, label: f.label },
-          geometry: { type: 'Point', coordinates: [f.lng, f.lat] } });
+        const feat = { type: 'Feature', properties: { color, label: f.label },
+          geometry: { type: 'Point', coordinates: [f.lng, f.lat] } };
+        if (layer.icon_content_type) {
+          (iconPointFeaturesByLayer[layer.id] = iconPointFeaturesByLayer[layer.id] || []).push(feat);
+        } else {
+          pointFeatures.push(feat);
+        }
       }
     });
   });
+
   map.getSource('gis-features-area').setData({ type: 'FeatureCollection', features: areaFeatures });
   map.getSource('gis-features-points').setData({ type: 'FeatureCollection', features: pointFeatures });
+  Object.entries(iconPointFeaturesByLayer).forEach(([layerID, feats]) => {
+    // The source may not exist yet if this is the first redraw for a layer
+    // whose icon is still loading — ensureGisLayerIcon() itself calls this
+    // function again once that source is ready, so no data is lost.
+    const src = map.getSource('gis-icon-points-' + layerID);
+    if (src) src.setData({ type: 'FeatureCollection', features: feats });
+  });
 }
 
 async function loadGisMenuData() {
@@ -4460,8 +4532,26 @@ function openGisLayerEditor(layer) {
   document.getElementById('gisLayerCongestionFlag').checked = !!(layer && layer.flags_incident_congestion_risk);
   document.getElementById('gisLayerDeleteBtn').style.display = layer ? '' : 'none';
   document.getElementById('gisFeaturesSection').style.display = layer ? '' : 'none';
+  const iconWrap = document.getElementById('gisLayerIconImageWrap');
+  if (layer && layer.icon_content_type) {
+    iconWrap.style.display = 'flex';
+    document.getElementById('gisLayerIconImagePreview').src = gisLayerIconURL(layer);
+  } else {
+    iconWrap.style.display = 'none';
+  }
   if (layer) renderGisFeatureListWrap(layer.id);
 }
+
+document.getElementById('gisLayerIconImageRemove').addEventListener('click', async () => {
+  if (!_editingGisLayerID || !confirm('Xóa icon tùy chỉnh của lớp này? Các điểm sẽ hiện lại dạng chấm tròn màu mặc định.')) return;
+  try {
+    await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/icon', { method: 'DELETE' });
+    await loadGisMenuData();
+    const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+    if (layer) openGisLayerEditor(layer);
+    toast('Đã xóa icon', 'success');
+  } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
+});
 
 document.getElementById('gisLayerCancelBtn').addEventListener('click', showGisLayerListView);
 
@@ -4669,31 +4759,20 @@ document.getElementById('gisFeatureDeleteBtn').addEventListener('click', async (
   } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
 });
 
-// ── KML import for Point/LineString into the currently-open layer ───────
+// ── KML/KMZ import for Point/LineString into the currently-open layer ───
 // Separate tool from #regionImportKmlFile above (Polygon-only, for Địa
 // bàn) — this is exactly the gap that caused the original "Không tìm thấy
 // địa bàn" error when importing a KML made of Point/LineString placemarks
 // into the region importer, which only ever recognizes <Polygon>.
-function parseKmlToGisFeatures(kmlText) {
-  const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
-  if (doc.querySelector('parsererror')) throw new Error('File KML không hợp lệ.');
-  const out = [];
-  doc.querySelectorAll('Placemark').forEach(pm => {
-    const name = pm.querySelector('name')?.textContent?.trim() || '';
-    const pointCoordEl = pm.querySelector('Point > coordinates');
-    if (pointCoordEl) {
-      const pts = parseKmlCoordinates(pointCoordEl.textContent);
-      if (pts.length >= 1) { out.push({ label: name, kind: 'point', lat: pts[0][1], lng: pts[0][0] }); return; }
-    }
-    const lineCoordEl = pm.querySelector('LineString > coordinates');
-    if (lineCoordEl) {
-      const pts = parseKmlCoordinates(lineCoordEl.textContent);
-      if (pts.length >= 2) out.push({ label: name, kind: 'segment', line: pts });
-    }
-  });
-  return out;
-}
-
+//
+// Parsing happens SERVER-SIDE (POST .../import, see internal/gis/kml.go)
+// rather than in the browser like the region importer above — a .kmz is a
+// zip archive (a .kml file + any embedded icon images), and unzipping one
+// needs either a JS zip library or, simpler, Go's stdlib archive/zip. Doing
+// it server-side also means a Google My Maps icon embedded in the .kmz
+// (not reachable from a plain <input type=file> without unzipping it) can
+// be captured and reused as this layer's own marker icon instead of the
+// generic colored circle — see ensureGisLayerIcon()/redrawGisFeaturesLayer().
 document.getElementById('gisImportKmlBtn').addEventListener('click', () => {
   document.getElementById('gisImportKmlFile').click();
 });
@@ -4701,47 +4780,34 @@ document.getElementById('gisImportKmlFile').addEventListener('change', async e =
   const file = e.target.files[0];
   e.target.value = '';
   if (!file || !_editingGisLayerID) return;
-  let feats;
+
+  // Whether the file has points/segments is only known after the server
+  // parses it (especially for .kmz), so ask for both radii up front — a
+  // radius for a kind the file turns out not to have is simply unused.
+  const pStr = prompt('Bán kính áp dụng cho các điểm (m) — để trống nếu file không có điểm:', '100');
+  if (pStr === null) return;
+  const sStr = prompt('Bán kính áp dụng cho các đoạn đường (m) — để trống nếu file không có đoạn:', '50');
+  if (sStr === null) return;
+  const pointRadius = parseFloat(pStr) || 0;
+  const segmentRadius = parseFloat(sStr) || 0;
+  if (pointRadius <= 0 && segmentRadius <= 0) { alert('Cần nhập ít nhất 1 bán kính hợp lệ.'); return; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('point_radius_m', String(pointRadius));
+  fd.append('segment_radius_m', String(segmentRadius));
+
   try {
-    feats = parseKmlToGisFeatures(await file.text());
+    const res = await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/import', { method: 'POST', body: fd });
+    await loadGisMenuData();
+    const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+    if (layer) openGisLayerEditor(layer);
+    alert(`Đã nhập ${res.points_created} điểm, ${res.segments_created} đoạn đường.` +
+          (res.failed ? ` ${res.failed} mục lỗi.` : '') +
+          (res.icon_captured ? ' Đã lấy icon từ file KMZ làm biểu tượng cho lớp này.' : ''));
   } catch (err) {
-    alert('Đọc file KML thất bại: ' + err.message);
-    return;
+    alert('Nhập thất bại: ' + err.message);
   }
-  if (!feats.length) { alert('Không tìm thấy Point/LineString nào trong file KML.'); return; }
-
-  const pointCount = feats.filter(f => f.kind === 'point').length;
-  const segmentCount = feats.filter(f => f.kind === 'segment').length;
-  let pointRadius = null, segmentRadius = null;
-
-  if (pointCount > 0) {
-    const s = prompt(`Tìm thấy ${pointCount} điểm. Bán kính áp dụng chung cho điểm (m) — sửa riêng từng mục được sau khi nhập:`, '100');
-    if (s === null) return;
-    pointRadius = parseFloat(s);
-    if (!(pointRadius > 0)) { alert('Bán kính điểm không hợp lệ.'); return; }
-  }
-  if (segmentCount > 0) {
-    const s = prompt(`Tìm thấy ${segmentCount} đoạn đường. Bán kính áp dụng chung cho đoạn đường (m) — sửa riêng từng mục được sau khi nhập:`, '50');
-    if (s === null) return;
-    segmentRadius = parseFloat(s);
-    if (!(segmentRadius > 0)) { alert('Bán kính đoạn đường không hợp lệ.'); return; }
-  }
-
-  let ok = 0, fail = 0;
-  for (const f of feats) {
-    try {
-      const radius = f.kind === 'segment' ? segmentRadius : pointRadius;
-      await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/features', {
-        method: 'POST',
-        body: { label: f.label, kind: f.kind, lat: f.lat || 0, lng: f.lng || 0, line: f.line || [], radius_m: radius },
-      });
-      ok++;
-    } catch (err) { fail++; }
-  }
-  await loadGisMenuData();
-  const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
-  if (layer) openGisLayerEditor(layer);
-  alert(`Đã nhập ${ok} điểm/đoạn.` + (fail ? ` ${fail} mục lỗi.` : ''));
 });
 
 function currentRegionColor() {

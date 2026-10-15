@@ -59,9 +59,16 @@ type Layer struct {
 	// rather than a hardcoded layer name/ID so the admin can designate
 	// whichever layer should drive that check (and so re-purposing it
 	// later, or adding a second such layer, needs no code change).
-	FlagsIncidentCongestionRisk bool      `json:"flags_incident_congestion_risk,omitempty"`
-	CreatedAt                   time.Time `json:"created_at"`
-	UpdatedAt                   time.Time `json:"updated_at"`
+	FlagsIncidentCongestionRisk bool `json:"flags_incident_congestion_risk,omitempty"`
+	// IconContentType is non-empty when this layer has a custom marker
+	// image (e.g. captured from a .kmz import — see kml.go/icon.go) — the
+	// image bytes themselves live on disk (icon.go), never inlined into
+	// this JSON record. A non-empty value is the signal to a caller (the
+	// map page) that GET /api/gis/layers/{id}/icon has something to fetch;
+	// an empty value means "use the generic colored circle marker".
+	IconContentType string    `json:"icon_content_type,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // Feature is one geometry entry within a Layer — either a point (Lat/Lng +
@@ -230,6 +237,10 @@ func UpdateLayer(id string, upd *Layer) (*Layer, error) {
 	stored.ID = id
 	stored.CreatedAt = existing.CreatedAt
 	stored.UpdatedAt = time.Now()
+	// Icon management has its own path (SetLayerIcon/ClearLayerIcon) — a
+	// plain metadata save (rename, recolor, toggle flags) must not silently
+	// wipe a captured icon just because the edit form doesn't carry it.
+	stored.IconContentType = existing.IconContentType
 	layers[id] = &stored
 	if err := saveLayersLocked(); err != nil {
 		return nil, err
@@ -251,6 +262,7 @@ func DeleteLayer(id string) error {
 			delete(features, fid)
 		}
 	}
+	deleteLayerIconLocked(id)
 	if err := saveLayersLocked(); err != nil {
 		return err
 	}

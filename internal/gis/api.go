@@ -13,7 +13,9 @@ package gis
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
@@ -121,13 +123,13 @@ func handleLayers(w http.ResponseWriter, r *http.Request) {
 
 // handleLayersSubpath routes everything under /api/gis/layers/... :
 //
-//	/api/gis/layers/{id}                   → one layer
-//	/api/gis/layers/{id}/features          → feature list/create
-//	/api/gis/layers/{id}/features/{fid}    → one feature
+//	/api/gis/layers/{id}                   → one layer (admin)
+//	/api/gis/layers/{id}/features          → feature list/create (admin)
+//	/api/gis/layers/{id}/features/{fid}    → one feature (admin)
+//	GET /api/gis/layers/{id}/icon          → the layer's custom marker image, if any (any GIS viewer — needed to render the map)
+//	DELETE /api/gis/layers/{id}/icon       → clear the custom icon (admin)
+//	POST /api/gis/layers/{id}/import       → KML/KMZ import (admin)
 func handleLayersSubpath(w http.ResponseWriter, r *http.Request) {
-	if !requireGISAdmin(w, r) {
-		return
-	}
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/gis/layers/"), "/")
 	parts := strings.Split(rest, "/")
 	if parts[0] == "" {
@@ -136,6 +138,21 @@ func handleLayersSubpath(w http.ResponseWriter, r *http.Request) {
 	}
 	layerID := parts[0]
 
+	// The icon GET is the one sub-route a non-admin GIS viewer needs (to
+	// render custom markers on the map) — everything else under
+	// /layers/{id}/... is layer/feature management, admin-only.
+	if len(parts) == 2 && parts[1] == "icon" && r.Method == http.MethodGet {
+		if !requireGISViewer(w, r) {
+			return
+		}
+		handleLayerIcon(w, r, layerID)
+		return
+	}
+
+	if !requireGISAdmin(w, r) {
+		return
+	}
+
 	switch {
 	case len(parts) == 1:
 		handleOneLayer(w, r, layerID)
@@ -143,9 +160,86 @@ func handleLayersSubpath(w http.ResponseWriter, r *http.Request) {
 		handleFeatures(w, r, layerID)
 	case len(parts) == 3 && parts[1] == "features":
 		handleOneFeature(w, r, layerID, parts[2])
+	case len(parts) == 2 && parts[1] == "icon":
+		handleLayerIcon(w, r, layerID) // DELETE only at this point (GET already handled above)
+	case len(parts) == 2 && parts[1] == "import":
+		handleLayerImport(w, r, layerID)
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
 	}
+}
+
+func handleLayerIcon(w http.ResponseWriter, r *http.Request, layerID string) {
+	switch r.Method {
+	case http.MethodGet:
+		data, ct, ok := GetLayerIcon(layerID)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Cache-Control", "private, max-age=300")
+		_, _ = w.Write(data)
+
+	case http.MethodDelete:
+		if err := ClearLayerIcon(layerID); err != nil {
+			status := http.StatusInternalServerError
+			if err == errNotFound {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// maxImportUploadBytes bounds the whole multipart body — generous for a
+// KMZ carrying dozens of placemarks plus one small embedded icon image.
+const maxImportUploadBytes = 20 << 20
+
+func handleLayerImport(w http.ResponseWriter, r *http.Request, layerID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxImportUploadBytes)
+	if err := r.ParseMultipartForm(maxImportUploadBytes); err != nil {
+		http.Error(w, "invalid or too-large upload: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "failed to read uploaded file", http.StatusBadRequest)
+		return
+	}
+
+	pointRadius, _ := strconv.ParseFloat(r.FormValue("point_radius_m"), 64)
+	segmentRadius, _ := strconv.ParseFloat(r.FormValue("segment_radius_m"), 64)
+	if pointRadius <= 0 && segmentRadius <= 0 {
+		http.Error(w, "at least one of point_radius_m/segment_radius_m must be > 0", http.StatusBadRequest)
+		return
+	}
+
+	result, err := ImportKML(layerID, raw, pointRadius, segmentRadius)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err == errLayerNotFound {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func handleOneLayer(w http.ResponseWriter, r *http.Request, id string) {
