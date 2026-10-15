@@ -236,7 +236,14 @@ func HasTab(ctx context.Context, tab string) bool {
 // These are checked in addition to viewerDefaultPaths.
 var tabExtraPaths = map[string][]string{
 	TabMonitor:   {"/api/system/stats"},
-	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast"},
+	// /api/vietmap/route here (not just under AllowMapRoute below) is for
+	// the Dashboard's travel-time route detail map, which draws the real
+	// road-following path for the route's own admin-configured origin/
+	// waypoints/destination — a Dashboard viewer needs this regardless of
+	// whether they also have map.html's separate "🛣 Theo tuyến" (free-form
+	// route-building) permission; the two features use the same proxy but
+	// are otherwise unrelated.
+	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route"},
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
 	TabCounting:  {"/api/counting"},

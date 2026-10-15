@@ -925,10 +925,13 @@ function closeRouteDetail() {
 }
 
 // Route-detail mini map: shows origin (A), destination (B) and any
-// waypoints, connected by a straight line — context for "where does this
-// route actually go", not a routed/road-following path (that would need
-// the VietMap routing API, which is gated behind map.html's own
-// allow_map_route permission — narrower than who can see the dashboard).
+// waypoints, connected by the real road-following path — fetched via the
+// same VietMap Directions proxy map.html's "🛣 Theo tuyến" tool uses (see
+// computeRoute() there) rather than a straight line, so the map matches the
+// actual road the route measures. Falls back to a straight line through
+// origin/waypoints/destination if that call fails (no VietMap key
+// configured, network error, or no route found for these points) — the map
+// still shows something rather than nothing.
 function parseLatLng(s) {
   if (!s) return null;
   const parts = String(s).split(',').map(x => parseFloat(x.trim()));
@@ -948,7 +951,30 @@ async function renderRouteDetailMap(r) {
     return;
   }
   document.getElementById('fcMapWrap').style.display = '';
-  const line = [origin, ...wps, dest];
+  const straightLine = [origin, ...wps, dest];
+
+  let routeCoords = null, routeBounds = null;
+  try {
+    const params = new URLSearchParams();
+    params.append('point', r.origin); // already "lat,lng", same format the API expects
+    String(r.waypoints || '').split('|').map(s => s.trim()).filter(Boolean).forEach(wp => params.append('point', wp));
+    params.append('point', r.destination);
+    params.set('vehicle', 'car');
+    params.set('points_encoded', 'false');
+    const data = await apiFetch('/api/vietmap/route?' + params.toString());
+    if (data?.error) throw new Error(data.error);
+    const path = data?.paths?.[0];
+    const coords = path?.points?.coordinates ?? path?.points;
+    if (coords && coords.length >= 2) {
+      routeCoords = coords;
+      if (path.bbox) {
+        const [w, s, e, n] = path.bbox;
+        routeBounds = [[w, s], [e, n]];
+      }
+    }
+  } catch (_) { /* fall back to the straight line below */ }
+
+  const line = routeCoords || straightLine;
 
   const draw = () => {
     if (!_fcMap.getSource('fcRouteLine')) {
@@ -976,9 +1002,13 @@ async function renderRouteDetailMap(r) {
     addMarker(dest, '#ef4444', 'B');
 
     try {
-      const b = new vietmapgl.LngLatBounds();
-      line.forEach(pt => b.extend(pt));
-      _fcMap.fitBounds(b, { padding: 36, maxZoom: 15, duration: 0 });
+      if (routeBounds) {
+        _fcMap.fitBounds(routeBounds, { padding: 36, maxZoom: 15, duration: 0 });
+      } else {
+        const b = new vietmapgl.LngLatBounds();
+        straightLine.forEach(pt => b.extend(pt));
+        _fcMap.fitBounds(b, { padding: 36, maxZoom: 15, duration: 0 });
+      }
     } catch (_) {}
   };
 
