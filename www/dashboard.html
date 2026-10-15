@@ -757,6 +757,14 @@ function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
 let _fcChart = null;
 let _fcMode = 'time';   // 'time' | 'delay' | 'tti' — chart unit in the route detail
 let _fcRouteId = null;
+// Route-detail mini map (origin/waypoints/destination) — one lazily-created
+// vietmapgl instance reused across every openRouteDetail() call, same
+// "persist across opens, just redraw" lifecycle as #fcOverlay itself
+// (closeRouteDetail only hides it, see below) rather than recreating the
+// map every time, which would re-trigger a full style/tile reload per click.
+let _fcMap = null;
+let _fcMapApiKey = null; // cached vietmap_api_key so every open doesn't re-fetch /api/settings
+let _fcMapMarkers = [];
 function slotHHMM(i) { const m = i * SLOT_MIN; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
 
 function openRouteDetail(routeId) {
@@ -780,6 +788,9 @@ function openRouteDetail(routeId) {
         <button onclick="closeRouteDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:.25rem .6rem;font-size:1rem">✕</button>
       </div>
       <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
+      <div id="fcMapWrap" style="height:200px;border-radius:8px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border)">
+        <div id="fcMap" style="width:100%;height:100%"></div>
+      </div>
       <div id="fcModes" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div style="position:relative;height:340px"><canvas id="fcCanvas"></canvas></div>
       <div id="fcNote" style="font-size:.72rem;color:var(--text-muted);margin-top:10px;line-height:1.5"></div>
@@ -789,6 +800,7 @@ function openRouteDetail(routeId) {
   ov.style.display = 'flex';
   document.getElementById('fcTitle').textContent = '📈 ' + (r.name || routeId);
   _fcRouteId = routeId;
+  renderRouteDetailMap(r);
 
   // Free-flow (no-traffic) travel time: TTI = actual / free-flow, so any TTI
   // converts to minutes as TTI × free-flow. Taken as the median baseSec of the
@@ -910,6 +922,91 @@ function openRouteDetail(routeId) {
 function closeRouteDetail() {
   const ov = document.getElementById('fcOverlay'); if (ov) ov.style.display = 'none';
   if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
+}
+
+// Route-detail mini map: shows origin (A), destination (B) and any
+// waypoints, connected by a straight line — context for "where does this
+// route actually go", not a routed/road-following path (that would need
+// the VietMap routing API, which is gated behind map.html's own
+// allow_map_route permission — narrower than who can see the dashboard).
+function parseLatLng(s) {
+  if (!s) return null;
+  const parts = String(s).split(',').map(x => parseFloat(x.trim()));
+  if (parts.length !== 2 || parts.some(isNaN)) return null;
+  return [parts[1], parts[0]]; // -> [lng, lat], vietmapgl's coordinate order
+}
+
+async function renderRouteDetailMap(r) {
+  const wrap = document.getElementById('fcMap');
+  if (!wrap) return;
+
+  const origin = parseLatLng(r.origin);
+  const dest   = parseLatLng(r.destination);
+  const wps    = String(r.waypoints || '').split('|').map(parseLatLng).filter(Boolean);
+  if (!origin || !dest) {
+    document.getElementById('fcMapWrap').style.display = 'none';
+    return;
+  }
+  document.getElementById('fcMapWrap').style.display = '';
+  const line = [origin, ...wps, dest];
+
+  const draw = () => {
+    if (!_fcMap.getSource('fcRouteLine')) {
+      _fcMap.addSource('fcRouteLine', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _fcMap.addLayer({ id: 'fcRouteLine', type: 'line', source: 'fcRouteLine',
+        paint: { 'line-color': '#2f81f7', 'line-width': 3, 'line-opacity': .85 } });
+    }
+    _fcMap.getSource('fcRouteLine').setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }],
+    });
+
+    _fcMapMarkers.forEach(m => m.remove());
+    _fcMapMarkers = [];
+    const addMarker = (lngLat, color, label) => {
+      const el = document.createElement('div');
+      el.textContent = label;
+      el.style.cssText = `width:22px;height:22px;border-radius:50%;background:${color};color:#fff;` +
+        'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;' +
+        'border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+      _fcMapMarkers.push(new vietmapgl.Marker({ element: el }).setLngLat(lngLat).addTo(_fcMap));
+    };
+    addMarker(origin, '#22c55e', 'A');
+    wps.forEach(w => addMarker(w, '#94a3b8', ''));
+    addMarker(dest, '#ef4444', 'B');
+
+    try {
+      const b = new vietmapgl.LngLatBounds();
+      line.forEach(pt => b.extend(pt));
+      _fcMap.fitBounds(b, { padding: 36, maxZoom: 15, duration: 0 });
+    } catch (_) {}
+  };
+
+  if (_fcMapApiKey === null) {
+    try {
+      const settings = await apiFetch('/api/settings');
+      _fcMapApiKey = (settings || {}).vietmap_api_key || '';
+    } catch (_) { _fcMapApiKey = ''; }
+  }
+  if (!_fcMapApiKey) {
+    wrap.innerHTML = '<div class="db-empty">Chưa cấu hình VietMap API Key</div>';
+    return;
+  }
+
+  if (!_fcMap) {
+    _fcMap = new vietmapgl.Map({
+      container: 'fcMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${_fcMapApiKey}`,
+      center: origin, zoom: 12,
+    });
+    _fcMap.addControl(new vietmapgl.NavigationControl({ showCompass: false }), 'top-right');
+    _fcMap.on('load', draw);
+  } else if (_fcMap.isStyleLoaded()) {
+    draw();
+    _fcMap.resize(); // the modal (and #fcMap) may have been display:none since the map was created
+  } else {
+    _fcMap.once('load', draw);
+  }
 }
 
 // Fetch the server-side Holt-Winters forecast (next 2h) and refresh the chart.
