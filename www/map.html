@@ -4217,7 +4217,48 @@ function ensureGisDisplayLayers() {
     map.addSource('gis-features-points', { type: 'geojson', data: emptyFC() });
     map.addLayer({ id: 'gis-features-points-layer', type: 'circle', source: 'gis-features-points',
       paint: { 'circle-radius': 5, 'circle-color': ['get', 'color'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' } });
+    wireGisPointPopups('gis-features-points-layer');
   }
+}
+
+// gisFeaturePopupHTML renders the fields captured on import (see kml.go's
+// ImportKML — only <name> and the radius the admin chose become a Feature's
+// label/radius_m; KML has no other field this app brings in) plus the
+// feature's own coordinates as its "vị trí".
+function gisFeaturePopupHTML(feature) {
+  const [lng, lat] = feature.geometry.coordinates;
+  const p = feature.properties || {};
+  return `
+    <div style="font-size:.78rem;line-height:1.5;max-width:220px">
+      <div style="font-weight:600;margin-bottom:2px">${escHtml(p.label || '(không tên)')}</div>
+      <div>📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+      ${p.radiusM ? `<div>⭕ Bán kính: ${Math.round(p.radiusM)} m</div>` : ''}
+    </div>`;
+}
+
+// wireGisPointPopups wires both layers a GIS point can render on — the
+// shared generic circle layer and each layer's own custom-icon symbol layer
+// (see ensureGisLayerIcon) — to show a popup with the imported fields on
+// click, same hover/cursor convention as unclustered-point/clusters above.
+function wireGisPointPopups(layerId) {
+  map.on('mouseenter', layerId, () => {
+    if (!_editMode && !_regionDrawing && !_routeMode && !_gisFeatureDrawing) map.getCanvas().style.cursor = 'pointer';
+  });
+  map.on('mouseleave', layerId, () => {
+    map.getCanvas().style.cursor = (_regionDrawing || _routeMode || _gisFeatureDrawing || _incidentAddMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
+  });
+  map.on('click', layerId, e => {
+    // Any active drawing/edit mode takes priority — same precedence the
+    // camera-marker click handlers give those modes — so clicking a GIS
+    // marker while drawing a region/route/feature still places a point
+    // instead of popping up unrelated info.
+    if (_regionDrawing || _routeMode || _gisFeatureDrawing || _editMode) return;
+    const feat = e.features[0];
+    new vietmapgl.Popup({ closeButton: true, maxWidth: '240px' })
+      .setLngLat(feat.geometry.coordinates.slice())
+      .setHTML(gisFeaturePopupHTML(feat))
+      .addTo(map);
+  });
 }
 
 function redrawGisRegionsLayer() {
@@ -4283,6 +4324,7 @@ function ensureGisLayerIcon(layer) {
         id: srcId + '-layer', type: 'symbol', source: srcId,
         layout: { 'icon-image': imgId, 'icon-size': 0.5, 'icon-allow-overlap': true, 'icon-anchor': 'bottom' },
       });
+      wireGisPointPopups(srcId + '-layer');
     }
     redrawGisFeaturesLayer(); // the source above was empty until now — populate it
   }).catch(err => {
@@ -4306,7 +4348,7 @@ function redrawGisFeaturesLayer() {
       const area = gisFeatureAreaPolygon(f, color);
       if (area) areaFeatures.push(area);
       if (f.kind === 'point') {
-        const feat = { type: 'Feature', properties: { color, label: f.label },
+        const feat = { type: 'Feature', properties: { color, label: f.label, radiusM: f.radius_m },
           geometry: { type: 'Point', coordinates: [f.lng, f.lat] } };
         if (layer.icon_content_type) {
           (iconPointFeaturesByLayer[layer.id] = iconPointFeaturesByLayer[layer.id] || []).push(feat);
