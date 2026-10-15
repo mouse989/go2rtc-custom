@@ -19,9 +19,16 @@ body.sb-collapsed           { --map-left:0; }
 
 /* ── Map canvas ────────────────────────────────────────────── */
 #map {
-  position:fixed; top:0; right:0; bottom:0;
+  position:fixed; top:var(--topbar-h); right:0; bottom:0;
   left:var(--map-left);
   z-index:0;
+  /* Starts BELOW the topbar (not top:0) — #map previously extended under
+     it (the topbar fix above made the topbar paint on top, which is
+     correct, but that meant anything the map renders inside its own top
+     ~56px — vietmapgl's built-in zoom/compass controls in particular —
+     was now visibly clipped by the opaque topbar instead of just being
+     overlapped-but-invisible like before). Giving the map area itself a
+     top offset means nothing it draws can ever land under the topbar. */
   transition:left var(--transition);
   /* Own compositing layer, so it never gets squashed with an animating
      sibling (e.g. #resultsPanel's transform transition), which is what
@@ -184,7 +191,12 @@ body.sb-collapsed           { --map-left:0; }
 
 /* ── Map overlay container (Mode 2 – PiP windows) ──────────── */
 #mapOverlays {
-  position:fixed; top:0; right:0; bottom:0;
+  /* Must share #map's exact box (see #map's own comment on why its top
+     changed from 0 to var(--topbar-h)) — map.project() returns pixel
+     coordinates relative to the map canvas's own top-left, so marker
+     leader-lines/PiP windows positioned in this container would land
+     var(--topbar-h) too high if this box didn't start at the same offset. */
+  position:fixed; top:var(--topbar-h); right:0; bottom:0;
   left:var(--map-left);
   z-index:460;
   pointer-events:none;
@@ -1477,7 +1489,6 @@ wireToolbarGroups();
 const OV_W     = 230;
 const OV_H     = 188;
 const OV_PAD   = 14;
-const TOPBAR_H = 56;
 const SNAP_IV  = 10;
 
 // ── State ─────────────────────────────────────────────────────
@@ -2228,7 +2239,7 @@ function resolvePreviewOverlaps(items, cW, cH) {
   }
   items.forEach(item => {
     item.x = Math.max(0, Math.min(cW-PREVIEW_W, item.x));
-    item.y = Math.max(TOPBAR_H, Math.min(cH-PREVIEW_H, item.y));
+    item.y = Math.max(0, Math.min(cH-PREVIEW_H, item.y));
   });
 }
 
@@ -2514,7 +2525,7 @@ function resolveOverlaps(items) {
   const cW=cont.offsetWidth, cH=cont.offsetHeight;
   items.forEach(item => {
     item.x = Math.max(0, Math.min(cW-OV_W, item.x));
-    item.y = Math.max(TOPBAR_H, Math.min(cH-OV_H, item.y));
+    item.y = Math.max(0, Math.min(cH-OV_H, item.y));
   });
 }
 
@@ -2535,7 +2546,7 @@ function updateOverlayPositions() {
     items.push({
       id,
       x: Math.max(0, Math.min(cW-OV_W, pt.x - OV_W/2)),
-      y: Math.max(TOPBAR_H, Math.min(cH-OV_H, pt.y - OV_H - 18)),
+      y: Math.max(0, Math.min(cH-OV_H, pt.y - OV_H - 18)),
     });
   });
   resolveOverlaps(items);
