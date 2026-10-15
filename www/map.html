@@ -4221,9 +4221,14 @@ function ensureGisDisplayLayers() {
 function gisFeaturePopupHTML(feature) {
   const [lng, lat] = feature.geometry.coordinates;
   const p = feature.properties || {};
+  // Hardcoded dark text, not var(--text) — vietmapgl's own Popup box is
+  // always a plain white box regardless of the app's dark/light theme
+  // toggle, but without an explicit color here this content inherits
+  // body's color:var(--text), which in dark theme is near-white — unreadable
+  // on the popup's white background.
   return `
-    <div style="font-size:.78rem;line-height:1.5;max-width:220px">
-      <div style="font-weight:600;margin-bottom:2px">${escHtml(p.label || '(không tên)')}</div>
+    <div style="font-size:.78rem;line-height:1.5;max-width:220px;color:#1a1a1a">
+      <div style="font-weight:600;margin-bottom:2px;color:#0b1422">${escHtml(p.label || '(không tên)')}</div>
       <div>📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
       ${p.radiusM ? `<div>⭕ Bán kính: ${Math.round(p.radiusM)} m</div>` : ''}
     </div>`;
