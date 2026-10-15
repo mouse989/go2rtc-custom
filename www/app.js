@@ -100,6 +100,7 @@ function canMapIncidentAdd() { const u = getUser(); return u && (u.role === 'adm
 function canMapAIEvent() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_ai_events); }
 function canMap3D() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_3d); }
 function canMapTrafficFlow() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_traffic_flow); }
+function canMapGIS() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_gis); }
 function canMonitorWorkers()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_workers); }
 function canMonitorProcess()   { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_process); }
 function canMonitorStreaming()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_monitor_streaming); }
@@ -547,6 +548,16 @@ async function initApp(requiredTab) {
   const toggleBtn = document.getElementById('sidebarToggle');
   const sidebar   = document.getElementById('sidebar');
 
+  // Desktop collapse choice is remembered per browser (same convention as
+  // map.html's own 'map_toolbar_collapsed') — previously this reset to
+  // expanded on every page load/navigation, which made the toggle feel
+  // like it didn't really "stick". Mobile's .open/backdrop overlay is
+  // session-only on purpose (always start closed on a fresh page load).
+  const SB_COLLAPSED_KEY = 'utmc_sidebar_collapsed';
+  if (window.innerWidth > 768 && localStorage.getItem(SB_COLLAPSED_KEY) === '1') {
+    document.body.classList.add('sb-collapsed');
+  }
+
   // Inject backdrop element once (shared across all pages via app.js)
   let backdrop = document.getElementById('sidebarBackdrop');
   if (!backdrop) {
@@ -571,7 +582,8 @@ async function initApp(requiredTab) {
         document.body.classList.toggle('sidebar-open', opening);
         if (window.__map && !opening) setTimeout(() => window.__map.invalidateSize(), 260);
       } else {
-        document.body.classList.toggle('sb-collapsed');
+        const collapsed = document.body.classList.toggle('sb-collapsed');
+        localStorage.setItem(SB_COLLAPSED_KEY, collapsed ? '1' : '0');
         if (window.__map) setTimeout(() => window.__map.invalidateSize(), 220);
       }
     });

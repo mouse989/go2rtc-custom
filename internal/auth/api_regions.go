@@ -28,12 +28,27 @@ func withCameras(r *Region) RegionWithCameras {
 	return RegionWithCameras{Region: *r, Cameras: cams}
 }
 
-// regionsHandler handles /api/regions and /api/regions/{id} — admin only,
-// both read and write (regions are a permission-management tool, not
-// something viewers browse).
+// regionsHandler handles /api/regions and /api/regions/{id}. Writes
+// (create/edit/delete a region) are admin-only — regions are a permission-
+// management tool, not something a viewer should change. Reads are open to
+// any admin or AllowMapGIS user: map.html's "📂 Dữ liệu GIS" menu shows
+// region boundaries (🗺 Địa bàn) side by side with internal/gis layers via
+// one Promise.all in loadGisMenuData() — admin-gating the read side here
+// made that whole call reject with a 403 for every non-admin GIS viewer,
+// silently blanking out not just regions but the GIS layers too (the
+// OTHER, otherwise-successful half of that Promise.all).
 func regionsHandler(w http.ResponseWriter, r *http.Request) {
 	caller, ok := UserFromContext(r.Context())
-	if !ok || caller.Role != RoleAdmin {
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method == http.MethodGet {
+		if caller.Role != RoleAdmin && !caller.AllowMapGIS {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	} else if caller.Role != RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

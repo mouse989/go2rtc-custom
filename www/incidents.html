@@ -154,11 +154,12 @@ table.inc-table { min-width:920px; }
             <th>Nội dung sự việc, tình trạng xử lý</th>
             <th style="width:170px">Đơn vị</th>
             <th style="width:150px">Vị trí</th>
+            <th style="width:80px" title="Thuộc 28 vị trí có nguy cơ ùn tắc giao thông">⚠️ 28 điểm</th>
             <th style="width:110px">Khung giờ</th>
             <th style="width:140px">Ghi chú</th>
             <th style="width:90px"></th>
           </tr></thead>
-          <tbody id="incBody"><tr><td colspan="9" class="inc-empty">Đang tải…</td></tr></tbody>
+          <tbody id="incBody"><tr><td colspan="10" class="inc-empty">Đang tải…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -224,6 +225,15 @@ table.inc-table { min-width:920px; }
           <label class="form-label">Lng</label>
           <input type="number" step="any" class="form-input" id="fiLng" placeholder="Tuỳ chọn">
         </div>
+      </div>
+      <!-- Set automatically by map.html's "Thêm sự cố" (right-click on map,
+           near a GIS layer flagged for this) — here it's just a manual
+           toggle, no auto-detection (this form has no map to check against). -->
+      <div class="form-group" style="padding:.5rem .6rem;border-radius:6px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35)">
+        <label style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="fiCongestionRisk" style="width:16px;height:16px">
+          ⚠️ Thuộc 28 vị trí có nguy cơ ùn tắc giao thông
+        </label>
       </div>
       <div id="fiMsg" style="font-size:.82rem;color:var(--red);display:none;margin-bottom:.6rem"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end">
@@ -450,7 +460,7 @@ function renderTable(list) {
   document.getElementById('incCount').textContent = list.length + ' sự cố';
   const body = document.getElementById('incBody');
   if (!list.length) {
-    body.innerHTML = '<tr><td colspan="9" class="inc-empty">Không có sự cố nào khớp bộ lọc.</td></tr>';
+    body.innerHTML = '<tr><td colspan="10" class="inc-empty">Không có sự cố nào khớp bộ lọc.</td></tr>';
     return;
   }
   body.innerHTML = list.map((inc, i) => `
@@ -461,6 +471,7 @@ function renderTable(list) {
       <td class="inc-content">${esc(inc.content)}</td>
       <td>${esc(inc.unit)}</td>
       <td>${esc(inc.location)}</td>
+      <td style="text-align:center" title="${inc.congestion_risk_point ? 'Thuộc 28 vị trí có nguy cơ ùn tắc giao thông' : ''}">${inc.congestion_risk_point ? '⚠️' : ''}</td>
       <td class="inc-slot">${esc(inc.time_slot)}</td>
       <td>${esc(inc.note || '')}</td>
       <td class="inc-actions">
@@ -483,6 +494,7 @@ function openAddModal() {
   document.getElementById('fiNote').value = '';
   document.getElementById('fiLat').value = '';
   document.getElementById('fiLng').value = '';
+  document.getElementById('fiCongestionRisk').checked = false;
   document.getElementById('fiMsg').style.display = 'none';
   document.getElementById('fiMsg').dataset.id = '';
   updateSlotPreview();
@@ -502,6 +514,7 @@ function openEditModal(i) {
   document.getElementById('fiNote').value = inc.note || '';
   document.getElementById('fiLat').value = inc.lat || '';
   document.getElementById('fiLng').value = inc.lng || '';
+  document.getElementById('fiCongestionRisk').checked = !!inc.congestion_risk_point;
   document.getElementById('fiMsg').style.display = 'none';
   document.getElementById('fiMsg').dataset.id = inc.id;
   updateSlotPreview();
@@ -530,6 +543,7 @@ async function saveIncident() {
     note: document.getElementById('fiNote').value.trim(),
     lat: latVal ? parseFloat(latVal) : 0,
     lng: lngVal ? parseFloat(lngVal) : 0,
+    congestion_risk_point: document.getElementById('fiCongestionRisk').checked,
   };
 
   const id = msg.dataset.id;

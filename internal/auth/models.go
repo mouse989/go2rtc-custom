@@ -77,6 +77,25 @@ type User struct {
 	// authenticated via the Integration API Key system, never this flag —
 	// see internal/trafficflow's own doc comments.
 	AllowMapTrafficFlow bool `json:"allow_map_traffic_flow"`
+	// AllowMapGIS gates map.html's "Dữ liệu GIS" layers — admin-managed
+	// point/segment reference geometry (e.g. "28 điểm nguy cơ ùn tắc", and
+	// later layers like "Đèn giao thông"/"Bảng VMS" — see internal/gis).
+	// View-only, same single-flag convention as AllowMapAIEvents/
+	// AllowMapTrafficFlow above; layer/feature CRUD stays admin-only
+	// (Role == RoleAdmin), never gated by this flag.
+	AllowMapGIS bool `json:"allow_map_gis"`
+	// GisLayerIDs optionally narrows WHICH internal/gis Layers an
+	// AllowMapGIS, non-admin user may see — nil/empty means unrestricted
+	// (every layer), the original and still-default behavior, so existing
+	// users are unaffected. Same shape/precedent as RegionIDs above: an
+	// additive allowlist an admin sets per user rather than a single
+	// blanket flag. Checked in internal/gis/api.go (handleData filters the
+	// layer list; handleLayerIcon checks the one requested layer). Does
+	// NOT gate /api/gis/congestion-check — the "28 điểm nguy cơ ùn tắc"
+	// auto-tick on the incident form is meant to work the same for every
+	// user regardless of which layers they can see on the map (see that
+	// handler's own doc comment).
+	GisLayerIDs []string `json:"gis_layer_ids"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process
@@ -167,6 +186,14 @@ var viewerDefaultPaths = []string{
 	"/api/auth/webauthn",        // device-binding enroll/step-up ceremonies (own account only)
 	"/api/device-scopes",        // device-binding scope catalog (labels only, nothing sensitive)
 	"/api/device-bindings",      // own trusted devices; admin-only listing/actions guarded inside handler
+	// Deliberately NOT gated behind allow_map_gis (unlike /api/gis/data
+	// just below it in userCanAccessPath) — whether an incident sits near
+	// a "28 điểm nguy cơ ùn tắc" point/segment is meant to be the same,
+	// system-wide answer for every user creating an incident, not
+	// something that depends on whether that user also has permission to
+	// see the underlying GIS layer on the map. See internal/gis/api.go's
+	// handleCongestionCheck.
+	"/api/gis/congestion-check",
 }
 
 // Claims holds JWT payload fields

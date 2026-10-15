@@ -19,9 +19,16 @@ body.sb-collapsed           { --map-left:0; }
 
 /* ── Map canvas ────────────────────────────────────────────── */
 #map {
-  position:fixed; top:0; right:0; bottom:0;
+  position:fixed; top:var(--topbar-h); right:0; bottom:0;
   left:var(--map-left);
   z-index:0;
+  /* Starts BELOW the topbar (not top:0) — #map previously extended under
+     it (the topbar fix above made the topbar paint on top, which is
+     correct, but that meant anything the map renders inside its own top
+     ~56px — vietmapgl's built-in zoom/compass controls in particular —
+     was now visibly clipped by the opaque topbar instead of just being
+     overlapped-but-invisible like before). Giving the map area itself a
+     top offset means nothing it draws can ever land under the topbar. */
   transition:left var(--transition);
   /* Own compositing layer, so it never gets squashed with an animating
      sibling (e.g. #resultsPanel's transform transition), which is what
@@ -33,6 +40,13 @@ body.sb-collapsed           { --map-left:0; }
 #mapToolbar {
   position:fixed; top:calc(var(--topbar-h) + .5rem); right:.8rem;
   z-index:400; display:flex; flex-direction:column; gap:.4rem;
+  /* Fixed (not just max-) width — without it, a flex column with no cross-
+     axis constraint sizes to its widest unwrapped child (flex items default
+     to min-width:auto, i.e. their own max-content size), so one long GIS
+     feature label (real road names run 60-80+ chars) would balloon the
+     whole toolbar wide enough to cover most of the map. See
+     .map-subtree-item-label below for the matching per-row truncation. */
+  width:300px;
 }
 .map-btn {
   background:var(--surface); border:1px solid var(--border); border-radius:8px;
@@ -47,9 +61,56 @@ body.sb-collapsed           { --map-left:0; }
 
 /* Collapse toggle: always visible; every other button in the toolbar hides
    when #mapToolbar has .collapsed — this is what keeps the button stack
-   from covering most of the map on a phone screen (see #btnToolbarCollapse). */
-#btnToolbarCollapse { justify-content:center; width:38px; padding:.42rem 0 !important; font-size:1rem !important; }
+   from covering most of the map on a phone screen (see #btnToolbarCollapse).
+   The selector matches .map-btn regardless of nesting depth, so it still
+   hides every button once they're grouped inside .map-group-body below. */
+/* align-self:flex-end — #mapToolbar is a column flex container with no
+   align-items set (default: stretch), so without this the 38px-wide button
+   (an explicit width overrides stretch, but not its position) lands at the
+   cross axis's start, i.e. the LEFT edge of the right-docked 300px panel —
+   same side as the map itself, not the panel's own right edge. */
+#btnToolbarCollapse { align-self:flex-end; justify-content:center; width:38px; padding:.42rem 0 !important; font-size:1rem !important; }
 #mapToolbar.collapsed .map-btn:not(#btnToolbarCollapse) { display:none !important; }
+#mapToolbar.collapsed .map-group { display:none !important; }
+
+/* ── Toolbar groups (📡 Dữ liệu trực tiếp / 📂 Dữ liệu GIS / 🛠 Công cụ /
+   ⚙ Quản trị) — each a collapsible section of .map-btn's, same visual
+   language as .map-btn itself. See wireToolbarGroups(). */
+.map-group {
+  background:var(--surface); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,.3); overflow:hidden;
+}
+.map-group-header {
+  all:unset; box-sizing:border-box; display:flex; align-items:center; gap:.4rem;
+  width:100%; padding:.42rem .75rem; font-size:.78rem; font-weight:700;
+  color:var(--text); cursor:pointer;
+}
+.map-group-header:hover { background:var(--surface2); }
+.map-group-chev { margin-left:auto; color:var(--text-muted); font-size:.7rem; }
+.map-group-body {
+  display:flex; flex-direction:column; gap:.3rem; padding:0 .4rem .4rem;
+  max-height:60vh; overflow-y:auto;
+}
+.map-group-body .map-btn { box-shadow:none; border-color:transparent; background:var(--surface2); }
+.map-group-body .map-btn:hover, .map-group-body .map-btn.active { border-color:var(--accent); }
+
+/* Subtree inside "📂 Dữ liệu GIS": one per data source (Địa bàn, each GIS
+   layer) — a header row with an "all/none" checkbox + expand chevron, then
+   a per-item checkbox list when expanded. */
+.map-subtree { border-top:1px solid var(--border); padding-top:.3rem; margin-top:.2rem; }
+.map-subtree:first-child { border-top:none; padding-top:0; margin-top:0; }
+.map-subtree-header {
+  all:unset; box-sizing:border-box; display:flex; align-items:center; gap:.45rem;
+  width:100%; padding:.3rem .2rem; font-size:.78rem; cursor:pointer;
+}
+.map-subtree-label { flex:1; text-align:left; }
+.map-subtree-body { display:flex; flex-direction:column; gap:.1rem; padding-left:1.35rem; border-left:2px solid var(--border); margin-left:.55rem; }
+.map-subtree-body.collapsed { display:none; }
+.map-subtree-item {
+  display:flex; align-items:center; gap:.4rem; padding:.22rem .3rem; border-radius:5px; font-size:.74rem;
+}
+.map-subtree-item:hover { background:var(--surface2); }
+.map-subtree-empty { font-size:.72rem; color:var(--text-muted); padding:.2rem .2rem; }
 
 /* ── Sidebar layout ────────────────────────────────────────── */
 .sidebar { z-index:500; display:flex; flex-direction:column; }
@@ -135,7 +196,12 @@ body.sb-collapsed           { --map-left:0; }
 
 /* ── Map overlay container (Mode 2 – PiP windows) ──────────── */
 #mapOverlays {
-  position:fixed; top:0; right:0; bottom:0;
+  /* Must share #map's exact box (see #map's own comment on why its top
+     changed from 0 to var(--topbar-h)) — map.project() returns pixel
+     coordinates relative to the map canvas's own top-left, so marker
+     leader-lines/PiP windows positioned in this container would land
+     var(--topbar-h) too high if this box didn't start at the same offset. */
+  position:fixed; top:var(--topbar-h); right:0; bottom:0;
   left:var(--map-left);
   z-index:460;
   pointer-events:none;
@@ -298,6 +364,41 @@ body.sb-collapsed           { --map-left:0; }
 .region-row .region-count { color:var(--text-muted); font-size:.73rem; white-space:nowrap; }
 .region-empty { font-size:.78rem; color:var(--text-muted); text-align:center; padding:1rem 0; }
 
+/* ── "Dữ liệu GIS" admin panel ─────────────────────────────────
+   Same floating-panel look as #regionPanel/#stnPanel above. */
+#gisAdminPanel {
+  position:fixed; left:calc(var(--map-left) + .8rem); top:80px;
+  z-index:400; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:.85rem;
+  width:340px; min-width:280px; max-width:480px;
+  display:none; flex-direction:column; gap:.6rem;
+  box-shadow:0 4px 20px rgba(0,0,0,.4);
+  max-height:calc(100vh - 120px); overflow-y:auto;
+  transition:left var(--transition);
+}
+#gisAdminPanel.show { display:flex; }
+#gisAdminPanel h4 { font-size:.9rem; font-weight:700; margin:0; }
+#gisAdminPanel h5 { font-size:.78rem; font-weight:700; margin:.3rem 0 0; }
+#gisAdminPanel label { font-size:.73rem; color:var(--text-muted); display:block; margin-bottom:.15rem; }
+#gisAdminPanel input[type="text"], #gisAdminPanel input[type="number"] {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:6px; padding:.32rem .5rem; color:var(--text); font-size:.81rem;
+  box-sizing:border-box;
+}
+#gisAdminPanel input[type="color"] {
+  width:100%; height:32px; padding:.15rem; border:1px solid var(--border);
+  border-radius:6px; background:var(--surface2); cursor:pointer;
+}
+#gisAdminPanel .chk-row { display:flex; align-items:center; gap:.4rem; font-size:.78rem; color:var(--text); cursor:pointer; }
+.gis-layer-row, .gis-feature-row {
+  display:flex; align-items:center; gap:.5rem; padding:.4rem .3rem;
+  border-bottom:1px solid var(--border); font-size:.8rem; cursor:pointer;
+}
+.gis-layer-row:last-child, .gis-feature-row:last-child { border-bottom:none; }
+.gis-row-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gis-row-meta { color:var(--text-muted); font-size:.71rem; white-space:nowrap; }
+.gis-empty { font-size:.78rem; color:var(--text-muted); text-align:center; padding:1rem 0; }
+
 /* ── Route ("Theo tuyến") corridor panel ─────────────────────── */
 #routePanel {
   position:fixed; left:calc(var(--map-left) + .8rem); top:80px;
@@ -333,7 +434,14 @@ body.sb-collapsed           { --map-left:0; }
 
 /* .main on map page: pass clicks through except topbar; transparent so map shows through */
 .main { pointer-events:none; background:transparent; }
-.topbar { pointer-events:all; background:var(--surface); }
+/* #map is position:fixed with its own z-index (0) — any positioned element
+   paints after static in-flow content regardless of that z-index value, so
+   without position+z-index here the map canvas silently painted OVER the
+   topbar (title + sidebar-toggle button were in the DOM, clickable even,
+   just visually hidden underneath #map). Pre-existing bug, not something
+   the GIS-menu changes introduced — just surfaced once the user went
+   looking for the sidebar-collapse button on this page specifically. */
+.topbar { pointer-events:all; background:var(--surface); position:relative; z-index:10; }
 
 /* ── Traffic counting station markers ───────────────────────── */
 .stn-marker-wrap {
@@ -688,71 +796,128 @@ body.sb-collapsed           { --map-left:0; }
   <a href="/admin.html" class="btn btn-primary" style="text-decoration:none">Go to Admin → Settings</a>
 </div>
 
-<!-- ── Floating toolbar ──────────────────────────────────────── -->
+<!-- ── Floating toolbar ──────────────────────────────────────────
+     Grouped/collapsible: 📡 Dữ liệu trực tiếp (live feeds) · 📂 Dữ liệu GIS
+     (admin-managed reference layers — Địa bàn + internal/gis layers,
+     expandable to per-item checkboxes) · 🛠 Công cụ · ⚙ Quản trị
+     (admin-only, collapsed by default). Every existing button keeps its
+     original id/attributes (only relocated into a group body), so none of
+     its existing click-handler/permission-visibility JS needed to change —
+     see wireToolbarGroups() for the new group-collapse behavior. ───────── -->
 <div id="mapToolbar">
   <button class="map-btn" id="btnToolbarCollapse" title="Thu gọn/mở rộng menu bản đồ">☰</button>
-  <!-- Search area / Theo tuyến: shown only for admin or users with allow_map_search / allow_map_route -->
-  <button class="map-btn" id="btnSearch" style="display:none">
-    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
-    Search area
-  </button>
-  <button class="map-btn" id="btnRoute" style="display:none" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
-    🛣 Theo tuyến
-  </button>
-  <!-- Traffic Event: shown only for admin or users with allow_map_incident_add (and the Incidents tab).
-       While on: shows "bubble" markers for incidents reported within the admin-configured
-       time window (see loadActiveIncidents), AND lets right-click open the quick-add modal
-       pre-filled with that point's lat/lng — same toggle, two effects of one "layer". -->
-  <button class="map-btn" id="btnIncidentAdd" style="display:none" title="Bật để xem sự cố gần đây trên bản đồ; click phải (chuột phải) để thêm sự cố mới tại vị trí đó — tọa độ tự điền vào form">
-    🚨 Traffic Event
-  </button>
-  <!-- AI Event: shown only for admin or users with allow_map_ai_events. Independent layer/toggle
-       from Traffic Event — shows bubble markers for events pushed by external AI sources
-       (OMNIA/FPT VDS...) within the admin-configured time window, plus a floating image
-       preview near any event that has an attachment (may require device verification). -->
-  <button class="map-btn" id="btnAIEvent" style="display:none" title="Bật để xem sự cố AI (OMNIA/FPT VDS...) gần đây trên bản đồ">
-    🤖 AI Event
-  </button>
-  <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
-  <button class="map-btn" id="btnTraffic" style="display:none">
-    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
-    🚦 Traffic
-  </button>
-  <!-- Traffic source picker: only shown for admin or users with allow_traffic_live -->
-  <div id="trafficSrcRow" style="display:none;gap:.3rem">
-    <button class="map-btn" id="trafficSrcLegacy" style="flex:1;font-size:.72rem;padding:.3rem .5rem;justify-content:center" title="Nguồn traffic hiện tại">Hiện tại</button>
-    <button class="map-btn" id="trafficSrcLive" style="flex:1;font-size:.72rem;padding:.3rem .5rem;justify-content:center" title="Nguồn traffic tối ưu (VietMap Live)">Tối ưu</button>
+
+  <div class="map-group" data-group="live">
+    <button class="map-group-header" type="button">📡 Dữ liệu trực tiếp <span class="map-group-chev">▾</span></button>
+    <div class="map-group-body">
+      <!-- Traffic Event: shown only for admin or users with allow_map_incident_add (and the Incidents tab).
+           While on: shows "bubble" markers for incidents reported within the admin-configured
+           time window (see loadActiveIncidents), AND lets right-click open the quick-add modal
+           pre-filled with that point's lat/lng — same toggle, two effects of one "layer". -->
+      <button class="map-btn" id="btnIncidentAdd" style="display:none" title="Bật để xem sự cố gần đây trên bản đồ; click phải (chuột phải) để thêm sự cố mới tại vị trí đó — tọa độ tự điền vào form">
+        🚨 Traffic Event
+      </button>
+      <!-- AI Event: shown only for admin or users with allow_map_ai_events. Independent layer/toggle
+           from Traffic Event — shows bubble markers for events pushed by external AI sources
+           (OMNIA/FPT VDS...) within the admin-configured time window, plus a floating image
+           preview near any event that has an attachment (may require device verification). -->
+      <button class="map-btn" id="btnAIEvent" style="display:none" title="Bật để xem sự cố AI (OMNIA/FPT VDS...) gần đây trên bản đồ">
+        🤖 AI Event
+      </button>
+      <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
+      <button class="map-btn" id="btnTraffic" style="display:none">
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
+        🚦 Traffic
+      </button>
+      <!-- Traffic source picker: only shown for admin or users with allow_traffic_live -->
+      <div id="trafficSrcRow" style="display:none;gap:.3rem">
+        <button class="map-btn" id="trafficSrcLegacy" style="flex:1;font-size:.72rem;padding:.3rem .5rem;justify-content:center" title="Nguồn traffic hiện tại">Hiện tại</button>
+        <button class="map-btn" id="trafficSrcLive" style="flex:1;font-size:.72rem;padding:.3rem .5rem;justify-content:center" title="Nguồn traffic tối ưu (VietMap Live)">Tối ưu</button>
+      </div>
+      <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
+      <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
+      <button class="map-btn" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
+      <!-- Hawkwise traffic-flow layer: shown only for admin or users with
+           allow_map_traffic_flow. Independent layer from "📊 Trạm đo" (the
+           internal counting Station layer) — its own admin-managed Sensor
+           mapping (internal/trafficflow), kept as a separate subsystem per the
+           user's explicit instruction, not merged into Station. -->
+      <button class="map-btn" id="btnTrafficFlow" style="display:none" title="Bật/tắt hiển thị Đo đếm lưu lượng trên bản đồ">📊 Đo đếm lưu lượng</button>
+    </div>
   </div>
-  <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
-  <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
-  <button class="map-btn" id="btnSnapPreview" style="display:none" title="Bật/tắt hiển thị snapshot camera trực tiếp trên bản đồ">📷 Xem trước</button>
-  <button class="map-btn" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
-  <!-- 3D view: shown only for admin or users with allow_map_3d. Tilts the camera
-       (pitch) and shows a building-extrusion layer rendered from the base map's
-       own vector tiles — purely a rendering mode, independent of every other
-       layer/tool above (left on while e.g. Traffic/AI Event are also on). -->
-  <button class="map-btn" id="btn3D" style="display:none" title="Bật/tắt chế độ xem 3D (nghiêng camera + hiển thị khối nhà)">🧊 3D</button>
-  <!-- Hawkwise traffic-flow layer: shown only for admin or users with
-       allow_map_traffic_flow. Independent layer from "📊 Trạm đo" (the
-       internal counting Station layer) — its own admin-managed Sensor
-       mapping (internal/trafficflow), kept as a separate subsystem per the
-       user's explicit instruction, not merged into Station. -->
-  <button class="map-btn" id="btnTrafficFlow" style="display:none" title="Bật/tắt hiển thị Đo đếm lưu lượng trên bản đồ">📊 Đo đếm lưu lượng</button>
-  <!-- Map style toggle (single button, shows current mode) -->
-  <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
-  <button class="map-btn admin-only" id="btnEdit" style="display:none">
-    <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
-    Edit locations
-  </button>
-  <button class="map-btn admin-only" id="btnRegions" style="display:none" title="Vẽ vùng địa bàn để phân quyền camera theo khu vực">
-    🗺 Địa bàn
-  </button>
-  <button class="map-btn admin-only" id="btnStnEdit" style="display:none" title="Thêm/sửa trạm đo đếm lưu lượng">
-    📊 Trạm đo
-  </button>
-  <button class="map-btn admin-only" id="btnStnTypes" style="display:none" title="Quản lý loại trạm &amp; ngưỡng màu">
-    ⚙ Loại trạm
-  </button>
+
+  <!-- 📂 Dữ liệu GIS: admin-managed reference layers shown on the map —
+       "Địa bàn" (internal/auth, its own backend/permissions, unchanged)
+       and internal/gis Layers (e.g. "28 điểm nguy cơ ùn tắc"), presented
+       side by side under one tree so adding a future layer (Đèn giao
+       thông, Bảng VMS...) needs no new toolbar entry — see
+       renderGisMenu()/loadGisMenuData(). Shown only for admin or users
+       with allow_map_gis (Địa bàn display itself has no separate
+       permission — any logged-in user may see territory boundaries). -->
+  <div class="map-group" id="gisMenuGroup" style="display:none" data-group="gis">
+    <button class="map-group-header" type="button">📂 Dữ liệu GIS <span class="map-group-chev">▾</span></button>
+    <div class="map-group-body">
+      <div class="map-subtree" id="gisRegionsSubtree">
+        <div class="map-subtree-header" id="gisRegionsToggleHdr">
+          <input type="checkbox" id="gisRegionsAllChk" checked>
+          <span class="map-subtree-label">🗺 Địa bàn</span>
+          <span class="map-group-chev">▾</span>
+        </div>
+        <div class="map-subtree-body" id="gisRegionsList"></div>
+      </div>
+      <div id="gisLayersContainer"></div>
+    </div>
+  </div>
+
+  <div class="map-group" data-group="tools">
+    <button class="map-group-header" type="button">🛠 Công cụ <span class="map-group-chev">▾</span></button>
+    <div class="map-group-body">
+      <!-- Search area / Theo tuyến: shown only for admin or users with allow_map_search / allow_map_route -->
+      <button class="map-btn" id="btnSearch" style="display:none">
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+        Search area
+      </button>
+      <button class="map-btn" id="btnRoute" style="display:none" title="Tìm camera dọc theo một tuyến đường thật, đúng hướng đi (điểm đầu → điểm cuối)">
+        🛣 Theo tuyến
+      </button>
+      <button class="map-btn" id="btnSnapPreview" style="display:none" title="Bật/tắt hiển thị snapshot camera trực tiếp trên bản đồ">📷 Xem trước</button>
+      <!-- 3D view: shown only for admin or users with allow_map_3d. Tilts the camera
+           (pitch) and shows a building-extrusion layer rendered from the base map's
+           own vector tiles — purely a rendering mode, independent of every other
+           layer/tool above (left on while e.g. Traffic/AI Event are also on). -->
+      <button class="map-btn" id="btn3D" style="display:none" title="Bật/tắt chế độ xem 3D (nghiêng camera + hiển thị khối nhà)">🧊 3D</button>
+      <!-- Map style toggle (single button, shows current mode) -->
+      <button class="map-btn" id="btnStyleToggle" title="Toggle Light / Dark map">☀ Light</button>
+    </div>
+  </div>
+
+  <!-- Group container visibility is NOT the blanket .admin-only toggle
+       (canConfigStations() non-admins must see 2 of these buttons too, same
+       exception the original flat toolbar had) — see the explicit
+       toolbarAdminGroup reveal in the boot sequence below. Each button
+       keeps its own .admin-only class so the blanket admin reveal still
+       applies per-button, exactly as before. -->
+  <div class="map-group" id="toolbarAdminGroup" style="display:none" data-group="admin">
+    <button class="map-group-header" type="button">⚙ Quản trị <span class="map-group-chev">▸</span></button>
+    <div class="map-group-body" style="display:none">
+      <button class="map-btn admin-only" id="btnEdit" style="display:none">
+        <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+        Edit locations
+      </button>
+      <button class="map-btn admin-only" id="btnRegions" style="display:none" title="Vẽ vùng địa bàn để phân quyền camera theo khu vực">
+        🗺 Địa bàn
+      </button>
+      <button class="map-btn admin-only" id="btnStnEdit" style="display:none" title="Thêm/sửa trạm đo đếm lưu lượng">
+        📊 Trạm đo
+      </button>
+      <button class="map-btn admin-only" id="btnStnTypes" style="display:none" title="Quản lý loại trạm &amp; ngưỡng màu">
+        ⚙ Loại trạm
+      </button>
+      <button class="map-btn admin-only" id="btnGisAdmin" style="display:none" title="Quản lý lớp &amp; điểm/đoạn dữ liệu GIS">
+        📂 Dữ liệu GIS (sửa)
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Results panel ──────────────────────────────────────────── -->
@@ -873,6 +1038,97 @@ body.sb-collapsed           { --map-left:0; }
   </div>
 </div>
 
+<!-- ── "Dữ liệu GIS" admin panel (internal/gis Layer + Feature CRUD) ──
+     Only for lớp/điểm/đoạn GIS — KHÔNG quản lý Địa bàn (vẫn dùng
+     #regionPanel/btnRegions riêng, backend độc lập — xem internal/gis
+     gis.go's doc comment). 3 sub-views: danh sách lớp → sửa 1 lớp (+ danh
+     sách điểm/đoạn của lớp đó) → sửa 1 điểm/đoạn. ──────────────────── -->
+<div id="gisAdminPanel">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h4>📂 Dữ liệu GIS</h4>
+    <button class="btn btn-secondary" id="gisAdminPanelClose" style="font-size:.75rem;padding:.15rem .5rem">✕</button>
+  </div>
+
+  <!-- Always-visible (not inside any of the 3 sub-views below) so it stays
+       shown no matter which view startGisFeatureDraw() hides while a
+       point/segment is being drawn on the map — see stopGisFeatureDrawing(). -->
+  <div id="gisDrawToolbar" style="display:none">
+    <div id="gisFeatureDrawHint" style="font-size:.76rem;color:var(--accent);margin-bottom:.3rem"></div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+      <button class="btn btn-secondary" id="gisFeatureUndoPoint" style="font-size:.76rem;display:none">↩ Hoàn tác điểm</button>
+      <button class="btn btn-secondary" id="gisFeatureFinishLine" style="font-size:.76rem;display:none">✓ Xong vẽ đoạn</button>
+    </div>
+  </div>
+
+  <div id="gisLayerListView">
+    <p style="font-size:.72rem;color:var(--text-muted);margin:0 0 .3rem">
+      Mỗi lớp là 1 tập điểm/đoạn đường tham chiếu trên bản đồ (vd "28 điểm nguy cơ ùn tắc", sau này "Đèn giao thông", "Bảng VMS"...).
+    </p>
+    <button class="btn btn-primary" id="gisLayerNewBtn" style="font-size:.8rem;width:100%">+ Lớp mới</button>
+    <div id="gisLayerListWrap"></div>
+  </div>
+
+  <div id="gisLayerEditView" style="display:none">
+    <div>
+      <label>Tên lớp</label>
+      <input type="text" id="gisLayerName" placeholder="VD: 28 điểm nguy cơ ùn tắc">
+    </div>
+    <div style="display:flex;gap:.5rem">
+      <div style="flex:1">
+        <label>Màu</label>
+        <input type="color" id="gisLayerColor" value="#f59e0b">
+      </div>
+      <div style="flex:1">
+        <label>Icon (emoji, hiện trong menu)</label>
+        <input type="text" id="gisLayerIcon" placeholder="⚠️" maxlength="4">
+      </div>
+    </div>
+    <!-- Custom marker IMAGE (vd lấy tự động từ file .kmz) — khác với emoji
+         ở trên: cái này dùng để vẽ icon thật trên bản đồ thay vì chấm tròn
+         màu mặc định. Chỉ hiện khi lớp đã có icon. -->
+    <div id="gisLayerIconImageWrap" style="display:none;align-items:center;gap:.6rem;padding:.4rem .5rem;border:1px solid var(--border);border-radius:6px;background:var(--surface2)">
+      <img id="gisLayerIconImagePreview" style="width:28px;height:28px;object-fit:contain" alt="icon lớp">
+      <span style="font-size:.72rem;color:var(--text-muted);flex:1">Icon bản đồ hiện tại (lấy từ KMZ)</span>
+      <button type="button" class="btn btn-secondary" id="gisLayerIconImageRemove" style="font-size:.68rem;padding:.2rem .5rem">Xóa icon</button>
+    </div>
+    <label class="chk-row"><input type="checkbox" id="gisLayerDefaultOn"> Hiện mặc định trên bản đồ (khi user chưa tự bật/tắt)</label>
+    <label class="chk-row"><input type="checkbox" id="gisLayerCongestionFlag"> Dùng lớp này để tự động tích "⚠️ Thuộc 28 vị trí có nguy cơ ùn tắc" khi tạo sự cố gần đây</label>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+      <button class="btn btn-primary" id="gisLayerSaveBtn" style="flex:1;font-size:.8rem">💾 Lưu lớp</button>
+      <button class="btn btn-secondary" id="gisLayerCancelBtn" style="font-size:.8rem">Hủy</button>
+      <button class="btn btn-danger" id="gisLayerDeleteBtn" style="font-size:.8rem;display:none">🗑</button>
+    </div>
+
+    <div id="gisFeaturesSection" style="display:none">
+      <h5>Điểm / đoạn đường trong lớp</h5>
+      <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+        <button class="btn btn-secondary" id="gisFeatureAddPointBtn" style="font-size:.74rem;flex:1">+ Điểm mới</button>
+        <button class="btn btn-secondary" id="gisFeatureAddSegmentBtn" style="font-size:.74rem;flex:1">+ Đoạn mới</button>
+      </div>
+      <button class="btn btn-secondary" id="gisImportKmlBtn" style="font-size:.74rem;width:100%">⬆ Nhập Point/LineString từ KML/KMZ</button>
+      <p style="font-size:.68rem;color:var(--text-muted);margin:.2rem 0 0">File .kmz (vd xuất từ Google My Maps) sẽ tự lấy luôn icon biểu tượng làm icon của lớp này, nếu có.</p>
+      <input type="file" id="gisImportKmlFile" accept=".kml,.kmz" style="display:none">
+      <div id="gisFeatureListWrap"></div>
+    </div>
+  </div>
+
+  <div id="gisFeatureEditView" style="display:none">
+    <div>
+      <label>Tên điểm/đoạn</label>
+      <input type="text" id="gisFeatureLabel" placeholder="VD: Ngã tư Hàng Xanh">
+    </div>
+    <div>
+      <label>Bán kính (m) — từ điểm, hoặc từ đoạn đường</label>
+      <input type="number" id="gisFeatureRadius" min="1" step="1" value="100">
+    </div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.2rem">
+      <button class="btn btn-primary" id="gisFeatureSaveBtn" style="flex:1;font-size:.8rem">💾 Lưu</button>
+      <button class="btn btn-secondary" id="gisFeatureCancelBtn" style="font-size:.8rem">Hủy</button>
+      <button class="btn btn-danger" id="gisFeatureDeleteBtn" style="font-size:.8rem;display:none">🗑</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Route ("Theo tuyến") corridor panel ──────────────────────── -->
 <div id="routePanel">
   <div style="display:flex;align-items:center;justify-content:space-between">
@@ -967,6 +1223,14 @@ body.sb-collapsed           { --map-left:0; }
         <label class="form-label">Đơn vị *</label>
         <input class="form-input" id="miUnit" list="miDlUnit" placeholder="ĐỘI CSGT …">
         <datalist id="miDlUnit"></datalist>
+        <!-- Shown when the Lat/Lng just set falls inside a saved "Địa bàn" —
+             see refreshIncidentLocationSuggestions(). Region.Name IS used
+             directly as the suggested unit name, by the admin's own
+             convention (a region is named after the team responsible). -->
+        <div id="miUnitSuggest" style="display:none;margin-top:.35rem;padding:.4rem .55rem;border-radius:6px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.35);font-size:.74rem;align-items:center;gap:.5rem">
+          <span id="miUnitSuggestText" style="flex:1"></span>
+          <button type="button" class="btn btn-secondary" id="miUnitSuggestUse" style="font-size:.7rem;padding:.2rem .5rem">Dùng gợi ý</button>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Nội dung sự việc, tình trạng xử lý *</label>
@@ -992,6 +1256,17 @@ body.sb-collapsed           { --map-left:0; }
           <label class="form-label">Lng</label>
           <input type="number" step="any" class="form-input" id="miLng" placeholder="Tự điền khi click phải trên bản đồ">
         </div>
+      </div>
+      <!-- Auto-ticked when Lat/Lng falls within an internal/gis layer flagged
+           FlagsIncidentCongestionRisk (e.g. "28 điểm nguy cơ ùn tắc") — see
+           refreshIncidentLocationSuggestions(). Admin can still untick by
+           hand; hidden entirely when there's no Lat/Lng to check against. -->
+      <div class="form-group" id="miCongestionWrap" style="display:none;padding:.5rem .6rem;border-radius:6px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35)">
+        <label style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="miCongestionRisk" style="width:16px;height:16px">
+          ⚠️ Thuộc 28 vị trí có nguy cơ ùn tắc giao thông
+        </label>
+        <div id="miCongestionNote" style="display:none;font-size:.72rem;color:var(--text-muted);margin-top:.25rem;padding-left:1.5rem"></div>
       </div>
       <div id="miMsg" style="font-size:.82rem;color:var(--red);display:none;margin-bottom:.6rem"></div>
       <div style="display:flex;gap:.5rem;justify-content:flex-end">
@@ -1187,11 +1462,38 @@ body.sb-collapsed           { --map-left:0; }
   apply();
 })();
 
+// ── Toolbar group collapse/expand (📡/📂/🛠/⚙) — each .map-group-header
+// toggles its sibling .map-group-body; per-browser remembered state, same
+// convention as initToolbarCollapse above. Groups default OPEN except
+// "⚙ Quản trị", which defaults CLOSED (admin tools shouldn't dominate the
+// panel on open) — matches the reviewed mockup.
+function wireToolbarGroups() {
+  document.querySelectorAll('#mapToolbar > .map-group').forEach(group => {
+    const key = 'map_group_open_' + (group.dataset.group || '');
+    const header = group.querySelector(':scope > .map-group-header');
+    const body = group.querySelector(':scope > .map-group-body');
+    const chev = header.querySelector('.map-group-chev');
+    if (!header || !body) return;
+    const stored = localStorage.getItem(key);
+    let open = stored !== null ? stored === '1' : group.dataset.group !== 'admin';
+    const apply = () => {
+      body.style.display = open ? '' : 'none';
+      if (chev) chev.textContent = open ? '▾' : '▸';
+    };
+    header.addEventListener('click', () => {
+      open = !open;
+      localStorage.setItem(key, open ? '1' : '0');
+      apply();
+    });
+    apply();
+  });
+}
+wireToolbarGroups();
+
 // ── Constants ─────────────────────────────────────────────────
 const OV_W     = 230;
 const OV_H     = 188;
 const OV_PAD   = 14;
-const TOPBAR_H = 56;
 const SNAP_IV  = 10;
 
 // ── State ─────────────────────────────────────────────────────
@@ -1645,6 +1947,7 @@ async function initMap(apiKey) {
   map.on('click', 'clusters', async e => {
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     if (_routeMode) { addRoutePoint(e.lngLat); return; }
+    if (_gisFeatureDrawing) { addGisFeaturePoint(e.lngLat); return; }
     const feat  = e.features[0];
     const src   = map.getSource('cameras');
     const coord = feat.geometry.coordinates.slice();
@@ -1669,6 +1972,7 @@ async function initMap(apiKey) {
   map.on('click', 'unclustered-point', e => {
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     if (_routeMode) { addRoutePoint(e.lngLat); return; }
+    if (_gisFeatureDrawing) { addGisFeaturePoint(e.lngLat); return; }
     if (_editMode) return;
     const id = e.features[0].properties.id;
     if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
@@ -1680,6 +1984,7 @@ async function initMap(apiKey) {
     if (map.queryRenderedFeatures(e.point, { layers }).length > 0) return;
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     if (_routeMode) { addRoutePoint(e.lngLat); return; }
+    if (_gisFeatureDrawing) { addGisFeaturePoint(e.lngLat); return; }
     if (_searchMode) { runSearch(e.lngLat, getRadiusKm()); return; }
     if (_editMode) {
       document.getElementById('editLat').value = e.lngLat.lat.toFixed(6);
@@ -1715,10 +2020,10 @@ async function initMap(apiKey) {
       // the only thing Traffic Event mode changes), so the cursor should
       // say so — otherwise hovering a camera shows the same crosshair as
       // empty map, which reads as "not clickable" when it still is.
-      if (!_editMode && !_regionDrawing && !_routeMode) map.getCanvas().style.cursor = 'pointer';
+      if (!_editMode && !_regionDrawing && !_routeMode && !_gisFeatureDrawing) map.getCanvas().style.cursor = 'pointer';
     });
     map.on('mouseleave', layer, () => {
-      map.getCanvas().style.cursor = (_regionDrawing || _routeMode || _incidentAddMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
+      map.getCanvas().style.cursor = (_regionDrawing || _routeMode || _gisFeatureDrawing || _incidentAddMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
     });
   });
 
@@ -1939,7 +2244,7 @@ function resolvePreviewOverlaps(items, cW, cH) {
   }
   items.forEach(item => {
     item.x = Math.max(0, Math.min(cW-PREVIEW_W, item.x));
-    item.y = Math.max(TOPBAR_H, Math.min(cH-PREVIEW_H, item.y));
+    item.y = Math.max(0, Math.min(cH-PREVIEW_H, item.y));
   });
 }
 
@@ -2225,7 +2530,7 @@ function resolveOverlaps(items) {
   const cW=cont.offsetWidth, cH=cont.offsetHeight;
   items.forEach(item => {
     item.x = Math.max(0, Math.min(cW-OV_W, item.x));
-    item.y = Math.max(TOPBAR_H, Math.min(cH-OV_H, item.y));
+    item.y = Math.max(0, Math.min(cH-OV_H, item.y));
   });
 }
 
@@ -2246,7 +2551,7 @@ function updateOverlayPositions() {
     items.push({
       id,
       x: Math.max(0, Math.min(cW-OV_W, pt.x - OV_W/2)),
-      y: Math.max(TOPBAR_H, Math.min(cH-OV_H, pt.y - OV_H - 18)),
+      y: Math.max(0, Math.min(cH-OV_H, pt.y - OV_H - 18)),
     });
   });
   resolveOverlaps(items);
@@ -3071,11 +3376,91 @@ async function openMapIncidentModal(lngLat) {
   document.getElementById('miLng').value = lngLat.lng.toFixed(6);
   document.getElementById('miMsg').style.display = 'none';
   document.getElementById('incAddModalBackdrop').classList.add('open');
+  refreshIncidentLocationSuggestions();
 }
 
 function closeMapIncidentModal() {
   document.getElementById('incAddModalBackdrop')?.classList.remove('open');
 }
+
+// ── Thêm sự cố: auto-suggest Đơn vị (theo Địa bàn) + auto-tick "28 điểm
+// nguy cơ ùn tắc" (theo internal/gis layer có flags_incident_congestion_
+// risk) ─────────────────────────────────────────────────────────────────
+// Reuses _allRegions/_gisLayers already fetched by loadGisMenuData() for
+// the "📂 Dữ liệu GIS" map layers — no extra request needed — and the
+// SAME haversine()/nearestOnPolyline() functions the "Search area"/"Theo
+// tuyến" camera tools use, so "gần" means the same thing everywhere.
+
+function regionsContainingPoint(lat, lng) {
+  if (typeof turf === 'undefined') return [];
+  const pt = turf.point([lng, lat]);
+  return _allRegions.filter(r => {
+    const rings = [...(r.polygons || []), ...(r.buffer_polygons || [])];
+    return rings.some(ring => {
+      if (!ring || ring.length < 3) return false;
+      try { return turf.booleanPointInPolygon(pt, turf.polygon([[...ring, ring[0]]])); }
+      catch (_) { return false; }
+    });
+  });
+}
+
+async function refreshIncidentLocationSuggestions() {
+  const latVal = parseFloat(document.getElementById('miLat').value);
+  const lngVal = parseFloat(document.getElementById('miLng').value);
+  const suggestBox = document.getElementById('miUnitSuggest');
+  const congestionWrap = document.getElementById('miCongestionWrap');
+  const congestionChk = document.getElementById('miCongestionRisk');
+  const congestionNote = document.getElementById('miCongestionNote');
+
+  if (isNaN(latVal) || isNaN(lngVal)) {
+    suggestBox.style.display = 'none';
+    congestionWrap.style.display = 'none';
+    congestionChk.checked = false;
+    congestionNote.style.display = 'none';
+    return;
+  }
+
+  const regions = regionsContainingPoint(latVal, lngVal);
+  if (regions.length > 0) {
+    document.getElementById('miUnitSuggestText').textContent =
+      '💡 Vị trí thuộc địa bàn "' + regions.map(r => r.name).join('", "') + '" → gợi ý Đơn vị: ' + regions[0].name;
+    suggestBox.style.display = 'flex';
+    suggestBox.dataset.suggestedUnit = regions[0].name;
+  } else {
+    suggestBox.style.display = 'none';
+    delete suggestBox.dataset.suggestedUnit;
+  }
+
+  congestionWrap.style.display = '';
+  // Server-side check (internal/gis.CongestionRiskMatch via
+  // /api/gis/congestion-check), not the client's own _gisLayers —
+  // _gisLayers only holds whatever GIS layers the CURRENT user has view
+  // permission for, but whether this incident is near a "28 điểm nguy cơ
+  // ùn tắc" point/segment is meant to be the same, system-wide answer for
+  // every user, regardless of their own GIS view permission (the endpoint
+  // isn't gated by AllowMapGIS at all — just plain login).
+  try {
+    const res = await apiFetch('/api/gis/congestion-check?lat=' + encodeURIComponent(latVal) + '&lng=' + encodeURIComponent(lngVal));
+    if (res && res.match) {
+      congestionChk.checked = true;
+      congestionNote.style.display = '';
+      congestionNote.textContent = '✓ Tự động tích — cách "' + res.label +
+        '" khoảng ' + res.distance_m + 'm (bán kính ' + Math.round(res.radius_m) + 'm). Có thể bỏ tích nếu sai.';
+    } else {
+      congestionChk.checked = false;
+      congestionNote.style.display = 'none';
+    }
+  } catch (err) {
+    console.warn('[map] congestion-check failed:', err);
+  }
+}
+
+document.getElementById('miUnitSuggestUse').addEventListener('click', () => {
+  const box = document.getElementById('miUnitSuggest');
+  if (box.dataset.suggestedUnit) document.getElementById('miUnit').value = box.dataset.suggestedUnit;
+});
+document.getElementById('miLat').addEventListener('blur', refreshIncidentLocationSuggestions);
+document.getElementById('miLng').addEventListener('blur', refreshIncidentLocationSuggestions);
 
 async function saveMapIncident() {
   const msg = document.getElementById('miMsg');
@@ -3095,6 +3480,7 @@ async function saveMapIncident() {
     note: document.getElementById('miNote').value.trim(),
     lat: latVal ? parseFloat(latVal) : 0,
     lng: lngVal ? parseFloat(lngVal) : 0,
+    congestion_risk_point: document.getElementById('miCongestionRisk').checked,
   };
 
   const btn = document.getElementById('incAddSave');
@@ -3767,6 +4153,736 @@ function removeRegionLayers() {
   ['region-draft-fill','region-draft-points','region-cam-highlight','region-draft-buffer']
     .forEach(id => { if (map.getSource(id)) map.removeSource(id); });
 }
+
+// ── "📂 Dữ liệu GIS" persistent display layers (Địa bàn + internal/gis) ──
+// Independent of ensureRegionLayers()/removeRegionLayers() above (those are
+// the admin-only DRAW/EDIT-time preview layers, active only while the
+// region panel is open in edit mode) — this section renders EVERY saved
+// region + EVERY internal/gis layer's features at all times (subject to
+// each item's own checkbox state), for any user with allow_map_gis. See
+// the "📂 Dữ liệu GIS" toolbar group markup and wireToolbarGroups().
+let _allRegions = [];  // RegionWithCameras[] from GET /api/regions
+let _gisLayers  = [];  // [{...Layer, features:[...]}] from GET /api/gis/data
+let _hiddenRegionIds     = new Set(JSON.parse(localStorage.getItem('map_gis_hidden_regions') || '[]'));
+let _hiddenGisFeatureIds = new Set(JSON.parse(localStorage.getItem('map_gis_hidden_features') || '[]'));
+
+function saveHiddenRegionIds()     { localStorage.setItem('map_gis_hidden_regions', JSON.stringify([..._hiddenRegionIds])); }
+function saveHiddenGisFeatureIds() { localStorage.setItem('map_gis_hidden_features', JSON.stringify([..._hiddenGisFeatureIds])); }
+
+// A plain <img src> or map.loadImage() request carries no Authorization
+// header, so the token travels as a query param — the exact same fallback
+// internal/auth/middleware.go already supports for this, and the same
+// convention aiEventImageURL() uses for AI-event attachment images.
+// &v= cache-busts by the layer's own updated_at, so replacing an icon
+// (delete + re-import) doesn't keep serving a stale cached image.
+function gisLayerIconURL(layer) {
+  return '/api/gis/layers/' + encodeURIComponent(layer.id) + '/icon?token=' + encodeURIComponent(_token || '') +
+    '&v=' + encodeURIComponent(layer.updated_at || '');
+}
+
+function ensureGisDisplayLayers() {
+  // Guard against the map never having initialized (e.g. the VietMap GL
+  // script failed to load) — the "📂 Dữ liệu GIS" admin panel and menu
+  // checkbox tree only need the fetched data + DOM, not a live map, so a
+  // failed map init shouldn't also take those down. redrawGisRegionsLayer/
+  // redrawGisFeaturesLayer already guard the same way; this is the one
+  // caller that didn't, which used to abort loadGisMenuData() entirely.
+  if (!map) return;
+  if (!map.getSource('gis-regions-fill')) {
+    map.addSource('gis-regions-fill', { type: 'geojson', data: emptyFC() });
+    map.addLayer({ id: 'gis-regions-fill-layer', type: 'fill', source: 'gis-regions-fill',
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.14 } });
+    map.addLayer({ id: 'gis-regions-line-layer', type: 'line', source: 'gis-regions-fill',
+      paint: { 'line-color': ['get', 'color'], 'line-width': 1.6 } });
+  }
+  if (!map.getSource('gis-features-area')) {
+    // Both point-radius circles and segment-corridor buffers render into this
+    // one polygon source — computed via turf (same library/approach region
+    // buffer zones already use), not a hand-rolled projection, so it stays
+    // geodesically correct at any radius.
+    map.addSource('gis-features-area', { type: 'geojson', data: emptyFC() });
+    map.addLayer({ id: 'gis-features-area-fill-layer', type: 'fill', source: 'gis-features-area',
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.16 } });
+    map.addLayer({ id: 'gis-features-area-line-layer', type: 'line', source: 'gis-features-area',
+      paint: { 'line-color': ['get', 'color'], 'line-width': 1.6, 'line-dasharray': [2, 1] } });
+  }
+  if (!map.getSource('gis-features-points')) {
+    map.addSource('gis-features-points', { type: 'geojson', data: emptyFC() });
+    map.addLayer({ id: 'gis-features-points-layer', type: 'circle', source: 'gis-features-points',
+      paint: { 'circle-radius': 5, 'circle-color': ['get', 'color'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' } });
+    wireGisPointPopups('gis-features-points-layer');
+  }
+}
+
+// gisFeaturePopupHTML renders the fields captured on import (see kml.go's
+// ImportKML — only <name> and the radius the admin chose become a Feature's
+// label/radius_m; KML has no other field this app brings in) plus the
+// feature's own coordinates as its "vị trí".
+function gisFeaturePopupHTML(feature) {
+  const [lng, lat] = feature.geometry.coordinates;
+  const p = feature.properties || {};
+  // Hardcoded dark text, not var(--text) — vietmapgl's own Popup box is
+  // always a plain white box regardless of the app's dark/light theme
+  // toggle, but without an explicit color here this content inherits
+  // body's color:var(--text), which in dark theme is near-white — unreadable
+  // on the popup's white background.
+  return `
+    <div style="font-size:.78rem;line-height:1.5;max-width:220px;color:#1a1a1a">
+      <div style="font-weight:600;margin-bottom:2px;color:#0b1422">${escHtml(p.label || '(không tên)')}</div>
+      <div>📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+      ${p.radiusM ? `<div>⭕ Bán kính: ${Math.round(p.radiusM)} m</div>` : ''}
+    </div>`;
+}
+
+// wireGisPointPopups wires both layers a GIS point can render on — the
+// shared generic circle layer and each layer's own custom-icon symbol layer
+// (see ensureGisLayerIcon) — to show a popup with the imported fields on
+// click, same hover/cursor convention as unclustered-point/clusters above.
+function wireGisPointPopups(layerId) {
+  map.on('mouseenter', layerId, () => {
+    if (!_editMode && !_regionDrawing && !_routeMode && !_gisFeatureDrawing) map.getCanvas().style.cursor = 'pointer';
+  });
+  map.on('mouseleave', layerId, () => {
+    map.getCanvas().style.cursor = (_regionDrawing || _routeMode || _gisFeatureDrawing || _incidentAddMode) ? 'crosshair' : (_searchMode ? 'crosshair' : '');
+  });
+  map.on('click', layerId, e => {
+    // Any active drawing/edit mode takes priority — same precedence the
+    // camera-marker click handlers give those modes — so clicking a GIS
+    // marker while drawing a region/route/feature still places a point
+    // instead of popping up unrelated info.
+    if (_regionDrawing || _routeMode || _gisFeatureDrawing || _editMode) return;
+    const feat = e.features[0];
+    new vietmapgl.Popup({ closeButton: true, maxWidth: '240px' })
+      .setLngLat(feat.geometry.coordinates.slice())
+      .setHTML(gisFeaturePopupHTML(feat))
+      .addTo(map);
+  });
+}
+
+function redrawGisRegionsLayer() {
+  if (!map || !map.getSource('gis-regions-fill')) return;
+  const features = [];
+  _allRegions.forEach(r => {
+    if (_hiddenRegionIds.has(r.id)) return;
+    const color = r.color || '#3b82f6';
+    (r.polygons || []).forEach(ring => {
+      if (ring.length >= 3) {
+        features.push({ type: 'Feature', properties: { color, name: r.name },
+          geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] } });
+      }
+    });
+  });
+  map.getSource('gis-regions-fill').setData({ type: 'FeatureCollection', features });
+}
+
+// gisFeatureAreaPolygon computes the circle (point) or corridor-buffer
+// (segment) polygon for one Feature, in the SAME way the proximity check
+// that drives the incident form's auto-tick defines "near" — not the exact
+// same code path (that one's a simple distance test, this is a filled
+// polygon for display), but the same radius/geometry semantics, so what's
+// drawn on the map always matches what the form will auto-detect.
+function gisFeatureAreaPolygon(f, color) {
+  try {
+    const km = (f.radius_m || 0) / 1000;
+    if (km <= 0) return null;
+    if (f.kind === 'point') {
+      const poly = turf.circle([f.lng, f.lat], km, { units: 'kilometers', steps: 48 });
+      poly.properties = { color };
+      return poly;
+    }
+    if (f.kind === 'segment' && f.line && f.line.length >= 2) {
+      const poly = turf.buffer(turf.lineString(f.line), km, { units: 'kilometers' });
+      if (poly) poly.properties = { color };
+      return poly;
+    }
+  } catch (err) { console.warn('[gis] failed to compute area for feature', f.id, err); }
+  return null;
+}
+
+// A layer with a captured custom icon (layer.icon_content_type, e.g. from a
+// .kmz import) gets its own image + symbol layer instead of lumping its
+// points into the shared generic circle layer — see ensureGisLayerIcon().
+let _gisIconLayerIds = new Set(); // layer IDs whose image/source/symbol-layer are already set up
+
+function ensureGisLayerIcon(layer) {
+  if (!map || !layer.icon_content_type || _gisIconLayerIds.has(layer.id)) return;
+  _gisIconLayerIds.add(layer.id); // mark immediately — loadImage is async, avoid starting it twice
+  const imgId = 'gis-icon-' + layer.id;
+  // vietmap-gl-js 6.x's loadImage() is Promise-only (no error-first callback
+  // param — an older mapbox-gl/maplibre-gl convention this version dropped),
+  // so a callback argument here is silently ignored and never invoked.
+  map.loadImage(gisLayerIconURL(layer)).then(response => {
+    const image = response && response.data;
+    if (!image) throw new Error('no image data in loadImage response');
+    if (!map.hasImage(imgId)) map.addImage(imgId, image);
+    const srcId = 'gis-icon-points-' + layer.id;
+    if (!map.getSource(srcId)) {
+      map.addSource(srcId, { type: 'geojson', data: emptyFC() });
+      map.addLayer({
+        id: srcId + '-layer', type: 'symbol', source: srcId,
+        layout: { 'icon-image': imgId, 'icon-size': 0.5, 'icon-allow-overlap': true, 'icon-anchor': 'bottom' },
+      });
+      wireGisPointPopups(srcId + '-layer');
+    }
+    redrawGisFeaturesLayer(); // the source above was empty until now — populate it
+  }).catch(err => {
+    console.warn('[gis] failed to load custom icon for layer', layer.id, err);
+    _gisIconLayerIds.delete(layer.id); // allow a retry on the next redraw
+  });
+}
+
+function redrawGisFeaturesLayer() {
+  if (!map || !map.getSource('gis-features-area')) return;
+  const areaFeatures = [];
+  const pointFeatures = [];              // layers WITHOUT a custom icon → shared circle layer
+  const iconPointFeaturesByLayer = {};   // layer.id -> features, for layers WITH a custom icon
+
+  _gisLayers.forEach(layer => {
+    const color = layer.color || '#f59e0b';
+    if (layer.icon_content_type) {
+      ensureGisLayerIcon(layer);
+      // Pre-seed with an empty array (rather than only creating the key once
+      // a visible feature is found below) so a layer whose every feature is
+      // hidden — e.g. its own menu checkbox toggled off — still gets a
+      // setData() call at the end of this function to CLEAR its icon
+      // source. Without this, Object.entries(iconPointFeaturesByLayer) below
+      // would simply omit that layer's ID and its last-rendered icons would
+      // stay stuck on the map forever.
+      iconPointFeaturesByLayer[layer.id] = [];
+    }
+
+    (layer.features || []).forEach(f => {
+      if (_hiddenGisFeatureIds.has(f.id)) return;
+      const area = gisFeatureAreaPolygon(f, color);
+      if (area) areaFeatures.push(area);
+      if (f.kind === 'point') {
+        const feat = { type: 'Feature', properties: { color, label: f.label, radiusM: f.radius_m },
+          geometry: { type: 'Point', coordinates: [f.lng, f.lat] } };
+        if (layer.icon_content_type) {
+          iconPointFeaturesByLayer[layer.id].push(feat);
+        } else {
+          pointFeatures.push(feat);
+        }
+      }
+    });
+  });
+
+  map.getSource('gis-features-area').setData({ type: 'FeatureCollection', features: areaFeatures });
+  map.getSource('gis-features-points').setData({ type: 'FeatureCollection', features: pointFeatures });
+  Object.entries(iconPointFeaturesByLayer).forEach(([layerID, feats]) => {
+    // The source may not exist yet if this is the first redraw for a layer
+    // whose icon is still loading — ensureGisLayerIcon() itself calls this
+    // function again once that source is ready, so no data is lost.
+    const src = map.getSource('gis-icon-points-' + layerID);
+    if (src) src.setData({ type: 'FeatureCollection', features: feats });
+  });
+}
+
+async function loadGisMenuData() {
+  if (!canMapGIS()) return;
+  // allSettled, not all — a failure in EITHER request must not wipe out
+  // data the OTHER one successfully returned. This used to be Promise.all,
+  // so a single 403 from /api/regions (which was admin-only even though
+  // every AllowMapGIS user needs to read it for the "🗺 Địa bàn" menu
+  // subtree — see api_regions.go) rejected the whole call and silently
+  // blanked out every GIS layer too, for every non-admin GIS viewer, even
+  // though /api/gis/data itself had succeeded.
+  const [regionsResult, gisDataResult] = await Promise.allSettled([
+    apiFetch('/api/regions'),
+    apiFetch('/api/gis/data'),
+  ]);
+  if (regionsResult.status === 'fulfilled') {
+    _allRegions = regionsResult.value || [];
+  } else {
+    console.error('[map] failed to load regions:', regionsResult.reason);
+  }
+  if (gisDataResult.status === 'fulfilled') {
+    _gisLayers = gisDataResult.value || [];
+  } else {
+    console.error('[map] failed to load GIS layers:', gisDataResult.reason);
+  }
+  ensureGisDisplayLayers();
+  redrawGisRegionsLayer();
+  redrawGisFeaturesLayer();
+  renderGisMenu();
+}
+
+function renderGisMenu() {
+  const regionsList = document.getElementById('gisRegionsList');
+  const regionsAllChk = document.getElementById('gisRegionsAllChk');
+  if (!regionsList || !regionsAllChk) return;
+
+  if (_allRegions.length === 0) {
+    regionsList.innerHTML = '<div class="map-subtree-empty">Chưa có địa bàn nào</div>';
+  } else {
+    regionsList.innerHTML = _allRegions.map(r => `
+      <label class="map-subtree-item">
+        <input type="checkbox" class="gis-region-chk" data-id="${escHtml(r.id)}" ${_hiddenRegionIds.has(r.id) ? '' : 'checked'}>
+        <span class="gis-row-name" title="${escHtml(r.name)}">${escHtml(r.name)}</span>
+        <span class="gis-row-meta">${(r.cameras || []).length} cam</span>
+      </label>`).join('');
+  }
+  // Long lists push the floating toolbar tall even with the group's own
+  // scroll cap — default-collapse once there are enough rows to matter,
+  // same threshold as each GIS layer subtree below.
+  const regionsBody = document.getElementById('gisRegionsList');
+  const regionsChev = document.querySelector('#gisRegionsToggleHdr .map-group-chev');
+  if (_allRegions.length > 5 && !regionsBody.dataset.userToggled) {
+    regionsBody.classList.add('collapsed');
+    if (regionsChev) regionsChev.textContent = '▸';
+  }
+  regionsAllChk.checked = _allRegions.length > 0 && _allRegions.every(r => !_hiddenRegionIds.has(r.id));
+  regionsList.querySelectorAll('.gis-region-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const id = chk.dataset.id;
+      if (chk.checked) _hiddenRegionIds.delete(id); else _hiddenRegionIds.add(id);
+      saveHiddenRegionIds();
+      regionsAllChk.checked = _allRegions.every(r => !_hiddenRegionIds.has(r.id));
+      redrawGisRegionsLayer();
+    });
+  });
+
+  const container = document.getElementById('gisLayersContainer');
+  if (!container) return;
+  if (_gisLayers.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = _gisLayers.map(layer => {
+    const feats = layer.features || [];
+    // Default-collapse once a layer has more than a handful of features
+    // (e.g. a real "28 điểm nguy cơ ùn tắc" layer) — otherwise every row of
+    // every layer renders expanded at once, which is what was pushing the
+    // floating toolbar to cover most of the map.
+    const startCollapsed = feats.length > 5;
+    const itemsHtml = feats.length === 0
+      ? '<div class="map-subtree-empty">Chưa có mục nào</div>'
+      : feats.map(f => `
+          <label class="map-subtree-item">
+            <input type="checkbox" class="gis-feature-chk" data-id="${escHtml(f.id)}" ${_hiddenGisFeatureIds.has(f.id) ? '' : 'checked'}>
+            <span class="gis-row-name" title="${escHtml(f.label || '(không tên)')}">${escHtml(f.label || '(không tên)')}</span>
+            <span class="gis-row-meta">${f.kind === 'segment' ? 'đoạn' : 'điểm'} · R${Math.round(f.radius_m || 0)}m</span>
+          </label>`).join('');
+    return `
+      <div class="map-subtree" data-layer-id="${escHtml(layer.id)}">
+        <div class="map-subtree-header">
+          <input type="checkbox" class="gis-layer-all-chk" data-layer-id="${escHtml(layer.id)}">
+          <span class="map-subtree-label gis-row-name" title="${escHtml(layer.name)}">${escHtml(layer.icon || '📍')} ${escHtml(layer.name)}</span>
+          <span class="map-group-chev">${startCollapsed ? '▸' : '▾'}</span>
+        </div>
+        <div class="map-subtree-body${startCollapsed ? ' collapsed' : ''}">${itemsHtml}</div>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('.map-subtree').forEach(sub => {
+    const header = sub.querySelector('.map-subtree-header');
+    const body = sub.querySelector('.map-subtree-body');
+    const chev = header.querySelector('.map-group-chev');
+    const allChk = sub.querySelector('.gis-layer-all-chk');
+    const itemChks = () => sub.querySelectorAll('.gis-feature-chk');
+
+    const syncAllChk = () => {
+      const chks = Array.from(itemChks());
+      allChk.checked = chks.length > 0 && chks.every(c => c.checked);
+    };
+    syncAllChk();
+
+    header.addEventListener('click', e => {
+      if (e.target === allChk) return;
+      body.classList.toggle('collapsed');
+      chev.textContent = body.classList.contains('collapsed') ? '▸' : '▾';
+    });
+
+    allChk.addEventListener('change', () => {
+      itemChks().forEach(c => {
+        c.checked = allChk.checked;
+        if (allChk.checked) _hiddenGisFeatureIds.delete(c.dataset.id); else _hiddenGisFeatureIds.add(c.dataset.id);
+      });
+      saveHiddenGisFeatureIds();
+      redrawGisFeaturesLayer();
+    });
+
+    itemChks().forEach(chk => {
+      chk.addEventListener('change', () => {
+        if (chk.checked) _hiddenGisFeatureIds.delete(chk.dataset.id); else _hiddenGisFeatureIds.add(chk.dataset.id);
+        saveHiddenGisFeatureIds();
+        syncAllChk();
+        redrawGisFeaturesLayer();
+      });
+    });
+  });
+}
+
+document.getElementById('gisRegionsAllChk').addEventListener('change', e => {
+  if (e.target.checked) {
+    _hiddenRegionIds.clear();
+  } else {
+    _allRegions.forEach(r => _hiddenRegionIds.add(r.id));
+  }
+  saveHiddenRegionIds();
+  renderGisMenu();
+  redrawGisRegionsLayer();
+});
+
+document.getElementById('gisRegionsToggleHdr').addEventListener('click', e => {
+  if (e.target.id === 'gisRegionsAllChk') return;
+  const body = document.getElementById('gisRegionsList');
+  const chev = document.querySelector('#gisRegionsToggleHdr .map-group-chev');
+  body.classList.toggle('collapsed');
+  body.dataset.userToggled = '1'; // stop renderGisMenu()'s >5-items auto-collapse from overriding this on the next data refresh
+  chev.textContent = body.classList.contains('collapsed') ? '▸' : '▾';
+});
+
+// ── "📂 Dữ liệu GIS" admin panel — Layer + Feature CRUD ─────────────────
+// Separate from the Địa bàn DRAW tool (#regionPanel) — this only manages
+// internal/gis Layers/Features (admin-only). Point/segment drawing reuses
+// the same "map clicks captured while a mode flag is true" convention as
+// _regionDrawing/_routeMode (see the map.on('click', ...) handlers above
+// and their cursor logic).
+let _editingGisLayerID = null;    // which layer is open in the editor (null = layer list view)
+let _editingGisFeatureID = null;  // null while creating a new feature
+let _gisFeatureGeom = null;       // {kind:'point',lat,lng} | {kind:'segment',line:[[lng,lat],...]}
+let _gisFeatureDrawing = false;   // true while map clicks should be captured for a NEW feature
+let _gisFeatureDrawKind = null;   // 'point' | 'segment' — only meaningful while _gisFeatureDrawing
+let _gisDraftLine = [];           // accumulates while drawing a segment
+
+function openGisAdminPanel() {
+  document.getElementById('gisAdminPanel').classList.add('show');
+  showGisLayerListView();
+  loadGisMenuData().then(renderGisLayerListWrap);
+}
+function closeGisAdminPanel() {
+  document.getElementById('gisAdminPanel').classList.remove('show');
+  stopGisFeatureDrawing();
+}
+document.getElementById('btnGisAdmin').addEventListener('click', () => {
+  if (document.getElementById('gisAdminPanel').classList.contains('show')) closeGisAdminPanel();
+  else openGisAdminPanel();
+});
+document.getElementById('gisAdminPanelClose').addEventListener('click', closeGisAdminPanel);
+
+function showGisLayerListView() {
+  _editingGisLayerID = null;
+  document.getElementById('gisLayerListView').style.display = '';
+  document.getElementById('gisLayerEditView').style.display = 'none';
+  document.getElementById('gisFeatureEditView').style.display = 'none';
+  stopGisFeatureDrawing();
+  renderGisLayerListWrap();
+}
+
+function renderGisLayerListWrap() {
+  const wrap = document.getElementById('gisLayerListWrap');
+  if (!wrap) return;
+  if (_gisLayers.length === 0) {
+    wrap.innerHTML = '<div class="gis-empty">Chưa có lớp nào</div>';
+    return;
+  }
+  wrap.innerHTML = _gisLayers.map(l => `
+    <div class="gis-layer-row" data-id="${escHtml(l.id)}">
+      <span>${escHtml(l.icon || '📍')}</span>
+      <span class="gis-row-name">${escHtml(l.name)}</span>
+      <span class="gis-row-meta">${(l.features || []).length} mục</span>
+    </div>`).join('');
+  wrap.querySelectorAll('.gis-layer-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const layer = _gisLayers.find(l => l.id === row.dataset.id);
+      if (layer) openGisLayerEditor(layer);
+    });
+  });
+}
+
+document.getElementById('gisLayerNewBtn').addEventListener('click', () => openGisLayerEditor(null));
+
+function openGisLayerEditor(layer) {
+  _editingGisLayerID = layer ? layer.id : null;
+  stopGisFeatureDrawing();
+  document.getElementById('gisLayerListView').style.display = 'none';
+  document.getElementById('gisLayerEditView').style.display = '';
+  document.getElementById('gisFeatureEditView').style.display = 'none';
+  document.getElementById('gisLayerName').value = layer ? layer.name : '';
+  document.getElementById('gisLayerColor').value = (layer && layer.color) || '#f59e0b';
+  document.getElementById('gisLayerIcon').value = (layer && layer.icon) || '';
+  document.getElementById('gisLayerDefaultOn').checked = !!(layer && layer.default_on);
+  document.getElementById('gisLayerCongestionFlag').checked = !!(layer && layer.flags_incident_congestion_risk);
+  document.getElementById('gisLayerDeleteBtn').style.display = layer ? '' : 'none';
+  document.getElementById('gisFeaturesSection').style.display = layer ? '' : 'none';
+  const iconWrap = document.getElementById('gisLayerIconImageWrap');
+  if (layer && layer.icon_content_type) {
+    iconWrap.style.display = 'flex';
+    document.getElementById('gisLayerIconImagePreview').src = gisLayerIconURL(layer);
+  } else {
+    iconWrap.style.display = 'none';
+  }
+  if (layer) renderGisFeatureListWrap(layer.id);
+}
+
+document.getElementById('gisLayerIconImageRemove').addEventListener('click', async () => {
+  if (!_editingGisLayerID || !confirm('Xóa icon tùy chỉnh của lớp này? Các điểm sẽ hiện lại dạng chấm tròn màu mặc định.')) return;
+  try {
+    await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/icon', { method: 'DELETE' });
+    await loadGisMenuData();
+    const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+    if (layer) openGisLayerEditor(layer);
+    toast('Đã xóa icon', 'success');
+  } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+document.getElementById('gisLayerCancelBtn').addEventListener('click', showGisLayerListView);
+
+document.getElementById('gisLayerSaveBtn').addEventListener('click', async () => {
+  const name = document.getElementById('gisLayerName').value.trim();
+  if (!name) { toast('Vui lòng nhập tên lớp', 'error'); return; }
+  const body = {
+    name,
+    color: document.getElementById('gisLayerColor').value,
+    icon: document.getElementById('gisLayerIcon').value.trim(),
+    default_on: document.getElementById('gisLayerDefaultOn').checked,
+    flags_incident_congestion_risk: document.getElementById('gisLayerCongestionFlag').checked,
+  };
+  try {
+    let savedID = _editingGisLayerID;
+    if (_editingGisLayerID) {
+      await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID), { method: 'PUT', body });
+    } else {
+      const created = await apiFetch('/api/gis/layers', { method: 'POST', body });
+      savedID = created && created.id;
+    }
+    await loadGisMenuData();
+    toast('Đã lưu lớp', 'success');
+    const saved = _gisLayers.find(l => l.id === savedID) || null;
+    if (saved) openGisLayerEditor(saved); else showGisLayerListView();
+  } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+document.getElementById('gisLayerDeleteBtn').addEventListener('click', async () => {
+  if (!_editingGisLayerID || !confirm('Xóa lớp này và toàn bộ điểm/đoạn bên trong?')) return;
+  try {
+    await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID), { method: 'DELETE' });
+    await loadGisMenuData();
+    toast('Đã xóa lớp', 'success');
+    showGisLayerListView();
+  } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+// ── Feature (điểm/đoạn) CRUD within the currently-open layer ────────────
+
+function renderGisFeatureListWrap(layerID) {
+  const wrap = document.getElementById('gisFeatureListWrap');
+  if (!wrap) return;
+  const layer = _gisLayers.find(l => l.id === layerID);
+  const feats = (layer && layer.features) || [];
+  if (feats.length === 0) {
+    wrap.innerHTML = '<div class="gis-empty">Chưa có điểm/đoạn nào</div>';
+    return;
+  }
+  wrap.innerHTML = feats.map(f => `
+    <div class="gis-feature-row" data-id="${escHtml(f.id)}">
+      <span class="gis-row-name">${escHtml(f.label || '(không tên)')}</span>
+      <span class="gis-row-meta">${f.kind === 'segment' ? 'đoạn' : 'điểm'} · R${Math.round(f.radius_m || 0)}m</span>
+    </div>`).join('');
+  wrap.querySelectorAll('.gis-feature-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const f = feats.find(x => x.id === row.dataset.id);
+      if (f) openGisFeatureEditor(f);
+    });
+  });
+}
+
+document.getElementById('gisFeatureAddPointBtn').addEventListener('click', () => startGisFeatureDraw('point'));
+document.getElementById('gisFeatureAddSegmentBtn').addEventListener('click', () => startGisFeatureDraw('segment'));
+
+function startGisFeatureDraw(kind) {
+  if (!map) { toast('Bản đồ chưa sẵn sàng — không thể vẽ điểm/đoạn lúc này', 'error'); return; }
+  _gisFeatureDrawKind = kind;
+  _gisDraftLine = [];
+  _gisFeatureDrawing = true;
+  ensureGisDraftLayer();
+  updateGisDraftLayer();
+  document.getElementById('gisDrawToolbar').style.display = '';
+  const hint = document.getElementById('gisFeatureDrawHint');
+  hint.textContent = kind === 'point'
+    ? 'Click lên bản đồ để đặt điểm.'
+    : 'Click lên bản đồ để thêm từng điểm của đoạn đường, xong bấm "✓ Xong vẽ đoạn" (tối thiểu 2 điểm).';
+  document.getElementById('gisFeatureUndoPoint').style.display = kind === 'segment' ? '' : 'none';
+  document.getElementById('gisFeatureFinishLine').style.display = kind === 'segment' ? '' : 'none';
+  document.getElementById('gisLayerEditView').style.display = 'none';
+  document.getElementById('gisFeatureEditView').style.display = 'none';
+}
+
+function addGisFeaturePoint(lngLat) {
+  if (_gisFeatureDrawKind === 'point') {
+    _gisFeatureGeom = { kind: 'point', lat: lngLat.lat, lng: lngLat.lng };
+    finishGisFeatureDraw();
+  } else if (_gisFeatureDrawKind === 'segment') {
+    _gisDraftLine.push([lngLat.lng, lngLat.lat]);
+    updateGisDraftLayer();
+  }
+}
+
+document.getElementById('gisFeatureUndoPoint').addEventListener('click', () => {
+  _gisDraftLine.pop();
+  updateGisDraftLayer();
+});
+document.getElementById('gisFeatureFinishLine').addEventListener('click', finishGisFeatureDraw);
+
+function finishGisFeatureDraw() {
+  if (_gisFeatureDrawKind === 'segment') {
+    if (_gisDraftLine.length < 2) { toast('Cần ít nhất 2 điểm cho đoạn đường', 'error'); return; }
+    _gisFeatureGeom = { kind: 'segment', line: _gisDraftLine.slice() };
+  }
+  stopGisFeatureDrawing();
+  _editingGisFeatureID = null;
+  openGisFeatureEditorFields(null);
+}
+
+function stopGisFeatureDrawing() {
+  _gisFeatureDrawing = false;
+  _gisFeatureDrawKind = null;
+  _gisDraftLine = [];
+  if (map && map.getSource('gis-draft-line')) {
+    map.getSource('gis-draft-line').setData(emptyFC());
+    map.getSource('gis-draft-points').setData(emptyFC());
+  }
+  const toolbar = document.getElementById('gisDrawToolbar');
+  if (toolbar) toolbar.style.display = 'none';
+  const undoBtn = document.getElementById('gisFeatureUndoPoint');
+  if (undoBtn) undoBtn.style.display = 'none';
+  const finishBtn = document.getElementById('gisFeatureFinishLine');
+  if (finishBtn) finishBtn.style.display = 'none';
+}
+
+function ensureGisDraftLayer() {
+  if (!map.getSource('gis-draft-line')) {
+    map.addSource('gis-draft-line', { type: 'geojson', data: emptyFC() });
+    map.addLayer({ id: 'gis-draft-line-layer', type: 'line', source: 'gis-draft-line',
+      paint: { 'line-color': '#f59e0b', 'line-width': 3, 'line-dasharray': [1, 1] } });
+    map.addSource('gis-draft-points', { type: 'geojson', data: emptyFC() });
+    map.addLayer({ id: 'gis-draft-points-layer', type: 'circle', source: 'gis-draft-points',
+      paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-width': 2, 'circle-stroke-color': '#f59e0b' } });
+  }
+}
+
+function updateGisDraftLayer() {
+  if (!map || !map.getSource('gis-draft-line')) return;
+  const lineFeatures = _gisDraftLine.length >= 2
+    ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: _gisDraftLine } }] : [];
+  map.getSource('gis-draft-line').setData({ type: 'FeatureCollection', features: lineFeatures });
+  const pointFeatures = _gisDraftLine.map(c => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c } }));
+  map.getSource('gis-draft-points').setData({ type: 'FeatureCollection', features: pointFeatures });
+}
+
+// openGisFeatureEditor: an EXISTING feature — geometry stays as saved,
+// only label/radius are editable here (re-drawing isn't supported; delete
+// + re-add if the shape itself needs to change).
+function openGisFeatureEditor(feature) {
+  _editingGisFeatureID = feature.id;
+  _gisFeatureGeom = feature.kind === 'segment'
+    ? { kind: 'segment', line: feature.line || [] }
+    : { kind: 'point', lat: feature.lat, lng: feature.lng };
+  openGisFeatureEditorFields(feature);
+}
+
+function openGisFeatureEditorFields(existing) {
+  document.getElementById('gisLayerEditView').style.display = 'none';
+  document.getElementById('gisFeatureEditView').style.display = '';
+  document.getElementById('gisFeatureLabel').value = existing ? (existing.label || '') : '';
+  document.getElementById('gisFeatureRadius').value = existing ? existing.radius_m : 100;
+  document.getElementById('gisFeatureDeleteBtn').style.display = existing ? '' : 'none';
+}
+
+document.getElementById('gisFeatureCancelBtn').addEventListener('click', () => {
+  stopGisFeatureDrawing();
+  const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+  if (layer) openGisLayerEditor(layer); else showGisLayerListView();
+});
+
+document.getElementById('gisFeatureSaveBtn').addEventListener('click', async () => {
+  if (!_editingGisLayerID) { toast('Chưa chọn lớp', 'error'); return; }
+  if (!_gisFeatureGeom) { toast('Chưa có vị trí — bấm "+ Điểm mới" hoặc "+ Đoạn mới"', 'error'); return; }
+  const radius = parseFloat(document.getElementById('gisFeatureRadius').value);
+  if (!(radius > 0)) { toast('Bán kính phải > 0', 'error'); return; }
+  const body = {
+    label: document.getElementById('gisFeatureLabel').value.trim(),
+    kind: _gisFeatureGeom.kind,
+    lat: _gisFeatureGeom.lat || 0,
+    lng: _gisFeatureGeom.lng || 0,
+    line: _gisFeatureGeom.line || [],
+    radius_m: radius,
+  };
+  try {
+    if (_editingGisFeatureID) {
+      await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/features/' + encodeURIComponent(_editingGisFeatureID), { method: 'PUT', body });
+    } else {
+      await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/features', { method: 'POST', body });
+    }
+    await loadGisMenuData();
+    toast('Đã lưu', 'success');
+    const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+    if (layer) openGisLayerEditor(layer); else showGisLayerListView();
+  } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+document.getElementById('gisFeatureDeleteBtn').addEventListener('click', async () => {
+  if (!_editingGisFeatureID || !confirm('Xóa điểm/đoạn này?')) return;
+  try {
+    await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/features/' + encodeURIComponent(_editingGisFeatureID), { method: 'DELETE' });
+    await loadGisMenuData();
+    toast('Đã xóa', 'success');
+    const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+    if (layer) openGisLayerEditor(layer); else showGisLayerListView();
+  } catch (err) { toast('Lỗi: ' + err.message, 'error'); }
+});
+
+// ── KML/KMZ import for Point/LineString into the currently-open layer ───
+// Separate tool from #regionImportKmlFile above (Polygon-only, for Địa
+// bàn) — this is exactly the gap that caused the original "Không tìm thấy
+// địa bàn" error when importing a KML made of Point/LineString placemarks
+// into the region importer, which only ever recognizes <Polygon>.
+//
+// Parsing happens SERVER-SIDE (POST .../import, see internal/gis/kml.go)
+// rather than in the browser like the region importer above — a .kmz is a
+// zip archive (a .kml file + any embedded icon images), and unzipping one
+// needs either a JS zip library or, simpler, Go's stdlib archive/zip. Doing
+// it server-side also means a Google My Maps icon embedded in the .kmz
+// (not reachable from a plain <input type=file> without unzipping it) can
+// be captured and reused as this layer's own marker icon instead of the
+// generic colored circle — see ensureGisLayerIcon()/redrawGisFeaturesLayer().
+document.getElementById('gisImportKmlBtn').addEventListener('click', () => {
+  document.getElementById('gisImportKmlFile').click();
+});
+document.getElementById('gisImportKmlFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !_editingGisLayerID) return;
+
+  // Whether the file has points/segments is only known after the server
+  // parses it (especially for .kmz), so ask for both radii up front — a
+  // radius for a kind the file turns out not to have is simply unused.
+  const pStr = prompt('Bán kính áp dụng cho các điểm (m) — để trống nếu file không có điểm:', '100');
+  if (pStr === null) return;
+  const sStr = prompt('Bán kính áp dụng cho các đoạn đường (m) — để trống nếu file không có đoạn:', '50');
+  if (sStr === null) return;
+  const pointRadius = parseFloat(pStr) || 0;
+  const segmentRadius = parseFloat(sStr) || 0;
+  if (pointRadius <= 0 && segmentRadius <= 0) { alert('Cần nhập ít nhất 1 bán kính hợp lệ.'); return; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('point_radius_m', String(pointRadius));
+  fd.append('segment_radius_m', String(segmentRadius));
+
+  try {
+    const res = await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/import', { method: 'POST', body: fd });
+    await loadGisMenuData();
+    const layer = _gisLayers.find(l => l.id === _editingGisLayerID);
+    if (layer) openGisLayerEditor(layer);
+    alert(`Đã nhập ${res.points_created} điểm, ${res.segments_created} đoạn đường.` +
+          (res.failed ? ` ${res.failed} mục lỗi.` : '') +
+          (res.icon_captured ? ' Đã lấy icon từ file KMZ làm biểu tượng cho lớp này.' : ''));
+  } catch (err) {
+    alert('Nhập thất bại: ' + err.message);
+  }
+});
 
 function currentRegionColor() {
   return document.getElementById('regionColor').value || '#3b82f6';
@@ -4882,6 +5998,19 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     document.getElementById('btnStnEdit').style.display = '';
     document.getElementById('btnStnTypes').style.display = '';
   }
+  // "⚙ Quản trị" group container: not purely the blanket .admin-only reveal
+  // above, since a non-admin canConfigStations() user must see it too
+  // (to reach the 2 buttons just shown) — same exception the flat toolbar
+  // always had for those two buttons specifically.
+  if (_isAdmin || canConfigStations()) {
+    document.getElementById('toolbarAdminGroup').style.display = '';
+  }
+  // "📂 Dữ liệu GIS" group — one flag (allow_map_gis, or admin) gates the
+  // whole group: both the persistent Địa bàn display layer and every
+  // internal/gis layer. See loadGisMenuData()/renderGisMenu() below.
+  if (canMapGIS()) {
+    document.getElementById('gisMenuGroup').style.display = '';
+  }
 
   // Fetch settings: VietMap API key + default search radius + route width
   try {
@@ -4971,6 +6100,9 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
       // Reload full layer (stations + types) every 5 min in case config changed.
       setInterval(loadStationsLayer, 5 * 60 * 1000);
     }
+    // "📂 Dữ liệu GIS" (Địa bàn + internal/gis layers) — only if allowed;
+    // loadGisMenuData() itself no-ops otherwise.
+    await loadGisMenuData();
   } catch (err) {
     console.error('[map] init error:', err);
     document.getElementById('mapNoKey').style.display = 'flex';

@@ -209,6 +209,8 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_map_ai_events":        user.AllowMapAIEvents,
 		"allow_map_3d":               user.AllowMap3D,
 		"allow_map_traffic_flow":     user.AllowMapTrafficFlow,
+		"allow_map_gis":              user.AllowMapGIS,
+		"gis_layer_ids":              user.GisLayerIDs,
 		"allow_monitor_workers":      user.AllowMonitorWorkers,
 		"allow_monitor_process":      user.AllowMonitorProcess,
 		"allow_monitor_streaming":    user.AllowMonitorStreaming,
@@ -277,6 +279,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapAIEvents        bool     `json:"allow_map_ai_events"`
 			AllowMap3D              bool     `json:"allow_map_3d"`
 			AllowMapTrafficFlow     bool     `json:"allow_map_traffic_flow"`
+			AllowMapGIS             bool     `json:"allow_map_gis"`
+			GisLayerIDs             []string `json:"gis_layer_ids"`
 			AllowMonitorWorkers     bool     `json:"allow_monitor_workers"`
 			AllowMonitorProcess     bool     `json:"allow_monitor_process"`
 			AllowMonitorStreaming   bool     `json:"allow_monitor_streaming"`
@@ -331,6 +335,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapAIEvents:        req.AllowMapAIEvents,
 			AllowMap3D:              req.AllowMap3D,
 			AllowMapTrafficFlow:     req.AllowMapTrafficFlow,
+			AllowMapGIS:             req.AllowMapGIS,
+			GisLayerIDs:             req.GisLayerIDs,
 			AllowMonitorWorkers:     req.AllowMonitorWorkers,
 			AllowMonitorProcess:     req.AllowMonitorProcess,
 			AllowMonitorStreaming:   req.AllowMonitorStreaming,
@@ -383,6 +389,8 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapAIEvents        *bool    `json:"allow_map_ai_events"`
 			AllowMap3D              *bool    `json:"allow_map_3d"`
 			AllowMapTrafficFlow     *bool    `json:"allow_map_traffic_flow"`
+			AllowMapGIS             *bool    `json:"allow_map_gis"`
+			GisLayerIDs             []string `json:"gis_layer_ids"`
 			AllowMonitorWorkers     *bool    `json:"allow_monitor_workers"`
 			AllowMonitorProcess     *bool    `json:"allow_monitor_process"`
 			AllowMonitorStreaming   *bool    `json:"allow_monitor_streaming"`
@@ -470,6 +478,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowMapTrafficFlow != nil {
 			existing.AllowMapTrafficFlow = *req.AllowMapTrafficFlow
+		}
+		if req.AllowMapGIS != nil {
+			existing.AllowMapGIS = *req.AllowMapGIS
+		}
+		if req.GisLayerIDs != nil {
+			existing.GisLayerIDs = req.GisLayerIDs
 		}
 		if req.AllowMonitorWorkers != nil {
 			existing.AllowMonitorWorkers = *req.AllowMonitorWorkers
