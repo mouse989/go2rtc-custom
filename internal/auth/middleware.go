@@ -359,17 +359,27 @@ func userCanAccessPath(u *User, path string) bool {
 		}
 	}
 	if u.AllowMapGIS {
-		// Layer/feature CRUD under /api/gis/layers stays admin-only (checked
-		// inside internal/gis itself) — this flag only unlocks the view-only
-		// /api/gis/data endpoint for a non-admin viewer. /api/regions is
-		// listed here too — map.html's "📂 Dữ liệu GIS" menu shows region
-		// boundaries (🗺 Địa bàn) alongside internal/gis layers via one
-		// Promise.all, and this gate blocking /api/regions outright (it
-		// used to have no entry anywhere in this function) 403'd that whole
-		// call for every non-admin GIS viewer regardless of what
-		// regionsHandler's own internal check allowed — see api_regions.go,
-		// which still keeps writes (POST/PUT/DELETE) admin-only itself.
-		if strings.HasPrefix(path, "/api/gis/data") || strings.HasPrefix(path, "/api/regions") {
+		// Layer/feature CRUD under /api/gis/layers stays admin-only —
+		// enforced INSIDE internal/gis/api.go (requireGISAdmin on
+		// everything except GET .../icon, which requireGISViewer allows
+		// any GIS viewer), not here. This outer gate only needs to let the
+		// request THROUGH to that handler; listing the prefix does not
+		// itself grant write access. Before /api/gis/layers had any entry
+		// here, GET .../layers/{id}/icon 403'd before ever reaching that
+		// handler's own correct check — invisible as an error
+		// (map.loadImage() just silently fails), so a non-admin GIS viewer
+		// saw only the buffer-zone area for a layer with a captured KMZ
+		// icon, never the actual icon, while an admin viewing the same
+		// layer saw it fine.
+		// /api/regions is listed here too — map.html's "📂 Dữ liệu GIS"
+		// menu shows region boundaries (🗺 Địa bàn) alongside internal/gis
+		// layers via one Promise.all, and this gate blocking /api/regions
+		// outright (it used to have no entry anywhere in this function)
+		// 403'd that whole call for every non-admin GIS viewer regardless
+		// of what regionsHandler's own internal check allowed — see
+		// api_regions.go, which still keeps writes (POST/PUT/DELETE)
+		// admin-only itself.
+		if strings.HasPrefix(path, "/api/gis/data") || strings.HasPrefix(path, "/api/regions") || strings.HasPrefix(path, "/api/gis/layers") {
 			return true
 		}
 	}
