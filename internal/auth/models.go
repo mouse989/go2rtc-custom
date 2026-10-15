@@ -84,6 +84,18 @@ type User struct {
 	// AllowMapTrafficFlow above; layer/feature CRUD stays admin-only
 	// (Role == RoleAdmin), never gated by this flag.
 	AllowMapGIS bool `json:"allow_map_gis"`
+	// GisLayerIDs optionally narrows WHICH internal/gis Layers an
+	// AllowMapGIS, non-admin user may see — nil/empty means unrestricted
+	// (every layer), the original and still-default behavior, so existing
+	// users are unaffected. Same shape/precedent as RegionIDs above: an
+	// additive allowlist an admin sets per user rather than a single
+	// blanket flag. Checked in internal/gis/api.go (handleData filters the
+	// layer list; handleLayerIcon checks the one requested layer). Does
+	// NOT gate /api/gis/congestion-check — the "28 điểm nguy cơ ùn tắc"
+	// auto-tick on the incident form is meant to work the same for every
+	// user regardless of which layers they can see on the map (see that
+	// handler's own doc comment).
+	GisLayerIDs []string `json:"gis_layer_ids"`
 	// Monitor sub-permissions (only meaningful when user has monitor tab)
 	AllowMonitorWorkers   bool `json:"allow_monitor_workers"`   // xem thẻ giám sát máy chủ phân tích
 	AllowMonitorProcess   bool `json:"allow_monitor_process"`   // xem go2rtc process

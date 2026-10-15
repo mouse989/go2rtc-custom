@@ -64,6 +64,44 @@ func requireGISAdmin(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// userCanSeeLayer reports whether u may see layerID — always true for
+// admin, true for any AllowMapGIS user whose GisLayerIDs is empty
+// (unrestricted, the original/default behavior), and otherwise only if
+// layerID is explicitly listed in GisLayerIDs.
+func userCanSeeLayer(u *auth.User, layerID string) bool {
+	if u.Role == auth.RoleAdmin || len(u.GisLayerIDs) == 0 {
+		return true
+	}
+	for _, id := range u.GisLayerIDs {
+		if id == layerID {
+			return true
+		}
+	}
+	return false
+}
+
+// requireGISLayerViewer is requireGISViewer plus userCanSeeLayer, for
+// routes that serve ONE specific layer's data (e.g. GET .../icon) rather
+// than the full list — handleData instead filters its own output, since a
+// restricted user's /api/gis/data response should simply omit the layers
+// they can't see, not 403 the whole request.
+func requireGISLayerViewer(w http.ResponseWriter, r *http.Request, layerID string) bool {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	if user.Role != auth.RoleAdmin && !user.AllowMapGIS {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	if !userCanSeeLayer(user, layerID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // ── GET /api/gis/data (view-only, consolidated for map rendering) ─────
 
 type dataLayerOut struct {
@@ -79,14 +117,18 @@ func handleData(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	user, _ := auth.UserFromContext(r.Context())
 	layers := ListLayers()
-	out := make([]dataLayerOut, len(layers))
-	for i, l := range layers {
+	out := make([]dataLayerOut, 0, len(layers))
+	for _, l := range layers {
+		if !userCanSeeLayer(user, l.ID) {
+			continue
+		}
 		feats := ListFeatures(l.ID)
 		if feats == nil {
 			feats = []*Feature{}
 		}
-		out[i] = dataLayerOut{Layer: *l, Features: feats}
+		out = append(out, dataLayerOut{Layer: *l, Features: feats})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -194,9 +236,13 @@ func handleLayersSubpath(w http.ResponseWriter, r *http.Request) {
 
 	// The icon GET is the one sub-route a non-admin GIS viewer needs (to
 	// render custom markers on the map) — everything else under
-	// /layers/{id}/... is layer/feature management, admin-only.
+	// /layers/{id}/... is layer/feature management, admin-only. Also
+	// enforces the requesting user's own GisLayerIDs restriction, if any —
+	// a user restricted away from this specific layer shouldn't be able to
+	// fetch its icon directly even though handleData already omits the
+	// layer itself from their /api/gis/data response.
 	if len(parts) == 2 && parts[1] == "icon" && r.Method == http.MethodGet {
-		if !requireGISViewer(w, r) {
+		if !requireGISLayerViewer(w, r, layerID) {
 			return
 		}
 		handleLayerIcon(w, r, layerID)
