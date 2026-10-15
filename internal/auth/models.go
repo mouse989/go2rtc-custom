@@ -174,6 +174,14 @@ var viewerDefaultPaths = []string{
 	"/api/auth/webauthn",        // device-binding enroll/step-up ceremonies (own account only)
 	"/api/device-scopes",        // device-binding scope catalog (labels only, nothing sensitive)
 	"/api/device-bindings",      // own trusted devices; admin-only listing/actions guarded inside handler
+	// Deliberately NOT gated behind allow_map_gis (unlike /api/gis/data
+	// just below it in userCanAccessPath) — whether an incident sits near
+	// a "28 điểm nguy cơ ùn tắc" point/segment is meant to be the same,
+	// system-wide answer for every user creating an incident, not
+	// something that depends on whether that user also has permission to
+	// see the underlying GIS layer on the map. See internal/gis/api.go's
+	// handleCongestionCheck.
+	"/api/gis/congestion-check",
 }
 
 // Claims holds JWT payload fields

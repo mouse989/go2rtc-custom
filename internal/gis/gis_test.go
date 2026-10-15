@@ -152,3 +152,34 @@ func TestMatchesCongestionRiskIgnoresUnflaggedLayers(t *testing.T) {
 		t.Fatal("MatchNear should still report the feature regardless of the layer's flag")
 	}
 }
+
+func TestCongestionRiskMatchReturnsFeatureDetails(t *testing.T) {
+	setupTestStore(t)
+
+	l := &Layer{Name: "28 điểm", FlagsIncidentCongestionRisk: true}
+	if err := CreateLayer(l); err != nil {
+		t.Fatalf("CreateLayer: %v", err)
+	}
+	f := &Feature{LayerID: l.ID, Label: "Hàng Xanh", Kind: FeatureKindPoint, Lat: 10.8010, Lng: 106.7110, RadiusM: 150}
+	if err := CreateFeature(f); err != nil {
+		t.Fatalf("CreateFeature: %v", err)
+	}
+
+	m, ok := CongestionRiskMatch(10.8010+0.00045, 106.7110)
+	if !ok {
+		t.Fatal("expected a match")
+	}
+	if m.Feature.Label != "Hàng Xanh" {
+		t.Errorf("expected matched feature label %q, got %q", "Hàng Xanh", m.Feature.Label)
+	}
+	if m.Layer.ID != l.ID {
+		t.Errorf("expected matched layer id %q, got %q", l.ID, m.Layer.ID)
+	}
+	if m.DistanceM <= 0 || m.DistanceM > 150 {
+		t.Errorf("expected a distance in (0, 150], got %v", m.DistanceM)
+	}
+
+	if _, ok := CongestionRiskMatch(10.820, 106.705); ok {
+		t.Fatal("expected no match far from the feature")
+	}
+}

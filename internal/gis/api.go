@@ -6,6 +6,13 @@ package gis
 //                                                 layer + its features, for
 //                                                 rendering. Normal user auth
 //                                                 + AllowMapGIS (or admin).
+//   GET  /api/gis/congestion-check              — any authenticated user,
+//                                                 NOT gated by AllowMapGIS:
+//                                                 is (lat,lng) near a "28
+//                                                 điểm nguy cơ ùn tắc"
+//                                                 point/segment. See
+//                                                 proximity.go's
+//                                                 CongestionRiskMatch.
 //   GET/POST    /api/gis/layers                — admin-only layer CRUD (list/create).
 //   GET/PUT/DELETE /api/gis/layers/{id}        — admin-only, one layer.
 //   GET/POST    /api/gis/layers/{id}/features  — admin-only feature CRUD (list/create) within a layer.
@@ -14,6 +21,7 @@ package gis
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,6 +31,7 @@ import (
 
 func registerHandlers() {
 	http.HandleFunc("/api/gis/data", handleData)
+	http.HandleFunc("/api/gis/congestion-check", handleCongestionCheck)
 	http.HandleFunc("/api/gis/layers", handleLayers)
 	http.HandleFunc("/api/gis/layers/", handleLayersSubpath)
 }
@@ -80,6 +89,51 @@ func handleData(w http.ResponseWriter, r *http.Request) {
 		out[i] = dataLayerOut{Layer: *l, Features: feats}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// ── GET /api/gis/congestion-check (any authenticated user) ────────────
+
+type congestionCheckOut struct {
+	Match     bool    `json:"match"`
+	Label     string  `json:"label,omitempty"`
+	DistanceM float64 `json:"distance_m,omitempty"`
+	RadiusM   float64 `json:"radius_m,omitempty"`
+}
+
+// handleCongestionCheck is deliberately NOT behind requireGISViewer —
+// whether an incident sits near a "28 điểm nguy cơ ùn tắc" point/segment is
+// meant to be the same, system-wide answer for every user creating an
+// incident, not something that depends on whether that particular user
+// also has permission to see the underlying GIS layer on the map. Only
+// plain authentication is required.
+func handleCongestionCheck(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.UserFromContext(r.Context()); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	lat, err1 := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
+	lng, err2 := strconv.ParseFloat(r.URL.Query().Get("lng"), 64)
+	if err1 != nil || err2 != nil {
+		http.Error(w, "lat and lng query params required", http.StatusBadRequest)
+		return
+	}
+	m, ok := CongestionRiskMatch(lat, lng)
+	if !ok {
+		writeJSON(w, http.StatusOK, congestionCheckOut{Match: false})
+		return
+	}
+	label := m.Feature.Label
+	if label == "" {
+		label = m.Layer.Name
+	}
+	writeJSON(w, http.StatusOK, congestionCheckOut{
+		Match: true, Label: label,
+		DistanceM: math.Round(m.DistanceM), RadiusM: m.Feature.RadiusM,
+	})
 }
 
 // ── Layers (admin-only CRUD) ────────────────────────────────────────

@@ -3404,30 +3404,7 @@ function regionsContainingPoint(lat, lng) {
   });
 }
 
-function gisCongestionMatchNear(lat, lng) {
-  for (const layer of _gisLayers) {
-    if (!layer.flags_incident_congestion_risk) continue;
-    for (const f of (layer.features || [])) {
-      if (!f.radius_m) continue;
-      let distKm;
-      if (f.kind === 'point') {
-        distKm = haversine(lat, lng, f.lat, f.lng);
-      } else if (f.kind === 'segment' && f.line && f.line.length >= 2) {
-        const near = nearestOnPolyline(lat, lng, f.line);
-        if (!near) continue;
-        distKm = near.dist;
-      } else {
-        continue;
-      }
-      if (distKm * 1000 <= f.radius_m) {
-        return { feature: f, layer, distanceM: Math.round(distKm * 1000) };
-      }
-    }
-  }
-  return null;
-}
-
-function refreshIncidentLocationSuggestions() {
+async function refreshIncidentLocationSuggestions() {
   const latVal = parseFloat(document.getElementById('miLat').value);
   const lngVal = parseFloat(document.getElementById('miLng').value);
   const suggestBox = document.getElementById('miUnitSuggest');
@@ -3455,15 +3432,26 @@ function refreshIncidentLocationSuggestions() {
   }
 
   congestionWrap.style.display = '';
-  const match = gisCongestionMatchNear(latVal, lngVal);
-  if (match) {
-    congestionChk.checked = true;
-    congestionNote.style.display = '';
-    congestionNote.textContent = '✓ Tự động tích — cách "' + (match.feature.label || match.layer.name) +
-      '" khoảng ' + match.distanceM + 'm (bán kính ' + Math.round(match.feature.radius_m) + 'm). Có thể bỏ tích nếu sai.';
-  } else {
-    congestionChk.checked = false;
-    congestionNote.style.display = 'none';
+  // Server-side check (internal/gis.CongestionRiskMatch via
+  // /api/gis/congestion-check), not the client's own _gisLayers —
+  // _gisLayers only holds whatever GIS layers the CURRENT user has view
+  // permission for, but whether this incident is near a "28 điểm nguy cơ
+  // ùn tắc" point/segment is meant to be the same, system-wide answer for
+  // every user, regardless of their own GIS view permission (the endpoint
+  // isn't gated by AllowMapGIS at all — just plain login).
+  try {
+    const res = await apiFetch('/api/gis/congestion-check?lat=' + encodeURIComponent(latVal) + '&lng=' + encodeURIComponent(lngVal));
+    if (res && res.match) {
+      congestionChk.checked = true;
+      congestionNote.style.display = '';
+      congestionNote.textContent = '✓ Tự động tích — cách "' + res.label +
+        '" khoảng ' + res.distance_m + 'm (bán kính ' + Math.round(res.radius_m) + 'm). Có thể bỏ tích nếu sai.';
+    } else {
+      congestionChk.checked = false;
+      congestionNote.style.display = 'none';
+    }
+  } catch (err) {
+    console.warn('[map] congestion-check failed:', err);
   }
 }
 
@@ -4387,16 +4375,26 @@ function redrawGisFeaturesLayer() {
 
 async function loadGisMenuData() {
   if (!canMapGIS()) return;
-  try {
-    const [regions, gisData] = await Promise.all([
-      apiFetch('/api/regions'),
-      apiFetch('/api/gis/data'),
-    ]);
-    _allRegions = regions || [];
-    _gisLayers = gisData || [];
-  } catch (err) {
-    console.error('[map] failed to load GIS data:', err);
-    return;
+  // allSettled, not all — a failure in EITHER request must not wipe out
+  // data the OTHER one successfully returned. This used to be Promise.all,
+  // so a single 403 from /api/regions (which was admin-only even though
+  // every AllowMapGIS user needs to read it for the "🗺 Địa bàn" menu
+  // subtree — see api_regions.go) rejected the whole call and silently
+  // blanked out every GIS layer too, for every non-admin GIS viewer, even
+  // though /api/gis/data itself had succeeded.
+  const [regionsResult, gisDataResult] = await Promise.allSettled([
+    apiFetch('/api/regions'),
+    apiFetch('/api/gis/data'),
+  ]);
+  if (regionsResult.status === 'fulfilled') {
+    _allRegions = regionsResult.value || [];
+  } else {
+    console.error('[map] failed to load regions:', regionsResult.reason);
+  }
+  if (gisDataResult.status === 'fulfilled') {
+    _gisLayers = gisDataResult.value || [];
+  } else {
+    console.error('[map] failed to load GIS layers:', gisDataResult.reason);
   }
   ensureGisDisplayLayers();
   redrawGisRegionsLayer();

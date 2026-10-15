@@ -361,8 +361,15 @@ func userCanAccessPath(u *User, path string) bool {
 	if u.AllowMapGIS {
 		// Layer/feature CRUD under /api/gis/layers stays admin-only (checked
 		// inside internal/gis itself) — this flag only unlocks the view-only
-		// /api/gis/data endpoint for a non-admin viewer.
-		if strings.HasPrefix(path, "/api/gis/data") {
+		// /api/gis/data endpoint for a non-admin viewer. /api/regions is
+		// listed here too — map.html's "📂 Dữ liệu GIS" menu shows region
+		// boundaries (🗺 Địa bàn) alongside internal/gis layers via one
+		// Promise.all, and this gate blocking /api/regions outright (it
+		// used to have no entry anywhere in this function) 403'd that whole
+		// call for every non-admin GIS viewer regardless of what
+		// regionsHandler's own internal check allowed — see api_regions.go,
+		// which still keeps writes (POST/PUT/DELETE) admin-only itself.
+		if strings.HasPrefix(path, "/api/gis/data") || strings.HasPrefix(path, "/api/regions") {
 			return true
 		}
 	}

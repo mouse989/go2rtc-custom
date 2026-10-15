@@ -111,17 +111,29 @@ func MatchNear(lat, lng float64) []Match {
 	return out
 }
 
-// MatchesCongestionRisk reports whether (lat,lng) falls within any feature
-// belonging to a layer with FlagsIncidentCongestionRisk set — the
-// server-side source of truth behind Incident.CongestionRiskPoint
-// auto-detection (map.html runs the identical check client-side, in JS,
-// for instant form feedback; this is what a server-side recompute or
-// future automated import would use).
-func MatchesCongestionRisk(lat, lng float64) bool {
+// CongestionRiskMatch returns the first feature (across every layer, in
+// MatchNear's order) whose layer has FlagsIncidentCongestionRisk set, for
+// (lat,lng) — the server-side source of truth behind Incident.
+// CongestionRiskPoint auto-detection. map.html's incident-add form calls
+// the /api/gis/congestion-check endpoint built on this (see api.go) instead
+// of running this check against its own client-side _gisLayers, since
+// _gisLayers only holds whatever GIS layers the CURRENT user happens to
+// have view permission for — whether an incident sits near a "28 điểm nguy
+// cơ ùn tắc" point/segment is meant to be the same answer for every user,
+// not something that silently stops working for a user who (now, or under
+// a future per-layer permission model) can't see that specific layer.
+func CongestionRiskMatch(lat, lng float64) (Match, bool) {
 	for _, m := range MatchNear(lat, lng) {
 		if m.Layer.FlagsIncidentCongestionRisk {
-			return true
+			return m, true
 		}
 	}
-	return false
+	return Match{}, false
+}
+
+// MatchesCongestionRisk reports whether (lat,lng) falls within any feature
+// belonging to a layer with FlagsIncidentCongestionRisk set.
+func MatchesCongestionRisk(lat, lng float64) bool {
+	_, ok := CongestionRiskMatch(lat, lng)
+	return ok
 }
