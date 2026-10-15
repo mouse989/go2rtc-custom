@@ -4269,12 +4269,12 @@ function ensureGisLayerIcon(layer) {
   if (!map || !layer.icon_content_type || _gisIconLayerIds.has(layer.id)) return;
   _gisIconLayerIds.add(layer.id); // mark immediately — loadImage is async, avoid starting it twice
   const imgId = 'gis-icon-' + layer.id;
-  map.loadImage(gisLayerIconURL(layer), (err, image) => {
-    if (err || !image) {
-      console.warn('[gis] failed to load custom icon for layer', layer.id, err);
-      _gisIconLayerIds.delete(layer.id); // allow a retry on the next redraw
-      return;
-    }
+  // vietmap-gl-js 6.x's loadImage() is Promise-only (no error-first callback
+  // param — an older mapbox-gl/maplibre-gl convention this version dropped),
+  // so a callback argument here is silently ignored and never invoked.
+  map.loadImage(gisLayerIconURL(layer)).then(response => {
+    const image = response && response.data;
+    if (!image) throw new Error('no image data in loadImage response');
     if (!map.hasImage(imgId)) map.addImage(imgId, image);
     const srcId = 'gis-icon-points-' + layer.id;
     if (!map.getSource(srcId)) {
@@ -4285,6 +4285,9 @@ function ensureGisLayerIcon(layer) {
       });
     }
     redrawGisFeaturesLayer(); // the source above was empty until now — populate it
+  }).catch(err => {
+    console.warn('[gis] failed to load custom icon for layer', layer.id, err);
+    _gisIconLayerIds.delete(layer.id); // allow a retry on the next redraw
   });
 }
 
