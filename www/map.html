@@ -33,6 +33,13 @@ body.sb-collapsed           { --map-left:0; }
 #mapToolbar {
   position:fixed; top:calc(var(--topbar-h) + .5rem); right:.8rem;
   z-index:400; display:flex; flex-direction:column; gap:.4rem;
+  /* Fixed (not just max-) width — without it, a flex column with no cross-
+     axis constraint sizes to its widest unwrapped child (flex items default
+     to min-width:auto, i.e. their own max-content size), so one long GIS
+     feature label (real road names run 60-80+ chars) would balloon the
+     whole toolbar wide enough to cover most of the map. See
+     .map-subtree-item-label below for the matching per-row truncation. */
+  width:300px;
 }
 .map-btn {
   background:var(--surface); border:1px solid var(--border); border-radius:8px;
@@ -91,7 +98,6 @@ body.sb-collapsed           { --map-left:0; }
   display:flex; align-items:center; gap:.4rem; padding:.22rem .3rem; border-radius:5px; font-size:.74rem;
 }
 .map-subtree-item:hover { background:var(--surface2); }
-.map-subtree-item .hint { color:var(--text-muted); font-size:.68rem; }
 .map-subtree-empty { font-size:.72rem; color:var(--text-muted); padding:.2rem .2rem; }
 
 /* ── Sidebar layout ────────────────────────────────────────── */
@@ -4266,9 +4272,18 @@ function renderGisMenu() {
     regionsList.innerHTML = _allRegions.map(r => `
       <label class="map-subtree-item">
         <input type="checkbox" class="gis-region-chk" data-id="${escHtml(r.id)}" ${_hiddenRegionIds.has(r.id) ? '' : 'checked'}>
-        <span style="flex:1">${escHtml(r.name)}</span>
-        <span class="hint">${(r.cameras || []).length} cam</span>
+        <span class="gis-row-name" title="${escHtml(r.name)}">${escHtml(r.name)}</span>
+        <span class="gis-row-meta">${(r.cameras || []).length} cam</span>
       </label>`).join('');
+  }
+  // Long lists push the floating toolbar tall even with the group's own
+  // scroll cap — default-collapse once there are enough rows to matter,
+  // same threshold as each GIS layer subtree below.
+  const regionsBody = document.getElementById('gisRegionsList');
+  const regionsChev = document.querySelector('#gisRegionsToggleHdr .map-group-chev');
+  if (_allRegions.length > 5 && !regionsBody.dataset.userToggled) {
+    regionsBody.classList.add('collapsed');
+    if (regionsChev) regionsChev.textContent = '▸';
   }
   regionsAllChk.checked = _allRegions.length > 0 && _allRegions.every(r => !_hiddenRegionIds.has(r.id));
   regionsList.querySelectorAll('.gis-region-chk').forEach(chk => {
@@ -4289,22 +4304,27 @@ function renderGisMenu() {
   }
   container.innerHTML = _gisLayers.map(layer => {
     const feats = layer.features || [];
+    // Default-collapse once a layer has more than a handful of features
+    // (e.g. a real "28 điểm nguy cơ ùn tắc" layer) — otherwise every row of
+    // every layer renders expanded at once, which is what was pushing the
+    // floating toolbar to cover most of the map.
+    const startCollapsed = feats.length > 5;
     const itemsHtml = feats.length === 0
       ? '<div class="map-subtree-empty">Chưa có mục nào</div>'
       : feats.map(f => `
           <label class="map-subtree-item">
             <input type="checkbox" class="gis-feature-chk" data-id="${escHtml(f.id)}" ${_hiddenGisFeatureIds.has(f.id) ? '' : 'checked'}>
-            <span style="flex:1">${escHtml(f.label || '(không tên)')}</span>
-            <span class="hint">${f.kind === 'segment' ? 'đoạn đường' : 'điểm'} · R${Math.round(f.radius_m || 0)}m</span>
+            <span class="gis-row-name" title="${escHtml(f.label || '(không tên)')}">${escHtml(f.label || '(không tên)')}</span>
+            <span class="gis-row-meta">${f.kind === 'segment' ? 'đoạn' : 'điểm'} · R${Math.round(f.radius_m || 0)}m</span>
           </label>`).join('');
     return `
       <div class="map-subtree" data-layer-id="${escHtml(layer.id)}">
         <div class="map-subtree-header">
           <input type="checkbox" class="gis-layer-all-chk" data-layer-id="${escHtml(layer.id)}">
-          <span class="map-subtree-label">${escHtml(layer.icon || '📍')} ${escHtml(layer.name)}</span>
-          <span class="map-group-chev">▾</span>
+          <span class="map-subtree-label gis-row-name" title="${escHtml(layer.name)}">${escHtml(layer.icon || '📍')} ${escHtml(layer.name)}</span>
+          <span class="map-group-chev">${startCollapsed ? '▸' : '▾'}</span>
         </div>
-        <div class="map-subtree-body">${itemsHtml}</div>
+        <div class="map-subtree-body${startCollapsed ? ' collapsed' : ''}">${itemsHtml}</div>
       </div>`;
   }).join('');
 
@@ -4363,6 +4383,7 @@ document.getElementById('gisRegionsToggleHdr').addEventListener('click', e => {
   const body = document.getElementById('gisRegionsList');
   const chev = document.querySelector('#gisRegionsToggleHdr .map-group-chev');
   body.classList.toggle('collapsed');
+  body.dataset.userToggled = '1'; // stop renderGisMenu()'s >5-items auto-collapse from overriding this on the next data refresh
   chev.textContent = body.classList.contains('collapsed') ? '▸' : '▾';
 });
 
@@ -4688,14 +4709,28 @@ document.getElementById('gisImportKmlFile').addEventListener('change', async e =
     return;
   }
   if (!feats.length) { alert('Không tìm thấy Point/LineString nào trong file KML.'); return; }
-  const radiusStr = prompt(`Tìm thấy ${feats.length} điểm/đoạn. Bán kính áp dụng chung (m) — sửa riêng từng mục được sau khi nhập:`, '100');
-  if (radiusStr === null) return;
-  const radius = parseFloat(radiusStr);
-  if (!(radius > 0)) { alert('Bán kính không hợp lệ.'); return; }
+
+  const pointCount = feats.filter(f => f.kind === 'point').length;
+  const segmentCount = feats.filter(f => f.kind === 'segment').length;
+  let pointRadius = null, segmentRadius = null;
+
+  if (pointCount > 0) {
+    const s = prompt(`Tìm thấy ${pointCount} điểm. Bán kính áp dụng chung cho điểm (m) — sửa riêng từng mục được sau khi nhập:`, '100');
+    if (s === null) return;
+    pointRadius = parseFloat(s);
+    if (!(pointRadius > 0)) { alert('Bán kính điểm không hợp lệ.'); return; }
+  }
+  if (segmentCount > 0) {
+    const s = prompt(`Tìm thấy ${segmentCount} đoạn đường. Bán kính áp dụng chung cho đoạn đường (m) — sửa riêng từng mục được sau khi nhập:`, '50');
+    if (s === null) return;
+    segmentRadius = parseFloat(s);
+    if (!(segmentRadius > 0)) { alert('Bán kính đoạn đường không hợp lệ.'); return; }
+  }
 
   let ok = 0, fail = 0;
   for (const f of feats) {
     try {
+      const radius = f.kind === 'segment' ? segmentRadius : pointRadius;
       await apiFetch('/api/gis/layers/' + encodeURIComponent(_editingGisLayerID) + '/features', {
         method: 'POST',
         body: { label: f.label, kind: f.kind, lat: f.lat || 0, lng: f.lng || 0, line: f.line || [], radius_m: radius },
