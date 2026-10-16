@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trung tâm Điều hành Giao thông – Dashboard 02</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+/* Dashboard 02 is a standalone kiosk page (no sidebar/topbar chrome) sized
+   for a 1920×1080 operations-room screen with no page scroll; below 860px
+   it collapses to a single scrolling column (see the bottom media query). */
+:root {
+  --d2-accent: #22d3ee;
+  --d2-bg: #060a13;
+}
+html, body { height:100%; background:var(--d2-bg); }
+body { overflow:hidden; }
+[data-theme="light"] body { background:var(--bg); }
+
+.d2-wrap { display:flex; flex-direction:column; height:100vh; padding:.6rem .8rem; gap:.5rem; }
+
+/* ── Header ── */
+.d2-header { display:flex; align-items:flex-start; gap:1rem; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.6rem .9rem; flex-wrap:wrap; }
+.d2-title-block { flex:1; min-width:280px; }
+.d2-title { font-size:1.05rem; font-weight:800; color:var(--d2-accent); letter-spacing:.01em; display:flex; align-items:center; gap:.45rem; }
+.d2-summary { font-size:.82rem; color:var(--text-muted); margin-top:.2rem; line-height:1.4; }
+.d2-pills { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.35rem; }
+.d2-clockblock { text-align:right; flex-shrink:0; }
+.d2-clock { font-size:1.5rem; font-weight:800; font-variant-numeric:tabular-nums; color:var(--text); line-height:1; }
+.d2-date { font-size:.75rem; color:var(--text-muted); margin-top:.15rem; text-transform:capitalize; }
+.d2-live { display:inline-flex; align-items:center; gap:.3rem; font-size:.68rem; font-weight:700; color:#f87171; margin-top:.25rem; text-transform:uppercase; letter-spacing:.05em; }
+.d2-live-dot { width:7px; height:7px; border-radius:50%; background:#f87171; animation:d2-pulse 1.4s ease-in-out infinite; }
+@keyframes d2-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+.d2-hdr-actions { display:flex; flex-direction:column; align-items:flex-end; gap:.4rem; flex-shrink:0; }
+.d2-hdr-actions select, .d2-hdr-actions button { font-size:.72rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:.25rem .5rem; cursor:pointer; font-family:inherit; }
+.d2-hdr-actions select:focus, .d2-hdr-actions button:hover { border-color:var(--d2-accent); }
+
+/* ── Main 2-column grid ── */
+.d2-grid { flex:1; display:grid; grid-template-columns:3fr 2fr; gap:.5rem; min-height:0; overflow:hidden; }
+.d2-col { display:flex; flex-direction:column; gap:.45rem; min-height:0; overflow:hidden; }
+
+.d2-section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.55rem .75rem; display:flex; flex-direction:column; min-height:0; }
+.d2-section h3 { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:0 0 .4rem; display:flex; align-items:center; gap:.4rem; flex-shrink:0; }
+.d2-section h3 .d2-badge-new { background:#22d3ee22; color:#22d3ee; border-radius:4px; padding:0 .3rem; font-size:.62rem; }
+.d2-col-title { font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--d2-accent); margin-bottom:.1rem; }
+
+/* ── KPI strip ── */
+.d2-kpi-row { display:flex; gap:.4rem; flex-shrink:0; }
+.d2-kpi { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.45rem .6rem; min-width:0; }
+.d2-kpi .lbl { font-size:.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.d2-kpi .val { font-size:1.35rem; font-weight:800; line-height:1.05; color:var(--text); }
+.d2-kpi .delta { font-size:.68rem; font-weight:700; margin-top:.1rem; }
+.d2-kpi .delta.up { color:#f87171; }
+.d2-kpi .delta.down { color:#4ade80; }
+.d2-kpi .delta.flat { color:var(--text-muted); }
+.d2-kpi .sub2 { font-size:.63rem; color:var(--text-muted); margin-top:.1rem; }
+
+/* ── Network status stacked bar ── */
+.d2-stackbar { display:flex; width:100%; height:20px; border-radius:5px; overflow:hidden; background:var(--surface2); margin-bottom:.4rem; flex-shrink:0; }
+.d2-stackbar > div { height:100%; }
+.d2-chips { display:flex; gap:.3rem; flex-wrap:wrap; font-size:.66rem; }
+.d2-chip { display:inline-flex; align-items:center; gap:.25rem; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.1rem .45rem; font-weight:600; }
+.d2-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+
+/* ── Route ranking ── */
+.d2-rank-wrap { flex:1; overflow:auto; min-height:0; }
+.d2-rank-row { display:flex; align-items:center; gap:.4rem; padding:.18rem 0; border-bottom:1px solid var(--border-soft); font-size:.72rem; }
+.d2-rank-row:last-child { border-bottom:none; }
+.d2-rank-name { width:150px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+.d2-rank-bar { flex:1; display:flex; height:16px; border-radius:3px; overflow:hidden; min-width:0; }
+.d2-rank-cell { flex:1; height:100%; }
+.d2-rank-cell.fcast { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.4) 0 1.5px, transparent 1.5px 4px); }
+.d2-rank-right { display:flex; align-items:center; gap:.3rem; width:70px; flex-shrink:0; justify-content:flex-end; }
+.d2-rank-badge { display:inline-block; padding:.05rem .32rem; border-radius:4px; font-weight:700; font-size:.68rem; min-width:32px; text-align:center; }
+
+/* ── Incident filters/tiles ── */
+.d2-filters { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; margin-bottom:.4rem; flex-shrink:0; }
+.d2-filters select, .d2-filters input { font-size:.7rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:.22rem .4rem; font-family:inherit; }
+.d2-inc-tiles { display:flex; gap:.35rem; flex-shrink:0; margin-bottom:.4rem; }
+.d2-inc-tile { flex:1; text-align:center; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:.3rem .2rem; }
+.d2-inc-tile .n { font-size:1.1rem; font-weight:800; line-height:1; }
+.d2-inc-tile .l { font-size:.6rem; color:var(--text-muted); margin-top:.15rem; }
+
+#d2Map { width:100%; flex:1; min-height:140px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); }
+.d2-map-wrap { position:relative; flex:1; min-height:0; display:flex; }
+.d2-map-toggle { position:absolute; top:6px; right:6px; z-index:5; font-size:.65rem; }
+
+/* ── Vehicle flow ── */
+.d2-flow-big { display:flex; align-items:baseline; gap:.5rem; margin-bottom:.3rem; flex-shrink:0; }
+.d2-flow-big .n { font-size:1.7rem; font-weight:800; color:var(--text); }
+.d2-flow-big .u { font-size:.72rem; color:var(--text-muted); }
+.d2-flow-big .pct { font-size:.78rem; font-weight:700; }
+.d2-mix-bar { display:flex; width:100%; height:14px; border-radius:4px; overflow:hidden; margin-bottom:.25rem; flex-shrink:0; }
+.d2-mix-legend { display:flex; gap:.4rem; flex-wrap:wrap; font-size:.62rem; color:var(--text-muted); margin-bottom:.3rem; flex-shrink:0; }
+
+.d2-empty { color:var(--text-muted); font-size:.75rem; text-align:center; padding:1rem; }
+.d2-err { color:#f87171; font-size:.72rem; text-align:center; padding:.6rem; }
+
+@media (max-width:860px) {
+  html, body { overflow:auto; }
+  .d2-wrap { height:auto; }
+  .d2-grid { display:flex; flex-direction:column; overflow:visible; }
+  .d2-col { overflow:visible; }
+  .d2-rank-wrap { max-height:320px; }
+}
+</style>
+</head>
+<body>
+
+<div class="d2-wrap">
+  <header class="d2-header">
+    <div class="d2-title-block">
+      <div class="d2-title">🚦 Trung tâm Quản lý Điều hành Giao thông Đô thị — Dashboard 02</div>
+      <div class="d2-summary" id="d2Summary">Đang tải dữ liệu…</div>
+      <div class="d2-pills" id="d2Pills"></div>
+    </div>
+    <div class="d2-clockblock">
+      <div class="d2-clock" id="d2Clock">--:--:--</div>
+      <div class="d2-date" id="d2Date">—</div>
+      <div class="d2-live"><span class="d2-live-dot"></span>LIVE</div>
+    </div>
+    <div class="d2-hdr-actions">
+      <a href="/dashboard.html" style="font-size:.72rem;color:var(--text-muted)">← Dashboard 01</a>
+      <select id="d2RefreshSel" title="Chu kỳ tự động làm mới"></select>
+      <button id="d2ThemeBtn" title="Đổi giao diện sáng/tối">🌙 Giao diện</button>
+    </div>
+  </header>
+
+  <div class="d2-grid">
+    <!-- LEFT: Chỉ tiêu giao thông mạng lưới -->
+    <div class="d2-col">
+      <div class="d2-col-title">📊 Chỉ tiêu giao thông mạng lưới</div>
+      <div class="d2-kpi-row" id="d2KpiRow"></div>
+      <div style="display:flex; gap:.45rem; flex:1 1 38%; min-height:0;">
+        <div class="d2-section" style="flex:1 1 42%; min-width:0;">
+          <h3>Trạng thái mạng lưới</h3>
+          <div id="d2NetStack"></div>
+        </div>
+        <div class="d2-section" style="flex:1 1 58%; min-width:0;">
+          <h3>TTI mạng lưới theo giờ (hôm nay vs. hôm qua)</h3>
+          <div style="position:relative; flex:1; min-height:0;"><canvas id="d2TtiChart"></canvas></div>
+        </div>
+      </div>
+      <div class="d2-section" style="flex:1 1 55%; min-height:0;">
+        <h3>Bản đồ nhiệt &amp; xếp hạng tuyến <span style="font-weight:400;text-transform:none;letter-spacing:0" id="d2RankNote"></span></h3>
+        <div class="d2-rank-wrap" id="d2RankWrap"><div class="d2-empty">Đang tải…</div></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Giao thông -->
+    <div class="d2-col">
+      <div class="d2-col-title">🚧 Giao thông</div>
+      <div class="d2-section" style="flex-shrink:0;">
+        <div class="d2-filters">
+          <select id="d2Week"></select>
+          <label style="font-size:.68rem;color:var(--text-muted)">Từ</label>
+          <input type="date" id="d2From">
+          <label style="font-size:.68rem;color:var(--text-muted)">Đến</label>
+          <input type="date" id="d2To">
+          <select id="d2Cat">
+            <option value="">Tất cả loại</option>
+            <option value="dongxe">Ùn tắc/Đông xe</option>
+            <option value="vacham">Va chạm/TNGT</option>
+            <option value="ngapnuoc">Ngập nước</option>
+            <option value="khac">Sự cố khác</option>
+          </select>
+        </div>
+        <div class="d2-inc-tiles" id="d2IncTiles"></div>
+      </div>
+      <div style="display:flex; gap:.45rem; flex:1 1 42%; min-height:0;">
+        <div class="d2-section" style="flex:1 1 60%; min-width:0;">
+          <h3>Vị trí sự cố <span id="d2MapCount" style="font-weight:400;text-transform:none"></span></h3>
+          <div class="d2-map-wrap">
+            <div id="d2Map"></div>
+            <button class="d2-map-toggle" id="d2MapToggleBtn" onclick="toggleD2MapMode()">🔥 Bản đồ nhiệt</button>
+          </div>
+        </div>
+        <div class="d2-section" style="flex:1 1 40%; min-width:0;">
+          <h3>Sự cố theo ngày trong tuần</h3>
+          <div style="position:relative; flex:1; min-height:0;"><canvas id="d2WeekChart"></canvas></div>
+        </div>
+      </div>
+      <div class="d2-section" style="flex:1 1 40%; min-height:0;">
+        <h3>🚗 Lưu lượng phương tiện <span class="d2-badge-new">MỚI</span></h3>
+        <div class="d2-flow-big">
+          <span class="n" id="d2FlowBig">—</span><span class="u">xe/giờ</span>
+          <span class="pct" id="d2FlowPct"></span>
+        </div>
+        <div class="d2-mix-bar" id="d2MixBar"></div>
+        <div class="d2-mix-legend" id="d2MixLegend"></div>
+        <div style="position:relative; flex:1; min-height:60px;"><canvas id="d2FlowChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// Dashboard 02 — "Trung tâm Quản lý Điều hành Giao thông Đô thị"
+// Standalone kiosk page. All metrics come from this system's own existing
+// endpoints (no new computation of TTI/delay/persistent-point/forecast —
+// only new historical lookups and aggregation across ALL routes/sensors
+// instead of one). See git history / PR description for the endpoint→field
+// mapping agreed with the operator before this page was built.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── VN-timezone-safe date helpers ───────────────────────────────────────
+// vnDateStr formats a Date as the Asia/Ho_Chi_Minh calendar date (YYYY-MM-DD)
+// regardless of the browser/kiosk's own OS timezone — needed because the
+// daily traffic scan files and /api/trafficflow/hourly are both keyed by
+// the SERVER's VN-local calendar day (internal/traffic/storage.go's
+// vnLocation), not the browser's. Vietnam has no DST, so "now - N*24h" is
+// always exactly "this time, N days ago" in VN wall-clock terms too.
+const VN_TZ = 'Asia/Ho_Chi_Minh';
+function vnDateStr(d) { return new Intl.DateTimeFormat('en-CA', { timeZone: VN_TZ }).format(d); }
+function vnParts(d) {
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: VN_TZ, hour12:false, weekday:'long', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const parts = {}; f.formatToParts(d).forEach(p => parts[p.type] = p.value);
+  return parts;
+}
+const VN_WEEKDAYS = { Monday:'Thứ Hai', Tuesday:'Thứ Ba', Wednesday:'Thứ Tư', Thursday:'Thứ Năm', Friday:'Thứ Sáu', Saturday:'Thứ Bảy', Sunday:'Chủ Nhật' };
+
+function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── TTI slot machinery (same shape as dashboard.html, duplicated here since
+// each page is a standalone static file in this codebase) ────────────────
+let SLOT_MIN = 15, TOTAL_SLOTS = 96, _ttIntervalMin = 15;
+function applySlotSize() {
+  let m = Math.max(_ttIntervalMin, 1);
+  m = Math.min(m, 60);
+  const changed = m !== SLOT_MIN;
+  SLOT_MIN = m; TOTAL_SLOTS = Math.ceil(1440 / m);
+  return changed;
+}
+function slotsFor(minutes) { return Math.max(1, Math.round(minutes / SLOT_MIN)); }
+function slotOfTs(ts) { const d = new Date(ts); return Math.floor((d.getHours()*60 + d.getMinutes()) / SLOT_MIN); }
+
+const _ttiDefault = {
+  tiers: [
+    {maxTTI:1.2,  color:'#22c55e', label:'Thông thoáng'},
+    {maxTTI:1.35, color:'#84cc16', label:'Bình thường'},
+    {maxTTI:1.5,  color:'#f59e0b', label:'Chậm'},
+    {maxTTI:0,    color:'#ef4444', label:'Tắc nghẽn'},
+  ],
+  noDataColor:'#334155',
+};
+let _ttiAppearance = null;
+function _getTiers() { return (_ttiAppearance||_ttiDefault).tiers||[]; }
+function ttiTier(v) {
+  if (!v || v <= 0) return null;
+  const tiers = _getTiers();
+  for (let i = 0; i < tiers.length - 1; i++) if (v < tiers[i].maxTTI) return tiers[i];
+  return tiers[tiers.length-1] || null;
+}
+function ttiColor(v) { const t = ttiTier(v); return t ? t.color : ((_ttiAppearance||_ttiDefault).noDataColor||'#334155'); }
+function ttiLabel(v) { const t = ttiTier(v); return t ? t.label : 'Không có dữ liệu'; }
+
+function buildSlots(logs, routeId) {
+  const acc = Array.from({length:TOTAL_SLOTS}, () => null);
+  const buf = Array.from({length:TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0}));
+  (logs||[]).filter(e => e.routeId === routeId && e.timestamp && e.tti > 0).forEach(e => {
+    const i = slotOfTs(e.timestamp);
+    if (i < 0 || i >= TOTAL_SLOTS) return;
+    buf[i].n++; buf[i].tti += e.tti; buf[i].delay += e.delaySec || 0;
+  });
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    if (buf[i].n > 0) acc[i] = { tti: buf[i].tti/buf[i].n, delay: Math.round(buf[i].delay/buf[i].n), n: buf[i].n };
+  }
+  return acc;
+}
+function avgSlotAround(slots, idx) {
+  const w = slotsFor(15); let sum = 0, n = 0;
+  for (let j = idx-w; j <= idx+w; j++) if (j >= 0 && j < slots.length && slots[j]) { sum += slots[j].tti; n++; }
+  return n ? sum/n : null;
+}
+function fillSlotGaps(slots, maxGap) {
+  const out = slots.slice(); let prev = -1;
+  for (let i = 0; i < out.length; i++) {
+    if (!out[i] || out[i].interp) continue;
+    if (prev >= 0 && i-prev > 1 && i-prev-1 <= maxGap) {
+      const a = out[prev], b = out[i];
+      for (let j = prev+1; j < i; j++) {
+        const f = (j-prev)/(i-prev);
+        out[j] = { tti: a.tti + f*(b.tti-a.tti), delay: Math.round(a.delay + f*(b.delay-a.delay)), n:0, interp:true };
+      }
+    }
+    prev = i;
+  }
+  return out;
+}
+
+// ── Global state ────────────────────────────────────────────────────────
+let _sum = null;          // /api/dashboard/summary
+const BASELINE_WEEKS = 4;
+let _baseline = { day:'', byRoute:{} };
+let _forecast = { byRoute:{}, weeks:0 };
+let _persistCmp = { current:null, yesterday:null, baseline4w:null, baselineWeeks:0 };
+let _incidents = [];      // raw list for the current date range (no category filter applied server-side)
+let _hourlyToday = null, _hourlyYesterday = null; // /api/trafficflow/hourly
+let _map = null, _mapInited = false, _mapHeatMode = false;
+let _ttiChart = null, _weekChart = null, _flowChart = null;
+let _refreshTimer = null;
+
+function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
+
+// ── Clock ───────────────────────────────────────────────────────────────
+function tickClock() {
+  const now = new Date();
+  const p = vnParts(now);
+  document.getElementById('d2Clock').textContent = `${p.hour}:${p.minute}:${p.second}`;
+  document.getElementById('d2Date').textContent = `${VN_WEEKDAYS[p.weekday]||p.weekday}, ${p.day}/${p.month}/${p.year}`;
+}
+
+// ── Refresh cycle selector ──────────────────────────────────────────────
+const REFRESH_KEY = 'd2_refresh_min';
+function initRefreshSelector() {
+  const sel = document.getElementById('d2RefreshSel');
+  [5,10,15,30,60].forEach(m => {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m + ' phút';
+    sel.appendChild(o);
+  });
+  let saved = parseInt(localStorage.getItem(REFRESH_KEY), 10);
+  if (![5,10,15,30,60].includes(saved)) saved = 5;
+  sel.value = saved;
+  sel.addEventListener('change', () => {
+    localStorage.setItem(REFRESH_KEY, sel.value);
+    armRefreshTimer();
+  });
+  armRefreshTimer();
+}
+function armRefreshTimer() {
+  if (_refreshTimer) clearInterval(_refreshTimer);
+  const min = parseInt(document.getElementById('d2RefreshSel').value, 10) || 5;
+  _refreshTimer = setInterval(loadAll, min * 60000);
+}
+
+// ── Theme toggle (standalone page has no .sidebar-footer for app.js to
+// auto-inject into, so this mirrors the same utmc_theme/data-theme
+// mechanism by hand) ────────────────────────────────────────────────────
+function initThemeToggle() {
+  const btn = document.getElementById('d2ThemeBtn');
+  const isLight = () => document.documentElement.getAttribute('data-theme') === 'light';
+  const update = () => { btn.textContent = isLight() ? '☀️ Giao diện' : '🌙 Giao diện'; };
+  if (localStorage.getItem('utmc_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  update();
+  btn.addEventListener('click', () => {
+    if (isLight()) document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.setItem('utmc_theme', isLight() ? 'light' : 'dark');
+    update();
+  });
+}
+
+// ── Appearance / forecast loaders (same endpoints as dashboard.html) ────
+async function loadTtiAppearance() {
+  try { const r = await apiFetch('/api/traveltime/appearance'); if (r && r.tiers) _ttiAppearance = r; } catch(_) {}
+  if (!_ttiAppearance || !(_ttiAppearance.tiers||[]).length) _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
+}
+async function loadForecast() {
+  try {
+    const list = await apiFetch(`/api/traveltime/forecast?slotMin=${SLOT_MIN}&horizonMin=120`);
+    const byRoute = {}; let weeks = 0;
+    (list||[]).forEach(rf => {
+      const bySlot = {};
+      (rf.points||[]).forEach(p => { bySlot[p.slot] = { tti:p.tti, lo:p.lo, hi:p.hi }; });
+      byRoute[rf.routeId] = { bySlot, method: rf.method };
+      if (rf.weeksUsed > weeks) weeks = rf.weeksUsed;
+    });
+    _forecast = { byRoute, weeks };
+  } catch(_) { /* panel falls back to "no forecast" state */ }
+}
+async function loadBaseline() {
+  const todayStr = vnDateStr(new Date());
+  if (_baseline.day === todayStr) return;
+  const dates = [];
+  for (let w = 1; w <= BASELINE_WEEKS; w++) dates.push(vnDateStr(new Date(Date.now() - w*7*86400000)));
+  const days = await Promise.all(dates.map(dt => apiFetch('/api/dashboard/history?date=' + dt).catch(() => null)));
+  const acc = {};
+  const routeIds = ((_sum?.travelTime?.routes)||[]).map(r => r.id);
+  days.forEach(logs => {
+    if (!logs || !logs.length) return;
+    routeIds.forEach(id => {
+      const slots = buildSlots(logs, id);
+      if (!acc[id]) acc[id] = Array.from({length:TOTAL_SLOTS}, () => ({sum:0,n:0,dsum:0}));
+      slots.forEach((s,i) => { if (s) { acc[id][i].sum += s.tti; acc[id][i].dsum += s.delay; acc[id][i].n++; } });
+    });
+  });
+  const byRoute = {};
+  Object.keys(acc).forEach(id => {
+    byRoute[id] = fillSlotGaps(acc[id].map(c => c.n ? {tti:c.sum/c.n, delay:Math.round(c.dsum/c.n), n:c.n} : null), slotsFor(60));
+  });
+  _baseline = { day: todayStr, byRoute };
+}
+
+// ── Persistent jam-point KPI: yesterday-same-hour + 4-week-baseline ─────
+// Reads the SAME daily scan files internal/traffic/storage.go already
+// writes (via the now-viewer-accessible GET /api/traffic/data?file=...),
+// picks the scan nearest the target instant, and counts .persistent —
+// no new metric, just a historical lookup of the existing one.
+async function fetchPersistentAt(targetInstant) {
+  const dateStr = vnDateStr(targetInstant);
+  try {
+    const data = await apiFetch('/api/traffic/data?file=' + dateStr + '.json');
+    if (!data || !data.scans || !data.scans.length) return null;
+    let best = null, bestDiff = Infinity;
+    for (const s of data.scans) {
+      const diff = Math.abs(new Date(s.scannedAt) - targetInstant);
+      if (diff < bestDiff) { bestDiff = diff; best = s; }
+    }
+    if (best && bestDiff <= 3*3600000) return (best.persistent||[]).length;
+    return null;
+  } catch(_) { return null; }
+}
+async function loadPersistentComparisons() {
+  const now = Date.now();
+  const yesterday = await fetchPersistentAt(new Date(now - 86400000));
+  const weekVals = await Promise.all([1,2,3,4].map(w => fetchPersistentAt(new Date(now - w*7*86400000))));
+  const used = weekVals.filter(v => v != null);
+  _persistCmp = {
+    current: (_sum?.traffic?.persistent) ?? null,
+    yesterday,
+    baseline4w: used.length ? used.reduce((a,b)=>a+b,0)/used.length : null,
+    baselineWeeks: used.length,
+  };
+}
+
+// ── Vehicle flow (internal/trafficflow — Hawkwise), NOT YOLO counting ───
+async function loadVehicleFlow() {
+  const todayStr = vnDateStr(new Date()), yestStr = vnDateStr(new Date(Date.now()-86400000));
+  try { _hourlyToday = await apiFetch('/api/trafficflow/hourly?date=' + todayStr); } catch(_) { _hourlyToday = null; }
+  try { _hourlyYesterday = await apiFetch('/api/trafficflow/hourly?date=' + yestStr); } catch(_) { _hourlyYesterday = null; }
+}
+
+// ── Incidents (real /api/incidents, this system's own data — the same
+// system kpi.utmc.io.vn reads from, just a different running binary) ───
+function incidentBucket(cat) {
+  if (cat === 'Đông xe') return 'dongxe';
+  if (cat === 'Va chạm') return 'vacham';
+  if (cat === 'Ngập nước') return 'ngapnuoc';
+  return 'khac';
+}
+const WEEK_LABEL_KEYS = ['week_this','week_last','week_7d','month_this'];
+function initIncidentFilterDefaults() {
+  const sel = document.getElementById('d2Week');
+  [['week_this','Tuần này'],['week_last','Tuần trước'],['week_7d','7 ngày qua'],['month_this','Tháng này']].forEach(([v,l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
+  });
+  sel.value = 'week_7d';
+  applyWeekPreset('week_7d');
+  sel.addEventListener('change', () => { applyWeekPreset(sel.value); loadIncidents(); });
+  document.getElementById('d2From').addEventListener('change', loadIncidents);
+  document.getElementById('d2To').addEventListener('change', loadIncidents);
+  document.getElementById('d2Cat').addEventListener('change', renderIncidentViews);
+}
+function applyWeekPreset(key) {
+  const now = new Date();
+  const todayStr = vnDateStr(now);
+  let from = todayStr, to = todayStr;
+  if (key === 'week_7d') {
+    from = vnDateStr(new Date(now - 6*86400000));
+  } else if (key === 'week_this' || key === 'week_last') {
+    // Monday-start week, computed on VN-local weekday.
+    const wd = ((new Intl.DateTimeFormat('en-US', {timeZone:VN_TZ, weekday:'short'}).format(now)));
+    const map = {Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6};
+    let offset = map[wd] ?? 0;
+    if (key === 'week_last') offset += 7;
+    from = vnDateStr(new Date(now - offset*86400000));
+    const toOffset = key === 'week_last' ? offset - 6 : 0;
+    to = vnDateStr(new Date(now - toOffset*86400000));
+  } else if (key === 'month_this') {
+    const p = vnParts(now);
+    from = `${p.year}-${p.month}-01`;
+  }
+  document.getElementById('d2From').value = from;
+  document.getElementById('d2To').value = to;
+}
+async function loadIncidents() {
+  const from = document.getElementById('d2From').value;
+  const to = document.getElementById('d2To').value;
+  const year = (to || from || vnDateStr(new Date())).slice(0,4);
+  try {
+    const qs = new URLSearchParams({ year });
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    _incidents = await apiFetch('/api/incidents?' + qs.toString()) || [];
+  } catch (e) {
+    _incidents = null; // null = fetch failed (no Incidents-tab access, etc.) vs [] = genuinely empty
+  }
+  renderIncidentViews();
+}
+
+function renderIncidentViews() {
+  const wrap = document.getElementById('d2IncTiles');
+  if (_incidents === null) {
+    wrap.innerHTML = '<div class="d2-err" style="flex:1">⚠️ Không tải được dữ liệu sự cố (cần quyền "Sự cố GT")</div>';
+    document.getElementById('d2MapCount').textContent = '';
+    renderWeekChart([]);
+    renderIncidentMap([]);
+    return;
+  }
+  const catSel = document.getElementById('d2Cat').value;
+  const filtered = catSel ? _incidents.filter(i => incidentBucket(i.category) === catSel) : _incidents;
+
+  const counts = { dongxe:0, vacham:0, ngapnuoc:0, khac:0 };
+  _incidents.forEach(i => { counts[incidentBucket(i.category)]++; });
+  const tiles = [
+    ['Tổng', _incidents.length, 'var(--text)'],
+    ['🔴 Ùn tắc/Đông xe', counts.dongxe, '#f87171'],
+    ['🟠 Va chạm/TNGT', counts.vacham, '#fb923c'],
+    ['🔵 Ngập nước', counts.ngapnuoc, '#38bdf8'],
+    ['⚪ Sự cố khác', counts.khac, '#a78bfa'],
+  ];
+  wrap.innerHTML = tiles.map(([l,n,c]) => `<div class="d2-inc-tile"><div class="n" style="color:${c}">${n}</div><div class="l">${escH(l)}</div></div>`).join('');
+
+  renderWeekChart(filtered);
+  renderIncidentMap(filtered);
+}
+
+const WD_VI = ['CN','T2','T3','T4','T5','T6','T7'];
+function renderWeekChart(list) {
+  const counts = [0,0,0,0,0,0,0];
+  list.forEach(i => { if (i.time) counts[new Date(i.time).getDay()]++; });
+  const el = document.getElementById('d2WeekChart');
+  if (!el) return;
+  try {
+    if (_weekChart) _weekChart.destroy();
+    _weekChart = new Chart(el, {
+      type: 'bar',
+      data: { labels: WD_VI, datasets: [{ label:'Số vụ', data: counts, backgroundColor:'#22d3ee99', borderRadius:3 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, ticks:{precision:0, color:'#94a3b8'}, grid:{color:'#1e2d4555'}}, x:{ticks:{color:'#94a3b8'}, grid:{display:false}} } },
+    });
+  } catch (e) {
+    el.parentElement.innerHTML = `<div class="d2-err">⚠️ Không vẽ được biểu đồ: ${escH(e.message)}</div>`;
+  }
+}
+
+function renderIncidentMap(list) {
+  const countEl = document.getElementById('d2MapCount');
+  const pts = list.filter(i => i.lat && i.lng);
+  if (countEl) countEl.textContent = `(${pts.length}/${list.length} có vị trí)`;
+  updateD2MapData(pts);
+}
+
+// ── VietMap GL incident map (VietMap GL, not kepler.gl — this codebase has
+// no kepler.gl dependency; the real kpi.utmc.io.vn source for that embed
+// lives in a separate binary this session has no access to) ────────────
+const CAT_COLOR = { dongxe:'#ef4444', vacham:'#f59e0b', ngapnuoc:'#38bdf8', khac:'#a78bfa' };
+function buildIncidentFeatures(pts) {
+  return pts.map(i => ({
+    type:'Feature',
+    geometry:{ type:'Point', coordinates:[i.lng, i.lat] },
+    properties:{ cat: incidentBucket(i.category), content: i.content||'', time: i.time||'', unit: i.unit||'' },
+  }));
+}
+async function initD2Map() {
+  try {
+    const settings = await apiFetch('/api/settings');
+    const apiKey = (settings||{}).vietmap_api_key || '';
+    const el = document.getElementById('d2Map');
+    if (!el) return;
+    if (!apiKey) { el.innerHTML = '<div class="d2-empty">Chưa cấu hình VietMap API Key</div>'; return; }
+    _map = new vietmapgl.Map({ container:'d2Map', style:`https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apiKey}`, center:[106.700,10.776], zoom:10.5 });
+    _map.addControl(new vietmapgl.NavigationControl({showCompass:false}), 'top-right');
+    _map.on('load', () => {
+      _mapInited = true;
+      _map.addSource('d2incidents', { type:'geojson', data:{type:'FeatureCollection', features:[]} });
+      _map.addLayer({ id:'d2inc-dot', type:'circle', source:'d2incidents',
+        paint:{ 'circle-radius':6, 'circle-color':['match',['get','cat'],'dongxe',CAT_COLOR.dongxe,'vacham',CAT_COLOR.vacham,'ngapnuoc',CAT_COLOR.ngapnuoc,CAT_COLOR.khac],
+          'circle-opacity':.9, 'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,.5)' } });
+      _map.addLayer({ id:'d2inc-heat', type:'heatmap', source:'d2incidents', layout:{visibility:'none'},
+        paint:{ 'heatmap-weight':1, 'heatmap-intensity':1.2, 'heatmap-radius':['interpolate',['linear'],['zoom'],5,8,12,18],
+          'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(0,0,0,0)',0.3,'rgba(251,191,36,.5)',0.6,'rgba(239,68,68,.75)',1,'rgba(153,27,27,.9)'] } });
+      _map.on('click','d2inc-dot', e => {
+        const p = e.features[0].properties;
+        const html = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px">` +
+          (p.time ? `<b>${new Date(p.time).toLocaleString('vi-VN')}</b><br>` : '') +
+          escH(p.content) + (p.unit ? `<br><i>${escH(p.unit)}</i>` : '') + `</div>`;
+        new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat(e.lngLat).setHTML(html).addTo(_map);
+      });
+      _map.on('mouseenter','d2inc-dot', () => _map.getCanvas().style.cursor='pointer');
+      _map.on('mouseleave','d2inc-dot', () => _map.getCanvas().style.cursor='');
+      if (_pendingMapPts) { updateD2MapData(_pendingMapPts); _pendingMapPts = null; }
+    });
+  } catch (e) {
+    const el = document.getElementById('d2Map');
+    if (el) el.innerHTML = `<div class="d2-err">Lỗi bản đồ: ${escH(e.message)}</div>`;
+  }
+}
+let _pendingMapPts = null;
+function updateD2MapData(pts) {
+  if (!_map || !_mapInited) { _pendingMapPts = pts; return; }
+  try {
+    const features = buildIncidentFeatures(pts);
+    _map.getSource('d2incidents')?.setData({ type:'FeatureCollection', features });
+    if (features.length) {
+      const b = new vietmapgl.LngLatBounds();
+      features.forEach(f => b.extend(f.geometry.coordinates));
+      _map.fitBounds(b, { padding:40, maxZoom:14, duration:500 });
+    }
+  } catch(_) {}
+}
+function toggleD2MapMode() {
+  if (!_map || !_mapInited) return;
+  _mapHeatMode = !_mapHeatMode;
+  _map.setLayoutProperty('d2inc-heat', 'visibility', _mapHeatMode ? 'visible' : 'none');
+  _map.setLayoutProperty('d2inc-dot', 'visibility', _mapHeatMode ? 'none' : 'visible');
+  document.getElementById('d2MapToggleBtn').textContent = _mapHeatMode ? '📍 Điểm' : '🔥 Bản đồ nhiệt';
+}
+
+// ── Render: header summary + status pills ───────────────────────────────
+function renderHeader(tt) {
+  const tiers = _getTiers();
+  const worst = tiers[tiers.length-1];
+  const all = tt.routes || [];
+  const congested = worst ? all.filter(r => r.latestTTI > 0 && ttiTier(r.latestTTI) === worst) : [];
+  const curSlot = slotOfTs(new Date().toISOString());
+  let willJam = 0;
+  all.forEach(r => {
+    const sf = _forecast.byRoute[r.id];
+    const p = sf && sf.bySlot && sf.bySlot[curSlot + slotsFor(60)];
+    if (p && worst && ttiTier(p.tti) === worst) willJam++;
+  });
+  let sentence;
+  if (congested.length) {
+    const worstRoute = congested.slice().sort((a,b) => b.latestTTI - a.latestTTI)[0];
+    sentence = `${congested.length} tuyến đang ${escH(worst.label||'tắc nghẽn')}; nặng nhất là ${escH(worstRoute.name)} (TTI ${worstRoute.latestTTI.toFixed(2)}).`;
+  } else {
+    sentence = 'Hiện không có tuyến nào ở mức tắc nghẽn.';
+  }
+  sentence += ` Dự báo +60′ còn ${willJam} tuyến ở mức ${escH(worst ? worst.label||'tắc nghẽn' : '—')}.`;
+  document.getElementById('d2Summary').textContent = sentence;
+
+  const measured = all.filter(r => r.latestTTI > 0);
+  const counts = tiers.map(() => 0);
+  measured.forEach(r => { const idx = tiers.indexOf(ttiTier(r.latestTTI)); if (idx>=0) counts[idx]++; });
+  const pills = tiers.map((t,i) => counts[i] > 0 ? `<span class="d2-chip"><span class="d2-dot" style="background:${t.color}"></span>${counts[i]} ${escH(t.label||'')}</span>` : '').filter(Boolean);
+  document.getElementById('d2Pills').innerHTML = pills.join('');
+}
+
+// ── Render: KPI tiles ────────────────────────────────────────────────────
+function deltaHtml(cur, base, unit, invert) {
+  if (cur == null || base == null) return `<div class="sub2">Chưa đủ dữ liệu so sánh</div>`;
+  const diff = cur - base;
+  const pct = base !== 0 ? (diff/base*100) : 0;
+  const worse = invert ? diff < 0 : diff > 0;
+  const cls = Math.abs(pct) < 2 ? 'flat' : (worse ? 'up' : 'down');
+  const arrow = cls === 'flat' ? '▬' : (worse ? '▲' : '▼');
+  return `<div class="delta ${cls}">${arrow} ${diff>=0?'+':''}${diff.toFixed(2)}${unit||''} (${pct>=0?'+':''}${pct.toFixed(0)}%)</div>`;
+}
+function renderKPIs(tt, tf) {
+  const curSlot = slotOfTs(new Date().toISOString());
+  const routeIds = (tt.routes||[]).map(r => r.id);
+  // Network baseline (4-week, same weekday+hour) for TTI/Trễ — reuses the
+  // SAME per-route baselineSlots()/avgSlotAround() already computed for the
+  // route-ranking panel, just averaged across all routes instead of one.
+  let ttiBaseSum=0, ttiBaseN=0, delayBaseSum=0, delayBaseN=0;
+  routeIds.forEach(id => {
+    const b = baselineSlots(id);
+    const v = b ? avgSlotAround(b, curSlot) : null;
+    if (v != null) { ttiBaseSum += v; ttiBaseN++; }
+    const bd = b ? b[curSlot] : null; // delay baseline: exact-slot avg is close enough at hourly granularity
+    if (bd && bd.delay != null) { delayBaseSum += bd.delay; delayBaseN++; }
+  });
+  const ttiBase = ttiBaseN ? ttiBaseSum/ttiBaseN : null;
+  const delayBase = delayBaseN ? (delayBaseSum/delayBaseN)/60 : null;
+
+  const tiles = [
+    { lbl:'TTI trung bình', val: tt.avgTTI ? tt.avgTTI.toFixed(2) : '—', extra: deltaHtml(tt.avgTTI||null, ttiBase, '', true) },
+    { lbl:'Trễ TB (phút/tuyến)', val: tt.avgDelaySec ? (tt.avgDelaySec/60).toFixed(1) : '—', extra: deltaHtml(tt.avgDelaySec ? tt.avgDelaySec/60 : null, delayBase, 'p', true) },
+    { lbl:'Điểm ùn tắc dai dẳng', val: _persistCmp.current ?? (tf.persistent ?? '—'), extra:
+        `<div class="sub2">So hôm qua cùng giờ: ${_persistCmp.yesterday!=null ? (_persistCmp.current - _persistCmp.yesterday >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.yesterday) : '—'}</div>` +
+        `<div class="sub2">So TB ${_persistCmp.baselineWeeks||0} tuần cùng giờ: ${_persistCmp.baseline4w!=null ? (_persistCmp.current - _persistCmp.baseline4w >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.baseline4w).toFixed(1) : '—'}</div>` },
+    { lbl:'Số tuyến giám sát', val: tt.routeCount ?? '—' },
+    { lbl:'Chiều dài (km)', val: tt.totalLengthKm ? tt.totalLengthKm.toFixed(1) : '—' },
+  ];
+  document.getElementById('d2KpiRow').innerHTML = tiles.map(t =>
+    `<div class="d2-kpi"><div class="lbl">${escH(t.lbl)}</div><div class="val">${t.val}</div>${t.extra||''}</div>`
+  ).join('');
+}
+
+// ── Render: network status stacked bar + forecast chips ─────────────────
+function renderNetworkStatus(tt) {
+  const tiers = _getTiers();
+  const all = tt.routes || [];
+  const measured = all.filter(r => r.latestTTI > 0);
+  const counts = tiers.map(() => 0);
+  measured.forEach(r => { const idx = tiers.indexOf(ttiTier(r.latestTTI)); if (idx>=0) counts[idx]++; });
+  const noData = all.length - measured.length;
+  const total = Math.max(all.length, 1);
+
+  const bar = tiers.map((t,i) => counts[i] > 0 ? `<div style="flex:${counts[i]};background:${t.color}" title="${escH(t.label)}: ${counts[i]}"></div>` : '').join('');
+  const ndBar = noData > 0 ? `<div style="flex:${noData};background:${(_ttiAppearance||_ttiDefault).noDataColor||'#334155'}" title="Chưa có dữ liệu: ${noData}"></div>` : '';
+
+  const curSlot = slotOfTs(new Date().toISOString());
+  const worst = tiers[tiers.length-1];
+  let degrade = 0, worst60 = 0;
+  all.forEach(r => {
+    if (!(r.latestTTI > 0)) return;
+    const sf = _forecast.byRoute[r.id];
+    const p15 = sf && sf.bySlot && sf.bySlot[curSlot+1];
+    if (p15) {
+      const curIdx = tiers.indexOf(ttiTier(r.latestTTI)), futIdx = tiers.indexOf(ttiTier(p15.tti));
+      if (futIdx > curIdx) degrade++;
+    }
+    const p60 = sf && sf.bySlot && sf.bySlot[curSlot+slotsFor(60)];
+    if (p60 && worst && ttiTier(p60.tti) === worst) worst60++;
+  });
+
+  const chips = [];
+  if (degrade > 0) chips.push(`<span class="d2-chip">🔮 +${SLOT_MIN}′: ${degrade} tuyến xấu hơn</span>`);
+  if (worst60 > 0) chips.push(`<span class="d2-chip" style="border-color:${worst?.color};color:${worst?.color}">🔮 +60′: ${worst60} tuyến ${escH(worst?.label||'tắc')}</span>`);
+
+  document.getElementById('d2NetStack').innerHTML =
+    `<div class="d2-stackbar">${bar}${ndBar}</div><div class="d2-chips">${chips.join('') || '<span style="color:var(--text-muted);font-size:.68rem">Không có dự báo bất thường</span>'}</div>`;
+}
+
+// ── Render: network-wide TTI-by-hour line chart ──────────────────────────
+async function renderNetworkTtiChart(tt) {
+  let yestLogs = [];
+  try { yestLogs = await apiFetch('/api/dashboard/history?date=' + vnDateStr(new Date(Date.now()-86400000))) || []; } catch(_) {}
+
+  const routeIds = (tt.routes||[]).map(r => r.id);
+  const hourlyAvg = (logs) => {
+    const buf = Array.from({length:24}, () => ({sum:0,n:0}));
+    (logs||[]).filter(e => e.tti > 0 && e.timestamp).forEach(e => {
+      const h = new Date(e.timestamp).getHours();
+      buf[h].sum += e.tti; buf[h].n++;
+    });
+    return buf.map(b => b.n ? b.sum/b.n : null);
+  };
+  const todayHourly = hourlyAvg(tt.todayLogs);
+  const yestHourly = hourlyAvg(yestLogs);
+
+  const curHour = new Date().getHours();
+  // Forecast continuation for the rest of today: average, across routes with
+  // a forecast, the per-route Holt-Winters prediction nearest each future hour.
+  const fcastHourly = Array.from({length:24}, () => null);
+  for (let h = curHour; h < 24; h++) {
+    let sum=0, n=0;
+    routeIds.forEach(id => {
+      const sf = _forecast.byRoute[id];
+      if (!sf || !sf.bySlot) return;
+      const slot = Math.min(TOTAL_SLOTS-1, Math.round(h*60/SLOT_MIN));
+      const p = sf.bySlot[slot];
+      if (p) { sum += p.tti; n++; }
+    });
+    if (n) fcastHourly[h] = sum/n;
+  }
+  if (todayHourly[curHour] != null) fcastHourly[curHour] = todayHourly[curHour];
+
+  const tiers = _getTiers();
+  const thresholds = tiers.length >= 3 ? [tiers[tiers.length-3].maxTTI, tiers[tiers.length-2].maxTTI] : [];
+
+  const labels = Array.from({length:24}, (_,h) => String(h).padStart(2,'0')+'h');
+  const el = document.getElementById('d2TtiChart');
+  const datasets = [
+    { label:'Hôm nay', data: todayHourly, borderColor:'#22d3ee', backgroundColor:'#22d3ee', spanGaps:true, tension:.25, pointRadius:2 },
+    { label:'Dự báo', data: fcastHourly, borderColor:'#22d3ee', borderDash:[5,4], spanGaps:true, tension:.25, pointRadius:0 },
+    { label:'Hôm qua', data: yestHourly, borderColor:'#94a3b8', spanGaps:true, tension:.25, pointRadius:0, borderDash:[2,2] },
+  ];
+  thresholds.forEach((v,i) => datasets.push({ label: i===0?'Ngưỡng Chậm':'Ngưỡng Tắc nghẽn', data: Array.from({length:24},()=>v), borderColor: i===0?'#f59e0b':'#ef4444', borderWidth:1, pointRadius:0, borderDash:[1,3] }));
+
+  // Chart.js itself (CDN) is the one thing here that can throw outright
+  // (e.g. the script failed to load) — isolated so that failure only blanks
+  // this one chart, never the KPI/status/ranking panels already rendered.
+  try {
+    if (_ttiChart) _ttiChart.destroy();
+    _ttiChart = new Chart(el, {
+      type:'line',
+      data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{color:'#94a3b8', boxWidth:12, font:{size:10}} } },
+        scales:{ y:{ title:{display:true,text:'TTI',color:'#94a3b8'}, ticks:{color:'#94a3b8'}, grid:{color:'#1e2d4555'} },
+                  x:{ ticks:{color:'#94a3b8'}, grid:{display:false} } },
+      },
+      plugins: [{
+        id:'nowLine',
+        afterDraw(chart) {
+          const xScale = chart.scales.x, yScale = chart.scales.y;
+          const x = xScale.getPixelForValue(curHour);
+          const ctx = chart.ctx;
+          ctx.save();
+          ctx.strokeStyle = '#f87171'; ctx.setLineDash([3,3]); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(x, yScale.top); ctx.lineTo(x, yScale.bottom); ctx.stroke();
+          ctx.restore();
+        },
+      }],
+    });
+  } catch (e) {
+    if (el) el.parentElement.innerHTML = `<div class="d2-err">⚠️ Không vẽ được biểu đồ: ${escH(e.message)}</div>`;
+  }
+}
+
+// ── Render: route heatmap + ranking ───────────────────────────────────────
+function renderRouteRanking(tt) {
+  const all = (tt.routes||[]).slice().sort((a,b) => (b.latestTTI||0) - (a.latestTTI||0));
+  const curHour = new Date().getHours();
+  const wrap = document.getElementById('d2RankWrap');
+  document.getElementById('d2RankNote').textContent = `(${all.length} tuyến, xếp theo TTI hiện tại)`;
+  if (!all.length) { wrap.innerHTML = '<div class="d2-empty">Chưa có tuyến nào</div>'; return; }
+
+  wrap.innerHTML = all.map(r => {
+    const slots = buildSlots(tt.todayLogs||[], r.id);
+    const sf = _forecast.byRoute[r.id];
+    const cells = [];
+    for (let h = 0; h < 24; h++) {
+      let sum=0, n=0;
+      for (let s = Math.floor(h*60/SLOT_MIN); s < Math.floor((h+1)*60/SLOT_MIN) && s < TOTAL_SLOTS; s++) {
+        if (slots[s]) { sum += slots[s].tti; n++; }
+      }
+      const isFuture = h > curHour;
+      let v = n ? sum/n : null;
+      if (isFuture && sf && sf.bySlot) {
+        const p = sf.bySlot[Math.min(TOTAL_SLOTS-1, Math.round(h*60/SLOT_MIN))];
+        if (p) v = p.tti;
+      }
+      cells.push(`<div class="d2-rank-cell${isFuture?' fcast':''}" style="background:${v?ttiColor(v):'#1e293b'}" data-tip="${String(h).padStart(2,'0')}h – ${v?('TTI '+v.toFixed(2)+' · '+escH(ttiLabel(v))):'Không có dữ liệu'}"></div>`);
+    }
+    const p60 = sf && sf.bySlot && sf.bySlot[Math.round(curHour*60/SLOT_MIN) + slotsFor(60)];
+    const curColor = r.latestTTI > 0 ? ttiColor(r.latestTTI) : '#334155';
+    return `<div class="d2-rank-row">
+      <div class="d2-rank-name" title="${escH(r.name)}">${escH(r.name)}</div>
+      <div class="d2-rank-bar">${cells.join('')}</div>
+      <div class="d2-rank-right">
+        <span class="d2-rank-badge" style="background:${curColor}22;color:${curColor}">${r.latestTTI ? r.latestTTI.toFixed(2) : '—'}</span>
+        <span class="d2-dot" style="background:${p60 ? ttiColor(p60.tti) : '#334155'}" title="${p60 ? 'Dự báo +60′: TTI '+p60.tti.toFixed(2) : 'Chưa có dự báo'}"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Render: vehicle flow module ──────────────────────────────────────────
+function renderVehicleFlow() {
+  const nowHour = new Date().getHours(); // most recent FULLY elapsed hour = nowHour-1
+  const lastFullHour = (nowHour - 1 + 24) % 24;
+  const todayHours = _hourlyToday?.hours || [];
+  const yestHours = _hourlyYesterday?.hours || [];
+  const curTotal = todayHours[lastFullHour]?.total;
+  const yestTotal = yestHours[lastFullHour]?.total;
+
+  document.getElementById('d2FlowBig').textContent = curTotal != null ? curTotal.toLocaleString('vi-VN') : '—';
+  const pctEl = document.getElementById('d2FlowPct');
+  if (curTotal != null && yestTotal) {
+    const pct = ((curTotal - yestTotal) / yestTotal) * 100;
+    pctEl.textContent = `${pct>=0?'▲ +':'▼ '}${pct.toFixed(0)}% so với ${String(lastFullHour).padStart(2,'0')}h hôm qua`;
+    pctEl.style.color = pct >= 0 ? '#f87171' : '#4ade80';
+  } else {
+    pctEl.textContent = '';
+  }
+
+  // Vehicle mix for that hour — labels are Hawkwise's own free-text strings
+  // (internal/trafficflow/records.go), not a fixed enum, so render whatever
+  // classes actually came back rather than assuming a hardcoded taxonomy.
+  const mix = todayHours[lastFullHour]?.vehicleCounts || {};
+  const mixTotal = Object.values(mix).reduce((a,b)=>a+b, 0);
+  const palette = ['#22d3ee','#f59e0b','#a78bfa','#4ade80','#f87171','#94a3b8'];
+  const entries = Object.entries(mix).sort((a,b) => b[1]-a[1]);
+  document.getElementById('d2MixBar').innerHTML = mixTotal
+    ? entries.map(([lbl,v],i) => `<div style="flex:${v};background:${palette[i%palette.length]}" title="${escH(lbl)}: ${v}"></div>`).join('')
+    : '';
+  document.getElementById('d2MixLegend').innerHTML = mixTotal
+    ? entries.map(([lbl,v],i) => `<span><span class="d2-dot" style="background:${palette[i%palette.length]};display:inline-block;margin-right:.2rem"></span>${escH(lbl)} ${(v/mixTotal*100).toFixed(0)}%</span>`).join('')
+    : '<span>Chưa có dữ liệu lưu lượng theo loại xe</span>';
+
+  const labels = Array.from({length:24}, (_,h) => String(h).padStart(2,'0')+'h');
+  const todayVals = Array.from({length:24}, (_,h) => todayHours[h] ? todayHours[h].total : null);
+  const yestVals = Array.from({length:24}, (_,h) => yestHours[h] ? yestHours[h].total : null);
+  const el = document.getElementById('d2FlowChart');
+  // Chart.js can throw (e.g. CDN blocked) — isolated so a chart-only
+  // failure never wipes the big number / mix bar rendered just above.
+  try {
+    if (_flowChart) _flowChart.destroy();
+    _flowChart = new Chart(el, {
+      data: {
+        labels,
+        datasets: [
+          { type:'bar', label:'Hôm nay', data: todayVals, backgroundColor:'#22d3ee88', borderRadius:2 },
+          { type:'line', label:'Hôm qua', data: yestVals, borderColor:'#94a3b8', pointRadius:0, tension:.25, spanGaps:true },
+        ],
+      },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#94a3b8', boxWidth:12, font:{size:10}}}},
+        scales:{ y:{beginAtZero:true, ticks:{color:'#94a3b8'}, grid:{color:'#1e2d4555'}}, x:{ticks:{color:'#94a3b8'}, grid:{display:false}} } },
+    });
+  } catch (e) {
+    if (el) el.parentElement.innerHTML = `<div class="d2-err">⚠️ Không vẽ được biểu đồ: ${escH(e.message)}</div>`;
+  }
+}
+
+// ── Orchestration: each fetch is error-isolated so one failing source
+// never blanks panels that don't depend on it ───────────────────────────
+async function loadAll() {
+  try {
+    _sum = await apiFetch('/api/dashboard/summary');
+  } catch (e) {
+    document.getElementById('d2Summary').textContent = '⚠️ Không tải được dữ liệu tổng hợp: ' + e.message;
+    return;
+  }
+  const tt = _sum.travelTime || {};
+  const tf = _sum.traffic || {};
+  if (_sum.travelTimeIntervalMin > 0) _ttIntervalMin = _sum.travelTimeIntervalMin;
+  applySlotSize();
+
+  renderHeader(tt);
+  renderKPIs(tt, tf);
+  renderNetworkStatus(tt);
+  renderRouteRanking(tt);
+
+  // Independent panels — failures here must not blank the panels above.
+  // renderNetworkTtiChart/renderWeekChart/renderVehicleFlow each isolate
+  // their own Chart.js call internally, so these outer catches only need
+  // to cover their data-fetch step (e.g. /api/dashboard/history, the
+  // persistent-point lookups, /api/trafficflow/hourly).
+  renderNetworkTtiChart(tt).catch(() => {});
+  loadPersistentComparisons().then(() => renderKPIs(tt, tf)).catch(() => {});
+  loadBaseline().then(() => { renderKPIs(tt, tf); renderRouteRanking(tt); }).catch(() => {});
+  loadForecast().then(() => { renderNetworkStatus(tt); renderRouteRanking(tt); renderNetworkTtiChart(tt); renderHeader(tt); }).catch(() => {});
+  loadVehicleFlow().then(renderVehicleFlow).catch(() => { document.getElementById('d2FlowBig').textContent = '⚠️'; });
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────
+(async () => {
+  await initApp('dashboard');
+  const user = getUser();
+  if (!user || (!hasTab('dashboard') && user.role !== 'admin')) {
+    document.body.innerHTML = '<div class="d2-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard.</div>';
+    return;
+  }
+  initThemeToggle();
+  initRefreshSelector();
+  initIncidentFilterDefaults();
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  await loadTtiAppearance();
+  initD2Map();
+  await loadAll();
+  loadIncidents();
+})();
+</script>
+</body>
+</html>

@@ -245,6 +245,68 @@ func deleteRecordsOlderThan(retentionDays int) int64 {
 	return n
 }
 
+// HourlyBucket is one hour's network-wide total across every sensor —
+// summed Total and per-label Volume (vehicle_counts), used by Dashboard
+// 02's "Lưu lượng phương tiện" module. Hour is 0-23 in Vietnam wall-clock
+// time (vnLocation), matching the day-bucketing convention used elsewhere
+// in this package and in internal/traffic/internal/incidents.
+type HourlyBucket struct {
+	Hour          int            `json:"hour"`
+	Total         int            `json:"total"`
+	VehicleCounts map[string]int `json:"vehicleCounts"`
+}
+
+// HourlyTotals aggregates every flow_records row received on the given
+// Vietnam-local calendar day (YYYY-MM-DD, vnLocation) into 24 hourly
+// buckets, network-wide across all sensors — Dashboard 02 calls this once
+// for "today" and once for "yesterday" rather than this package computing
+// the comparison itself, same division of labor as internal/traffic's
+// per-day scan files. Always returns 24 buckets (0-23), zero-filled for
+// hours with no records, so callers can index directly by hour.
+func HourlyTotals(day string) ([]HourlyBucket, error) {
+	dayStart, err := time.ParseInLocation("2006-01-02", day, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	rows, err := db.Query(`
+		SELECT received_at, total, vehicle_counts
+		FROM flow_records
+		WHERE received_at >= ? AND received_at < ?
+	`, dayStart.UnixNano(), dayEnd.UnixNano())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	buckets := make([]HourlyBucket, 24)
+	for h := range buckets {
+		buckets[h] = HourlyBucket{Hour: h, VehicleCounts: map[string]int{}}
+	}
+
+	for rows.Next() {
+		var receivedAtNano int64
+		var total int
+		var vcJSON sql.NullString
+		if err := rows.Scan(&receivedAtNano, &total, &vcJSON); err != nil {
+			continue
+		}
+		h := time.Unix(0, receivedAtNano).In(vnLocation).Hour()
+		b := &buckets[h]
+		b.Total += total
+		if vcJSON.Valid {
+			var vcs []VehicleCount
+			if err := json.Unmarshal([]byte(vcJSON.String), &vcs); err == nil {
+				for _, vc := range vcs {
+					b.VehicleCounts[vc.Label] += vc.Volume
+				}
+			}
+		}
+	}
+	return buckets, rows.Err()
+}
+
 func marshalOrNil[T any](v []T) (any, error) {
 	if len(v) == 0 {
 		return nil, nil

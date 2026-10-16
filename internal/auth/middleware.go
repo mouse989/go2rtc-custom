@@ -243,7 +243,7 @@ var tabExtraPaths = map[string][]string{
 	// whether they also have map.html's separate "🛣 Theo tuyến" (free-form
 	// route-building) permission; the two features use the same proxy but
 	// are otherwise unrelated.
-	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route"},
+	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
 	TabCounting:  {"/api/counting"},

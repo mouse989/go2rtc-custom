@@ -52,6 +52,7 @@ func RegisterHandlers() {
 	http.HandleFunc("/api/trafficflow/sensors", handleSensors)
 	http.HandleFunc("/api/trafficflow/sensors/", handleSensors)
 	http.HandleFunc("/api/trafficflow/observed-sensors", handleObservedSensors)
+	http.HandleFunc("/api/trafficflow/hourly", handleHourly)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -388,6 +389,53 @@ func handleLatest(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// requireTrafficFlowDashboardViewer allows any authenticated user, same
+// shape as internal/traffic's requireTrafficViewer — the Dashboard tab's
+// own gate in internal/auth/middleware.go's tabExtraPaths[TabDashboard]
+// is what actually limits who reaches this path, not AllowMapTrafficFlow
+// (that flag is specific to map.html's traffic-flow layer and shouldn't
+// also be required just to see the Dashboard's vehicle-flow module).
+func requireTrafficFlowDashboardViewer(w http.ResponseWriter, r *http.Request) bool {
+	_, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+type hourlyOut struct {
+	Date  string         `json:"date"`
+	Hours []HourlyBucket `json:"hours"`
+}
+
+// handleHourly serves Dashboard 02's "Lưu lượng phương tiện" module: the
+// network-wide (all sensors summed) vehicle count per hour of the given
+// Vietnam-local calendar day, with a per-vehicle-class breakdown.
+//
+//	GET /api/trafficflow/hourly?date=YYYY-MM-DD
+func handleHourly(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficFlowDashboardViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().In(vnLocation).Format("2006-01-02")
+	}
+
+	hours, err := HourlyTotals(date)
+	if err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, hourlyOut{Date: date, Hours: hours})
 }
 
 // ── Sensor mapping (admin-only CRUD) + observed sensors (admin-only, read-only) ──

@@ -51,3 +51,40 @@ func TestUserCanAccessPathDashboardRoute(t *testing.T) {
 		t.Fatal("a viewer without the Dashboard tab and without AllowMapRoute must not reach /api/vietmap/route")
 	}
 }
+
+// TestUserCanAccessPathDashboardTrafficData: Dashboard 02's persistent-jam-
+// point KPI reads historical scan files via /api/traffic/data, which is
+// otherwise admin-only (requireTrafficAccess gates config/start/stop/scan/
+// status/logs). A Dashboard-tab viewer must reach /api/traffic/data without
+// needing the separate admin role, same shape as /api/vietmap/route above.
+func TestUserCanAccessPathDashboardTrafficData(t *testing.T) {
+	dashViewer := &User{Role: RoleViewer, Tabs: []string{TabDashboard}}
+	if !userCanAccessPath(dashViewer, "/api/traffic/data?file=2026-10-15.json") {
+		t.Fatal("a viewer with the Dashboard tab should reach /api/traffic/data")
+	}
+	noDash := &User{Role: RoleViewer, Tabs: []string{TabMap}}
+	if userCanAccessPath(noDash, "/api/traffic/data?file=2026-10-15.json") {
+		t.Fatal("a viewer without the Dashboard tab must not reach /api/traffic/data")
+	}
+	// requireTrafficAccess (admin-only) must remain in force for the
+	// control-plane handlers even for a Dashboard-tab viewer.
+	if userCanAccessPath(dashViewer, "/api/traffic/start") {
+		t.Fatal("a non-admin Dashboard viewer must not reach /api/traffic/start")
+	}
+}
+
+// TestUserCanAccessPathDashboardTrafficFlowHourly: Dashboard 02's "Lưu
+// lượng phương tiện" module reads /api/trafficflow/hourly, which is
+// intentionally NOT gated by AllowMapTrafficFlow (that flag is specific to
+// map.html's traffic-flow layer) — a Dashboard-tab viewer must reach it on
+// the Dashboard tab alone, mirroring /api/traffic/data above.
+func TestUserCanAccessPathDashboardTrafficFlowHourly(t *testing.T) {
+	dashViewer := &User{Role: RoleViewer, Tabs: []string{TabDashboard}, AllowMapTrafficFlow: false}
+	if !userCanAccessPath(dashViewer, "/api/trafficflow/hourly?date=2026-10-15") {
+		t.Fatal("a viewer with the Dashboard tab should reach /api/trafficflow/hourly even without AllowMapTrafficFlow")
+	}
+	noDash := &User{Role: RoleViewer, Tabs: []string{TabMap}, AllowMapTrafficFlow: false}
+	if userCanAccessPath(noDash, "/api/trafficflow/hourly?date=2026-10-15") {
+		t.Fatal("a viewer without the Dashboard tab and without AllowMapTrafficFlow must not reach /api/trafficflow/hourly")
+	}
+}

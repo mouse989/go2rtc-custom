@@ -27,6 +27,21 @@ func requireTrafficAccess(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
+// requireTrafficViewer allows any authenticated user to read scan history
+// (handleData only); the Dashboard tab's own gate in
+// internal/auth/middleware.go's tabExtraPaths[TabDashboard] already limits
+// who reaches this path. Config/start/stop/scan/status/logs stay
+// admin-only via requireTrafficAccess above since they mutate state or
+// trigger external VietMap API calls.
+func requireTrafficViewer(w http.ResponseWriter, r *http.Request) bool {
+	_, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
@@ -189,7 +204,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 // handleData lists stored scan files, or returns one file's content when
 // the "file" query parameter is given.
 func handleData(w http.ResponseWriter, r *http.Request) {
-	if !requireTrafficAccess(w, r) {
+	if !requireTrafficViewer(w, r) {
 		return
 	}
 	if r.Method != http.MethodGet {
