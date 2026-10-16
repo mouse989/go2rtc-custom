@@ -100,6 +100,11 @@ function ensureAIStyles() {
       font-family:ui-monospace,"JetBrains Mono","Share Tech Mono",monospace; font-size:.68rem; letter-spacing:.15em;
       text-transform:uppercase; cursor:pointer; backdrop-filter:blur(6px); }
     .ai-hud-btn:hover { filter:brightness(1.3); }
+    .ai-mode-tabs { display:flex;gap:.35rem;margin-bottom:.7rem;flex-wrap:wrap; }
+    .ai-mode-tab { padding:.28rem .7rem;border-radius:var(--radius);border:1px solid ${AI_GOLD};
+      background:rgba(212,175,55,.08);color:${AI_GOLD};font-size:.81rem;font-weight:600;cursor:pointer;
+      letter-spacing:.04em;transition:filter .15s,background .15s; }
+    .ai-mode-tab:hover { background:rgba(212,175,55,.18); }
     @keyframes ai-sweep { 0% { top:0% } 100% { top:100% } }
     .ai-sweep-line { position:absolute; left:0; right:0; height:2px;
       background:linear-gradient(90deg, transparent, ${AI_GOLD}, transparent); animation: ai-sweep 1.8s linear infinite; }
@@ -111,11 +116,14 @@ function ensureAIStyles() {
   document.head.appendChild(style);
 }
 
-// ── Mount: wraps #playerWrap once with a position:relative container so
-// the button row / scan overlay / SVG overlay can sit on top of it, and
-// appends the stats panel as a normal-flow sibling right after it so it
-// pushes the modal taller when shown, matching spec §4.3's "panel expands
-// below the image" layout. ────────────────────────────────────────────
+// ── Mount: the AI ANALYZE/WATCH 30S buttons go in their own row right
+// after #modeTabs (Snapshot/Auto/WebRTC/MSE/HLS) — same pill-row layout
+// and position as that row, not floating over the image — while
+// #playerWrap itself gets wrapped in a position:relative container so the
+// scanning overlay / SVG detection overlay can still sit on top of the
+// image itself. The stats panel is appended as a normal-flow sibling
+// right after that, so it pushes the modal taller when shown, matching
+// spec §4.3's "panel expands below the image" layout. ──────────────────
 function ensureAIHUDMounted() {
   const playerWrap = document.getElementById('playerWrap');
   if (!playerWrap) return null;
@@ -131,11 +139,20 @@ function ensureAIHUDMounted() {
 
   const btnRow = document.createElement('div');
   btnRow.id = 'aiBtnRow';
-  btnRow.style.cssText = 'position:absolute;left:8px;bottom:8px;display:flex;gap:6px;z-index:5';
+  btnRow.className = 'ai-mode-tabs';
   btnRow.innerHTML =
-    `<button id="aiAnalyzeBtn" class="ai-hud-btn" style="border-color:${AI_GOLD};color:${AI_GOLD}">🔍 AI ANALYZE</button>` +
-    `<button id="aiWatchBtn" class="ai-hud-btn" style="border-color:${AI_GOLD};color:${AI_GOLD}">⏱ WATCH 30S</button>`;
-  relWrap.appendChild(btnRow);
+    `<button id="aiAnalyzeBtn" class="ai-mode-tab">🔍 AI ANALYZE</button>` +
+    `<button id="aiWatchBtn" class="ai-mode-tab">⏱ WATCH 30S</button>`;
+  // Sibling of #modeTabs (not a child of it, and not inside relWrap) — its
+  // own click listeners below fire directly, never through #modeTabs'
+  // delegated click handler (which would otherwise treat these as a
+  // stream-mode switch and call startPlayer(id, undefined)).
+  const modeTabs = document.getElementById('modeTabs');
+  if (modeTabs && modeTabs.parentElement) {
+    modeTabs.insertAdjacentElement('afterend', btnRow);
+  } else {
+    relWrap.parentElement.insertBefore(btnRow, relWrap);
+  }
 
   const scanStatus = document.createElement('div');
   scanStatus.id = 'aiScanStatus';
