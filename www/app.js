@@ -357,6 +357,7 @@ function firstPermittedPage(u) {
     { tab: 'map',       page: '/map.html' },
     { tab: 'cameras',   page: '/' },
     { tab: 'dashboard', page: '/dashboard.html' },
+    { tab: 'dashboard2', page: '/dashboard2.html' },
     { tab: 'monitor',   page: '/monitor.html' },
     { tab: 'log',       page: '/log.html' },
     { tab: 'config',    page: '/config.html' },

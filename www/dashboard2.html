@@ -3,47 +3,31 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trung tâm Điều hành Giao thông – Dashboard 02</title>
+<title>Dashboard 02 – UTMC</title>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
 <style>
-/* Dashboard 02 is a standalone kiosk page (no sidebar/topbar chrome) sized
-   for a 1920×1080 operations-room screen with no page scroll; below 860px
-   it collapses to a single scrolling column (see the bottom media query). */
-:root {
-  --d2-accent: #22d3ee;
-  --d2-bg: #060a13;
-}
-html, body { height:100%; background:var(--d2-bg); }
-body { overflow:hidden; }
-[data-theme="light"] body { background:var(--bg); }
+/* Dashboard 02 reuses the standard sidebar/topbar shell every other page
+   has; only its .content area is locked to the viewport (no scroll) for
+   1920×1080 kiosk display — below 860px that constraint is dropped and it
+   behaves like a normal scrolling page (see the bottom media query). */
+:root { --d2-accent: #22d3ee; }
 
-.d2-wrap { display:flex; flex-direction:column; height:100vh; padding:.6rem .8rem; gap:.5rem; }
+#d2Content { overflow:hidden; display:flex; flex-direction:column; gap:.5rem; padding:.55rem .75rem; }
 
-/* ── Header ── */
-.d2-header { display:flex; align-items:flex-start; gap:1rem; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.6rem .9rem; flex-wrap:wrap; }
-.d2-title-block { flex:1; min-width:280px; }
-.d2-title { font-size:1.05rem; font-weight:800; color:var(--d2-accent); letter-spacing:.01em; display:flex; align-items:center; gap:.45rem; }
-.d2-summary { font-size:.82rem; color:var(--text-muted); margin-top:.2rem; line-height:1.4; }
-.d2-pills { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.35rem; }
-.d2-clockblock { text-align:right; flex-shrink:0; }
-.d2-clock { font-size:1.5rem; font-weight:800; font-variant-numeric:tabular-nums; color:var(--text); line-height:1; }
-.d2-date { font-size:.75rem; color:var(--text-muted); margin-top:.15rem; text-transform:capitalize; }
-.d2-live { display:inline-flex; align-items:center; gap:.3rem; font-size:.68rem; font-weight:700; color:#f87171; margin-top:.25rem; text-transform:uppercase; letter-spacing:.05em; }
+.d2-header { display:flex; align-items:center; gap:.6rem; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.45rem .8rem; flex-wrap:wrap; flex-shrink:0; }
+.d2-summary { font-size:.8rem; color:var(--text-muted); flex:1; min-width:260px; }
+.d2-pills { display:flex; gap:.35rem; flex-wrap:wrap; }
+.d2-live { display:inline-flex; align-items:center; gap:.3rem; font-size:.66rem; font-weight:700; color:#f87171; text-transform:uppercase; letter-spacing:.05em; }
 .d2-live-dot { width:7px; height:7px; border-radius:50%; background:#f87171; animation:d2-pulse 1.4s ease-in-out infinite; }
 @keyframes d2-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
-.d2-hdr-actions { display:flex; flex-direction:column; align-items:flex-end; gap:.4rem; flex-shrink:0; }
-.d2-hdr-actions select, .d2-hdr-actions button { font-size:.72rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:.25rem .5rem; cursor:pointer; font-family:inherit; }
-.d2-hdr-actions select:focus, .d2-hdr-actions button:hover { border-color:var(--d2-accent); }
+.d2-clock { font-size:.95rem; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); }
 
 /* ── Main 2-column grid ── */
 .d2-grid { flex:1; display:grid; grid-template-columns:3fr 2fr; gap:.5rem; min-height:0; overflow:hidden; }
 .d2-col { display:flex; flex-direction:column; gap:.45rem; min-height:0; overflow:hidden; }
-
 .d2-section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.55rem .75rem; display:flex; flex-direction:column; min-height:0; }
-.d2-section h3 { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:0 0 .4rem; display:flex; align-items:center; gap:.4rem; flex-shrink:0; }
-.d2-section h3 .d2-badge-new { background:#22d3ee22; color:#22d3ee; border-radius:4px; padding:0 .3rem; font-size:.62rem; }
-.d2-col-title { font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--d2-accent); margin-bottom:.1rem; }
+.d2-section h3 { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:0 0 .4rem; display:flex; align-items:center; gap:.4rem; flex-shrink:0; flex-wrap:wrap; }
 
 /* ── KPI strip ── */
 .d2-kpi-row { display:flex; gap:.4rem; flex-shrink:0; }
@@ -56,144 +40,212 @@ body { overflow:hidden; }
 .d2-kpi .delta.flat { color:var(--text-muted); }
 .d2-kpi .sub2 { font-size:.63rem; color:var(--text-muted); margin-top:.1rem; }
 
-/* ── Network status stacked bar ── */
-.d2-stackbar { display:flex; width:100%; height:20px; border-radius:5px; overflow:hidden; background:var(--surface2); margin-bottom:.4rem; flex-shrink:0; }
-.d2-stackbar > div { height:100%; }
-.d2-chips { display:flex; gap:.3rem; flex-wrap:wrap; font-size:.66rem; }
-.d2-chip { display:inline-flex; align-items:center; gap:.25rem; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.1rem .45rem; font-weight:600; }
-.d2-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+/* ── TTI chart — ported from dashboard.html's own #ttiChartBody mechanism,
+   just scaled down to fit the kiosk's tighter vertical budget. ── */
+.d2-hist-ctrl { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin-left:auto; font-weight:400; text-transform:none; letter-spacing:0; }
+.d2-hist-ctrl label { font-size:.68rem; color:var(--text-muted); }
+.d2-hist-ctrl select, .d2-hist-ctrl input[type=date] { font-size:.68rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:.18rem .4rem; }
+.d2-route-status { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; margin:.1rem 0 .45rem; flex-shrink:0; }
+.d2-rs-chip { display:inline-flex; align-items:center; gap:.28rem; font-size:.7rem; font-weight:600; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.1rem .5rem; }
+.d2-rs-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.d2-trend { font-size:.76rem; font-weight:700; line-height:1; display:inline-block; width:1em; text-align:center; flex-shrink:0; }
 
-/* ── Route ranking ── */
-.d2-rank-wrap { flex:1; overflow:auto; min-height:0; }
-.d2-rank-row { display:flex; align-items:center; gap:.4rem; padding:.18rem 0; border-bottom:1px solid var(--border-soft); font-size:.72rem; }
-.d2-rank-row:last-child { border-bottom:none; }
-.d2-rank-name { width:150px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
-.d2-rank-bar { flex:1; display:flex; height:16px; border-radius:3px; overflow:hidden; min-width:0; }
-.d2-rank-cell { flex:1; height:100%; }
-.d2-rank-cell.fcast { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.4) 0 1.5px, transparent 1.5px 4px); }
-.d2-rank-right { display:flex; align-items:center; gap:.3rem; width:70px; flex-shrink:0; justify-content:flex-end; }
-.d2-rank-badge { display:inline-block; padding:.05rem .32rem; border-radius:4px; font-weight:700; font-size:.68rem; min-width:32px; text-align:center; }
+.d2-tti-wrap { flex:1; overflow:auto; min-height:0; }
+.d2-tti-row { display:flex; align-items:flex-start; gap:.4rem; margin-bottom:.2rem; }
+.d2-tti-label { width:120px; flex-shrink:0; padding-top:1px; }
+.d2-tti-rname { font-size:.68rem; font-weight:600; color:var(--text); line-height:1.25; word-break:break-word; cursor:pointer; }
+.d2-tti-bars { flex:1; min-width:0; }
+.d2-tti-bar { display:flex; width:100%; overflow:hidden; border-radius:2px; position:relative; }
+.d2-tti-bar-today { height:15px; }
+.d2-tti-bar-hist { height:8px; margin-top:1px; opacity:.82; }
+.d2-tti-slot { flex:1; height:100%; }
+.d2-tti-slot[data-tip] { cursor:pointer; }
+.d2-tti-forecast { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.40) 0 1.5px, transparent 1.5px 4px); }
+.d2-tti-axis-wrap { position:relative; height:14px; margin-left:calc(120px + .4rem); margin-top:.15rem; flex-shrink:0; }
+.d2-tti-axis-lbl { position:absolute; font-size:.58rem; color:var(--text-muted); transform:translateX(-50%); white-space:nowrap; }
+.d2-tti-legend { display:flex; gap:.5rem; margin-top:.4rem; font-size:.64rem; color:var(--text-muted); flex-wrap:wrap; align-items:center; flex-shrink:0; }
+.d2-tti-legend span { display:flex; align-items:center; gap:.25rem; }
+.d2-tti-legend-dot { width:9px; height:9px; border-radius:2px; display:inline-block; flex-shrink:0; }
 
 /* ── Incident filters/tiles ── */
 .d2-filters { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; margin-bottom:.4rem; flex-shrink:0; }
 .d2-filters select, .d2-filters input { font-size:.7rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:.22rem .4rem; font-family:inherit; }
-.d2-inc-tiles { display:flex; gap:.35rem; flex-shrink:0; margin-bottom:.4rem; }
+.d2-inc-tiles { display:flex; gap:.35rem; flex-shrink:0; }
 .d2-inc-tile { flex:1; text-align:center; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:.3rem .2rem; }
 .d2-inc-tile .n { font-size:1.1rem; font-weight:800; line-height:1; }
 .d2-inc-tile .l { font-size:.6rem; color:var(--text-muted); margin-top:.15rem; }
 
 #d2Map { width:100%; flex:1; min-height:140px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); }
 .d2-map-wrap { position:relative; flex:1; min-height:0; display:flex; }
-.d2-map-toggle { position:absolute; top:6px; right:6px; z-index:5; font-size:.65rem; }
-
-/* ── Vehicle flow ── */
-.d2-flow-big { display:flex; align-items:baseline; gap:.5rem; margin-bottom:.3rem; flex-shrink:0; }
-.d2-flow-big .n { font-size:1.7rem; font-weight:800; color:var(--text); }
-.d2-flow-big .u { font-size:.72rem; color:var(--text-muted); }
-.d2-flow-big .pct { font-size:.78rem; font-weight:700; }
-.d2-mix-bar { display:flex; width:100%; height:14px; border-radius:4px; overflow:hidden; margin-bottom:.25rem; flex-shrink:0; }
-.d2-mix-legend { display:flex; gap:.4rem; flex-wrap:wrap; font-size:.62rem; color:var(--text-muted); margin-bottom:.3rem; flex-shrink:0; }
+.d2-heat-cfg-btn { margin-left:auto; background:none; border:1px solid var(--border); border-radius:4px; color:var(--text-muted); font-size:.64rem; padding:.1rem .4rem; cursor:pointer; font-family:inherit; }
+.d2-heat-cfg-panel { display:none; margin-bottom:.4rem; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:.5rem .6rem; font-size:.68rem; flex-shrink:0; }
 
 .d2-empty { color:var(--text-muted); font-size:.75rem; text-align:center; padding:1rem; }
 .d2-err { color:#f87171; font-size:.72rem; text-align:center; padding:.6rem; }
 
 @media (max-width:860px) {
-  html, body { overflow:auto; }
-  .d2-wrap { height:auto; }
+  #d2Content { overflow:visible; height:auto; }
   .d2-grid { display:flex; flex-direction:column; overflow:visible; }
   .d2-col { overflow:visible; }
-  .d2-rank-wrap { max-height:320px; }
+  .d2-tti-wrap { max-height:360px; }
 }
 </style>
 </head>
 <body>
 
-<div class="d2-wrap">
-  <header class="d2-header">
-    <div class="d2-title-block">
-      <div class="d2-title">🚦 Trung tâm Quản lý Điều hành Giao thông Đô thị — Dashboard 02</div>
-      <div class="d2-summary" id="d2Summary">Đang tải dữ liệu…</div>
-      <div class="d2-pills" id="d2Pills"></div>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Platform</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/dashboard2.html" class="nav-item active" data-tab-require="dashboard2" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 02
+    </a>
+    <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/annotate.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm-1 4h1v2H4V9zm1 4H4v2h1v-2z" clip-rule="evenodd"/></svg>
+      Annotate
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/incidents.html" class="nav-item" data-tab-require="incidents" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      Sự cố GT
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Admin Config
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
     </div>
-    <div class="d2-clockblock">
-      <div class="d2-clock" id="d2Clock">--:--:--</div>
-      <div class="d2-date" id="d2Date">—</div>
-      <div class="d2-live"><span class="d2-live-dot"></span>LIVE</div>
-    </div>
-    <div class="d2-hdr-actions">
-      <a href="/dashboard.html" style="font-size:.72rem;color:var(--text-muted)">← Dashboard 01</a>
-      <select id="d2RefreshSel" title="Chu kỳ tự động làm mới"></select>
-      <button id="d2ThemeBtn" title="Đổi giao diện sáng/tối">🌙 Giao diện</button>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">🚦 Trung tâm Quản lý Điều hành Giao thông Đô thị — Dashboard 02</h2>
+    <div class="topbar-actions">
+      <span class="d2-clock" id="d2Clock">--:--:--</span>
+      <span class="d2-live"><span class="d2-live-dot"></span>LIVE</span>
     </div>
   </header>
 
-  <div class="d2-grid">
-    <!-- LEFT: Chỉ tiêu giao thông mạng lưới -->
-    <div class="d2-col">
-      <div class="d2-col-title">📊 Chỉ tiêu giao thông mạng lưới</div>
-      <div class="d2-kpi-row" id="d2KpiRow"></div>
-      <div style="display:flex; gap:.45rem; flex:1 1 38%; min-height:0;">
-        <div class="d2-section" style="flex:1 1 42%; min-width:0;">
-          <h3>Trạng thái mạng lưới</h3>
-          <div id="d2NetStack"></div>
-        </div>
-        <div class="d2-section" style="flex:1 1 58%; min-width:0;">
-          <h3>TTI mạng lưới theo giờ (hôm nay vs. hôm qua)</h3>
-          <div style="position:relative; flex:1; min-height:0;"><canvas id="d2TtiChart"></canvas></div>
-        </div>
-      </div>
-      <div class="d2-section" style="flex:1 1 55%; min-height:0;">
-        <h3>Bản đồ nhiệt &amp; xếp hạng tuyến <span style="font-weight:400;text-transform:none;letter-spacing:0" id="d2RankNote"></span></h3>
-        <div class="d2-rank-wrap" id="d2RankWrap"><div class="d2-empty">Đang tải…</div></div>
-      </div>
+  <div class="content" id="d2Content">
+    <div class="d2-header">
+      <div class="d2-summary" id="d2Summary">Đang tải dữ liệu…</div>
+      <div class="d2-pills" id="d2Pills"></div>
     </div>
 
-    <!-- RIGHT: Giao thông -->
-    <div class="d2-col">
-      <div class="d2-col-title">🚧 Giao thông</div>
-      <div class="d2-section" style="flex-shrink:0;">
-        <div class="d2-filters">
-          <select id="d2Week"></select>
-          <label style="font-size:.68rem;color:var(--text-muted)">Từ</label>
-          <input type="date" id="d2From">
-          <label style="font-size:.68rem;color:var(--text-muted)">Đến</label>
-          <input type="date" id="d2To">
-          <select id="d2Cat">
-            <option value="">Tất cả loại</option>
-            <option value="dongxe">Ùn tắc/Đông xe</option>
-            <option value="vacham">Va chạm/TNGT</option>
-            <option value="ngapnuoc">Ngập nước</option>
-            <option value="khac">Sự cố khác</option>
-          </select>
-        </div>
-        <div class="d2-inc-tiles" id="d2IncTiles"></div>
-      </div>
-      <div style="display:flex; gap:.45rem; flex:1 1 42%; min-height:0;">
-        <div class="d2-section" style="flex:1 1 60%; min-width:0;">
-          <h3>Vị trí sự cố <span id="d2MapCount" style="font-weight:400;text-transform:none"></span></h3>
-          <div class="d2-map-wrap">
-            <div id="d2Map"></div>
-            <button class="d2-map-toggle" id="d2MapToggleBtn" onclick="toggleD2MapMode()">🔥 Bản đồ nhiệt</button>
+    <div class="d2-grid">
+      <!-- LEFT: Chỉ tiêu giao thông mạng lưới -->
+      <div class="d2-col">
+        <div class="d2-kpi-row" id="d2KpiRow"></div>
+
+        <div class="d2-section" style="flex:1; min-height:0;">
+          <h3>
+            📊 Biểu đồ TTI theo thời gian trong ngày
+            <div class="d2-hist-ctrl">
+              <label>Độ mịn:</label>
+              <select id="d2SlotSel" onchange="onSlotSelChange(this.value)"></select>
+              <label>Ngày 1:</label>
+              <input type="date" id="d2PrimaryDate">
+              <label>Ngày 2:</label>
+              <input type="date" id="d2HistDate">
+              <button class="btn btn-sm btn-secondary" onclick="loadComparisonDays()" style="font-size:.68rem;padding:.15rem .5rem">So sánh</button>
+              <span id="d2HistStatus" style="font-size:.64rem;color:var(--text-muted)"></span>
+              <button id="d2TtiCfgBtn" onclick="toggleTtiCfg()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:.64rem;padding:.1rem .4rem;cursor:pointer;font-family:inherit;display:none">⚙ Màu TTI</button>
+            </div>
+          </h3>
+          <div class="d2-route-status" id="d2RouteStatus"></div>
+          <div class="d2-tti-wrap">
+            <div id="d2TtiChartBody"></div>
+            <div class="d2-tti-axis-wrap" id="d2TtiAxis"></div>
           </div>
-        </div>
-        <div class="d2-section" style="flex:1 1 40%; min-width:0;">
-          <h3>Sự cố theo ngày trong tuần</h3>
-          <div style="position:relative; flex:1; min-height:0;"><canvas id="d2WeekChart"></canvas></div>
+          <div class="d2-tti-legend" id="d2TtiLegend"></div>
+          <div id="d2TtiCfgPanel" style="display:none;margin-top:.45rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.55rem .7rem;font-size:.7rem;flex-shrink:0"></div>
         </div>
       </div>
-      <div class="d2-section" style="flex:1 1 40%; min-height:0;">
-        <h3>🚗 Lưu lượng phương tiện <span class="d2-badge-new">MỚI</span></h3>
-        <div class="d2-flow-big">
-          <span class="n" id="d2FlowBig">—</span><span class="u">xe/giờ</span>
-          <span class="pct" id="d2FlowPct"></span>
+
+      <!-- RIGHT: Giao thông -->
+      <div class="d2-col">
+        <div class="d2-section" style="flex-shrink:0;">
+          <div class="d2-filters">
+            <select id="d2Week"></select>
+            <label style="font-size:.68rem;color:var(--text-muted)">Từ</label>
+            <input type="date" id="d2From">
+            <label style="font-size:.68rem;color:var(--text-muted)">Đến</label>
+            <input type="date" id="d2To">
+            <select id="d2Cat">
+              <option value="">Tất cả loại</option>
+              <option value="dongxe">Ùn tắc/Đông xe</option>
+              <option value="vacham">Va chạm/TNGT</option>
+              <option value="ngapnuoc">Ngập nước</option>
+              <option value="khac">Sự cố khác</option>
+            </select>
+          </div>
+          <div class="d2-inc-tiles" id="d2IncTiles"></div>
         </div>
-        <div class="d2-mix-bar" id="d2MixBar"></div>
-        <div class="d2-mix-legend" id="d2MixLegend"></div>
-        <div style="position:relative; flex:1; min-height:60px;"><canvas id="d2FlowChart"></canvas></div>
+
+        <div class="d2-section" style="flex:1 1 50%; min-height:0;">
+          <h3>Sự cố theo ngày trong tuần</h3>
+          <div style="position:relative; flex:1; min-height:0;"><canvas id="d2WeekChart"></canvas><div id="d2WeekChartErr" class="d2-err" style="display:none"></div></div>
+        </div>
+
+        <div class="d2-section" style="flex:1 1 50%; min-height:0;">
+          <h3>🗺 Bản đồ ùn tắc <span id="d2MapCount" style="font-weight:400;text-transform:none"></span>
+            <button class="d2-heat-cfg-btn" id="d2HeatCfgBtn" onclick="toggleHeatmapCfg()" style="display:none">⚙ Cấu hình</button>
+          </h3>
+          <div class="d2-heat-cfg-panel" id="d2HeatCfgPanel"></div>
+          <div class="d2-map-wrap"><div id="d2Map"></div></div>
+        </div>
       </div>
     </div>
   </div>
-</div>
+</main>
 
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -201,20 +253,15 @@ body { overflow:hidden; }
 <script>
 // ─────────────────────────────────────────────────────────────────────────
 // Dashboard 02 — "Trung tâm Quản lý Điều hành Giao thông Đô thị"
-// Standalone kiosk page. All metrics come from this system's own existing
-// endpoints (no new computation of TTI/delay/persistent-point/forecast —
-// only new historical lookups and aggregation across ALL routes/sensors
-// instead of one). See git history / PR description for the endpoint→field
-// mapping agreed with the operator before this page was built.
+// Granted via its own tab (auth.TabDashboard2), independent of Dashboard
+// 01's tab. All metrics come from this system's own existing endpoints.
+// The TTI chart (renderTTIChart/renderSlotBar/updateRouteStatus/the TTI
+// color-config panel) and the traffic-jam heatmap (addMapLayers/
+// buildJamFeatures/applyHeatmapCfg) are ported verbatim from
+// www/dashboard.html, just restyled for this page's tighter layout — see
+// that file for the original, more detailed comments on this logic.
 // ─────────────────────────────────────────────────────────────────────────
 
-// ── VN-timezone-safe date helpers ───────────────────────────────────────
-// vnDateStr formats a Date as the Asia/Ho_Chi_Minh calendar date (YYYY-MM-DD)
-// regardless of the browser/kiosk's own OS timezone — needed because the
-// daily traffic scan files and /api/trafficflow/hourly are both keyed by
-// the SERVER's VN-local calendar day (internal/traffic/storage.go's
-// vnLocation), not the browser's. Vietnam has no DST, so "now - N*24h" is
-// always exactly "this time, N days ago" in VN wall-clock terms too.
 const VN_TZ = 'Asia/Ho_Chi_Minh';
 function vnDateStr(d) { return new Intl.DateTimeFormat('en-CA', { timeZone: VN_TZ }).format(d); }
 function vnParts(d) {
@@ -222,15 +269,18 @@ function vnParts(d) {
   const parts = {}; f.formatToParts(d).forEach(p => parts[p.type] = p.value);
   return parts;
 }
-const VN_WEEKDAYS = { Monday:'Thứ Hai', Tuesday:'Thứ Ba', Wednesday:'Thứ Tư', Thursday:'Thứ Năm', Friday:'Thứ Sáu', Saturday:'Thứ Bảy', Sunday:'Chủ Nhật' };
-
 function escH(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function todayISO() { return vnDateStr(new Date()); }
 
-// ── TTI slot machinery (same shape as dashboard.html, duplicated here since
-// each page is a standalone static file in this codebase) ────────────────
+// ── TTI slot machinery (same shape as dashboard.html) ───────────────────
 let SLOT_MIN = 15, TOTAL_SLOTS = 96, _ttIntervalMin = 15;
+const SLOT_PREF_KEY = 'd2_tti_slot_min';
+function slotPref() { try { return localStorage.getItem(SLOT_PREF_KEY) || 'auto'; } catch (_) { return 'auto'; } }
 function applySlotSize() {
-  let m = Math.max(_ttIntervalMin, 1);
+  const pref = slotPref();
+  let m = pref === 'auto' ? _ttIntervalMin : parseInt(pref, 10);
+  if (!(m > 0)) m = _ttIntervalMin;
+  m = Math.max(m, _ttIntervalMin, 1);
   m = Math.min(m, 60);
   const changed = m !== SLOT_MIN;
   SLOT_MIN = m; TOTAL_SLOTS = Math.ceil(1440 / m);
@@ -238,6 +288,18 @@ function applySlotSize() {
 }
 function slotsFor(minutes) { return Math.max(1, Math.round(minutes / SLOT_MIN)); }
 function slotOfTs(ts) { const d = new Date(ts); return Math.floor((d.getHours()*60 + d.getMinutes()) / SLOT_MIN); }
+function slotLabel(idx) {
+  const s = idx * SLOT_MIN, e = Math.min(s + SLOT_MIN, 1440);
+  const p = n => String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0');
+  return p(s) + '–' + p(e);
+}
+function fmtMin(m) { return m % 60 === 0 ? (m / 60) + 'h' : m + '′'; }
+function fmtMinSec(sec) {
+  if (sec == null || isNaN(sec)) return '—';
+  const m = sec / 60;
+  return (Math.abs(m) >= 10 ? Math.round(m) : m.toFixed(1)).toString().replace('.', ',') + ' phút';
+}
+function fmtTime(iso) { return new Date(iso).toLocaleTimeString('vi-VN',{hour12:false,hour:'2-digit',minute:'2-digit'}); }
 
 const _ttiDefault = {
   tiers: [
@@ -256,19 +318,23 @@ function ttiTier(v) {
   for (let i = 0; i < tiers.length - 1; i++) if (v < tiers[i].maxTTI) return tiers[i];
   return tiers[tiers.length-1] || null;
 }
-function ttiColor(v) { const t = ttiTier(v); return t ? t.color : ((_ttiAppearance||_ttiDefault).noDataColor||'#334155'); }
+function ttiColor(v) { const t = ttiTier(v); return t ? t.color : ''; }
 function ttiLabel(v) { const t = ttiTier(v); return t ? t.label : 'Không có dữ liệu'; }
 
 function buildSlots(logs, routeId) {
   const acc = Array.from({length:TOTAL_SLOTS}, () => null);
-  const buf = Array.from({length:TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0}));
+  const buf = Array.from({length:TOTAL_SLOTS}, () => ({n:0, tti:0, delay:0, dur:0, base:0}));
   (logs||[]).filter(e => e.routeId === routeId && e.timestamp && e.tti > 0).forEach(e => {
     const i = slotOfTs(e.timestamp);
     if (i < 0 || i >= TOTAL_SLOTS) return;
     buf[i].n++; buf[i].tti += e.tti; buf[i].delay += e.delaySec || 0;
+    buf[i].dur += e.durationSec || 0; buf[i].base += e.baseSec || 0;
   });
   for (let i = 0; i < TOTAL_SLOTS; i++) {
-    if (buf[i].n > 0) acc[i] = { tti: buf[i].tti/buf[i].n, delay: Math.round(buf[i].delay/buf[i].n), n: buf[i].n };
+    if (buf[i].n > 0) acc[i] = {
+      tti: buf[i].tti/buf[i].n, delay: Math.round(buf[i].delay/buf[i].n),
+      dur: Math.round(buf[i].dur/buf[i].n), base: Math.round(buf[i].base/buf[i].n), n: buf[i].n,
+    };
   }
   return acc;
 }
@@ -277,9 +343,11 @@ function avgSlotAround(slots, idx) {
   for (let j = idx-w; j <= idx+w; j++) if (j >= 0 && j < slots.length && slots[j]) { sum += slots[j].tti; n++; }
   return n ? sum/n : null;
 }
-function fillSlotGaps(slots, maxGap) {
-  const out = slots.slice(); let prev = -1;
-  for (let i = 0; i < out.length; i++) {
+function fillSlotGaps(slots, maxGap, lastIdx) {
+  const out = slots.slice();
+  const end = lastIdx == null ? out.length - 1 : Math.min(lastIdx, out.length - 1);
+  let prev = -1;
+  for (let i = 0; i <= end; i++) {
     if (!out[i] || out[i].interp) continue;
     if (prev >= 0 && i-prev > 1 && i-prev-1 <= maxGap) {
       const a = out[prev], b = out[i];
@@ -299,61 +367,22 @@ const BASELINE_WEEKS = 4;
 let _baseline = { day:'', byRoute:{} };
 let _forecast = { byRoute:{}, weeks:0 };
 let _persistCmp = { current:null, yesterday:null, baseline4w:null, baselineWeeks:0 };
-let _incidents = [];      // raw list for the current date range (no category filter applied server-side)
-let _hourlyToday = null, _hourlyYesterday = null; // /api/trafficflow/hourly
-let _map = null, _mapInited = false, _mapHeatMode = false;
-let _ttiChart = null, _weekChart = null, _flowChart = null;
-let _refreshTimer = null;
+let _incidents = [];          // current filter range, all categories (no server-side category filter)
+let _incidentsPrevWeek = null; // same range shifted back 7 days, for the week-chart's gray bars
+let _map = null, _mapInited = false;
+let _ttiCfgOpen = false;
+let _primaryDate = '', _primaryLogs = null, _histDate = '', _histLogs = [];
+let _abnormalRoutes = [];
+let _weekChart = null;
+const LIVE_REFRESH_MS = 60000; // same cadence as dashboard.html's own auto-refresh
 
 function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
+function primaryTTILogs(tt) { return (_primaryDate && _primaryDate !== todayISO()) ? (_primaryLogs || []) : (tt.todayLogs || []); }
 
 // ── Clock ───────────────────────────────────────────────────────────────
 function tickClock() {
-  const now = new Date();
-  const p = vnParts(now);
+  const p = vnParts(new Date());
   document.getElementById('d2Clock').textContent = `${p.hour}:${p.minute}:${p.second}`;
-  document.getElementById('d2Date').textContent = `${VN_WEEKDAYS[p.weekday]||p.weekday}, ${p.day}/${p.month}/${p.year}`;
-}
-
-// ── Refresh cycle selector ──────────────────────────────────────────────
-const REFRESH_KEY = 'd2_refresh_min';
-function initRefreshSelector() {
-  const sel = document.getElementById('d2RefreshSel');
-  [5,10,15,30,60].forEach(m => {
-    const o = document.createElement('option');
-    o.value = m; o.textContent = m + ' phút';
-    sel.appendChild(o);
-  });
-  let saved = parseInt(localStorage.getItem(REFRESH_KEY), 10);
-  if (![5,10,15,30,60].includes(saved)) saved = 5;
-  sel.value = saved;
-  sel.addEventListener('change', () => {
-    localStorage.setItem(REFRESH_KEY, sel.value);
-    armRefreshTimer();
-  });
-  armRefreshTimer();
-}
-function armRefreshTimer() {
-  if (_refreshTimer) clearInterval(_refreshTimer);
-  const min = parseInt(document.getElementById('d2RefreshSel').value, 10) || 5;
-  _refreshTimer = setInterval(loadAll, min * 60000);
-}
-
-// ── Theme toggle (standalone page has no .sidebar-footer for app.js to
-// auto-inject into, so this mirrors the same utmc_theme/data-theme
-// mechanism by hand) ────────────────────────────────────────────────────
-function initThemeToggle() {
-  const btn = document.getElementById('d2ThemeBtn');
-  const isLight = () => document.documentElement.getAttribute('data-theme') === 'light';
-  const update = () => { btn.textContent = isLight() ? '☀️ Giao diện' : '🌙 Giao diện'; };
-  if (localStorage.getItem('utmc_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
-  update();
-  btn.addEventListener('click', () => {
-    if (isLight()) document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.setAttribute('data-theme', 'light');
-    localStorage.setItem('utmc_theme', isLight() ? 'light' : 'dark');
-    update();
-  });
 }
 
 // ── Appearance / forecast loaders (same endpoints as dashboard.html) ────
@@ -362,28 +391,35 @@ async function loadTtiAppearance() {
   if (!_ttiAppearance || !(_ttiAppearance.tiers||[]).length) _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
 }
 async function loadForecast() {
+  const slotMin = SLOT_MIN;
   try {
-    const list = await apiFetch(`/api/traveltime/forecast?slotMin=${SLOT_MIN}&horizonMin=120`);
+    const list = await apiFetch(`/api/traveltime/forecast?slotMin=${slotMin}&horizonMin=120`);
+    if (slotMin !== SLOT_MIN) return;
     const byRoute = {}; let weeks = 0;
     (list||[]).forEach(rf => {
       const bySlot = {};
       (rf.points||[]).forEach(p => { bySlot[p.slot] = { tti:p.tti, lo:p.lo, hi:p.hi }; });
-      byRoute[rf.routeId] = { bySlot, method: rf.method };
+      byRoute[rf.routeId] = { bySlot, method: rf.method, holidayLabel: rf.holidayLabel };
       if (rf.weeksUsed > weeks) weeks = rf.weeksUsed;
     });
-    _forecast = { byRoute, weeks };
+    _forecast = { byRoute, weeks, slotMin };
+    if (_sum) { const tt = _sum.travelTime || {}; updateRouteStatus(tt); renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
   } catch(_) { /* panel falls back to "no forecast" state */ }
 }
 async function loadBaseline() {
-  const todayStr = vnDateStr(new Date());
-  if (_baseline.day === todayStr) return;
+  const todayStr = todayISO();
+  if (_baseline.day === todayStr && _baseline.slotMin === SLOT_MIN && _baseline.weeks > 0) return;
+  const slotMin = SLOT_MIN;
   const dates = [];
   for (let w = 1; w <= BASELINE_WEEKS; w++) dates.push(vnDateStr(new Date(Date.now() - w*7*86400000)));
   const days = await Promise.all(dates.map(dt => apiFetch('/api/dashboard/history?date=' + dt).catch(() => null)));
+  if (slotMin !== SLOT_MIN) return;
   const acc = {};
   const routeIds = ((_sum?.travelTime?.routes)||[]).map(r => r.id);
+  let weeksUsed = 0;
   days.forEach(logs => {
     if (!logs || !logs.length) return;
+    weeksUsed++;
     routeIds.forEach(id => {
       const slots = buildSlots(logs, id);
       if (!acc[id]) acc[id] = Array.from({length:TOTAL_SLOTS}, () => ({sum:0,n:0,dsum:0}));
@@ -394,14 +430,14 @@ async function loadBaseline() {
   Object.keys(acc).forEach(id => {
     byRoute[id] = fillSlotGaps(acc[id].map(c => c.n ? {tti:c.sum/c.n, delay:Math.round(c.dsum/c.n), n:c.n} : null), slotsFor(60));
   });
-  _baseline = { day: todayStr, byRoute };
+  _baseline = { day: todayStr, slotMin, weeks: weeksUsed, byRoute };
+  if (_sum) {
+    const tt = _sum.travelTime || {};
+    updateRouteStatus(tt); renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); renderKPIs(tt, _sum.traffic||{});
+  }
 }
 
 // ── Persistent jam-point KPI: yesterday-same-hour + 4-week-baseline ─────
-// Reads the SAME daily scan files internal/traffic/storage.go already
-// writes (via the now-viewer-accessible GET /api/traffic/data?file=...),
-// picks the scan nearest the target instant, and counts .persistent —
-// no new metric, just a historical lookup of the existing one.
 async function fetchPersistentAt(targetInstant) {
   const dateStr = vnDateStr(targetInstant);
   try {
@@ -429,22 +465,13 @@ async function loadPersistentComparisons() {
   };
 }
 
-// ── Vehicle flow (internal/trafficflow — Hawkwise), NOT YOLO counting ───
-async function loadVehicleFlow() {
-  const todayStr = vnDateStr(new Date()), yestStr = vnDateStr(new Date(Date.now()-86400000));
-  try { _hourlyToday = await apiFetch('/api/trafficflow/hourly?date=' + todayStr); } catch(_) { _hourlyToday = null; }
-  try { _hourlyYesterday = await apiFetch('/api/trafficflow/hourly?date=' + yestStr); } catch(_) { _hourlyYesterday = null; }
-}
-
-// ── Incidents (real /api/incidents, this system's own data — the same
-// system kpi.utmc.io.vn reads from, just a different running binary) ───
+// ── Incidents (real /api/incidents — this system's own data) ────────────
 function incidentBucket(cat) {
   if (cat === 'Đông xe') return 'dongxe';
   if (cat === 'Va chạm') return 'vacham';
   if (cat === 'Ngập nước') return 'ngapnuoc';
   return 'khac';
 }
-const WEEK_LABEL_KEYS = ['week_this','week_last','week_7d','month_this'];
 function initIncidentFilterDefaults() {
   const sel = document.getElementById('d2Week');
   [['week_this','Tuần này'],['week_last','Tuần trước'],['week_7d','7 ngày qua'],['month_this','Tháng này']].forEach(([v,l]) => {
@@ -459,13 +486,12 @@ function initIncidentFilterDefaults() {
 }
 function applyWeekPreset(key) {
   const now = new Date();
-  const todayStr = vnDateStr(now);
-  let from = todayStr, to = todayStr;
+  const ts = todayISO();
+  let from = ts, to = ts;
   if (key === 'week_7d') {
     from = vnDateStr(new Date(now - 6*86400000));
   } else if (key === 'week_this' || key === 'week_last') {
-    // Monday-start week, computed on VN-local weekday.
-    const wd = ((new Intl.DateTimeFormat('en-US', {timeZone:VN_TZ, weekday:'short'}).format(now)));
+    const wd = new Intl.DateTimeFormat('en-US', {timeZone:VN_TZ, weekday:'short'}).format(now);
     const map = {Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6};
     let offset = map[wd] ?? 0;
     if (key === 'week_last') offset += 7;
@@ -479,10 +505,13 @@ function applyWeekPreset(key) {
   document.getElementById('d2From').value = from;
   document.getElementById('d2To').value = to;
 }
+function shiftDateStr(dateStr, days) {
+  return vnDateStr(new Date(new Date(dateStr + 'T12:00:00+07:00').getTime() + days*86400000));
+}
 async function loadIncidents() {
   const from = document.getElementById('d2From').value;
   const to = document.getElementById('d2To').value;
-  const year = (to || from || vnDateStr(new Date())).slice(0,4);
+  const year = (to || from || todayISO()).slice(0,4);
   try {
     const qs = new URLSearchParams({ year });
     if (from) qs.set('from', from);
@@ -490,6 +519,17 @@ async function loadIncidents() {
     _incidents = await apiFetch('/api/incidents?' + qs.toString()) || [];
   } catch (e) {
     _incidents = null; // null = fetch failed (no Incidents-tab access, etc.) vs [] = genuinely empty
+  }
+  // Same range shifted back exactly 7 days — same weekdays, previous week —
+  // for the "Sự cố theo ngày trong tuần" chart's gray reference bars.
+  if (from && to && _incidents !== null) {
+    const pFrom = shiftDateStr(from, -7), pTo = shiftDateStr(to, -7);
+    try {
+      const qs2 = new URLSearchParams({ year: pTo.slice(0,4), from: pFrom, to: pTo });
+      _incidentsPrevWeek = await apiFetch('/api/incidents?' + qs2.toString()) || [];
+    } catch (e) { _incidentsPrevWeek = null; }
+  } else {
+    _incidentsPrevWeek = null;
   }
   renderIncidentViews();
 }
@@ -499,8 +539,8 @@ function renderIncidentViews() {
   if (_incidents === null) {
     wrap.innerHTML = '<div class="d2-err" style="flex:1">⚠️ Không tải được dữ liệu sự cố (cần quyền "Sự cố GT")</div>';
     document.getElementById('d2MapCount').textContent = '';
-    renderWeekChart([]);
-    renderIncidentMap([]);
+    renderWeekChart();
+    updateD2MapIncidents([]);
     return;
   }
   const catSel = document.getElementById('d2Cat').value;
@@ -517,47 +557,72 @@ function renderIncidentViews() {
   ];
   wrap.innerHTML = tiles.map(([l,n,c]) => `<div class="d2-inc-tile"><div class="n" style="color:${c}">${n}</div><div class="l">${escH(l)}</div></div>`).join('');
 
-  renderWeekChart(filtered);
-  renderIncidentMap(filtered);
+  renderWeekChart();
+  const pts = filtered.filter(i => i.lat && i.lng);
+  document.getElementById('d2MapCount').textContent = `(${pts.length}/${filtered.length} sự cố có vị trí)`;
+  updateD2MapIncidents(pts);
 }
 
-const WD_VI = ['CN','T2','T3','T4','T5','T6','T7'];
-function renderWeekChart(list) {
-  const counts = [0,0,0,0,0,0,0];
-  list.forEach(i => { if (i.time) counts[new Date(i.time).getDay()]++; });
+// Monday-first index (0=T2 … 6=CN), matching the Vietnamese week convention
+// used everywhere else in this app.
+const WD_VI = ['T2','T3','T4','T5','T6','T7','CN'];
+function weekdayIdx(dateStr) { return (new Date(dateStr).getDay() + 6) % 7; }
+const CAT_BAR_COLORS = { dongxe:'#ef4444', vacham:'#fb923c', ngapnuoc:'#38bdf8', khac:'#a78bfa' };
+const CAT_BAR_LABELS = { dongxe:'Ùn tắc/Đông xe', vacham:'Va chạm/TNGT', ngapnuoc:'Ngập nước', khac:'Sự cố khác' };
+function renderWeekChart() {
   const el = document.getElementById('d2WeekChart');
   if (!el) return;
+  if (_incidents === null) return; // tiles already show the permission error
+
+  const catCounts = { dongxe:[0,0,0,0,0,0,0], vacham:[0,0,0,0,0,0,0], ngapnuoc:[0,0,0,0,0,0,0], khac:[0,0,0,0,0,0,0] };
+  (_incidents||[]).forEach(i => { if (i.time) catCounts[incidentBucket(i.category)][weekdayIdx(i.time)]++; });
+  const prevTotals = [0,0,0,0,0,0,0];
+  (_incidentsPrevWeek||[]).forEach(i => { if (i.time) prevTotals[weekdayIdx(i.time)]++; });
+
+  // Gray bar drawn first (full-width, own stack) so it sits behind the
+  // narrower stacked-by-category bar drawn on top of it at the same x
+  // position (x-scale grouped:false + distinct stack ids — see below).
+  const datasets = [
+    { label:'Tuần trước (cùng thứ)', data: prevTotals, backgroundColor:'#94a3b84d', borderRadius:2, barPercentage:0.92, categoryPercentage:0.85 },
+    ...Object.keys(CAT_BAR_COLORS).map(k => ({
+      label: CAT_BAR_LABELS[k], data: catCounts[k], backgroundColor: CAT_BAR_COLORS[k],
+      stack:'cat', barPercentage:0.5, categoryPercentage:0.85,
+    })),
+  ];
+  // The error path shows/hides a sibling div rather than replacing the
+  // canvas's own markup — overwriting el.parentElement.innerHTML would
+  // delete the <canvas> itself, permanently breaking this chart on every
+  // later refresh even after Chart.js becomes available again (e.g. a
+  // transient CDN hiccup on first load).
+  const errEl = document.getElementById('d2WeekChartErr');
   try {
     if (_weekChart) _weekChart.destroy();
     _weekChart = new Chart(el, {
-      type: 'bar',
-      data: { labels: WD_VI, datasets: [{ label:'Số vụ', data: counts, backgroundColor:'#22d3ee99', borderRadius:3 }] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, ticks:{precision:0, color:'#94a3b8'}, grid:{color:'#1e2d4555'}}, x:{ticks:{color:'#94a3b8'}, grid:{display:false}} } },
+      type:'bar',
+      data: { labels: WD_VI, datasets },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
+        scales:{
+          x:{ stacked:true, grouped:false, ticks:{color:'#94a3b8'}, grid:{display:false} },
+          y:{ stacked:true, beginAtZero:true, ticks:{precision:0, color:'#94a3b8'}, grid:{color:'#1e2d4555'} },
+        },
+      },
     });
+    el.style.display = '';
+    if (errEl) errEl.style.display = 'none';
   } catch (e) {
-    el.parentElement.innerHTML = `<div class="d2-err">⚠️ Không vẽ được biểu đồ: ${escH(e.message)}</div>`;
+    el.style.display = 'none';
+    if (errEl) { errEl.style.display = ''; errEl.textContent = '⚠️ Không vẽ được biểu đồ: ' + e.message; }
   }
 }
 
-function renderIncidentMap(list) {
-  const countEl = document.getElementById('d2MapCount');
-  const pts = list.filter(i => i.lat && i.lng);
-  if (countEl) countEl.textContent = `(${pts.length}/${list.length} có vị trí)`;
-  updateD2MapData(pts);
-}
-
-// ── VietMap GL incident map (VietMap GL, not kepler.gl — this codebase has
-// no kepler.gl dependency; the real kpi.utmc.io.vn source for that embed
-// lives in a separate binary this session has no access to) ────────────
-//
-// Point markers are admin-configured per-category icon/color (same store
-// and same endpoint as map.html's Traffic Event layer —
-// internal/incidents/category_icons.go via GET /api/incidents/category-
-// icons) rendered as DOM markers, not a hardcoded category->color table —
-// any category with no configured icon/color falls back to one generic
-// gray marker, regardless of what that category's text is. The heatmap
-// view is density-only (no category info) so it needs no such mapping.
-let _d2CategoryIcons = {}; // category -> {content_type,color,width,height}
+// ── VietMap GL map: traffic-jam heatmap (ported from dashboard.html's own
+// addMapLayers/buildJamFeatures/updateMapData/heatmap-cfg — the SAME scan-
+// interval-driven persistent-point mechanism, unchanged) + incident
+// markers (admin-configured per-category icon/color, same store as
+// map.html's Traffic Event layer) on the SAME map. ──────────────────────
+let _d2CategoryIcons = {};
 async function loadD2CategoryIcons() {
   try { _d2CategoryIcons = {}; (await apiFetch('/api/incidents/category-icons') || []).forEach(ci => { _d2CategoryIcons[ci.category] = ci; }); }
   catch (e) { /* keep whatever was cached before — markers fall back to the generic marker */ }
@@ -565,14 +630,14 @@ async function loadD2CategoryIcons() {
 function d2CategoryIconSrc(category) {
   return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category);
 }
-function buildIncidentFeatures(pts) {
-  return pts.map(i => ({
-    type:'Feature',
-    geometry:{ type:'Point', coordinates:[i.lng, i.lat] },
-    properties:{},
-  }));
-}
+
 async function initD2Map() {
+  // Admin-only UI affordance, not tied to the map itself ever finishing
+  // loading (bad/missing API key, blocked CDN, …) — gating it inside the
+  // map's 'load' callback below would hide it whenever the map fails,
+  // even though the config it edits (heatmap-cfg) is independent of the
+  // map rendering successfully.
+  if (getUser()?.role === 'admin') document.getElementById('d2HeatCfgBtn').style.display = '';
   try {
     const settings = await apiFetch('/api/settings');
     const apiKey = (settings||{}).vietmap_api_key || '';
@@ -584,24 +649,182 @@ async function initD2Map() {
     _map.addControl(new vietmapgl.NavigationControl({showCompass:false}), 'top-right');
     _map.on('load', () => {
       _mapInited = true;
-      _map.addSource('d2incidents', { type:'geojson', data:{type:'FeatureCollection', features:[]} });
-      _map.addLayer({ id:'d2inc-heat', type:'heatmap', source:'d2incidents', layout:{visibility:'none'},
-        paint:{ 'heatmap-weight':1, 'heatmap-intensity':1.2, 'heatmap-radius':['interpolate',['linear'],['zoom'],5,8,12,18],
-          'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(0,0,0,0)',0.3,'rgba(251,191,36,.5)',0.6,'rgba(239,68,68,.75)',1,'rgba(153,27,27,.9)'] } });
-      if (_pendingMapPts) { updateD2MapData(_pendingMapPts); _pendingMapPts = null; }
+      const tf = (_sum||{}).traffic || {};
+      addJamLayers(tf);
+      applyHeatmapCfg();
+      if (_pendingIncPts) { updateD2MapIncidents(_pendingIncPts); _pendingIncPts = null; }
     });
   } catch (e) {
     const el = document.getElementById('d2Map');
     if (el) el.innerHTML = `<div class="d2-err">Lỗi bản đồ: ${escH(e.message)}</div>`;
   }
 }
-let _pendingMapPts = null;
-let _d2IncMarkers = []; // DOM markers for the "points" view — rebuilt on each updateD2MapData
-function updateD2MapData(pts) {
-  if (!_map || !_mapInited) { _pendingMapPts = pts; return; }
-  try {
-    _map.getSource('d2incidents')?.setData({ type:'FeatureCollection', features: buildIncidentFeatures(pts) });
 
+// Traffic-jam heatmap — exact mechanism from dashboard.html's own #dashMap.
+function buildJamFeatures(tf) {
+  return (tf.points||[]).map(p => ({
+    type:'Feature', geometry:{type:'Point', coordinates:[p.lng, p.lat]},
+    properties:{ jf:p.jf, label:p.label||'', area:p.area||'' },
+  }));
+}
+function addJamLayers(tf) {
+  if (!_map || !_mapInited) return;
+  const features = buildJamFeatures(tf);
+  _map.addSource('jams', { type:'geojson', data:{type:'FeatureCollection', features} });
+  _map.addLayer({
+    id:'jams-heat', type:'heatmap', source:'jams',
+    paint:{
+      'heatmap-weight': ['interpolate',['linear'],['get','jf'], 0,0, 5,0.6, 10,1.5],
+      'heatmap-intensity': ['interpolate',['linear'],['zoom'], 5,0.8, 12,1.8, 15,2.5],
+      'heatmap-color': ['interpolate',['linear'],['heatmap-density'], 0,'rgba(0,0,0,0)', 0.15,'rgba(251,191,36,0.35)', 0.4,'rgba(249,115,22,0.65)', 0.7,'rgba(239,68,68,0.85)', 1,'rgba(153,27,27,0.95)'],
+      'heatmap-radius': ['interpolate',['linear'],['zoom'], 5,8, 11,13, 15,22],
+      'heatmap-opacity': 0.88,
+    },
+  });
+  _map.addLayer({
+    id:'jams-dot', type:'circle', source:'jams', minzoom:13,
+    paint:{
+      'circle-radius': ['interpolate',['linear'],['get','jf'], 0,2, 10,7],
+      'circle-color': ['case',['>=',['get','jf'],8],'#f87171',['>=',['get','jf'],5],'#fbbf24','#94a3b8'],
+      'circle-opacity': .85, 'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,.45)',
+    },
+  });
+  _map.on('click','jams-dot', e => {
+    const p = e.features[0].properties;
+    const jf = (+p.jf).toFixed(1);
+    const jfColor = +p.jf >= 8 ? '#dc2626' : +p.jf >= 5 ? '#d97706' : '#475569';
+    // Explicit dark colors, NOT var(--text) — vietmapgl's Popup box is
+    // always plain white regardless of the app's theme, so inherited
+    // dark-theme light text is unreadable here (same bug/fix as commit
+    // 7ab5bbf "Fix low-contrast text in GIS marker popup under dark theme").
+    const html = `<div style="font-family:sans-serif;line-height:1.5;min-width:110px;color:#1a1a1a">` +
+      `<div style="font-size:.95rem;font-weight:700;color:${jfColor}">JF ${jf}</div>` +
+      (p.area  ? `<div style="color:#111;font-size:.82rem">${escH(p.area)}</div>` : '') +
+      (p.label ? `<div style="color:#333;font-size:.75rem">${escH(p.label)}</div>` : '') +
+      `</div>`;
+    new vietmapgl.Popup({closeButton:false, maxWidth:'200px'}).setLngLat(e.lngLat).setHTML(html).addTo(_map);
+  });
+  _map.on('mouseenter','jams-dot', () => _map.getCanvas().style.cursor='pointer');
+  _map.on('mouseleave','jams-dot', () => _map.getCanvas().style.cursor='');
+  if (features.length > 0) {
+    try {
+      const b = new vietmapgl.LngLatBounds();
+      features.forEach(f => b.extend(f.geometry.coordinates));
+      _map.fitBounds(b, {padding:50, maxZoom:14, duration:600});
+    } catch (_) {}
+  }
+}
+function updateJamData(tf) {
+  if (!_map || !_mapInited) return;
+  try { _map.getSource('jams')?.setData({type:'FeatureCollection', features: buildJamFeatures(tf)}); } catch (_) {}
+}
+
+// ── Heatmap config (same defaults/handlers as dashboard.html's own panel,
+// just rendered into #d2HeatCfgPanel instead of #heatmapCfgPanel) ───────
+const _HEAT_DEFAULTS = { r5:8, r15:22, i5:6, i15:18, op:82,
+  c1:'#fbbf24', c1a:30, c2:'#f97316', c2a:60, c3:'#ef4444', c3a:82, c4:'#991b1b', c4a:95, crf:2, crt:7 };
+function toggleHeatmapCfg() {
+  const p = document.getElementById('d2HeatCfgPanel');
+  if (!p.dataset.built) { buildHeatCfgPanel(); p.dataset.built = '1'; }
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+function buildHeatCfgPanel() {
+  const row = (lbl, id, min, max, val, fmt) => `<label style="display:flex;flex-direction:column;gap:.15rem">${lbl}:<span style="display:flex;align-items:center;gap:.35rem"><input type="range" id="${id}" min="${min}" max="${max}" value="${val}" oninput="applyHeatmapCfg()" style="flex:1"><span id="${id}v" style="width:30px;text-align:right;font-variant-numeric:tabular-nums">${fmt}</span></span></label>`;
+  document.getElementById('d2HeatCfgPanel').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem">
+      ${row('Bán kính zoom 5','cfgR5',2,60,8,'8')}
+      ${row('Bán kính zoom 15','cfgR15',5,120,22,'22')}
+      ${row('Cường độ zoom 5','cfgI5',1,30,6,'0.6')}
+      ${row('Cường độ zoom 15','cfgI15',5,50,18,'1.8')}
+      ${row('Độ mờ','cfgOp',10,100,82,'82%')}
+      ${row('Kích thước điểm (JF thấp)','cfgCrf',1,20,2,'2px')}
+      ${row('Kích thước điểm (JF cao)','cfgCrt',2,40,7,'7px')}
+      <div style="grid-column:1/-1;margin-top:.2rem">
+        <div style="margin-bottom:.25rem;color:var(--text-muted)">Màu sắc (thấp → cao):</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem">
+          ${['c1','c2','c3','c4'].map((k,i) => {
+            const defs = [['#fbbf24',35,'Thấp'],['#f97316',65,'Trung bình'],['#ef4444',85,'Cao'],['#991b1b',95,'Cực cao']][i];
+            return `<div style="display:flex;flex-direction:column;align-items:center;gap:.15rem">
+              <span style="font-size:.6rem;color:var(--text-muted)">${defs[2]}</span>
+              <input type="color" id="cfg${k.toUpperCase()}" value="${defs[0]}" oninput="applyHeatmapCfg()" style="width:32px;height:24px;border:1px solid var(--border);cursor:pointer;border-radius:4px;padding:1px;background:none">
+              <input type="range" id="cfg${k.toUpperCase()}a" min="0" max="100" value="${defs[1]}" oninput="applyHeatmapCfg()" style="width:100%">
+              <span id="cfg${k.toUpperCase()}av" style="font-size:.58rem;font-variant-numeric:tabular-nums">${defs[1]}%</span>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="margin-top:.4rem;display:flex;gap:.4rem;align-items:center">
+          <button onclick="saveHeatmapCfg()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:.2rem .6rem;font-size:.66rem;cursor:pointer;font-family:inherit">💾 Lưu</button>
+          <button onclick="resetHeatmapCfg()" style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:.2rem .55rem;font-size:.66rem;cursor:pointer;font-family:inherit">↺ Mặc định</button>
+          <span id="d2HeatCfgSaved" style="font-size:.62rem;color:var(--accent);display:none">✓ Đã lưu</span>
+        </div>
+      </div>
+    </div>`;
+  loadHeatmapCfg();
+}
+function _hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+function _readHeatCfg() {
+  const v = id => document.getElementById(id);
+  if (!v('cfgR5')) return { ..._HEAT_DEFAULTS };
+  return {
+    r5:+v('cfgR5').value, r15:+v('cfgR15').value, i5:+v('cfgI5').value, i15:+v('cfgI15').value, op:+v('cfgOp').value,
+    c1:v('cfgC1').value, c1a:+v('cfgC1a').value, c2:v('cfgC2').value, c2a:+v('cfgC2a').value,
+    c3:v('cfgC3').value, c3a:+v('cfgC3a').value, c4:v('cfgC4').value, c4a:+v('cfgC4a').value,
+    crf:+v('cfgCrf').value, crt:+v('cfgCrt').value,
+  };
+}
+function _applyHeatCfgToUI(v) {
+  const set = (id, val, suffix) => { const el = document.getElementById(id); if (el) el.value = val; const d = document.getElementById(id+'v'); if (d) d.textContent = (suffix ? val+suffix : val); };
+  if (!document.getElementById('cfgR5')) return;
+  set('cfgR5', v.r5); set('cfgR15', v.r15);
+  set('cfgI5', (v.i5/10).toFixed(1)); document.getElementById('cfgI5').value = v.i5;
+  set('cfgI15', (v.i15/10).toFixed(1)); document.getElementById('cfgI15').value = v.i15;
+  set('cfgOp', v.op, '%');
+  set('cfgC1a', v.c1a, '%'); document.getElementById('cfgC1').value = v.c1;
+  set('cfgC2a', v.c2a, '%'); document.getElementById('cfgC2').value = v.c2;
+  set('cfgC3a', v.c3a, '%'); document.getElementById('cfgC3').value = v.c3;
+  set('cfgC4a', v.c4a, '%'); document.getElementById('cfgC4').value = v.c4;
+  set('cfgCrf', v.crf, 'px'); set('cfgCrt', v.crt, 'px');
+}
+async function loadHeatmapCfg() {
+  let v = _HEAT_DEFAULTS;
+  try { const cfg = await apiFetch('/api/heatmap-cfg'); if (cfg && typeof cfg === 'object') v = {..._HEAT_DEFAULTS, ...cfg}; } catch(_) {}
+  _applyHeatCfgToUI(v);
+  applyHeatmapCfg();
+}
+function applyHeatmapCfg() {
+  const v = _readHeatCfg();
+  if (!_map || !_mapInited) return;
+  const r5=v.r5, r15=v.r15, i5=v.i5/10, i15=v.i15/10, op=v.op/100;
+  const r11 = Math.round((r5*2+r15)/3), i12 = Math.round((i5+i15)/2*10)/10;
+  const c = ['rgba(0,0,0,0)', _hexToRgba(v.c1,v.c1a/100), _hexToRgba(v.c2,v.c2a/100), _hexToRgba(v.c3,v.c3a/100), _hexToRgba(v.c4,v.c4a/100)];
+  try {
+    _map.setPaintProperty('jams-heat','heatmap-radius', ['interpolate',['linear'],['zoom'],5,r5,11,r11,15,r15]);
+    _map.setPaintProperty('jams-heat','heatmap-intensity', ['interpolate',['linear'],['zoom'],5,i5,12,i12,15,i15]);
+    _map.setPaintProperty('jams-heat','heatmap-opacity', op);
+    _map.setPaintProperty('jams-heat','heatmap-color', ['interpolate',['linear'],['heatmap-density'],0,c[0],0.15,c[1],0.4,c[2],0.7,c[3],1,c[4]]);
+    _map.setPaintProperty('jams-dot','circle-radius', ['interpolate',['linear'],['get','jf'],0,v.crf,10,v.crt]);
+  } catch(_) {}
+}
+async function saveHeatmapCfg() {
+  try { await apiFetch('/api/heatmap-cfg', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(_readHeatCfg())}); } catch(_) {}
+  const msg = document.getElementById('d2HeatCfgSaved');
+  if (msg) { msg.style.display = ''; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+}
+async function resetHeatmapCfg() {
+  try { await apiFetch('/api/heatmap-cfg', {method:'DELETE'}); } catch(_) {}
+  _applyHeatCfgToUI(_HEAT_DEFAULTS);
+  applyHeatmapCfg();
+}
+
+// ── Incident markers (DOM, admin-configured icon/color per category) ────
+let _pendingIncPts = null;
+let _d2IncMarkers = [];
+function updateD2MapIncidents(pts) {
+  if (!_map || !_mapInited) { _pendingIncPts = pts; return; }
+  try {
     _d2IncMarkers.forEach(m => m.remove());
     _d2IncMarkers = pts.map(i => {
       const ci = _d2CategoryIcons[i.category];
@@ -614,29 +837,14 @@ function updateD2MapData(pts) {
       el.innerHTML = html;
       el.title = [i.category, i.content, i.unit].filter(Boolean).join(' — ');
       el.addEventListener('click', () => {
-        const html2 = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px">` +
-          (i.time ? `<b>${new Date(i.time).toLocaleString('vi-VN')}</b><br>` : '') +
+        const html2 = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px;color:#1a1a1a">` +
+          (i.time ? `<b style="color:#0b1422">${new Date(i.time).toLocaleString('vi-VN')}</b><br>` : '') +
           escH(i.content||'') + (i.unit ? `<br><i>${escH(i.unit)}</i>` : '') + `</div>`;
         new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat([i.lng, i.lat]).setHTML(html2).addTo(_map);
       });
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]);
-      if (!_mapHeatMode) marker.addTo(_map);
-      return marker;
+      return new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]).addTo(_map);
     });
-
-    if (pts.length) {
-      const b = new vietmapgl.LngLatBounds();
-      pts.forEach(i => b.extend([i.lng, i.lat]));
-      _map.fitBounds(b, { padding:40, maxZoom:14, duration:500 });
-    }
   } catch(_) {}
-}
-function toggleD2MapMode() {
-  if (!_map || !_mapInited) return;
-  _mapHeatMode = !_mapHeatMode;
-  _map.setLayoutProperty('d2inc-heat', 'visibility', _mapHeatMode ? 'visible' : 'none');
-  _d2IncMarkers.forEach(m => { if (_mapHeatMode) m.remove(); else m.addTo(_map); });
-  document.getElementById('d2MapToggleBtn').textContent = _mapHeatMode ? '📍 Điểm' : '🔥 Bản đồ nhiệt';
 }
 
 // ── Render: header summary + status pills ───────────────────────────────
@@ -665,7 +873,7 @@ function renderHeader(tt) {
   const measured = all.filter(r => r.latestTTI > 0);
   const counts = tiers.map(() => 0);
   measured.forEach(r => { const idx = tiers.indexOf(ttiTier(r.latestTTI)); if (idx>=0) counts[idx]++; });
-  const pills = tiers.map((t,i) => counts[i] > 0 ? `<span class="d2-chip"><span class="d2-dot" style="background:${t.color}"></span>${counts[i]} ${escH(t.label||'')}</span>` : '').filter(Boolean);
+  const pills = tiers.map((t,i) => counts[i] > 0 ? `<span class="d2-chip" style="display:inline-flex;align-items:center;gap:.25rem;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:.1rem .45rem;font-size:.7rem;font-weight:600"><span class="d2-dot" style="width:7px;height:7px;border-radius:50%;background:${t.color}"></span>${counts[i]} ${escH(t.label||'')}</span>` : '').filter(Boolean);
   document.getElementById('d2Pills').innerHTML = pills.join('');
 }
 
@@ -682,15 +890,12 @@ function deltaHtml(cur, base, unit, invert) {
 function renderKPIs(tt, tf) {
   const curSlot = slotOfTs(new Date().toISOString());
   const routeIds = (tt.routes||[]).map(r => r.id);
-  // Network baseline (4-week, same weekday+hour) for TTI/Trễ — reuses the
-  // SAME per-route baselineSlots()/avgSlotAround() already computed for the
-  // route-ranking panel, just averaged across all routes instead of one.
   let ttiBaseSum=0, ttiBaseN=0, delayBaseSum=0, delayBaseN=0;
   routeIds.forEach(id => {
     const b = baselineSlots(id);
     const v = b ? avgSlotAround(b, curSlot) : null;
     if (v != null) { ttiBaseSum += v; ttiBaseN++; }
-    const bd = b ? b[curSlot] : null; // delay baseline: exact-slot avg is close enough at hourly granularity
+    const bd = b ? b[curSlot] : null;
     if (bd && bd.delay != null) { delayBaseSum += bd.delay; delayBaseN++; }
   });
   const ttiBase = ttiBaseN ? ttiBaseSum/ttiBaseN : null;
@@ -710,212 +915,321 @@ function renderKPIs(tt, tf) {
   ).join('');
 }
 
-// ── Render: network status stacked bar + forecast chips ─────────────────
-function renderNetworkStatus(tt) {
-  const tiers = _getTiers();
+// ── Render: network status chips + TTI chart — ported mechanism ─────────
+function computeAbnormalRoutes(tt) {
+  if (!(_baseline.weeks > 0)) return [];
+  const all = tt.routes || [];
+  const curSlot = slotOfTs(new Date().toISOString());
+  const out = [];
+  all.filter(r => r.latestTTI > 0).forEach(r => {
+    const b = baselineSlots(r.id);
+    const bv = b ? avgSlotAround(b, curSlot) : null;
+    if (bv && r.latestTTI > bv * 1.25) out.push({ id:r.id, name:r.name, ratio:r.latestTTI/bv });
+  });
+  return out;
+}
+function updateRouteStatus(tt) {
+  const el = document.getElementById('d2RouteStatus');
+  if (!el) return;
   const all = tt.routes || [];
   const measured = all.filter(r => r.latestTTI > 0);
+  const tiers = _getTiers();
   const counts = tiers.map(() => 0);
   measured.forEach(r => { const idx = tiers.indexOf(ttiTier(r.latestTTI)); if (idx>=0) counts[idx]++; });
   const noData = all.length - measured.length;
-  const total = Math.max(all.length, 1);
-
-  const bar = tiers.map((t,i) => counts[i] > 0 ? `<div style="flex:${counts[i]};background:${t.color}" title="${escH(t.label)}: ${counts[i]}"></div>` : '').join('');
-  const ndBar = noData > 0 ? `<div style="flex:${noData};background:${(_ttiAppearance||_ttiDefault).noDataColor||'#334155'}" title="Chưa có dữ liệu: ${noData}"></div>` : '';
-
-  const curSlot = slotOfTs(new Date().toISOString());
-  const worst = tiers[tiers.length-1];
-  let degrade = 0, worst60 = 0;
-  all.forEach(r => {
-    if (!(r.latestTTI > 0)) return;
-    const sf = _forecast.byRoute[r.id];
-    const p15 = sf && sf.bySlot && sf.bySlot[curSlot+1];
-    if (p15) {
+  const chips = tiers.map((t,i) => counts[i] > 0
+    ? `<span class="d2-rs-chip"><span class="d2-rs-dot" style="background:${t.color}"></span>${counts[i]} ${escH(t.label||'')}</span>` : '').filter(Boolean);
+  if (noData > 0) {
+    const nd = (_ttiAppearance||_ttiDefault).noDataColor || '#334155';
+    chips.push(`<span class="d2-rs-chip"><span class="d2-rs-dot" style="background:${nd}"></span>${noData} chưa có dữ liệu</span>`);
+  }
+  _abnormalRoutes = computeAbnormalRoutes(tt);
+  if (_abnormalRoutes.length > 0) {
+    const names = _abnormalRoutes.slice().sort((a,b) => b.ratio - a.ratio)
+      .map(r => `${r.name} (+${Math.round((r.ratio-1)*100)}%)`).join('\n');
+    chips.push(`<span class="d2-rs-chip" style="border-color:#ef4444;color:#ef4444;cursor:pointer" title="Cao hơn ≥25% so với mức bình thường cùng giờ:\n${escH(names)}" onclick="highlightAbnormalRoutes()">⚠ ${_abnormalRoutes.length} bất thường</span>`);
+  }
+  if (_forecast.weeks > 0 && tiers.length) {
+    const curSlot = slotOfTs(new Date().toISOString());
+    const worst = tiers[tiers.length-1];
+    let degrade15 = 0, worst15 = null;
+    all.forEach(r => {
+      if (!(r.latestTTI > 0)) return;
+      const sf = _forecast.byRoute[r.id];
+      const p15 = sf && sf.bySlot && sf.bySlot[curSlot+1];
+      if (!p15) return;
       const curIdx = tiers.indexOf(ttiTier(r.latestTTI)), futIdx = tiers.indexOf(ttiTier(p15.tti));
-      if (futIdx > curIdx) degrade++;
-    }
-    const p60 = sf && sf.bySlot && sf.bySlot[curSlot+slotsFor(60)];
-    if (p60 && worst && ttiTier(p60.tti) === worst) worst60++;
+      if (futIdx > curIdx) { degrade15++; if (!worst15 || futIdx > tiers.indexOf(worst15)) worst15 = tiers[futIdx]; }
+    });
+    if (degrade15 > 0) chips.push(`<span class="d2-rs-chip" style="border-color:${worst15.color};color:${worst15.color}">🔮 +${fmtMin(SLOT_MIN)}: ${degrade15} tuyến → ${escH(worst15.label||'')}</span>`);
+    let willJam = 0;
+    all.forEach(r => {
+      const sf = _forecast.byRoute[r.id];
+      const p = sf && sf.bySlot && sf.bySlot[curSlot + slotsFor(60)];
+      if (p && ttiTier(p.tti) === worst) willJam++;
+    });
+    if (willJam > 0) chips.push(`<span class="d2-rs-chip" style="border-color:${worst.color};color:${worst.color}">🔮 +60′: ${willJam} tuyến dự báo ${escH(worst.label||'tắc')}</span>`);
+  }
+  el.innerHTML = chips.length ? chips.join('') : '<span style="font-size:.7rem;color:var(--text-muted)">Chưa có dữ liệu tuyến</span>';
+}
+
+function trendArrow(tr) {
+  if (!tr) return '';
+  const wk = ` mức bình thường (TB ${_baseline.weeks||0} tuần cùng thứ)`;
+  if (tr.dir === 'up')   return `<span class="d2-trend" style="color:#ef4444" title="Tệ hơn${wk}: +${tr.delta.toFixed(2)} TTI">▲</span>`;
+  if (tr.dir === 'down') return `<span class="d2-trend" style="color:#22c55e" title="Tốt hơn${wk}: ${tr.delta.toFixed(2)} TTI">▼</span>`;
+  if (tr.dir === 'flat') return `<span class="d2-trend" style="color:var(--text-muted)" title="Tương đương${wk}">▬</span>`;
+  return `<span class="d2-trend" style="color:var(--border)" title="Chưa đủ dữ liệu lịch sử để so sánh">·</span>`;
+}
+function routeTrend(todaySlots, lastWeekSlots) {
+  let curIdx = -1;
+  for (let i = todaySlots.length - 1; i >= 0; i--) { if (todaySlots[i]) { curIdx = i; break; } }
+  if (curIdx < 0) return null;
+  const cur = todaySlots[curIdx].tti;
+  if (!lastWeekSlots) return { dir:'nodata', cur };
+  const base = avgSlotAround(lastWeekSlots, curIdx);
+  if (base == null) return { dir:'nodata', cur };
+  const delta = cur - base;
+  const dir = delta > 0.05 ? 'up' : (delta < -0.05 ? 'down' : 'flat');
+  return { dir, delta, cur, base };
+}
+function buildForecast(todaySlots, baseSlots, curSlot) {
+  if (!baseSlots || curSlot < 0) return null;
+  const recent = slotsFor(120);
+  let rsum = 0, rn = 0;
+  for (let i = curSlot; i > curSlot - recent && i >= 0; i--) {
+    const t = todaySlots[i], b = baseSlots[i];
+    if (t && b && b.tti > 0) { rsum += t.tti / b.tti; rn++; }
+  }
+  const ratio = rn ? rsum / rn : 1;
+  const out = Array.from({ length: TOTAL_SLOTS }, () => null);
+  for (let i = curSlot + 1; i < TOTAL_SLOTS; i++) {
+    if (baseSlots[i]) out[i] = { tti: baseSlots[i].tti * ratio, base: baseSlots[i].tti };
+  }
+  return out;
+}
+function highlightAbnormalRoutes() {
+  if (!_abnormalRoutes.length) return;
+  const chart = document.getElementById('d2TtiChartBody');
+  if (chart) chart.scrollIntoView({ behavior:'smooth', block:'center' });
+  _abnormalRoutes.forEach(a => {
+    const row = document.getElementById('d2TtiRow-' + a.id);
+    if (!row) return;
+    row.style.transition = 'background-color .3s';
+    row.style.backgroundColor = 'rgba(239,68,68,.18)';
+    setTimeout(() => { row.style.backgroundColor = ''; }, 1800);
   });
-
-  const chips = [];
-  if (degrade > 0) chips.push(`<span class="d2-chip">🔮 +${SLOT_MIN}′: ${degrade} tuyến xấu hơn</span>`);
-  if (worst60 > 0) chips.push(`<span class="d2-chip" style="border-color:${worst?.color};color:${worst?.color}">🔮 +60′: ${worst60} tuyến ${escH(worst?.label||'tắc')}</span>`);
-
-  document.getElementById('d2NetStack').innerHTML =
-    `<div class="d2-stackbar">${bar}${ndBar}</div><div class="d2-chips">${chips.join('') || '<span style="color:var(--text-muted);font-size:.68rem">Không có dự báo bất thường</span>'}</div>`;
 }
 
-// ── Render: network-wide TTI-by-hour line chart ──────────────────────────
-async function renderNetworkTtiChart(tt) {
-  let yestLogs = [];
-  try { yestLogs = await apiFetch('/api/dashboard/history?date=' + vnDateStr(new Date(Date.now()-86400000))) || []; } catch(_) {}
-
-  const routeIds = (tt.routes||[]).map(r => r.id);
-  const hourlyAvg = (logs) => {
-    const buf = Array.from({length:24}, () => ({sum:0,n:0}));
-    (logs||[]).filter(e => e.tti > 0 && e.timestamp).forEach(e => {
-      const h = new Date(e.timestamp).getHours();
-      buf[h].sum += e.tti; buf[h].n++;
-    });
-    return buf.map(b => b.n ? b.sum/b.n : null);
-  };
-  const todayHourly = hourlyAvg(tt.todayLogs);
-  const yestHourly = hourlyAvg(yestLogs);
-
-  const curHour = new Date().getHours();
-  // Forecast continuation for the rest of today: average, across routes with
-  // a forecast, the per-route Holt-Winters prediction nearest each future hour.
-  const fcastHourly = Array.from({length:24}, () => null);
-  for (let h = curHour; h < 24; h++) {
-    let sum=0, n=0;
-    routeIds.forEach(id => {
-      const sf = _forecast.byRoute[id];
-      if (!sf || !sf.bySlot) return;
-      const slot = Math.min(TOTAL_SLOTS-1, Math.round(h*60/SLOT_MIN));
-      const p = sf.bySlot[slot];
-      if (p) { sum += p.tti; n++; }
-    });
-    if (n) fcastHourly[h] = sum/n;
-  }
-  if (todayHourly[curHour] != null) fcastHourly[curHour] = todayHourly[curHour];
-
-  const tiers = _getTiers();
-  const thresholds = tiers.length >= 3 ? [tiers[tiers.length-3].maxTTI, tiers[tiers.length-2].maxTTI] : [];
-
-  const labels = Array.from({length:24}, (_,h) => String(h).padStart(2,'0')+'h');
-  const el = document.getElementById('d2TtiChart');
-  const datasets = [
-    { label:'Hôm nay', data: todayHourly, borderColor:'#22d3ee', backgroundColor:'#22d3ee', spanGaps:true, tension:.25, pointRadius:2 },
-    { label:'Dự báo', data: fcastHourly, borderColor:'#22d3ee', borderDash:[5,4], spanGaps:true, tension:.25, pointRadius:0 },
-    { label:'Hôm qua', data: yestHourly, borderColor:'#94a3b8', spanGaps:true, tension:.25, pointRadius:0, borderDash:[2,2] },
-  ];
-  thresholds.forEach((v,i) => datasets.push({ label: i===0?'Ngưỡng Chậm':'Ngưỡng Tắc nghẽn', data: Array.from({length:24},()=>v), borderColor: i===0?'#f59e0b':'#ef4444', borderWidth:1, pointRadius:0, borderDash:[1,3] }));
-
-  // Chart.js itself (CDN) is the one thing here that can throw outright
-  // (e.g. the script failed to load) — isolated so that failure only blanks
-  // this one chart, never the KPI/status/ranking panels already rendered.
-  try {
-    if (_ttiChart) _ttiChart.destroy();
-    _ttiChart = new Chart(el, {
-      type:'line',
-      data:{ labels, datasets },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{ labels:{color:'#94a3b8', boxWidth:12, font:{size:10}} } },
-        scales:{ y:{ title:{display:true,text:'TTI',color:'#94a3b8'}, ticks:{color:'#94a3b8'}, grid:{color:'#1e2d4555'} },
-                  x:{ ticks:{color:'#94a3b8'}, grid:{display:false} } },
-      },
-      plugins: [{
-        id:'nowLine',
-        afterDraw(chart) {
-          const xScale = chart.scales.x, yScale = chart.scales.y;
-          const x = xScale.getPixelForValue(curHour);
-          const ctx = chart.ctx;
-          ctx.save();
-          ctx.strokeStyle = '#f87171'; ctx.setLineDash([3,3]); ctx.lineWidth = 1.5;
-          ctx.beginPath(); ctx.moveTo(x, yScale.top); ctx.lineTo(x, yScale.bottom); ctx.stroke();
-          ctx.restore();
-        },
-      }],
-    });
-  } catch (e) {
-    if (el) el.parentElement.innerHTML = `<div class="d2-err">⚠️ Không vẽ được biểu đồ: ${escH(e.message)}</div>`;
-  }
+function renderSlotSelect() {
+  const sel = document.getElementById('d2SlotSel');
+  if (!sel) return;
+  const pref = slotPref();
+  const opts = [`<option value="auto">Tự động (${fmtMin(_ttIntervalMin)}/ô)</option>`];
+  [5,10,15,20,30,60].filter(m => m > _ttIntervalMin).forEach(m => opts.push(`<option value="${m}">${fmtMin(m)}/ô</option>`));
+  sel.innerHTML = opts.join('');
+  sel.value = [...sel.options].some(o => o.value === pref) ? pref : 'auto';
+}
+function onSlotSelChange(v) {
+  try { localStorage.setItem(SLOT_PREF_KEY, v); } catch (_) {}
+  if (!applySlotSize()) return;
+  _forecast = { byRoute:{}, weeks:0 };
+  if (_sum) { const tt = _sum.travelTime || {}; updateRouteStatus(tt); renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
+  loadBaseline(); loadForecast();
+}
+async function loadComparisonDays() {
+  const primaryEl = document.getElementById('d2PrimaryDate'), histEl = document.getElementById('d2HistDate');
+  const statusEl = document.getElementById('d2HistStatus');
+  _primaryDate = primaryEl.value || todayISO();
+  _histDate = histEl.value || '';
+  statusEl.textContent = 'Đang tải…';
+  const fetches = [];
+  if (_primaryDate && _primaryDate !== todayISO()) fetches.push(apiFetch('/api/dashboard/history?date=' + _primaryDate).then(r => { _primaryLogs = r || []; }).catch(() => { _primaryLogs = []; }));
+  else _primaryLogs = null;
+  if (_histDate) fetches.push(apiFetch('/api/dashboard/history?date=' + _histDate).then(r => { _histLogs = r || []; }).catch(() => { _histLogs = []; }));
+  else _histLogs = [];
+  await Promise.all(fetches);
+  statusEl.textContent = '';
+  if (_sum) { const tt = _sum.travelTime || {}; renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
 }
 
-// ── Render: route heatmap + ranking ───────────────────────────────────────
-function renderRouteRanking(tt) {
-  const all = (tt.routes||[]).slice().sort((a,b) => (b.latestTTI||0) - (a.latestTTI||0));
-  const curHour = new Date().getHours();
-  const wrap = document.getElementById('d2RankWrap');
-  document.getElementById('d2RankNote').textContent = `(${all.length} tuyến, xếp theo TTI hiện tại)`;
-  if (!all.length) { wrap.innerHTML = '<div class="d2-empty">Chưa có tuyến nào</div>'; return; }
-
-  wrap.innerHTML = all.map(r => {
-    const slots = buildSlots(tt.todayLogs||[], r.id);
-    const sf = _forecast.byRoute[r.id];
-    const cells = [];
-    for (let h = 0; h < 24; h++) {
-      let sum=0, n=0;
-      for (let s = Math.floor(h*60/SLOT_MIN); s < Math.floor((h+1)*60/SLOT_MIN) && s < TOTAL_SLOTS; s++) {
-        if (slots[s]) { sum += slots[s].tti; n++; }
+function renderSlotBar(slots, currentSlot, isHistory, forecast, dateLabel) {
+  return slots.map((s, i) => {
+    const isFuture = !isHistory && currentSlot >= 0 && i > currentSlot;
+    let bg, tip = '';
+    if (s) {
+      bg = ttiColor(s.tti) || 'var(--surface2)';
+      const prefix = (dateLabel || 'Hôm nay') + ' ';
+      tip = `${prefix}${slotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${ttiLabel(s.tti)}\n` +
+            (s.dur ? `Thời gian đi: ${fmtMinSec(s.dur)}\n` : '') +
+            `Trễ TB: ${fmtMinSec(s.delay)}\n` +
+            (s.interp ? '(nội suy)' : `${s.n} lần đo`);
+      if (s.interp) return `<div class="d2-tti-slot" style="flex:1;background:${bg};opacity:.55" data-tip="${escH(tip)}"></div>`;
+    } else if (isFuture) {
+      const f = forecast && forecast[i];
+      if (f) {
+        const fc = ttiColor(f.tti) || 'var(--surface2)';
+        const ci = (f.lo != null && f.hi != null) ? `\nKhoảng tin cậy ~80%: ${f.lo.toFixed(2)}–${f.hi.toFixed(2)}` : '';
+        const src = f.model ? `mô hình Holt-Winters (${_forecast.weeks} tuần)` : `hồ sơ điển hình ${_baseline.weeks} tuần`;
+        const ftip = `🔮 Dự báo ${slotLabel(i)}\nTTI ≈ ${f.tti.toFixed(2)} — ${ttiLabel(f.tti)}${ci}\n(${src})`;
+        return `<div class="d2-tti-slot d2-tti-forecast" style="flex:1;background-color:${fc};opacity:${f.model?.7:.5}" data-tip="${escH(ftip)}"></div>`;
       }
-      const isFuture = h > curHour;
-      let v = n ? sum/n : null;
-      if (isFuture && sf && sf.bySlot) {
-        const p = sf.bySlot[Math.min(TOTAL_SLOTS-1, Math.round(h*60/SLOT_MIN))];
-        if (p) v = p.tti;
-      }
-      cells.push(`<div class="d2-rank-cell${isFuture?' fcast':''}" style="background:${v?ttiColor(v):'#1e293b'}" data-tip="${String(h).padStart(2,'0')}h – ${v?('TTI '+v.toFixed(2)+' · '+escH(ttiLabel(v))):'Không có dữ liệu'}"></div>`);
+      return `<div class="d2-tti-slot" style="flex:1;background:var(--surface2);opacity:.18"></div>`;
+    } else {
+      bg = 'var(--surface2)';
     }
-    const p60 = sf && sf.bySlot && sf.bySlot[Math.round(curHour*60/SLOT_MIN) + slotsFor(60)];
-    const curColor = r.latestTTI > 0 ? ttiColor(r.latestTTI) : '#334155';
-    return `<div class="d2-rank-row">
-      <div class="d2-rank-name" title="${escH(r.name)}">${escH(r.name)}</div>
-      <div class="d2-rank-bar">${cells.join('')}</div>
-      <div class="d2-rank-right">
-        <span class="d2-rank-badge" style="background:${curColor}22;color:${curColor}">${r.latestTTI ? r.latestTTI.toFixed(2) : '—'}</span>
-        <span class="d2-dot" style="background:${p60 ? ttiColor(p60.tti) : '#334155'}" title="${p60 ? 'Dự báo +60′: TTI '+p60.tti.toFixed(2) : 'Chưa có dự báo'}"></span>
-      </div>
-    </div>`;
+    const tipAttr = tip ? ` data-tip="${escH(tip)}"` : '';
+    return `<div class="d2-tti-slot" style="flex:1;background:${bg}"${tipAttr}></div>`;
   }).join('');
 }
 
-// ── Render: vehicle flow module ──────────────────────────────────────────
-function renderVehicleFlow() {
-  const nowHour = new Date().getHours(); // most recent FULLY elapsed hour = nowHour-1
-  const lastFullHour = (nowHour - 1 + 24) % 24;
-  const todayHours = _hourlyToday?.hours || [];
-  const yestHours = _hourlyYesterday?.hours || [];
-  const curTotal = todayHours[lastFullHour]?.total;
-  const yestTotal = yestHours[lastFullHour]?.total;
+function renderTTIChart(routes, primaryLogs, histLogs) {
+  const body = document.getElementById('d2TtiChartBody');
+  const axis = document.getElementById('d2TtiAxis');
+  if (!body || !axis) return;
+  if (!routes.length) { body.innerHTML = '<div class="d2-empty">Chưa có tuyến đường nào</div>'; axis.innerHTML = ''; return; }
 
-  document.getElementById('d2FlowBig').textContent = curTotal != null ? curTotal.toLocaleString('vi-VN') : '—';
-  const pctEl = document.getElementById('d2FlowPct');
-  if (curTotal != null && yestTotal) {
-    const pct = ((curTotal - yestTotal) / yestTotal) * 100;
-    pctEl.textContent = `${pct>=0?'▲ +':'▼ '}${pct.toFixed(0)}% so với ${String(lastFullHour).padStart(2,'0')}h hôm qua`;
-    pctEl.style.color = pct >= 0 ? '#f87171' : '#4ade80';
-  } else {
-    pctEl.textContent = '';
+  const now = new Date();
+  const currentSlot = slotOfTs(now.toISOString());
+  const nowMinPct = ((now.getHours()*60 + now.getMinutes()) / (24*60) * 100).toFixed(2);
+  const isPrimaryToday = !_primaryDate || _primaryDate === todayISO();
+
+  body.innerHTML = routes.map(r => {
+    const todaySlots = buildSlots(primaryLogs, r.id);
+    const baseSlots = baselineSlots(r.id);
+    const trend = routeTrend(todaySlots, baseSlots);
+    let forecast = isPrimaryToday ? buildForecast(todaySlots, baseSlots, currentSlot) : null;
+    if (isPrimaryToday) {
+      const sf = _forecast.byRoute[r.id];
+      if (sf && sf.bySlot) {
+        if (!forecast) forecast = Array.from({ length: TOTAL_SLOTS }, () => null);
+        Object.keys(sf.bySlot).forEach(slot => {
+          const p = sf.bySlot[slot];
+          forecast[+slot] = { tti:p.tti, lo:p.lo, hi:p.hi, model:true };
+        });
+      }
+    }
+    const histSlots = histLogs.length ? buildSlots(histLogs, r.id) : null;
+    const hasHistData = histSlots && histSlots.some(s => s !== null);
+    const hasPrimaryData = todaySlots.some(s => s !== null);
+
+    const todayBar = isPrimaryToday
+      ? renderSlotBar(fillSlotGaps(todaySlots, 1, currentSlot), currentSlot, false, forecast, 'Hôm nay')
+      : renderSlotBar(fillSlotGaps(todaySlots, 1), -1, true, null, _primaryDate);
+    const primaryLabelHtml = isPrimaryToday ? '' : `<span style="font-size:.6rem;color:var(--text-muted)">${escH(_primaryDate)}${!hasPrimaryData ? ' (không có dữ liệu)' : ''}</span>`;
+    const histBar = histSlots ? renderSlotBar(fillSlotGaps(histSlots, 1), -1, true, null, _histDate) : '';
+    const histLabelHtml = histSlots ? `<span style="font-size:.6rem;color:var(--text-muted)">${escH(_histDate)}${!hasHistData ? ' (không có dữ liệu)' : ''}</span>` : '';
+
+    const abn = _abnormalRoutes.find(a => a.id === r.id);
+    const abnMark = abn ? `<span title="Bất thường: cao hơn +${Math.round((abn.ratio-1)*100)}% so với mức bình thường cùng giờ" style="color:#ef4444;flex-shrink:0">⚠</span>` : '';
+
+    return `<div class="d2-tti-row" id="d2TtiRow-${escH(r.id)}">
+      <div class="d2-tti-label">
+        <div style="display:flex;align-items:center;gap:.25rem">${trendArrow(trend)}${abnMark}<span class="d2-tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
+      </div>
+      <div class="d2-tti-bars">
+        <div class="d2-tti-bar d2-tti-bar-today">${todayBar}</div>
+        ${primaryLabelHtml}
+        ${histSlots ? `<div class="d2-tti-bar d2-tti-bar-hist">${histBar}</div>` : ''}
+        ${histLabelHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  const marks = [0,3,6,9,12,15,18,21].map(h => `<span class="d2-tti-axis-lbl" style="left:${(h/24*100).toFixed(2)}%">${String(h).padStart(2,'0')}:00</span>`).join('');
+  const nowMark = `<span class="d2-tti-axis-lbl" style="left:${nowMinPct}%;color:var(--d2-accent);font-weight:600">${fmtTime(now.toISOString())} ▲</span>`;
+  axis.innerHTML = marks + nowMark;
+
+  renderTtiLegend();
+}
+function renderTtiLegend() {
+  const el = document.getElementById('d2TtiLegend');
+  if (!el) return;
+  const tiers = _getTiers();
+  const nd = (_ttiAppearance||_ttiDefault).noDataColor || '#334155';
+  let html = '';
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    const prevMax = i > 0 ? tiers[i-1].maxTTI : null;
+    const curMax = t.maxTTI;
+    let range = '';
+    if (curMax === 0 || i === tiers.length-1) range = prevMax != null ? `≥${prevMax} ` : '';
+    else if (prevMax == null) range = `< ${curMax} `;
+    else range = `${prevMax}–${curMax} `;
+    html += `<span><span class="d2-tti-legend-dot" style="background:${t.color}"></span>${escH(range)}${escH(t.label)}</span>`;
   }
+  html += `<span><span class="d2-tti-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
+  html += `<span><span class="d2-tti-legend-dot" style="background-color:#64748b" class="d2-tti-forecast"></span>Dự báo Holt-Winters</span>`;
+  el.innerHTML = html;
+  if (getUser()?.role === 'admin') document.getElementById('d2TtiCfgBtn').style.display = '';
+}
 
-  // Vehicle mix for that hour — labels are Hawkwise's own free-text strings
-  // (internal/trafficflow/records.go), not a fixed enum, so render whatever
-  // classes actually came back rather than assuming a hardcoded taxonomy.
-  const mix = todayHours[lastFullHour]?.vehicleCounts || {};
-  const mixTotal = Object.values(mix).reduce((a,b)=>a+b, 0);
-  const palette = ['#22d3ee','#f59e0b','#a78bfa','#4ade80','#f87171','#94a3b8'];
-  const entries = Object.entries(mix).sort((a,b) => b[1]-a[1]);
-  document.getElementById('d2MixBar').innerHTML = mixTotal
-    ? entries.map(([lbl,v],i) => `<div style="flex:${v};background:${palette[i%palette.length]}" title="${escH(lbl)}: ${v}"></div>`).join('')
-    : '';
-  document.getElementById('d2MixLegend').innerHTML = mixTotal
-    ? entries.map(([lbl,v],i) => `<span><span class="d2-dot" style="background:${palette[i%palette.length]};display:inline-block;margin-right:.2rem"></span>${escH(lbl)} ${(v/mixTotal*100).toFixed(0)}%</span>`).join('')
-    : '<span>Chưa có dữ liệu lưu lượng theo loại xe</span>';
-
-  const labels = Array.from({length:24}, (_,h) => String(h).padStart(2,'0')+'h');
-  const todayVals = Array.from({length:24}, (_,h) => todayHours[h] ? todayHours[h].total : null);
-  const yestVals = Array.from({length:24}, (_,h) => yestHours[h] ? yestHours[h].total : null);
-  const el = document.getElementById('d2FlowChart');
-  // Chart.js can throw (e.g. CDN blocked) — isolated so a chart-only
-  // failure never wipes the big number / mix bar rendered just above.
+// ── TTI color-config admin panel (ported verbatim from dashboard.html) ──
+function toggleTtiCfg() {
+  const p = document.getElementById('d2TtiCfgPanel');
+  if (!p) return;
+  _ttiCfgOpen = !_ttiCfgOpen;
+  p.style.display = _ttiCfgOpen ? '' : 'none';
+  if (_ttiCfgOpen) renderTtiCfgPanel();
+}
+function renderTtiCfgPanel() {
+  const panel = document.getElementById('d2TtiCfgPanel');
+  if (!panel || !_ttiAppearance) return;
+  const tiers = _ttiAppearance.tiers;
+  const nd = _ttiAppearance.noDataColor || '#334155';
+  const rowHtml = tiers.map((t, i) => {
+    const isLast = i === tiers.length - 1;
+    const maxInput = isLast
+      ? `<span style="width:70px;font-size:.66rem;color:var(--text-muted)">≥ giá trị trước</span>`
+      : `<span style="font-size:.66rem;color:var(--text-muted)">&lt; </span><input type="number" value="${t.maxTTI}" step="0.05" min="1.01" max="9.9" oninput="_ttiAppearance.tiers[${i}].maxTTI=+this.value;renderTtiLegend()" style="width:48px;font-size:.7rem;border:1px solid var(--border);border-radius:4px;padding:.15rem .3rem;background:var(--surface);color:var(--text)">`;
+    const delBtn = tiers.length > 1
+      ? `<button onclick="removeTtiTier(${i})" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:.85rem;line-height:1;padding:.1rem .25rem">✕</button>` : '';
+    return `<div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.25rem">
+      <input type="color" value="${t.color}" oninput="_ttiAppearance.tiers[${i}].color=this.value;renderTtiLegend()" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0;border-radius:3px;flex-shrink:0">
+      <input type="text" value="${escH(t.label)}" oninput="_ttiAppearance.tiers[${i}].label=this.value;renderTtiLegend()" style="flex:1;min-width:60px;font-size:.7rem;border:1px solid var(--border);border-radius:4px;padding:.15rem .35rem;background:var(--surface);color:var(--text)">
+      ${maxInput}${delBtn}
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <div style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.4rem">Ngưỡng màu TTI</div>
+    ${rowHtml}
+    <button onclick="addTtiTier()" style="width:100%;margin:.3rem 0;background:none;border:1px dashed var(--border);border-radius:4px;color:var(--text-muted);font-size:.66rem;padding:.2rem .5rem;cursor:pointer;font-family:inherit">+ Thêm ngưỡng</button>
+    <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem;font-size:.7rem">
+      <span style="color:var(--text-muted)">Không có dữ liệu:</span>
+      <input type="color" value="${nd}" oninput="_ttiAppearance.noDataColor=this.value;renderTtiLegend()" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0;border-radius:3px">
+    </div>
+    <div style="display:flex;gap:.35rem">
+      <button onclick="saveTtiAppearance()" class="btn btn-sm" style="flex:1;font-size:.68rem">💾 Lưu</button>
+      <button onclick="resetTtiAppearance()" class="btn btn-sm btn-secondary" style="font-size:.68rem">↺ Mặc định</button>
+    </div>
+    <div id="d2TtiCfgMsg" style="font-size:.66rem;margin-top:.3rem;min-height:.85rem"></div>`;
+}
+function addTtiTier() {
+  if (!_ttiAppearance) return;
+  const tiers = _ttiAppearance.tiers;
+  const prevMax = tiers.length > 1 ? tiers[tiers.length-2].maxTTI : 1.5;
+  tiers.splice(tiers.length-1, 0, { maxTTI: Math.round((prevMax+0.1)*100)/100, color:'#94a3b8', label:'Ngưỡng mới' });
+  renderTtiCfgPanel(); renderTtiLegend();
+}
+function removeTtiTier(i) {
+  if (!_ttiAppearance || _ttiAppearance.tiers.length <= 1) return;
+  _ttiAppearance.tiers.splice(i, 1);
+  renderTtiCfgPanel(); renderTtiLegend();
+}
+function resetTtiAppearance() {
+  _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
+  renderTtiCfgPanel(); renderTtiLegend();
+}
+async function saveTtiAppearance() {
+  const msg = document.getElementById('d2TtiCfgMsg');
+  if (msg) { msg.textContent = 'Đang lưu…'; msg.style.color = 'var(--text-muted)'; }
   try {
-    if (_flowChart) _flowChart.destroy();
-    _flowChart = new Chart(el, {
-      data: {
-        labels,
-        datasets: [
-          { type:'bar', label:'Hôm nay', data: todayVals, backgroundColor:'#22d3ee88', borderRadius:2 },
-          { type:'line', label:'Hôm qua', data: yestVals, borderColor:'#94a3b8', pointRadius:0, tension:.25, spanGaps:true },
-        ],
-      },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#94a3b8', boxWidth:12, font:{size:10}}}},
-        scales:{ y:{beginAtZero:true, ticks:{color:'#94a3b8'}, grid:{color:'#1e2d4555'}}, x:{ticks:{color:'#94a3b8'}, grid:{display:false}} } },
-    });
+    await apiFetch('/api/traveltime/appearance', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(_ttiAppearance)});
+    if (msg) { msg.textContent = '✓ Đã lưu'; msg.style.color = '#4ade80'; }
+    renderTtiLegend();
+    if (_sum) { const tt = _sum.travelTime || {}; renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
   } catch (e) {
-    if (el) el.parentElement.innerHTML = `<div class="d2-err">⚠️ Không vẽ được biểu đồ: ${escH(e.message)}</div>`;
+    if (msg) { msg.textContent = '✗ ' + e.message; msg.style.color = '#f87171'; }
   }
 }
 
@@ -931,35 +1245,32 @@ async function loadAll() {
   const tt = _sum.travelTime || {};
   const tf = _sum.traffic || {};
   if (_sum.travelTimeIntervalMin > 0) _ttIntervalMin = _sum.travelTimeIntervalMin;
-  applySlotSize();
+  if (applySlotSize()) _forecast = { byRoute:{}, weeks:0 };
 
   renderHeader(tt);
   renderKPIs(tt, tf);
-  renderNetworkStatus(tt);
-  renderRouteRanking(tt);
+  updateRouteStatus(tt);
+  renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs);
+  renderSlotSelect();
+  updateJamData(tf);
 
-  // Independent panels — failures here must not blank the panels above.
-  // renderNetworkTtiChart/renderWeekChart/renderVehicleFlow each isolate
-  // their own Chart.js call internally, so these outer catches only need
-  // to cover their data-fetch step (e.g. /api/dashboard/history, the
-  // persistent-point lookups, /api/trafficflow/hourly).
-  renderNetworkTtiChart(tt).catch(() => {});
   loadPersistentComparisons().then(() => renderKPIs(tt, tf)).catch(() => {});
-  loadBaseline().then(() => { renderKPIs(tt, tf); renderRouteRanking(tt); }).catch(() => {});
-  loadForecast().then(() => { renderNetworkStatus(tt); renderRouteRanking(tt); renderNetworkTtiChart(tt); renderHeader(tt); }).catch(() => {});
-  loadVehicleFlow().then(renderVehicleFlow).catch(() => { document.getElementById('d2FlowBig').textContent = '⚠️'; });
+  loadBaseline().catch(() => {});
+  loadForecast().catch(() => {});
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────
 (async () => {
-  await initApp('dashboard');
+  await initApp('dashboard2');
   const user = getUser();
-  if (!user || (!hasTab('dashboard') && user.role !== 'admin')) {
-    document.body.innerHTML = '<div class="d2-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard.</div>';
+  if (!user || (!hasTab('dashboard2') && user.role !== 'admin')) {
+    document.getElementById('d2Content').innerHTML = '<div class="d2-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard 02.</div>';
     return;
   }
-  initThemeToggle();
-  initRefreshSelector();
+  document.getElementById('d2PrimaryDate').value = todayISO();
+  document.getElementById('d2HistDate').value = vnDateStr(new Date(Date.now()-86400000));
+  document.getElementById('d2PrimaryDate').max = todayISO();
+  document.getElementById('d2HistDate').max = todayISO();
   initIncidentFilterDefaults();
   tickClock();
   setInterval(tickClock, 1000);
@@ -968,6 +1279,12 @@ async function loadAll() {
   initD2Map();
   await loadAll();
   loadIncidents();
+
+  // Live: no manual refresh-interval picker — just keep polling so new
+  // scan/collection data appears on its own, same cadence dashboard.html
+  // itself already auto-refreshes on.
+  setInterval(loadAll, LIVE_REFRESH_MS);
+  setInterval(loadIncidents, LIVE_REFRESH_MS);
 })();
 </script>
 </body>

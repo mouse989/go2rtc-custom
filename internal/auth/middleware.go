@@ -244,6 +244,11 @@ var tabExtraPaths = map[string][]string{
 	// route-building) permission; the two features use the same proxy but
 	// are otherwise unrelated.
 	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
+	// TabDashboard2 is a separate grant from TabDashboard (Dashboard 02 is a
+	// different page an admin may want to hand out independently of the
+	// original Dashboard) — same extra-path list since it reads the exact
+	// same backend data, just under its own permission.
+	TabDashboard2: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
 	TabLog:       {"/api/log"},
 	TabConfig:    {"/api/config", "/api/restart"},
 	TabCounting:  {"/api/counting"},

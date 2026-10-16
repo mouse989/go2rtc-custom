@@ -16,6 +16,16 @@ func Init() {
 	http.HandleFunc("/api/traffic-heatmap", handleTrafficHeatmap)
 }
 
+// hasDashboardAccess reports whether user may read the shared summary/
+// history data — admin, or either of the two independently-grantable
+// dashboard tabs (TabDashboard for dashboard.html, TabDashboard2 for
+// dashboard2.html; both pages read the exact same endpoints here).
+func hasDashboardAccess(r *http.Request, user *auth.User) bool {
+	return user.Role == auth.RoleAdmin ||
+		auth.HasTab(r.Context(), auth.TabDashboard) ||
+		auth.HasTab(r.Context(), auth.TabDashboard2)
+}
+
 type summary struct {
 	UpdatedAt  string                        `json:"updatedAt"`
 	Traffic    traffic.TrafficSnapshot       `json:"traffic"`
@@ -37,7 +47,7 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if user.Role != auth.RoleAdmin && !auth.HasTab(r.Context(), auth.TabDashboard) {
+	if !hasDashboardAccess(r, user) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -95,7 +105,7 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if user.Role != auth.RoleAdmin && !auth.HasTab(r.Context(), auth.TabDashboard) {
+	if !hasDashboardAccess(r, user) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

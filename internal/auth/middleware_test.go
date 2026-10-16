@@ -88,3 +88,21 @@ func TestUserCanAccessPathDashboardTrafficFlowHourly(t *testing.T) {
 		t.Fatal("a viewer without the Dashboard tab and without AllowMapTrafficFlow must not reach /api/trafficflow/hourly")
 	}
 }
+
+// TestUserCanAccessPathDashboard2IsIndependentOfDashboard: TabDashboard2
+// (dashboard2.html) is a separate grant from TabDashboard (dashboard.html)
+// — an admin may hand either out without the other — but reaches the exact
+// same backend paths. Catches the same "server-side allow forgotten"
+// mistake AllowMapRoute originally shipped with, now for the new tab.
+func TestUserCanAccessPathDashboard2IsIndependentOfDashboard(t *testing.T) {
+	d2Only := &User{Role: RoleViewer, Tabs: []string{TabDashboard2}}
+	for _, p := range []string{"/api/dashboard/summary", "/api/traffic/data?file=2026-10-15.json", "/api/trafficflow/hourly", "/api/traveltime/forecast"} {
+		if !userCanAccessPath(d2Only, p) {
+			t.Fatalf("a viewer with only TabDashboard2 should reach %s", p)
+		}
+	}
+	neither := &User{Role: RoleViewer, Tabs: []string{TabMap}}
+	if userCanAccessPath(neither, "/api/dashboard/summary") {
+		t.Fatal("a viewer with neither TabDashboard nor TabDashboard2 must not reach /api/dashboard/summary")
+	}
+}

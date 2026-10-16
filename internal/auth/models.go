@@ -12,16 +12,17 @@ const (
 	TabCameras   = "cameras"   // / (camera grid)
 	TabMap       = "map"       // /map.html
 	TabMonitor   = "monitor"   // /monitor.html
-	TabDashboard = "dashboard" // /dashboard.html
-	TabLog       = "log"       // /log.html
-	TabConfig    = "config"    // /config.html
-	TabAPIDocs   = "api_docs"  // /api-docs.html
-	TabCounting  = "counting"  // /counting.html
-	TabIncidents = "incidents" // /incidents.html
+	TabDashboard  = "dashboard"  // /dashboard.html
+	TabDashboard2 = "dashboard2" // /dashboard2.html — independent of TabDashboard, granted separately
+	TabLog        = "log"        // /log.html
+	TabConfig     = "config"     // /config.html
+	TabAPIDocs    = "api_docs"   // /api-docs.html
+	TabCounting   = "counting"   // /counting.html
+	TabIncidents  = "incidents"  // /incidents.html
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents}
 
 // User represents an application user
 type User struct {
