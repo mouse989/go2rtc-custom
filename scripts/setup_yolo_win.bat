@@ -272,13 +272,17 @@ IF "%TORCH_FLAVOR%"=="cu113" (
 REM ── Install ultralytics and web stack ─────────────────────────────────────
 REM Do NOT install opencv-python-headless alongside ultralytics on Windows:
 REM ultralytics pulls opencv-python; having both packages conflicts (cv2 not found).
-ECHO --- Installing ultralytics, fastapi, uvicorn ---
+REM onnx/onnxslim: needed by POST /export-onnx (the browser-side AI Analyze
+REM feature's .pt->.onnx export) — installed here rather than left to
+REM ultralytics' own pip-install-on-first-use fallback, which depends on
+REM this machine having outbound internet access at export time.
+ECHO --- Installing ultralytics, fastapi, uvicorn, onnx ---
 IF "%TORCH_FLAVOR%"=="cu113" (
     REM Keep numpy pinned: pass numpy<2 alongside to prevent ultralytics from
     REM pulling numpy 2.x as a transitive dependency.
-    "%DEPLOY%\yolo_venv\Scripts\pip" install "numpy<2" ultralytics fastapi "uvicorn[standard]"
+    "%DEPLOY%\yolo_venv\Scripts\pip" install "numpy<2" ultralytics fastapi "uvicorn[standard]" onnx onnxslim
 ) ELSE (
-    "%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]"
+    "%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]" onnx onnxslim
 )
 IF ERRORLEVEL 1 GOTO error
 
