@@ -92,6 +92,7 @@ function canCamSnapshot() { const u = getUser(); return u && (u.role === 'admin'
 function canCamVideo()    { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_cam_video); }
 function canMapSnapshotPreview() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_snapshot_preview); }
 function canAIAnalyze() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_ai_analyze); }
+function canAIWatch() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_ai_watch); }
 function canMapSearch() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_search); }
 function canMapRoute()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_route); }
 // Requires both the permission flag AND the Incidents tab — the flag alone

@@ -208,6 +208,7 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_map_incident_add":         user.AllowMapIncidentAdd,
 		"allow_map_ai_events":            user.AllowMapAIEvents,
 		"allow_ai_analyze":               user.AllowAIAnalyze,
+		"allow_ai_watch":                 user.AllowAIWatch,
 		"allow_map_3d":                   user.AllowMap3D,
 		"allow_map_traffic_flow":         user.AllowMapTrafficFlow,
 		"allow_map_gis":                  user.AllowMapGIS,
@@ -280,6 +281,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapIncidentAdd         bool     `json:"allow_map_incident_add"`
 			AllowMapAIEvents            bool     `json:"allow_map_ai_events"`
 			AllowAIAnalyze              bool     `json:"allow_ai_analyze"`
+			AllowAIWatch                bool     `json:"allow_ai_watch"`
 			AllowMap3D                  bool     `json:"allow_map_3d"`
 			AllowMapTrafficFlow         bool     `json:"allow_map_traffic_flow"`
 			AllowMapGIS                 bool     `json:"allow_map_gis"`
@@ -338,6 +340,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapIncidentAdd:         req.AllowMapIncidentAdd,
 			AllowMapAIEvents:            req.AllowMapAIEvents,
 			AllowAIAnalyze:              req.AllowAIAnalyze,
+			AllowAIWatch:                req.AllowAIWatch,
 			AllowMap3D:                  req.AllowMap3D,
 			AllowMapTrafficFlow:         req.AllowMapTrafficFlow,
 			AllowMapGIS:                 req.AllowMapGIS,
@@ -394,6 +397,7 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowMapIncidentAdd         *bool    `json:"allow_map_incident_add"`
 			AllowMapAIEvents            *bool    `json:"allow_map_ai_events"`
 			AllowAIAnalyze              *bool    `json:"allow_ai_analyze"`
+			AllowAIWatch                *bool    `json:"allow_ai_watch"`
 			AllowMap3D                  *bool    `json:"allow_map_3d"`
 			AllowMapTrafficFlow         *bool    `json:"allow_map_traffic_flow"`
 			AllowMapGIS                 *bool    `json:"allow_map_gis"`
@@ -483,6 +487,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowAIAnalyze != nil {
 			existing.AllowAIAnalyze = *req.AllowAIAnalyze
+		}
+		if req.AllowAIWatch != nil {
+			existing.AllowAIWatch = *req.AllowAIWatch
 		}
 		if req.AllowMap3D != nil {
 			existing.AllowMap3D = *req.AllowMap3D

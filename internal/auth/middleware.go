@@ -361,12 +361,14 @@ func userCanAccessPath(u *User, path string) bool {
 			return true
 		}
 	}
-	if u.AllowAIAnalyze {
-		// GET /api/ai-analyze/model(/meta) is what this flag is actually
-		// for; POST .../publish and PUT /api/ai-analyze/model also match
-		// this prefix but are separately re-gated to admin-only INSIDE
-		// internal/aianalyze/api.go's own handlers (requireAdmin) — same
-		// double-gate convention as the rest of this codebase, not a hole.
+	if u.AllowAIAnalyze || u.AllowAIWatch {
+		// GET /api/ai-analyze/model(/meta) is what these flags are actually
+		// for — AI ANALYZE and Watch both read the same published model, so
+		// either flag alone is enough to reach it; POST .../publish and PUT
+		// /api/ai-analyze/model also match this prefix but are separately
+		// re-gated to admin-only INSIDE internal/aianalyze/api.go's own
+		// handlers (requireAdmin) — same double-gate convention as the rest
+		// of this codebase, not a hole.
 		if strings.HasPrefix(path, "/api/ai-analyze/") {
 			return true
 		}

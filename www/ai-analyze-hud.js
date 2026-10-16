@@ -32,6 +32,14 @@ function labelWord(label, count) {
   return count === 1 ? entry.one : entry.many;
 }
 
+// This runs entirely in the viewer's browser, so "now" is whatever the
+// device clock says — always render it in Vietnam time (ICT, UTC+7, no
+// DST) rather than the device's own local zone or raw UTC, since every
+// deployment of this system is in Vietnam.
+function vnTimeString(date) {
+  return date.toLocaleTimeString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }) + ' ICT';
+}
+
 let _aiWorker = null;
 let _aiRequestSeq = 0;
 const _aiPending = new Map();
@@ -100,7 +108,7 @@ function ensureAIStyles() {
       font-family:ui-monospace,"JetBrains Mono","Share Tech Mono",monospace; font-size:.68rem; letter-spacing:.15em;
       text-transform:uppercase; cursor:pointer; backdrop-filter:blur(6px); }
     .ai-hud-btn:hover { filter:brightness(1.3); }
-    .ai-mode-tabs { display:flex;gap:.35rem;margin-bottom:.7rem;flex-wrap:wrap; }
+    .ai-mode-tabs { display:contents; }
     .ai-mode-tab { padding:.28rem .7rem;border-radius:var(--radius);border:1px solid ${AI_GOLD};
       background:rgba(212,175,55,.08);color:${AI_GOLD};font-size:.81rem;font-weight:600;cursor:pointer;
       letter-spacing:.04em;transition:filter .15s,background .15s; }
@@ -116,14 +124,18 @@ function ensureAIStyles() {
   document.head.appendChild(style);
 }
 
-// ── Mount: the AI ANALYZE/WATCH 30S buttons go in their own row right
-// after #modeTabs (Snapshot/Auto/WebRTC/MSE/HLS) — same pill-row layout
-// and position as that row, not floating over the image — while
-// #playerWrap itself gets wrapped in a position:relative container so the
-// scanning overlay / SVG detection overlay can still sit on top of the
-// image itself. The stats panel is appended as a normal-flow sibling
-// right after that, so it pushes the modal taller when shown, matching
-// spec §4.3's "panel expands below the image" layout. ──────────────────
+// ── Mount: the AI ANALYZE/Watch buttons are appended as children of
+// #modeTabs itself, so they render in the exact same row as
+// Snapshot/Auto/WebRTC/MSE/HLS (that container is already a flex row —
+// see .mode-tabs in map.html/index.html) rather than a separate row of
+// their own. #aiBtnRow wraps them only as a logical/show-hide group
+// (display:contents — see .ai-mode-tabs in ensureAIStyles — so it never
+// introduces its own box into that flex row); #playerWrap itself gets
+// wrapped in a position:relative container so the scanning overlay / SVG
+// detection overlay can still sit on top of the image itself. The stats
+// panel is appended as a normal-flow sibling right after that, so it
+// pushes the modal taller when shown, matching spec §4.3's "panel expands
+// below the image" layout. ──────────────────────────────────────────────
 function ensureAIHUDMounted() {
   const playerWrap = document.getElementById('playerWrap');
   if (!playerWrap) return null;
@@ -142,14 +154,17 @@ function ensureAIHUDMounted() {
   btnRow.className = 'ai-mode-tabs';
   btnRow.innerHTML =
     `<button id="aiAnalyzeBtn" class="ai-mode-tab">🔍 AI ANALYZE</button>` +
-    `<button id="aiWatchBtn" class="ai-mode-tab">⏱ WATCH 30S</button>`;
-  // Sibling of #modeTabs (not a child of it, and not inside relWrap) — its
-  // own click listeners below fire directly, never through #modeTabs'
-  // delegated click handler (which would otherwise treat these as a
-  // stream-mode switch and call startPlayer(id, undefined)).
+    `<button id="aiWatchBtn" class="ai-mode-tab">⏱ Watch</button>`;
+  // Appended as a CHILD of #modeTabs (not a sibling) so it visually joins
+  // that same row — safe because these buttons use the distinct
+  // "ai-mode-tab" class, never the page's own "mode-tab" class, so
+  // #modeTabs' delegated click handler (which does
+  // e.target.closest('.mode-tab') and calls startPlayer(...) on a match)
+  // never matches a click on either of them, however deep they sit inside
+  // #modeTabs. Their own click listeners below fire independently.
   const modeTabs = document.getElementById('modeTabs');
-  if (modeTabs && modeTabs.parentElement) {
-    modeTabs.insertAdjacentElement('afterend', btnRow);
+  if (modeTabs) {
+    modeTabs.appendChild(btnRow);
   } else {
     relWrap.parentElement.insertBefore(btnRow, relWrap);
   }
@@ -182,11 +197,20 @@ function ensureAIHUDMounted() {
 function resetAIOverlay() {
   stopWatch();
   const btnRow = document.getElementById('aiBtnRow');
+  const analyzeBtn = document.getElementById('aiAnalyzeBtn');
+  const watchBtn = document.getElementById('aiWatchBtn');
   const scanStatus = document.getElementById('aiScanStatus');
   const svg = document.getElementById('aiSvgOverlay');
   const statsPanel = document.getElementById('aiStatsPanel');
   if (!btnRow) return;
-  btnRow.style.display = (typeof canAIAnalyze === 'function' && canAIAnalyze()) ? '' : 'none';
+  // AllowAIAnalyze and AllowAIWatch are independent permissions — each
+  // button shows/hides on its own flag, not as a single all-or-nothing row
+  // (btnRow itself is never hidden here; it's display:contents and only
+  // ever forced to 'none' transiently by performAnalyze()/showAIError()
+  // below, during an active scan).
+  analyzeBtn.style.display = (typeof canAIAnalyze === 'function' && canAIAnalyze()) ? '' : 'none';
+  watchBtn.style.display = (typeof canAIWatch === 'function' && canAIWatch()) ? '' : 'none';
+  btnRow.style.display = '';
   scanStatus.style.display = 'none';
   scanStatus.innerHTML = '';
   svg.style.display = 'none';
@@ -358,11 +382,11 @@ function renderAIResult(result) {
       }
       const [x, y] = d.box;
       const pct = Math.round(d.score * 100);
-      const utc = new Date().toISOString().slice(11, 19) + 'Z';
+      const vnTime = vnTimeString(new Date());
       const chipText = d.colour ? `${d.colour.toUpperCase()} ${labelWord(d.label, 1).toUpperCase()}` : d.label.toUpperCase();
       hoverLabel.setAttribute('x', x);
       hoverLabel.setAttribute('y', Math.max(10, y - 6));
-      hoverLabel.textContent = `${chipText} · ${pct}% · ${utc}`;
+      hoverLabel.textContent = `${chipText} · ${pct}% · ${vnTime}`;
       hoverLabel.style.display = '';
     });
     g.addEventListener('pointerleave', () => {
@@ -403,11 +427,11 @@ function renderAIStatsPanel(result) {
   const legend = colourEntries.map(([c, n]) => `<span style="color:${COLOUR_SWATCH[c] || '#888'}">■</span> ${n} ${c.toUpperCase()}`).join('  ');
 
   const now = new Date();
-  const utc = now.toISOString().slice(11, 19) + 'Z';
+  const vnTime = vnTimeString(now);
 
   panel.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;font-size:.66rem;letter-spacing:.1em;color:rgba(255,255,255,.6);text-transform:uppercase">
-      <span>👁 ANALYSED ${utc} · ${result.light}</span>
+      <span>👁 ANALYSED ${vnTime} · ${result.light}</span>
       <button id="aiCloseBtn" class="ai-hud-btn" style="border-color:rgba(255,255,255,.35);color:#fff">✕ LIVE</button>
     </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:.45rem;flex-wrap:wrap;gap:.5rem">

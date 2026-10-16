@@ -17,10 +17,12 @@ func registerHandlers() {
 }
 
 // requireViewer allows admin or any user explicitly granted AllowAIAnalyze
-// — the same single-flag, client-visible-feature convention as
-// AllowMapAIEvents (internal/aievent/api.go's requireAIEventViewer). The
-// path itself is additionally gated in internal/auth/middleware.go, same
-// double-gate pattern used throughout this codebase (outer middleware
+// and/or AllowAIWatch — the same client-visible-feature convention as
+// AllowMapAIEvents (internal/aievent/api.go's requireAIEventViewer), just
+// with two flags instead of one since AI ANALYZE and Watch are grantable
+// independently but both read the same published model through this file.
+// The path itself is additionally gated in internal/auth/middleware.go,
+// same double-gate pattern used throughout this codebase (outer middleware
 // allow + inner handler check).
 func requireViewer(w http.ResponseWriter, r *http.Request) bool {
 	user, ok := auth.UserFromContext(r.Context())
@@ -28,7 +30,7 @@ func requireViewer(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return false
 	}
-	if user.Role != auth.RoleAdmin && !user.AllowAIAnalyze {
+	if user.Role != auth.RoleAdmin && !user.AllowAIAnalyze && !user.AllowAIWatch {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return false
 	}

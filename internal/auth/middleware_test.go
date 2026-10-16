@@ -120,4 +120,15 @@ func TestUserCanAccessPathAIAnalyze(t *testing.T) {
 	if userCanAccessPath(ungated, "/api/ai-analyze/model") {
 		t.Fatal("a viewer without AllowAIAnalyze must not reach /api/ai-analyze/model")
 	}
+
+	// AllowAIWatch alone (no AllowAIAnalyze) must also reach the same
+	// endpoints — both buttons read the same published model.
+	watchOnly := &User{Role: RoleViewer, AllowAIWatch: true}
+	if !userCanAccessPath(watchOnly, "/api/ai-analyze/model") {
+		t.Fatal("a viewer with AllowAIWatch (but not AllowAIAnalyze) should reach /api/ai-analyze/model")
+	}
+	neitherFlag := &User{Role: RoleViewer}
+	if userCanAccessPath(neitherFlag, "/api/ai-analyze/model") {
+		t.Fatal("a viewer with neither AllowAIAnalyze nor AllowAIWatch must not reach /api/ai-analyze/model")
+	}
 }

@@ -64,15 +64,25 @@ type User struct {
 	// AllowMapIncidentAdd: there's no manual-entry counterpart to this
 	// layer, so this flag alone fully controls whether a user can see it.
 	AllowMapAIEvents bool `json:"allow_map_ai_events"`
-	// AllowAIAnalyze gates the "AI ANALYZE"/"WATCH 30S" button in the
-	// shared camera-stream modal (map.html and index.html's #playerWrap) —
-	// an on-device vehicle/person detector (custom-trained YOLO exported to
+	// AllowAIAnalyze gates the one-shot "AI ANALYZE" button in the shared
+	// camera-stream modal (map.html and index.html's #playerWrap) — an
+	// on-device vehicle/person detector (custom-trained YOLO exported to
 	// ONNX, internal/aianalyze) that runs entirely in the viewer's own
 	// browser via a Web Worker; the server never runs inference or sees a
 	// detection result, only serves the published model file + its label
 	// metadata. View-only, same single-flag convention as AllowMapAIEvents
-	// above.
+	// above. Separate from AllowAIWatch below so an admin can grant a quick
+	// single-frame look without also granting the continuous 30s poll.
 	AllowAIAnalyze bool `json:"allow_ai_analyze"`
+	// AllowAIWatch gates the "Watch" button next to AI ANALYZE — the same
+	// on-device detector, but re-run on a timer (1-5s) for 30s straight, so
+	// it costs the viewer's device meaningfully more than a single AI
+	// ANALYZE pass. Kept as its own flag rather than folded into
+	// AllowAIAnalyze so a user can be granted one without the other.
+	// Either flag alone is enough to reach GET /api/ai-analyze/model(/meta)
+	// (internal/auth/middleware.go) and internal/aianalyze/api.go's
+	// requireViewer — both buttons share that same published model.
+	AllowAIWatch bool `json:"allow_ai_watch"`
 	// AllowMap3D gates map.html's "🧊 3D" toggle — tilts the camera (pitch)
 	// and shows a 3D building-extrusion layer rendered client-side from the
 	// same VietMap vector tiles the base map already fetches (no separate
