@@ -377,7 +377,16 @@ let _map = null, _mapInited = false;
 // over a week/month filter, was the whole point's worth of markers).
 let _mapShowEvents = true, _mapShowHeat = true;
 let _mapFrom = null, _mapTo = null; // Date objects
-let _mapWindowIsDefault = true; // true until the admin explicitly applies a window — periodic refresh keeps sliding "last 24h" until then
+// _mapFollowScan: true (the default, for every user) means the window keeps
+// sliding to match the configured traffic-jam scan interval (_trafficIntervalMin)
+// on every refresh, so the map always shows "the current scan" — live and
+// light. Only a user who canCustomMapWindow() can turn this off and apply a
+// manual Từ...Đến range (still capped at MAP_WINDOW_MAX_MS below); for
+// everyone else it is forced back on by refreshMapWindow()/applyMapWindow()
+// even if client state were somehow tampered with — see canCustomMapWindow's
+// own comment for why that is a UI convenience, not a security boundary.
+let _mapFollowScan = true;
+let _trafficIntervalMin = 15; // configured traffic-jam scan interval (server) — updated from /api/dashboard/summary
 let _ttiCfgOpen = false;
 let _primaryDate = '', _primaryLogs = null, _histDate = '', _histLogs = [];
 let _abnormalRoutes = [];
@@ -641,12 +650,14 @@ function d2CategoryIconSrc(category) {
 }
 
 async function initD2Map() {
-  // Admin-only UI affordance, not tied to the map itself ever finishing
-  // loading (bad/missing API key, blocked CDN, …) — gating it inside the
-  // map's 'load' callback below would hide it whenever the map fails,
-  // even though the config it edits is independent of the map rendering
-  // successfully.
-  if (getUser()?.role === 'admin') document.getElementById('d2HeatCfgBtn').style.display = '';
+  // Visible to every user, not just admin — the panel now also holds the
+  // Hiển thị (events/heatmap) toggles and the always-on follow-scan status,
+  // both meant for every viewer; only its custom Từ...Đến section is gated
+  // by canCustomMapWindow() inside buildMapCfgPanel. Set unconditionally
+  // here too (not inside the map's 'load' callback below) so it still shows
+  // up even when the map itself fails to load (bad/missing API key, blocked
+  // CDN, …) — the config it edits is independent of the map rendering.
+  document.getElementById('d2HeatCfgBtn').style.display = '';
   try {
     const settings = await apiFetch('/api/settings');
     const apiKey = (settings||{}).vietmap_api_key || '';
@@ -799,11 +810,26 @@ async function loadMapWindowData() {
   }
 }
 
-// Keeps the window sliding ("last 24h" from now) until the admin picks an
-// explicit one via applyMapWindow — called by initD2Map's first load and
-// by loadAll's periodic refresh.
+// Whether this user may turn off "theo chu kỳ quét" and apply a manual
+// Từ...Đến range — gated by allow_dashboard2_custom_window (or admin).
+// Client-only gate: /api/incidents and /api/traffic/data are already scoped
+// by TabDashboard2/TabIncidents regardless of which window is requested, so
+// there's no privilege actually being unlocked here, same as
+// AllowMap3D/AllowMapAIEvents elsewhere — this only keeps the picker out of
+// the way for users who don't need it.
+function canCustomMapWindow() {
+  const u = getUser();
+  return !!u && (u.role === 'admin' || !!u.allow_dashboard2_custom_window);
+}
+
+// Keeps the window sliding to match the scan interval (_mapFollowScan, the
+// default for everyone) until a permitted user picks an explicit one via
+// applyMapWindow — called by initD2Map's first load and by loadAll's
+// periodic refresh. The canCustomMapWindow() check is defense-in-depth: if
+// a user's permission is revoked while _mapFollowScan happened to be false
+// client-side, the very next refresh snaps the window back to auto.
 async function refreshMapWindow() {
-  if (_mapWindowIsDefault) { const w = defaultMapWindow(); _mapFrom = w.from; _mapTo = w.to; }
+  if (_mapFollowScan || !canCustomMapWindow()) { const w = defaultMapWindow(); _mapFrom = w.from; _mapTo = w.to; }
   await loadMapWindowData();
 }
 
@@ -837,11 +863,13 @@ function toDatetimeLocal(d) {
 }
 function defaultMapWindow() {
   const to = new Date();
-  return { from: new Date(to.getTime() - 24*3600000), to };
+  const spanMs = Math.max(_trafficIntervalMin, 1) * 60000;
+  return { from: new Date(to.getTime() - spanMs), to };
 }
 function buildMapCfgPanel() {
   const panel = document.getElementById('d2HeatCfgPanel');
   if (!_mapFrom || !_mapTo) { const w = defaultMapWindow(); _mapFrom = w.from; _mapTo = w.to; }
+  const canCustom = canCustomMapWindow();
   panel.innerHTML = `
     <div style="margin-bottom:.5rem">
       <div style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.3rem">Hiển thị</div>
@@ -849,7 +877,14 @@ function buildMapCfgPanel() {
       <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.72rem"><input type="checkbox" id="mapCfgShowHeat"> Bản đồ nhiệt ùn tắc</label>
     </div>
     <div style="margin-bottom:.5rem">
-      <div style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.3rem">Khung thời gian (tối đa 2 ngày)</div>
+      <label style="display:flex;align-items:center;gap:.35rem;cursor:${canCustom ? 'pointer' : 'default'};font-size:.72rem;font-weight:600">
+        <input type="checkbox" id="mapCfgFollowScan" ${canCustom ? '' : 'disabled'} onchange="onMapCfgFollowScanChange()">
+        Theo chu kỳ quét ùn tắc tự động (${_trafficIntervalMin} phút)
+      </label>
+      ${canCustom ? '' : `<div style="font-size:.6rem;color:var(--text-muted);margin:.15rem 0 0 1.2rem">Chỉ admin hoặc user được cấp quyền mới chọn được khung giờ tuỳ chỉnh.</div>`}
+    </div>
+    <div id="mapCfgCustomWrap" style="margin-bottom:.5rem">
+      <div style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.3rem">Khung thời gian tuỳ chỉnh (tối đa 2 ngày)</div>
       <div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">
         <label style="font-size:.68rem;color:var(--text-muted)">Từ</label>
         <input type="datetime-local" id="mapCfgFrom" style="font-size:.68rem;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:.15rem .3rem">
@@ -858,16 +893,38 @@ function buildMapCfgPanel() {
       </div>
       <div id="mapCfgWindowMsg" style="font-size:.6rem;color:var(--text-muted);margin-top:.25rem;min-height:.8rem"></div>
     </div>
-    <button onclick="applyMapWindow()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:.22rem .65rem;font-size:.68rem;cursor:pointer;font-family:inherit;margin-bottom:.4rem">✓ Áp dụng</button>
+    <button onclick="applyMapWindow()" id="mapCfgApplyBtn" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:.22rem .65rem;font-size:.68rem;cursor:pointer;font-family:inherit;margin-bottom:.4rem">✓ Áp dụng</button>
     <details>
       <summary style="font-size:.62rem;color:var(--text-muted);cursor:pointer">Tuỳ chỉnh màu/bán kính bản đồ nhiệt</summary>
       <div id="d2HeatAppearancePanel" style="margin-top:.4rem"></div>
     </details>`;
   document.getElementById('mapCfgShowEvents').checked = _mapShowEvents;
   document.getElementById('mapCfgShowHeat').checked = _mapShowHeat;
+  // Non-permitted users always see (and are stuck with) the checked,
+  // disabled follow-scan box — canCustomMapWindow() already forces the
+  // actual window back to auto regardless of any stale _mapFollowScan.
+  document.getElementById('mapCfgFollowScan').checked = canCustom ? _mapFollowScan : true;
   document.getElementById('mapCfgFrom').value = toDatetimeLocal(_mapFrom);
   document.getElementById('mapCfgTo').value = toDatetimeLocal(_mapTo);
+  updateMapCfgCustomWindowUI();
   buildHeatAppearancePanel();
+}
+// Grays out / disables the manual Từ...Đến section while "theo chu kỳ
+// quét" is checked (or the user can't turn it off at all) — it has nothing
+// to apply until that box is unchecked.
+function updateMapCfgCustomWindowUI() {
+  const follow = document.getElementById('mapCfgFollowScan').checked;
+  const wrap = document.getElementById('mapCfgCustomWrap');
+  if (wrap) wrap.style.opacity = follow ? '.45' : '1';
+  ['mapCfgFrom', 'mapCfgTo', 'mapCfgApplyBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = follow;
+  });
+}
+function onMapCfgFollowScanChange() {
+  const cb = document.getElementById('mapCfgFollowScan');
+  if (!canCustomMapWindow()) { cb.checked = true; return; } // can't be unchecked without permission
+  updateMapCfgCustomWindowUI();
 }
 function buildHeatAppearancePanel() {
   const row = (lbl, id, min, max, val, fmt) => `<label style="display:flex;flex-direction:column;gap:.15rem">${lbl}:<span style="display:flex;align-items:center;gap:.35rem"><input type="range" id="${id}" min="${min}" max="${max}" value="${val}" oninput="applyHeatmapCfg()" style="flex:1"><span id="${id}v" style="width:30px;text-align:right;font-variant-numeric:tabular-nums">${fmt}</span></span></label>`;
@@ -904,8 +961,23 @@ function buildHeatAppearancePanel() {
 }
 const MAP_WINDOW_MAX_MS = 48 * 3600000; // 2 days — keeps data reads/rendering light, per explicit instruction
 async function applyMapWindow() {
-  const fromEl = document.getElementById('mapCfgFrom'), toEl = document.getElementById('mapCfgTo');
   const msgEl = document.getElementById('mapCfgWindowMsg');
+  _mapShowEvents = document.getElementById('mapCfgShowEvents').checked;
+  _mapShowHeat = document.getElementById('mapCfgShowHeat').checked;
+
+  const follow = document.getElementById('mapCfgFollowScan').checked;
+  if (follow || !canCustomMapWindow()) {
+    _mapFollowScan = true;
+    const w = defaultMapWindow();
+    _mapFrom = w.from; _mapTo = w.to;
+    msgEl.textContent = '';
+    document.getElementById('mapCfgFrom').value = toDatetimeLocal(_mapFrom);
+    document.getElementById('mapCfgTo').value = toDatetimeLocal(_mapTo);
+    await loadMapWindowData();
+    return;
+  }
+
+  const fromEl = document.getElementById('mapCfgFrom'), toEl = document.getElementById('mapCfgTo');
   let from = new Date(fromEl.value), to = new Date(toEl.value);
   if (isNaN(from) || isNaN(to) || from >= to) { msgEl.textContent = '⚠ Khung thời gian không hợp lệ.'; return; }
   if (to - from > MAP_WINDOW_MAX_MS) {
@@ -916,9 +988,7 @@ async function applyMapWindow() {
     msgEl.textContent = '';
   }
   _mapFrom = from; _mapTo = to;
-  _mapShowEvents = document.getElementById('mapCfgShowEvents').checked;
-  _mapShowHeat = document.getElementById('mapCfgShowHeat').checked;
-  _mapWindowIsDefault = false; // admin picked an explicit window — periodic refresh must not silently override it back to "last 24h"
+  _mapFollowScan = false; // explicit custom window — periodic refresh must not silently override it back to auto
   await loadMapWindowData();
 }
 function _hexToRgba(hex, alpha) {
@@ -1408,6 +1478,7 @@ async function loadAll() {
   const tt = _sum.travelTime || {};
   const tf = _sum.traffic || {};
   if (_sum.travelTimeIntervalMin > 0) _ttIntervalMin = _sum.travelTimeIntervalMin;
+  if (_sum.trafficIntervalMin > 0) _trafficIntervalMin = _sum.trafficIntervalMin;
   if (applySlotSize()) _forecast = { byRoute:{}, weeks:0 };
 
   renderHeader(tt);

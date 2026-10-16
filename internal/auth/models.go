@@ -9,9 +9,9 @@ const (
 // Tab constants — page-level permission keys sent to the frontend.
 // Admin always has all tabs; viewers get only the tabs listed in User.Tabs.
 const (
-	TabCameras   = "cameras"   // / (camera grid)
-	TabMap       = "map"       // /map.html
-	TabMonitor   = "monitor"   // /monitor.html
+	TabCameras    = "cameras"    // / (camera grid)
+	TabMap        = "map"        // /map.html
+	TabMonitor    = "monitor"    // /monitor.html
 	TabDashboard  = "dashboard"  // /dashboard.html
 	TabDashboard2 = "dashboard2" // /dashboard2.html — independent of TabDashboard, granted separately
 	TabLog        = "log"        // /log.html
@@ -131,6 +131,17 @@ type User struct {
 	// Independent of AllowTraffic: a user without this flag keeps using
 	// exactly the traffic overlay they have today, unaffected.
 	AllowTrafficLive bool `json:"allow_traffic_live"`
+
+	// AllowDashboard2CustomWindow gates dashboard2.html's manual "Từ...Đến"
+	// time-window picker on the "Bản đồ ùn tắc" panel. Without it, a viewer
+	// only gets the always-on default: a sliding window matching the
+	// configured traffic-jam scan interval (traffic.IntervalMin), which
+	// keeps the map "live" and the data it reads light. Client-only gate,
+	// same convention as AllowMap3D above — there's nothing to restrict
+	// server-side, since the underlying endpoints (/api/incidents,
+	// /api/traffic/data) are already scoped by TabDashboard2/TabIncidents
+	// regardless of which window a caller requests.
+	AllowDashboard2CustomWindow bool `json:"allow_dashboard2_custom_window"`
 
 	// DeviceBindingScopes lists which sensitive-data categories (keys from
 	// DeviceScopeCatalog — see device_binding.go) this user may only reach
