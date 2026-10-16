@@ -1322,6 +1322,10 @@ function renderTTIChart(routes, primaryLogs, histLogs) {
   if (!body || !axis) return;
   if (!routes.length) { body.innerHTML = '<div class="d2-empty">Chưa có tuyến đường nào</div>'; axis.innerHTML = ''; return; }
 
+  // Sorted descending by latestTTI (most congested route first) — a route
+  // with no measurement yet (latestTTI 0/undefined) sorts last, not first.
+  routes = routes.slice().sort((a, b) => (b.latestTTI || 0) - (a.latestTTI || 0));
+
   const now = new Date();
   const currentSlot = slotOfTs(now.toISOString());
   const nowMinPct = ((now.getHours()*60 + now.getMinutes()) / (24*60) * 100).toFixed(2);

@@ -352,25 +352,14 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
-            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị lớp "🚨 Traffic Event" (phút)</label>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị sự cố (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
-              <input type="number" id="teWindowInput" min="1" max="1440" step="1" value="10"
+              <input type="number" id="eventWindowInput" min="1" max="1440" step="1" value="10"
                      style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
               <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 10)</span>
             </div>
             <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
-              Khi bật lớp "🚨 Traffic Event" trên bản đồ (tab Map), chỉ các sự cố có tọa độ và xảy ra trong khoảng thời gian này tính từ hiện tại mới hiển thị dạng bubble trên bản đồ — sự cố cũ hơn tự động biến mất khỏi lớp. Áp dụng cho tất cả user, session.
-            </p>
-          </div>
-          <div>
-            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị lớp "🤖 AI Event" (phút)</label>
-            <div style="display:flex;align-items:center;gap:.6rem">
-              <input type="number" id="aiEventWindowInput" min="1" max="1440" step="1" value="10"
-                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
-              <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 10)</span>
-            </div>
-            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
-              Giống cơ chế của lớp Traffic Event nhưng áp dụng riêng cho sự cố do hệ thống AI ngoài (OMNIA...) đẩy vào — tính theo thời điểm hệ thống nhận được tin, không phải thời điểm OMNIA báo cáo.
+              Dùng chung, thống nhất cho cả lớp "🚨 Traffic Event" (sự cố nhập thủ công, tọa độ + thời điểm xảy ra) và lớp "🤖 AI Event" (tin do hệ thống AI ngoài như OMNIA đẩy vào, tính theo thời điểm nhận tin) trên bản đồ (tab Map): chỉ các sự cố/tin trong khoảng thời gian này tính từ hiện tại mới hiển thị dạng bubble — cũ hơn tự động biến mất khỏi lớp tương ứng. Áp dụng cho tất cả user, session.
             </p>
           </div>
           <div>
@@ -2566,8 +2555,7 @@ async function loadSettings() {
     document.getElementById('snapStaleThresholdInput').value = s.snapshot_stale_threshold_sec || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
-    document.getElementById('teWindowInput').value = s.traffic_event_window_minutes || 10;
-    document.getElementById('aiEventWindowInput').value = s.ai_event_window_minutes || 10;
+    document.getElementById('eventWindowInput').value = s.event_window_minutes || 10;
     document.getElementById('aiEventImageRetentionInput').value = s.ai_event_image_retention_hours || 4;
     const tfRetention = s.traffic_flow_retention_days;
     document.getElementById('trafficFlowRetentionUnlimited').checked = tfRetention === -1;
@@ -2707,8 +2695,7 @@ async function saveSettings() {
   const staleThreshold = parseInt(document.getElementById('snapStaleThresholdInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
-  const teWindow    = parseInt(document.getElementById('teWindowInput').value, 10) || 10;
-  const aiEventWindow = parseInt(document.getElementById('aiEventWindowInput').value, 10) || 10;
+  const eventWindow = parseInt(document.getElementById('eventWindowInput').value, 10) || 10;
   const aiEventImageRetention = parseInt(document.getElementById('aiEventImageRetentionInput').value, 10) || 4;
   const trafficFlowRetentionUnlimited = document.getElementById('trafficFlowRetentionUnlimited').checked;
   const trafficFlowRetention = trafficFlowRetentionUnlimited ? -1 : (parseInt(document.getElementById('trafficFlowRetentionInput').value, 10) || 30);
@@ -2734,8 +2721,7 @@ async function saveSettings() {
     snapshot_stale_threshold_sec: staleThreshold,
     map_search_radius_km: mapRadius,
     map_route_width_m: mapRouteWidth,
-    traffic_event_window_minutes: teWindow,
-    ai_event_window_minutes: aiEventWindow,
+    event_window_minutes: eventWindow,
     ai_event_image_retention_hours: aiEventImageRetention,
     traffic_flow_retention_days: trafficFlowRetention,
     default_view_limit_minutes: viewLimit,

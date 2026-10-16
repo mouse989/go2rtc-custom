@@ -307,8 +307,9 @@ func handleRecomputeSlots(w http.ResponseWriter, r *http.Request) {
 
 // handleActive serves the Map page's "🚨 Traffic Event" layer: incidents
 // that have a coordinate (Lat/Lng set) and whose Time falls within the last
-// auth.AppSettings.TrafficEventWindowMinutes minutes (default 10,
-// admin-configurable) — an incident drops off this list, and its map
+// auth.AppSettings.EventWindowMinutes minutes (default 10,
+// admin-configurable, shared with the "🤖 AI Event" layer — see that
+// field's doc comment) — an incident drops off this list, and its map
 // marker with it, once it ages past the window on the layer's next poll.
 // Unlike the main list endpoint this is always "now"-relative and ignores
 // the year/from/to/category/unit/q query params the list view uses; it also
@@ -349,7 +350,7 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	from, to := activeWindow(now, auth.GetSettings().TrafficEventWindowMinutes)
+	from, to := activeWindow(now, auth.GetSettings().EventWindowMinutes)
 
 	yearSet := map[int]bool{now.Year(): true, from.Year(): true}
 	out := make([]*Incident, 0, 16)

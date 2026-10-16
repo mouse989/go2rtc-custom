@@ -348,7 +348,7 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	windowMin := auth.GetSettings().AIEventWindowMinutes
+	windowMin := auth.GetSettings().EventWindowMinutes
 	list, err := ListActive(windowMin)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
