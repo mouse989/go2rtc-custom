@@ -239,7 +239,7 @@
           <h3>🗺 Bản đồ ùn tắc <span id="d2MapCount" style="font-weight:400;text-transform:none"></span>
             <button class="d2-heat-cfg-btn" id="d2HeatCfgBtn" onclick="toggleHeatmapCfg()" style="display:none">⚙ Cấu hình</button>
           </h3>
-          <div class="d2-heat-cfg-panel" id="d2HeatCfgPanel"></div>
+          <div class="d2-heat-cfg-panel" id="d2HeatCfgPanel" style="display:none"></div>
           <div class="d2-map-wrap"><div id="d2Map"></div></div>
         </div>
       </div>
@@ -370,6 +370,14 @@ let _persistCmp = { current:null, yesterday:null, baseline4w:null, baselineWeeks
 let _incidents = [];          // current filter range, all categories (no server-side category filter)
 let _incidentsPrevWeek = null; // same range shifted back 7 days, for the week-chart's gray bars
 let _map = null, _mapInited = false;
+// "Bản đồ ùn tắc" display scope — independent of the wider Từ/Đến filter
+// used by the incident tiles/week chart above: what's shown here is
+// whatever the admin configured (or the default last-24h/both-on window),
+// never "every incident in the currently selected date range" (which,
+// over a week/month filter, was the whole point's worth of markers).
+let _mapShowEvents = true, _mapShowHeat = true;
+let _mapFrom = null, _mapTo = null; // Date objects
+let _mapWindowIsDefault = true; // true until the admin explicitly applies a window — periodic refresh keeps sliding "last 24h" until then
 let _ttiCfgOpen = false;
 let _primaryDate = '', _primaryLogs = null, _histDate = '', _histLogs = [];
 let _abnormalRoutes = [];
@@ -482,7 +490,7 @@ function initIncidentFilterDefaults() {
   sel.addEventListener('change', () => { applyWeekPreset(sel.value); loadIncidents(); });
   document.getElementById('d2From').addEventListener('change', loadIncidents);
   document.getElementById('d2To').addEventListener('change', loadIncidents);
-  document.getElementById('d2Cat').addEventListener('change', renderIncidentViews);
+  document.getElementById('d2Cat').addEventListener('change', () => { renderIncidentViews(); loadMapWindowData(); });
 }
 function applyWeekPreset(key) {
   const now = new Date();
@@ -534,18 +542,18 @@ async function loadIncidents() {
   renderIncidentViews();
 }
 
+// Feeds the incident tiles + week chart only — NOT the map (see
+// loadMapWindowData/refreshMapWindow), which has its own, much narrower
+// time-window scope (max 2 days) independent of this panel's Từ/Đến
+// filter so "Bản đồ ùn tắc" never ends up trying to plot every incident
+// across a week/month-long filter range at once.
 function renderIncidentViews() {
   const wrap = document.getElementById('d2IncTiles');
   if (_incidents === null) {
     wrap.innerHTML = '<div class="d2-err" style="flex:1">⚠️ Không tải được dữ liệu sự cố (cần quyền "Sự cố GT")</div>';
-    document.getElementById('d2MapCount').textContent = '';
     renderWeekChart();
-    updateD2MapIncidents([]);
     return;
   }
-  const catSel = document.getElementById('d2Cat').value;
-  const filtered = catSel ? _incidents.filter(i => incidentBucket(i.category) === catSel) : _incidents;
-
   const counts = { dongxe:0, vacham:0, ngapnuoc:0, khac:0 };
   _incidents.forEach(i => { counts[incidentBucket(i.category)]++; });
   const tiles = [
@@ -556,11 +564,7 @@ function renderIncidentViews() {
     ['⚪ Sự cố khác', counts.khac, '#a78bfa'],
   ];
   wrap.innerHTML = tiles.map(([l,n,c]) => `<div class="d2-inc-tile"><div class="n" style="color:${c}">${n}</div><div class="l">${escH(l)}</div></div>`).join('');
-
   renderWeekChart();
-  const pts = filtered.filter(i => i.lat && i.lng);
-  document.getElementById('d2MapCount').textContent = `(${pts.length}/${filtered.length} sự cố có vị trí)`;
-  updateD2MapIncidents(pts);
 }
 
 // Monday-first index (0=T2 … 6=CN), matching the Vietnamese week convention
@@ -627,16 +631,21 @@ async function loadD2CategoryIcons() {
   try { _d2CategoryIcons = {}; (await apiFetch('/api/incidents/category-icons') || []).forEach(ci => { _d2CategoryIcons[ci.category] = ci; }); }
   catch (e) { /* keep whatever was cached before — markers fall back to the generic marker */ }
 }
+// &_= cache-bust required — see map.html's teCategoryIconSrc for why
+// (the server caches this image for 5 minutes at an otherwise-identical
+// URL, so a re-uploaded icon doesn't show up here without it, even though
+// the category's color already updates immediately).
 function d2CategoryIconSrc(category) {
-  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category);
+  const ci = _d2CategoryIcons[category];
+  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
 
 async function initD2Map() {
   // Admin-only UI affordance, not tied to the map itself ever finishing
   // loading (bad/missing API key, blocked CDN, …) — gating it inside the
   // map's 'load' callback below would hide it whenever the map fails,
-  // even though the config it edits (heatmap-cfg) is independent of the
-  // map rendering successfully.
+  // even though the config it edits is independent of the map rendering
+  // successfully.
   if (getUser()?.role === 'admin') document.getElementById('d2HeatCfgBtn').style.display = '';
   try {
     const settings = await apiFetch('/api/settings');
@@ -649,10 +658,9 @@ async function initD2Map() {
     _map.addControl(new vietmapgl.NavigationControl({showCompass:false}), 'top-right');
     _map.on('load', () => {
       _mapInited = true;
-      const tf = (_sum||{}).traffic || {};
-      addJamLayers(tf);
+      addJamLayers();
       applyHeatmapCfg();
-      if (_pendingIncPts) { updateD2MapIncidents(_pendingIncPts); _pendingIncPts = null; }
+      refreshMapWindow();
     });
   } catch (e) {
     const el = document.getElementById('d2Map');
@@ -660,17 +668,23 @@ async function initD2Map() {
   }
 }
 
-// Traffic-jam heatmap — exact mechanism from dashboard.html's own #dashMap.
-function buildJamFeatures(tf) {
-  return (tf.points||[]).map(p => ({
+// Traffic-jam heatmap — same paint/layers as dashboard.html's own #dashMap,
+// but fed from the day-by-day scan history (/api/traffic/data?file=...)
+// filtered to the admin-configured time window, not just the live
+// snapshot — so "Bản đồ ùn tắc" shows jams across a chosen window instead
+// of only the single most recent scan. pts here are already normalized to
+// {lat,lng,jf,label,area} (see fetchJamPointsInWindow — the daily scan
+// files store the field as "jamFactor", the live summary as "jf"; this
+// function and the layers below only ever see the latter).
+function buildJamFeatures(pts) {
+  return (pts||[]).map(p => ({
     type:'Feature', geometry:{type:'Point', coordinates:[p.lng, p.lat]},
     properties:{ jf:p.jf, label:p.label||'', area:p.area||'' },
   }));
 }
-function addJamLayers(tf) {
+function addJamLayers() {
   if (!_map || !_mapInited) return;
-  const features = buildJamFeatures(tf);
-  _map.addSource('jams', { type:'geojson', data:{type:'FeatureCollection', features} });
+  _map.addSource('jams', { type:'geojson', data:{type:'FeatureCollection', features:[]} });
   _map.addLayer({
     id:'jams-heat', type:'heatmap', source:'jams',
     paint:{
@@ -706,31 +720,158 @@ function addJamLayers(tf) {
   });
   _map.on('mouseenter','jams-dot', () => _map.getCanvas().style.cursor='pointer');
   _map.on('mouseleave','jams-dot', () => _map.getCanvas().style.cursor='');
-  if (features.length > 0) {
+}
+function updateJamData(pts) {
+  if (!_map || !_mapInited) return;
+  try { _map.getSource('jams')?.setData({type:'FeatureCollection', features: buildJamFeatures(pts)}); } catch (_) {}
+}
+
+// Unions every scan's .persistent points whose scannedAt falls inside
+// [from,to], across the (at most 2) VN-local calendar days the window
+// touches — reads the exact same daily scan files the persistent-point
+// KPI comparison already does (GET /api/traffic/data?file=...), just
+// collecting every matching scan in range instead of the single nearest
+// one. A point recurring across multiple scans in the window is pushed
+// multiple times on purpose: more sightings = a hotter spot, which is
+// exactly what a density heatmap should show. Daily-file points store the
+// factor as "jamFactor" (sheetsPersistentPoint); normalized to "jf" here
+// so every caller (addJamLayers, the click popup) only ever deals with
+// one field name, matching /api/dashboard/summary's own DashPoint shape.
+async function fetchJamPointsInWindow(from, to) {
+  const days = new Set([vnDateStr(from), vnDateStr(to)]);
+  const points = [];
+  for (const day of days) {
+    try {
+      const data = await apiFetch('/api/traffic/data?file=' + day + '.json');
+      (data?.scans || []).forEach(s => {
+        const t = new Date(s.scannedAt);
+        if (t >= from && t <= to) {
+          (s.persistent || []).forEach(p => points.push({ lat:p.lat, lng:p.lng, jf:p.jamFactor, label:p.label, area:p.area }));
+        }
+      });
+    } catch (e) { /* that day's file may simply not exist yet — fewer points, not an error */ }
+  }
+  return points;
+}
+
+// Orchestrates both layers of "Bản đồ ùn tắc" for the current
+// _mapFrom/_mapTo/_mapShowEvents/_mapShowHeat — called on first map load,
+// on "Áp dụng", on the Loại filter changing, and on every periodic refresh.
+async function loadMapWindowData() {
+  if (!_mapFrom || !_mapTo) { const w = defaultMapWindow(); _mapFrom = w.from; _mapTo = w.to; }
+  const bounds = [];
+
+  if (_mapShowEvents) {
+    const fromDate = vnDateStr(_mapFrom), toDate = vnDateStr(_mapTo);
+    let pts = [];
+    try {
+      const qs = new URLSearchParams({ year: toDate.slice(0,4), from: fromDate, to: toDate });
+      const list = await apiFetch('/api/incidents?' + qs.toString()) || [];
+      const catSel = document.getElementById('d2Cat')?.value || '';
+      pts = list.filter(i => i.lat && i.lng && i.time &&
+        new Date(i.time) >= _mapFrom && new Date(i.time) <= _mapTo &&
+        (!catSel || incidentBucket(i.category) === catSel));
+    } catch (e) { /* d2MapCount below reports 0 — Incidents tab missing, etc. */ }
+    updateD2MapIncidents(pts);
+    pts.forEach(p => bounds.push([p.lng, p.lat]));
+    const cEl = document.getElementById('d2MapCount');
+    if (cEl) cEl.textContent = `(${pts.length} sự cố trong khung giờ)`;
+  } else {
+    updateD2MapIncidents([]);
+    const cEl = document.getElementById('d2MapCount');
+    if (cEl) cEl.textContent = '';
+  }
+
+  if (_mapShowHeat) {
+    const jamPts = await fetchJamPointsInWindow(_mapFrom, _mapTo);
+    updateJamData(jamPts);
+    jamPts.forEach(p => bounds.push([p.lng, p.lat]));
+  } else {
+    updateJamData([]);
+  }
+
+  if (_map && _mapInited && bounds.length) {
     try {
       const b = new vietmapgl.LngLatBounds();
-      features.forEach(f => b.extend(f.geometry.coordinates));
-      _map.fitBounds(b, {padding:50, maxZoom:14, duration:600});
+      bounds.forEach(c => b.extend(c));
+      _map.fitBounds(b, { padding:50, maxZoom:14, duration:600 });
     } catch (_) {}
   }
 }
-function updateJamData(tf) {
-  if (!_map || !_mapInited) return;
-  try { _map.getSource('jams')?.setData({type:'FeatureCollection', features: buildJamFeatures(tf)}); } catch (_) {}
+
+// Keeps the window sliding ("last 24h" from now) until the admin picks an
+// explicit one via applyMapWindow — called by initD2Map's first load and
+// by loadAll's periodic refresh.
+async function refreshMapWindow() {
+  if (_mapWindowIsDefault) { const w = defaultMapWindow(); _mapFrom = w.from; _mapTo = w.to; }
+  await loadMapWindowData();
 }
 
 // ── Heatmap config (same defaults/handlers as dashboard.html's own panel,
-// just rendered into #d2HeatCfgPanel instead of #heatmapCfgPanel) ───────
+// Combined panel: what to show (events/heatmap) + the time window both are
+// read for (max 2 days — "nhẹ nhàng", bounded reads/rendering) on top,
+// the existing appearance sliders (same defaults/handlers as
+// dashboard.html's own panel) tucked into a collapsed <details> below.
 const _HEAT_DEFAULTS = { r5:8, r15:22, i5:6, i15:18, op:82,
   c1:'#fbbf24', c1a:30, c2:'#f97316', c2a:60, c3:'#ef4444', c3a:82, c4:'#991b1b', c4a:95, crf:2, crt:7 };
 function toggleHeatmapCfg() {
   const p = document.getElementById('d2HeatCfgPanel');
-  if (!p.dataset.built) { buildHeatCfgPanel(); p.dataset.built = '1'; }
-  p.style.display = p.style.display === 'none' ? '' : 'none';
+  if (!p.dataset.built) { buildMapCfgPanel(); p.dataset.built = '1'; }
+  // getComputedStyle, not p.style.display — the panel starts hidden via
+  // its CSS class (.d2-heat-cfg-panel { display:none }), not an inline
+  // style, so reading p.style.display alone saw '' (not 'none') on the
+  // very first click and "toggled" it to the already-closed 'none' state
+  // again — the button looked completely unresponsive until a second,
+  // unrelated inline-style change happened to set it. Comparing the
+  // actual rendered state avoids that class of bug regardless of whether
+  // the hidden state came from a class or an inline style.
+  const isHidden = getComputedStyle(p).display === 'none';
+  // Must set an explicit non-none value, not '' — clearing the inline
+  // style falls back to the CSS class's own display:none, so the panel
+  // never actually opens.
+  p.style.display = isHidden ? 'block' : 'none';
 }
-function buildHeatCfgPanel() {
+function toDatetimeLocal(d) {
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function defaultMapWindow() {
+  const to = new Date();
+  return { from: new Date(to.getTime() - 24*3600000), to };
+}
+function buildMapCfgPanel() {
+  const panel = document.getElementById('d2HeatCfgPanel');
+  if (!_mapFrom || !_mapTo) { const w = defaultMapWindow(); _mapFrom = w.from; _mapTo = w.to; }
+  panel.innerHTML = `
+    <div style="margin-bottom:.5rem">
+      <div style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.3rem">Hiển thị</div>
+      <label style="display:flex;align-items:center;gap:.35rem;margin-bottom:.2rem;cursor:pointer;font-size:.72rem"><input type="checkbox" id="mapCfgShowEvents"> Sự cố (điểm)</label>
+      <label style="display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.72rem"><input type="checkbox" id="mapCfgShowHeat"> Bản đồ nhiệt ùn tắc</label>
+    </div>
+    <div style="margin-bottom:.5rem">
+      <div style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.3rem">Khung thời gian (tối đa 2 ngày)</div>
+      <div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap">
+        <label style="font-size:.68rem;color:var(--text-muted)">Từ</label>
+        <input type="datetime-local" id="mapCfgFrom" style="font-size:.68rem;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:.15rem .3rem">
+        <label style="font-size:.68rem;color:var(--text-muted)">Đến</label>
+        <input type="datetime-local" id="mapCfgTo" style="font-size:.68rem;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:.15rem .3rem">
+      </div>
+      <div id="mapCfgWindowMsg" style="font-size:.6rem;color:var(--text-muted);margin-top:.25rem;min-height:.8rem"></div>
+    </div>
+    <button onclick="applyMapWindow()" style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:.22rem .65rem;font-size:.68rem;cursor:pointer;font-family:inherit;margin-bottom:.4rem">✓ Áp dụng</button>
+    <details>
+      <summary style="font-size:.62rem;color:var(--text-muted);cursor:pointer">Tuỳ chỉnh màu/bán kính bản đồ nhiệt</summary>
+      <div id="d2HeatAppearancePanel" style="margin-top:.4rem"></div>
+    </details>`;
+  document.getElementById('mapCfgShowEvents').checked = _mapShowEvents;
+  document.getElementById('mapCfgShowHeat').checked = _mapShowHeat;
+  document.getElementById('mapCfgFrom').value = toDatetimeLocal(_mapFrom);
+  document.getElementById('mapCfgTo').value = toDatetimeLocal(_mapTo);
+  buildHeatAppearancePanel();
+}
+function buildHeatAppearancePanel() {
   const row = (lbl, id, min, max, val, fmt) => `<label style="display:flex;flex-direction:column;gap:.15rem">${lbl}:<span style="display:flex;align-items:center;gap:.35rem"><input type="range" id="${id}" min="${min}" max="${max}" value="${val}" oninput="applyHeatmapCfg()" style="flex:1"><span id="${id}v" style="width:30px;text-align:right;font-variant-numeric:tabular-nums">${fmt}</span></span></label>`;
-  document.getElementById('d2HeatCfgPanel').innerHTML = `
+  document.getElementById('d2HeatAppearancePanel').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem">
       ${row('Bán kính zoom 5','cfgR5',2,60,8,'8')}
       ${row('Bán kính zoom 15','cfgR15',5,120,22,'22')}
@@ -760,6 +901,25 @@ function buildHeatCfgPanel() {
       </div>
     </div>`;
   loadHeatmapCfg();
+}
+const MAP_WINDOW_MAX_MS = 48 * 3600000; // 2 days — keeps data reads/rendering light, per explicit instruction
+async function applyMapWindow() {
+  const fromEl = document.getElementById('mapCfgFrom'), toEl = document.getElementById('mapCfgTo');
+  const msgEl = document.getElementById('mapCfgWindowMsg');
+  let from = new Date(fromEl.value), to = new Date(toEl.value);
+  if (isNaN(from) || isNaN(to) || from >= to) { msgEl.textContent = '⚠ Khung thời gian không hợp lệ.'; return; }
+  if (to - from > MAP_WINDOW_MAX_MS) {
+    from = new Date(to.getTime() - MAP_WINDOW_MAX_MS);
+    fromEl.value = toDatetimeLocal(from);
+    msgEl.textContent = 'Đã giới hạn khung còn tối đa 2 ngày.';
+  } else {
+    msgEl.textContent = '';
+  }
+  _mapFrom = from; _mapTo = to;
+  _mapShowEvents = document.getElementById('mapCfgShowEvents').checked;
+  _mapShowHeat = document.getElementById('mapCfgShowHeat').checked;
+  _mapWindowIsDefault = false; // admin picked an explicit window — periodic refresh must not silently override it back to "last 24h"
+  await loadMapWindowData();
 }
 function _hexToRgba(hex, alpha) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
@@ -820,10 +980,13 @@ async function resetHeatmapCfg() {
 }
 
 // ── Incident markers (DOM, admin-configured icon/color per category) ────
-let _pendingIncPts = null;
+// No-ops if the map isn't ready yet — loadMapWindowData only ever runs
+// after initD2Map's 'load' handler fires (it's the thing that calls it
+// the first time), so this guard exists purely for defense, not as a
+// pending-replay queue.
 let _d2IncMarkers = [];
 function updateD2MapIncidents(pts) {
-  if (!_map || !_mapInited) { _pendingIncPts = pts; return; }
+  if (!_map || !_mapInited) return;
   try {
     _d2IncMarkers.forEach(m => m.remove());
     _d2IncMarkers = pts.map(i => {
@@ -1252,7 +1415,7 @@ async function loadAll() {
   updateRouteStatus(tt);
   renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs);
   renderSlotSelect();
-  updateJamData(tf);
+  refreshMapWindow().catch(() => {});
 
   loadPersistentComparisons().then(() => renderKPIs(tt, tf)).catch(() => {});
   loadBaseline().catch(() => {});

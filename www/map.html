@@ -3624,8 +3624,17 @@ async function loadTeCategoryIcons() {
   try { _teCategoryIcons = {}; (await apiFetch('/api/incidents/category-icons') || []).forEach(ci => { _teCategoryIcons[ci.category] = ci; }); }
   catch (e) { /* keep whatever was cached before — markers just fall back to the generic marker */ }
 }
+// The &_= cache-bust is required, not cosmetic: the server sends this
+// image with Cache-Control: max-age=300, and the URL is otherwise
+// identical before/after an admin re-uploads a category's icon. Without a
+// value here that changes on upload, the browser keeps serving the old
+// cached image for up to 5 minutes (or indefinitely from a shared/proxy
+// cache) even though /api/incidents/category-icons' own color field
+// updates immediately — admin.html's own equivalent helper already does
+// this (incCategoryIconImgUrl), this was just missing here.
 function teCategoryIconSrc(category) {
-  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category);
+  const ci = _teCategoryIcons[category];
+  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
 
 // Icon/color are whatever the admin configured for inc.category in
