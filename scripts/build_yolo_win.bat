@@ -28,11 +28,14 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Installing ultralytics, opencv, web stack, PyInstaller ---
-pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller onnx onnxslim
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Building binary ---
-python -m PyInstaller --onefile --name yolo_counter "%SCRIPT%"
+REM --collect-all onnx: the frozen exe has no pip, so ultralytics' own
+REM auto-install-on-first-export fallback (POST /export-onnx) can't run —
+REM onnx's package data/extensions must already be bundled.
+python -m PyInstaller --onefile --collect-all onnx --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.

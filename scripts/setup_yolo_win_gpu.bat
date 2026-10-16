@@ -56,10 +56,14 @@ REM Installing torchvision from PyPI gives a CPU-only build that lacks CUDA NMS 
 "%DEPLOY%\yolo_venv\Scripts\pip" install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 IF ERRORLEVEL 1 GOTO error
 
-ECHO --- Installing ultralytics (pulls opencv-python), web stack ---
+ECHO --- Installing ultralytics (pulls opencv-python), web stack, onnx ---
 REM Do NOT install opencv-python-headless alongside ultralytics: ultralytics depends on
 REM opencv-python, and having both packages installed conflicts on Windows (cv2 not found).
-"%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]"
+REM onnx/onnxslim: needed by POST /export-onnx (the browser-side AI Analyze
+REM feature's .pt->.onnx export) — installed here rather than left to
+REM ultralytics' own pip-install-on-first-use fallback, which depends on
+REM this machine having outbound internet access at export time.
+"%DEPLOY%\yolo_venv\Scripts\pip" install ultralytics fastapi "uvicorn[standard]" onnx onnxslim
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Verifying cv2 available ---

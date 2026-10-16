@@ -100,6 +100,7 @@ func Init() {
 
 	loadMeta()
 	initTimeSlots()
+	initCategoryIcons()
 
 	// Eagerly load the current year so first request is fast.
 	_ = loadYear(time.Now().Year())

@@ -48,10 +48,13 @@ if [ "$GPU" = "1" ]; then
 else
     pip install torch --index-url https://download.pytorch.org/whl/cpu
 fi
-pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller
+pip install ultralytics opencv-python-headless fastapi "uvicorn[standard]" pyinstaller onnx onnxslim
 
 echo "--- Building binary ---"
-pyinstaller --onefile --name yolo_counter yolo_counter/counter.py
+# --collect-all onnx: the frozen exe has no pip, so ultralytics' own
+# auto-install-on-first-export fallback (POST /export-onnx) can't run —
+# onnx's package data/extensions must already be bundled.
+pyinstaller --onefile --collect-all onnx --name yolo_counter yolo_counter/counter.py
 
 echo ""
 echo "=== Done! Binary: $REPO_ROOT/dist/yolo_counter ==="

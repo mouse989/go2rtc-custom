@@ -192,41 +192,44 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responseJSON(w, map[string]interface{}{
-		"username":                   user.Username,
-		"role":                       user.Role,
-		"must_change_password":       user.MustChangePassword,
-		"streams":                    user.Streams,
-		"region_ids":                 user.RegionIDs,
-		"allow_traffic":              user.AllowTraffic,
-		"allow_heatmap":              user.AllowHeatmap,
-		"allow_map_edit":             user.AllowMapEdit,
-		"allow_cam_names":            user.AllowCamNames,
-		"allow_view_stations":        user.AllowViewStations,
-		"allow_config_stations":      user.AllowConfigStations,
-		"allow_map_search":           user.AllowMapSearch,
-		"allow_map_route":            user.AllowMapRoute,
-		"allow_map_incident_add":     user.AllowMapIncidentAdd,
-		"allow_map_ai_events":        user.AllowMapAIEvents,
-		"allow_map_3d":               user.AllowMap3D,
-		"allow_map_traffic_flow":     user.AllowMapTrafficFlow,
-		"allow_map_gis":              user.AllowMapGIS,
-		"gis_layer_ids":              user.GisLayerIDs,
-		"allow_monitor_workers":      user.AllowMonitorWorkers,
-		"allow_monitor_process":      user.AllowMonitorProcess,
-		"allow_monitor_streaming":    user.AllowMonitorStreaming,
-		"allow_monitor_snapshot":     user.AllowMonitorSnapshot,
-		"allow_monitor_devices":      user.AllowMonitorDevices,
-		"allow_cam_snapshot":         user.AllowCamSnapshot,
-		"allow_cam_video":            user.AllowCamVideo,
-		"allow_ptz":                  user.AllowPTZ,
-		"allow_map_snapshot_preview": user.AllowMapSnapshotPreview,
-		"allow_unlimited_view":       user.AllowUnlimitedViewing,
-		"view_limit_minutes":         user.ViewLimitMinutes,
-		"allow_incidents_import":     user.AllowIncidentsImport,
-		"allow_traffic_live":         user.AllowTrafficLive,
-		"tabs":                       user.EffectiveTabs(),
-		"device_binding_scopes":      user.DeviceBindingScopes,
-		"device_verified":            requestHasVerifiedDevice(r, user.Username),
+		"username":                       user.Username,
+		"role":                           user.Role,
+		"must_change_password":           user.MustChangePassword,
+		"streams":                        user.Streams,
+		"region_ids":                     user.RegionIDs,
+		"allow_traffic":                  user.AllowTraffic,
+		"allow_heatmap":                  user.AllowHeatmap,
+		"allow_map_edit":                 user.AllowMapEdit,
+		"allow_cam_names":                user.AllowCamNames,
+		"allow_view_stations":            user.AllowViewStations,
+		"allow_config_stations":          user.AllowConfigStations,
+		"allow_map_search":               user.AllowMapSearch,
+		"allow_map_route":                user.AllowMapRoute,
+		"allow_map_incident_add":         user.AllowMapIncidentAdd,
+		"allow_map_ai_events":            user.AllowMapAIEvents,
+		"allow_ai_analyze":               user.AllowAIAnalyze,
+		"allow_ai_watch":                 user.AllowAIWatch,
+		"allow_map_3d":                   user.AllowMap3D,
+		"allow_map_traffic_flow":         user.AllowMapTrafficFlow,
+		"allow_map_gis":                  user.AllowMapGIS,
+		"gis_layer_ids":                  user.GisLayerIDs,
+		"allow_monitor_workers":          user.AllowMonitorWorkers,
+		"allow_monitor_process":          user.AllowMonitorProcess,
+		"allow_monitor_streaming":        user.AllowMonitorStreaming,
+		"allow_monitor_snapshot":         user.AllowMonitorSnapshot,
+		"allow_monitor_devices":          user.AllowMonitorDevices,
+		"allow_cam_snapshot":             user.AllowCamSnapshot,
+		"allow_cam_video":                user.AllowCamVideo,
+		"allow_ptz":                      user.AllowPTZ,
+		"allow_map_snapshot_preview":     user.AllowMapSnapshotPreview,
+		"allow_unlimited_view":           user.AllowUnlimitedViewing,
+		"view_limit_minutes":             user.ViewLimitMinutes,
+		"allow_incidents_import":         user.AllowIncidentsImport,
+		"allow_traffic_live":             user.AllowTrafficLive,
+		"allow_dashboard2_custom_window": user.AllowDashboard2CustomWindow,
+		"tabs":                           user.EffectiveTabs(),
+		"device_binding_scopes":          user.DeviceBindingScopes,
+		"device_verified":                requestHasVerifiedDevice(r, user.Username),
 	})
 }
 
@@ -259,42 +262,45 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Username                string   `json:"username"`
-			Password                string   `json:"password"`
-			Role                    string   `json:"role"`
-			Streams                 []string `json:"streams"`
-			RegionIDs               []string `json:"region_ids"`
-			AllowPaths              []string `json:"allow_paths"`
-			Tabs                    []string `json:"tabs"`
-			Enabled                 *bool    `json:"enabled"`
-			AllowTraffic            bool     `json:"allow_traffic"`
-			AllowHeatmap            bool     `json:"allow_heatmap"`
-			AllowMapEdit            bool     `json:"allow_map_edit"`
-			AllowCamNames           bool     `json:"allow_cam_names"`
-			AllowViewStations       bool     `json:"allow_view_stations"`
-			AllowConfigStations     bool     `json:"allow_config_stations"`
-			AllowMapSearch          bool     `json:"allow_map_search"`
-			AllowMapRoute           bool     `json:"allow_map_route"`
-			AllowMapIncidentAdd     bool     `json:"allow_map_incident_add"`
-			AllowMapAIEvents        bool     `json:"allow_map_ai_events"`
-			AllowMap3D              bool     `json:"allow_map_3d"`
-			AllowMapTrafficFlow     bool     `json:"allow_map_traffic_flow"`
-			AllowMapGIS             bool     `json:"allow_map_gis"`
-			GisLayerIDs             []string `json:"gis_layer_ids"`
-			AllowMonitorWorkers     bool     `json:"allow_monitor_workers"`
-			AllowMonitorProcess     bool     `json:"allow_monitor_process"`
-			AllowMonitorStreaming   bool     `json:"allow_monitor_streaming"`
-			AllowMonitorSnapshot    bool     `json:"allow_monitor_snapshot"`
-			AllowMonitorDevices     bool     `json:"allow_monitor_devices"`
-			AllowCamSnapshot        bool     `json:"allow_cam_snapshot"`
-			AllowCamVideo           bool     `json:"allow_cam_video"`
-			AllowPTZ                bool     `json:"allow_ptz"`
-			AllowMapSnapshotPreview bool     `json:"allow_map_snapshot_preview"`
-			AllowUnlimitedViewing   bool     `json:"allow_unlimited_view"`
-			ViewLimitMinutes        int      `json:"view_limit_minutes"`
-			AllowIncidentsImport    bool     `json:"allow_incidents_import"`
-			AllowTrafficLive        bool     `json:"allow_traffic_live"`
-			DeviceBindingScopes     []string `json:"device_binding_scopes"`
+			Username                    string   `json:"username"`
+			Password                    string   `json:"password"`
+			Role                        string   `json:"role"`
+			Streams                     []string `json:"streams"`
+			RegionIDs                   []string `json:"region_ids"`
+			AllowPaths                  []string `json:"allow_paths"`
+			Tabs                        []string `json:"tabs"`
+			Enabled                     *bool    `json:"enabled"`
+			AllowTraffic                bool     `json:"allow_traffic"`
+			AllowHeatmap                bool     `json:"allow_heatmap"`
+			AllowMapEdit                bool     `json:"allow_map_edit"`
+			AllowCamNames               bool     `json:"allow_cam_names"`
+			AllowViewStations           bool     `json:"allow_view_stations"`
+			AllowConfigStations         bool     `json:"allow_config_stations"`
+			AllowMapSearch              bool     `json:"allow_map_search"`
+			AllowMapRoute               bool     `json:"allow_map_route"`
+			AllowMapIncidentAdd         bool     `json:"allow_map_incident_add"`
+			AllowMapAIEvents            bool     `json:"allow_map_ai_events"`
+			AllowAIAnalyze              bool     `json:"allow_ai_analyze"`
+			AllowAIWatch                bool     `json:"allow_ai_watch"`
+			AllowMap3D                  bool     `json:"allow_map_3d"`
+			AllowMapTrafficFlow         bool     `json:"allow_map_traffic_flow"`
+			AllowMapGIS                 bool     `json:"allow_map_gis"`
+			GisLayerIDs                 []string `json:"gis_layer_ids"`
+			AllowMonitorWorkers         bool     `json:"allow_monitor_workers"`
+			AllowMonitorProcess         bool     `json:"allow_monitor_process"`
+			AllowMonitorStreaming       bool     `json:"allow_monitor_streaming"`
+			AllowMonitorSnapshot        bool     `json:"allow_monitor_snapshot"`
+			AllowMonitorDevices         bool     `json:"allow_monitor_devices"`
+			AllowCamSnapshot            bool     `json:"allow_cam_snapshot"`
+			AllowCamVideo               bool     `json:"allow_cam_video"`
+			AllowPTZ                    bool     `json:"allow_ptz"`
+			AllowMapSnapshotPreview     bool     `json:"allow_map_snapshot_preview"`
+			AllowUnlimitedViewing       bool     `json:"allow_unlimited_view"`
+			ViewLimitMinutes            int      `json:"view_limit_minutes"`
+			AllowIncidentsImport        bool     `json:"allow_incidents_import"`
+			AllowTrafficLive            bool     `json:"allow_traffic_live"`
+			AllowDashboard2CustomWindow bool     `json:"allow_dashboard2_custom_window"`
+			DeviceBindingScopes         []string `json:"device_binding_scopes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -316,41 +322,44 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			enabled = *req.Enabled
 		}
 		u := &User{
-			Username:                req.Username,
-			Role:                    req.Role,
-			Streams:                 req.Streams,
-			RegionIDs:               req.RegionIDs,
-			AllowPaths:              req.AllowPaths,
-			Tabs:                    req.Tabs,
-			Enabled:                 enabled,
-			AllowTraffic:            req.AllowTraffic,
-			AllowHeatmap:            req.AllowHeatmap,
-			AllowMapEdit:            req.AllowMapEdit,
-			AllowCamNames:           req.AllowCamNames,
-			AllowViewStations:       req.AllowViewStations,
-			AllowConfigStations:     req.AllowConfigStations,
-			AllowMapSearch:          req.AllowMapSearch,
-			AllowMapRoute:           req.AllowMapRoute,
-			AllowMapIncidentAdd:     req.AllowMapIncidentAdd,
-			AllowMapAIEvents:        req.AllowMapAIEvents,
-			AllowMap3D:              req.AllowMap3D,
-			AllowMapTrafficFlow:     req.AllowMapTrafficFlow,
-			AllowMapGIS:             req.AllowMapGIS,
-			GisLayerIDs:             req.GisLayerIDs,
-			AllowMonitorWorkers:     req.AllowMonitorWorkers,
-			AllowMonitorProcess:     req.AllowMonitorProcess,
-			AllowMonitorStreaming:   req.AllowMonitorStreaming,
-			AllowMonitorSnapshot:    req.AllowMonitorSnapshot,
-			AllowMonitorDevices:     req.AllowMonitorDevices,
-			AllowCamSnapshot:        req.AllowCamSnapshot,
-			AllowCamVideo:           req.AllowCamVideo,
-			AllowPTZ:                req.AllowPTZ,
-			AllowMapSnapshotPreview: req.AllowMapSnapshotPreview,
-			AllowUnlimitedViewing:   req.AllowUnlimitedViewing,
-			ViewLimitMinutes:        req.ViewLimitMinutes,
-			AllowIncidentsImport:    req.AllowIncidentsImport,
-			AllowTrafficLive:        req.AllowTrafficLive,
-			DeviceBindingScopes:     validDeviceScopeKeys(req.DeviceBindingScopes),
+			Username:                    req.Username,
+			Role:                        req.Role,
+			Streams:                     req.Streams,
+			RegionIDs:                   req.RegionIDs,
+			AllowPaths:                  req.AllowPaths,
+			Tabs:                        req.Tabs,
+			Enabled:                     enabled,
+			AllowTraffic:                req.AllowTraffic,
+			AllowHeatmap:                req.AllowHeatmap,
+			AllowMapEdit:                req.AllowMapEdit,
+			AllowCamNames:               req.AllowCamNames,
+			AllowViewStations:           req.AllowViewStations,
+			AllowConfigStations:         req.AllowConfigStations,
+			AllowMapSearch:              req.AllowMapSearch,
+			AllowMapRoute:               req.AllowMapRoute,
+			AllowMapIncidentAdd:         req.AllowMapIncidentAdd,
+			AllowMapAIEvents:            req.AllowMapAIEvents,
+			AllowAIAnalyze:              req.AllowAIAnalyze,
+			AllowAIWatch:                req.AllowAIWatch,
+			AllowMap3D:                  req.AllowMap3D,
+			AllowMapTrafficFlow:         req.AllowMapTrafficFlow,
+			AllowMapGIS:                 req.AllowMapGIS,
+			GisLayerIDs:                 req.GisLayerIDs,
+			AllowMonitorWorkers:         req.AllowMonitorWorkers,
+			AllowMonitorProcess:         req.AllowMonitorProcess,
+			AllowMonitorStreaming:       req.AllowMonitorStreaming,
+			AllowMonitorSnapshot:        req.AllowMonitorSnapshot,
+			AllowMonitorDevices:         req.AllowMonitorDevices,
+			AllowCamSnapshot:            req.AllowCamSnapshot,
+			AllowCamVideo:               req.AllowCamVideo,
+			AllowPTZ:                    req.AllowPTZ,
+			AllowMapSnapshotPreview:     req.AllowMapSnapshotPreview,
+			AllowUnlimitedViewing:       req.AllowUnlimitedViewing,
+			ViewLimitMinutes:            req.ViewLimitMinutes,
+			AllowIncidentsImport:        req.AllowIncidentsImport,
+			AllowTrafficLive:            req.AllowTrafficLive,
+			AllowDashboard2CustomWindow: req.AllowDashboard2CustomWindow,
+			DeviceBindingScopes:         validDeviceScopeKeys(req.DeviceBindingScopes),
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -370,42 +379,45 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req struct {
-			Password                string   `json:"password"`
-			Role                    string   `json:"role"`
-			Streams                 []string `json:"streams"`
-			RegionIDs               []string `json:"region_ids"`
-			AllowPaths              []string `json:"allow_paths"`
-			Tabs                    []string `json:"tabs"`
-			Enabled                 *bool    `json:"enabled"`
-			AllowTraffic            *bool    `json:"allow_traffic"`
-			AllowHeatmap            *bool    `json:"allow_heatmap"`
-			AllowMapEdit            *bool    `json:"allow_map_edit"`
-			AllowCamNames           *bool    `json:"allow_cam_names"`
-			AllowViewStations       *bool    `json:"allow_view_stations"`
-			AllowConfigStations     *bool    `json:"allow_config_stations"`
-			AllowMapSearch          *bool    `json:"allow_map_search"`
-			AllowMapRoute           *bool    `json:"allow_map_route"`
-			AllowMapIncidentAdd     *bool    `json:"allow_map_incident_add"`
-			AllowMapAIEvents        *bool    `json:"allow_map_ai_events"`
-			AllowMap3D              *bool    `json:"allow_map_3d"`
-			AllowMapTrafficFlow     *bool    `json:"allow_map_traffic_flow"`
-			AllowMapGIS             *bool    `json:"allow_map_gis"`
-			GisLayerIDs             []string `json:"gis_layer_ids"`
-			AllowMonitorWorkers     *bool    `json:"allow_monitor_workers"`
-			AllowMonitorProcess     *bool    `json:"allow_monitor_process"`
-			AllowMonitorStreaming   *bool    `json:"allow_monitor_streaming"`
-			AllowMonitorSnapshot    *bool    `json:"allow_monitor_snapshot"`
-			AllowMonitorDevices     *bool    `json:"allow_monitor_devices"`
-			AllowCamSnapshot        *bool    `json:"allow_cam_snapshot"`
-			AllowCamVideo           *bool    `json:"allow_cam_video"`
-			AllowPTZ                *bool    `json:"allow_ptz"`
-			AllowMapSnapshotPreview *bool    `json:"allow_map_snapshot_preview"`
-			AllowUnlimitedViewing   *bool    `json:"allow_unlimited_view"`
-			ViewLimitMinutes        *int     `json:"view_limit_minutes"`
-			AllowIncidentsImport    *bool    `json:"allow_incidents_import"`
-			AllowTrafficLive        *bool    `json:"allow_traffic_live"`
-			MustChangePassword      *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
-			DeviceBindingScopes     []string `json:"device_binding_scopes"`
+			Password                    string   `json:"password"`
+			Role                        string   `json:"role"`
+			Streams                     []string `json:"streams"`
+			RegionIDs                   []string `json:"region_ids"`
+			AllowPaths                  []string `json:"allow_paths"`
+			Tabs                        []string `json:"tabs"`
+			Enabled                     *bool    `json:"enabled"`
+			AllowTraffic                *bool    `json:"allow_traffic"`
+			AllowHeatmap                *bool    `json:"allow_heatmap"`
+			AllowMapEdit                *bool    `json:"allow_map_edit"`
+			AllowCamNames               *bool    `json:"allow_cam_names"`
+			AllowViewStations           *bool    `json:"allow_view_stations"`
+			AllowConfigStations         *bool    `json:"allow_config_stations"`
+			AllowMapSearch              *bool    `json:"allow_map_search"`
+			AllowMapRoute               *bool    `json:"allow_map_route"`
+			AllowMapIncidentAdd         *bool    `json:"allow_map_incident_add"`
+			AllowMapAIEvents            *bool    `json:"allow_map_ai_events"`
+			AllowAIAnalyze              *bool    `json:"allow_ai_analyze"`
+			AllowAIWatch                *bool    `json:"allow_ai_watch"`
+			AllowMap3D                  *bool    `json:"allow_map_3d"`
+			AllowMapTrafficFlow         *bool    `json:"allow_map_traffic_flow"`
+			AllowMapGIS                 *bool    `json:"allow_map_gis"`
+			GisLayerIDs                 []string `json:"gis_layer_ids"`
+			AllowMonitorWorkers         *bool    `json:"allow_monitor_workers"`
+			AllowMonitorProcess         *bool    `json:"allow_monitor_process"`
+			AllowMonitorStreaming       *bool    `json:"allow_monitor_streaming"`
+			AllowMonitorSnapshot        *bool    `json:"allow_monitor_snapshot"`
+			AllowMonitorDevices         *bool    `json:"allow_monitor_devices"`
+			AllowCamSnapshot            *bool    `json:"allow_cam_snapshot"`
+			AllowCamVideo               *bool    `json:"allow_cam_video"`
+			AllowPTZ                    *bool    `json:"allow_ptz"`
+			AllowMapSnapshotPreview     *bool    `json:"allow_map_snapshot_preview"`
+			AllowUnlimitedViewing       *bool    `json:"allow_unlimited_view"`
+			ViewLimitMinutes            *int     `json:"view_limit_minutes"`
+			AllowIncidentsImport        *bool    `json:"allow_incidents_import"`
+			AllowTrafficLive            *bool    `json:"allow_traffic_live"`
+			AllowDashboard2CustomWindow *bool    `json:"allow_dashboard2_custom_window"`
+			MustChangePassword          *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
+			DeviceBindingScopes         []string `json:"device_binding_scopes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -473,6 +485,12 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		if req.AllowMapAIEvents != nil {
 			existing.AllowMapAIEvents = *req.AllowMapAIEvents
 		}
+		if req.AllowAIAnalyze != nil {
+			existing.AllowAIAnalyze = *req.AllowAIAnalyze
+		}
+		if req.AllowAIWatch != nil {
+			existing.AllowAIWatch = *req.AllowAIWatch
+		}
 		if req.AllowMap3D != nil {
 			existing.AllowMap3D = *req.AllowMap3D
 		}
@@ -523,6 +541,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.AllowTrafficLive != nil {
 			existing.AllowTrafficLive = *req.AllowTrafficLive
+		}
+		if req.AllowDashboard2CustomWindow != nil {
+			existing.AllowDashboard2CustomWindow = *req.AllowDashboard2CustomWindow
 		}
 		if req.MustChangePassword != nil {
 			existing.MustChangePassword = *req.MustChangePassword

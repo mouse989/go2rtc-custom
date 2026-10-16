@@ -91,6 +91,8 @@ function canConfigStations() {
 function canCamSnapshot() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_cam_snapshot); }
 function canCamVideo()    { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_cam_video); }
 function canMapSnapshotPreview() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_snapshot_preview); }
+function canAIAnalyze() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_ai_analyze); }
+function canAIWatch() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_ai_watch); }
 function canMapSearch() { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_search); }
 function canMapRoute()  { const u = getUser(); return u && (u.role === 'admin' || !!u.allow_map_route); }
 // Requires both the permission flag AND the Incidents tab — the flag alone
@@ -357,6 +359,7 @@ function firstPermittedPage(u) {
     { tab: 'map',       page: '/map.html' },
     { tab: 'cameras',   page: '/' },
     { tab: 'dashboard', page: '/dashboard.html' },
+    { tab: 'dashboard2', page: '/dashboard2.html' },
     { tab: 'monitor',   page: '/monitor.html' },
     { tab: 'log',       page: '/log.html' },
     { tab: 'config',    page: '/config.html' },

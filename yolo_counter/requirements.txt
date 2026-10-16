@@ -21,3 +21,12 @@ ultralytics>=8.3.0
 opencv-python>=4.8.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
+# ── ONNX export (POST /export-onnx, for the browser-side AI Analyze
+# feature) ───────────────────────────────────────────────────────────────
+# Pinned here rather than left for ultralytics to pip-install on first
+# export call: that auto-install only works in a plain venv, not inside a
+# PyInstaller-frozen yolo_counter.exe (no pip/python available at runtime)
+# — see scripts/build_yolo_*.{sh,bat}'s --collect-all onnx for the frozen
+# side of this.
+onnx>=1.16.0
+onnxslim>=0.1.34

@@ -51,19 +51,24 @@ type AppSettings struct {
 	SnapshotStaleThresholdSec int     `json:"snapshot_stale_threshold_sec"`
 	MapSearchRadiusKm         float64 `json:"map_search_radius_km"` // 0 → default 1 km
 	MapRouteWidthM            float64 `json:"map_route_width_m"`    // "Theo tuyến" tool: 0 → default 100 m
-	// TrafficEventWindowMinutes: how many minutes back from "now" the Map
-	// page's "🚨 Traffic Event" layer (www/map.html) shows incident bubbles
-	// for. An incident whose Time falls outside [now-window, now] is no
-	// longer "live" and drops off the layer on the next poll. 0 → default
-	// 10 minutes. See internal/incidents/api.go's handleActive.
-	TrafficEventWindowMinutes int `json:"traffic_event_window_minutes"`
-	// AIEventWindowMinutes: same idea as TrafficEventWindowMinutes above but
-	// for the separate "🤖 AI Event" map layer (internal/aievent) — events
-	// pushed in by an external AI system (OMNIA and, later, others). Kept as
-	// its own setting rather than reusing TrafficEventWindowMinutes since
-	// the two layers are independent data sources with independent
-	// toggles. 0 → default 10 minutes.
-	AIEventWindowMinutes int `json:"ai_event_window_minutes"`
+	// EventWindowMinutes: how many minutes back from "now" the Map page's
+	// "🚨 Traffic Event" layer (internal/incidents/api.go's handleActive)
+	// and its "🤖 AI Event" layer (internal/aievent/api.go's handleActive)
+	// both show bubbles for. An event whose time falls outside
+	// [now-window, now] is no longer "live" and drops off its layer on the
+	// next poll. One shared setting for both layers — they're independent
+	// data sources with independent on/off toggles, but a single "how
+	// recent counts as live" window keeps that meaning consistent across
+	// the system instead of an admin having to keep two numbers in sync by
+	// hand. 0 → default 10 minutes.
+	EventWindowMinutes int `json:"event_window_minutes"`
+	// TrafficEventWindowMinutes/AIEventWindowMinutes: deprecated, no longer
+	// read by either handler (replaced by EventWindowMinutes above) — kept
+	// only so initSettings can migrate an old settings.json's values into
+	// EventWindowMinutes the first time it's loaded after the upgrade,
+	// without losing whatever an admin had already customized.
+	TrafficEventWindowMinutes int `json:"traffic_event_window_minutes,omitempty"`
+	AIEventWindowMinutes      int `json:"ai_event_window_minutes,omitempty"`
 	// AIEventImageRetentionHours: how many hours an AI-event attachment
 	// image stays on disk before the cleanup sweep deletes it (the event's
 	// own metadata record is kept indefinitely — only the image files are
@@ -140,7 +145,26 @@ func initSettings(path string) error {
 		}
 		return err
 	}
-	return json.Unmarshal(data, &appSettings)
+	if err := json.Unmarshal(data, &appSettings); err != nil {
+		return err
+	}
+	// One-time migration: a settings.json saved before EventWindowMinutes
+	// existed only has the two now-deprecated per-layer fields. Carry
+	// whichever one an admin had actually customized forward instead of
+	// silently resetting both layers to the 10-minute default. Prefers the
+	// larger of the two if both were customized differently, so neither
+	// layer's events disappear sooner than an admin had configured. Runs
+	// again (harmlessly) on every restart until the next settings save
+	// persists EventWindowMinutes to disk.
+	if appSettings.EventWindowMinutes == 0 {
+		if appSettings.TrafficEventWindowMinutes > appSettings.EventWindowMinutes {
+			appSettings.EventWindowMinutes = appSettings.TrafficEventWindowMinutes
+		}
+		if appSettings.AIEventWindowMinutes > appSettings.EventWindowMinutes {
+			appSettings.EventWindowMinutes = appSettings.AIEventWindowMinutes
+		}
+	}
+	return nil
 }
 
 // GetSettings returns a copy of the current settings.

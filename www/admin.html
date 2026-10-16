@@ -142,6 +142,10 @@ tr:hover td { background:var(--surface2); }
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       Dashboard
     </a>
+    <a href="/dashboard2.html" class="nav-item" data-tab-require="dashboard2" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 02
+    </a>
     <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
       Counting
@@ -214,6 +218,7 @@ tr:hover td { background:var(--surface2); }
     <button class="page-tab" data-tab="devbind" onclick="showTab('devbind')">🔐 Xác minh TB</button>
     <button class="page-tab" data-tab="aievent" onclick="showTab('aievent')">🤖 AI Event</button>
     <button class="page-tab" data-tab="trafficflow" onclick="showTab('trafficflow')">📊 Đo đếm lưu lượng</button>
+    <button class="page-tab" data-tab="incidents" onclick="showTab('incidents')">🚨 Sự cố GT</button>
   </div>
 
   <div class="content">
@@ -347,25 +352,14 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
-            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị lớp "🚨 Traffic Event" (phút)</label>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị sự cố (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
-              <input type="number" id="teWindowInput" min="1" max="1440" step="1" value="10"
+              <input type="number" id="eventWindowInput" min="1" max="1440" step="1" value="10"
                      style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
               <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 10)</span>
             </div>
             <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
-              Khi bật lớp "🚨 Traffic Event" trên bản đồ (tab Map), chỉ các sự cố có tọa độ và xảy ra trong khoảng thời gian này tính từ hiện tại mới hiển thị dạng bubble trên bản đồ — sự cố cũ hơn tự động biến mất khỏi lớp. Áp dụng cho tất cả user, session.
-            </p>
-          </div>
-          <div>
-            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Cửa sổ hiển thị lớp "🤖 AI Event" (phút)</label>
-            <div style="display:flex;align-items:center;gap:.6rem">
-              <input type="number" id="aiEventWindowInput" min="1" max="1440" step="1" value="10"
-                     style="width:90px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.42rem .6rem;color:var(--text);font-size:.83rem;box-sizing:border-box">
-              <span style="font-size:.78rem;color:var(--text-muted)">phút (mặc định: 10)</span>
-            </div>
-            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
-              Giống cơ chế của lớp Traffic Event nhưng áp dụng riêng cho sự cố do hệ thống AI ngoài (OMNIA...) đẩy vào — tính theo thời điểm hệ thống nhận được tin, không phải thời điểm OMNIA báo cáo.
+              Dùng chung, thống nhất cho cả lớp "🚨 Traffic Event" (sự cố nhập thủ công, tọa độ + thời điểm xảy ra) và lớp "🤖 AI Event" (tin do hệ thống AI ngoài như OMNIA đẩy vào, tính theo thời điểm nhận tin) trên bản đồ (tab Map): chỉ các sự cố/tin trong khoảng thời gian này tính từ hiện tại mới hiển thị dạng bubble — cũ hơn tự động biến mất khỏi lớp tương ứng. Áp dụng cho tất cả user, session.
             </p>
           </div>
           <div>
@@ -1445,6 +1439,44 @@ rtsp:
       </div>
     </div><!-- /trafficflowSection -->
 
+    <!-- ── Sự cố GT: icon theo loại sự cố (category is free text — no fixed
+         icon-key list here, unlike AI Event's category rules above) ── -->
+    <div id="incidentsSection" style="display:none">
+      <div class="card" style="margin-bottom:1rem">
+        <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">🖼 Icon theo loại sự cố (Thể loại)</h3>
+          <button class="btn btn-secondary btn-sm" onclick="loadIncidentCategoryIconsTab()">🔄 Tải lại</button>
+        </div>
+        <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
+          "Thể loại" sự cố là trường tự nhập (không phải danh sách cố định) — mỗi dòng dưới đây là một giá trị
+          thể loại đã từng được dùng (hoặc bạn tự khai báo trước). Tải ảnh lên để gán icon riêng cho giá trị đó;
+          icon hiển thị trên bản đồ (map.html, dashboard 02) thay cho chấm tròn/emoji mặc định. Ảnh phải là
+          PNG/JPEG/GIF, kích thước tối đa <b id="incCatIconMaxDim">128×128</b> px (để marker trên bản đồ luôn
+          nhỏ gọn) — ảnh lớn hơn sẽ bị từ chối, không tự co giãn.
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+            <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thể loại</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Icon</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Màu nền</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+            </tr></thead>
+            <tbody id="incCategoryIconsTbody"></tbody>
+            <tfoot><tr>
+              <td style="padding:.5rem .75rem"><input type="text" id="incNewCatName" class="input" placeholder="Thể loại mới…" style="font-size:.8rem"></td>
+              <td style="padding:.5rem .75rem">
+                <input type="file" id="incNewCatFile" accept="image/png,image/jpeg,image/gif" style="font-size:.76rem;max-width:160px">
+              </td>
+              <td style="padding:.5rem .75rem"><input type="color" id="incNewCatColor" value="#6b7280" style="width:36px;height:26px;border:none;background:none;cursor:pointer;padding:0"></td>
+              <td style="padding:.5rem .75rem"><button class="btn btn-primary btn-sm" onclick="addIncidentCategoryIconRow()">+ Thêm</button></td>
+            </tr></tfoot>
+          </table>
+        </div>
+        <div id="incCatIconMsg" style="padding:0 1.1rem .9rem;font-size:.76rem;min-height:1rem"></div>
+      </div>
+    </div><!-- /incidentsSection -->
+
   </div>
 </main>
 
@@ -1967,6 +1999,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="cameras"> Cameras</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="map"> Map</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="dashboard"> Dashboard</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="dashboard2"> Dashboard 02</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="counting"> Counting &amp; Annotate</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="monitor"> Monitor</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="log"> Logs</label>
@@ -1987,6 +2020,8 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-route"> 🛣 Theo tuyến</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-incident-add"> 🚨 Thêm sự cố từ bản đồ (cần tab Sự cố GT)</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-ai-events"> 🤖 Xem lớp AI Event trên bản đồ</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-ai-analyze"> 🔍 Dùng AI Analyze khi xem camera</label>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-ai-watch"> ⏱ Dùng Watch (theo dõi liên tục 30s) khi xem camera</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-3d"> 🧊 Bật chế độ xem 3D trên bản đồ</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-traffic-flow"> 📊 Xem lớp Đo đếm lưu lượng trên bản đồ</label>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-map-gis"> 📂 Xem lớp Dữ liệu GIS trên bản đồ (Địa bàn, 28 điểm nguy cơ ùn tắc…)</label>
@@ -2012,6 +2047,9 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <div style="font-size:.7rem;color:var(--text-muted);margin:-.15rem 0 .3rem">Sau khi hết thời gian, video dừng lại và người dùng phải bấm để xem tiếp. Không áp dụng cho link RTSP/RTSPS. Để trống ô phút = dùng giá trị mặc định hệ thống (Settings).</div>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Sự cố giao thông</div>
           <label class="tab-perm-chip"><input type="checkbox" id="f-allow-incidents-import"> ⬆ Import Excel hàng loạt</label>
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">Dashboard 02</div>
+          <label class="tab-perm-chip"><input type="checkbox" id="f-allow-dashboard2-custom-window"> 🕒 Tự chọn khung thời gian trên "Bản đồ ùn tắc"</label>
+          <div style="font-size:.7rem;color:var(--text-muted);margin:-.15rem 0 .3rem">Mặc định mọi user chỉ xem khung giờ tự động theo chu kỳ quét ùn tắc. Bật quyền này để user được chọn khung Từ...Đến tuỳ ý (tối đa 2 ngày).</div>
           <div style="font-size:.72rem;color:var(--text-muted);margin-top:.6rem;margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">🔐 Yêu cầu xác minh thiết bị</div>
           <div id="f-device-scopes-row" style="display:flex;flex-wrap:wrap;gap:.4rem">
             <span style="font-size:.72rem;color:var(--text-muted)">Đang tải danh mục…</span>
@@ -2142,6 +2180,7 @@ function showTab(tab) {
   document.getElementById('devbindSection').style.display   = tab === 'devbind'    ? '' : 'none';
   document.getElementById('aieventSection').style.display   = tab === 'aievent'    ? '' : 'none';
   document.getElementById('trafficflowSection').style.display = tab === 'trafficflow' ? '' : 'none';
+  document.getElementById('incidentsSection').style.display = tab === 'incidents' ? '' : 'none';
   const btn = document.getElementById('topbarAddBtn');
   if (tab === 'users') {
     btn.textContent = '+ Add User'; btn.style.display = ''; btn.onclick = openAdd;
@@ -2163,6 +2202,7 @@ function showTab(tab) {
   if (tab === 'devbind') loadDeviceBindingsTab();
   if (tab === 'aievent') loadAIEventTab();
   if (tab === 'trafficflow') loadTrafficFlowTab();
+  if (tab === 'incidents') loadIncidentCategoryIconsTab();
 }
 
 // ════════════════════════════════════════════════════════
@@ -2517,8 +2557,7 @@ async function loadSettings() {
     document.getElementById('snapStaleThresholdInput').value = s.snapshot_stale_threshold_sec || 0;
     document.getElementById('mapRadiusInput').value = s.map_search_radius_km || 1;
     document.getElementById('mapRouteWidthInput').value = s.map_route_width_m || 100;
-    document.getElementById('teWindowInput').value = s.traffic_event_window_minutes || 10;
-    document.getElementById('aiEventWindowInput').value = s.ai_event_window_minutes || 10;
+    document.getElementById('eventWindowInput').value = s.event_window_minutes || 10;
     document.getElementById('aiEventImageRetentionInput').value = s.ai_event_image_retention_hours || 4;
     const tfRetention = s.traffic_flow_retention_days;
     document.getElementById('trafficFlowRetentionUnlimited').checked = tfRetention === -1;
@@ -2658,8 +2697,7 @@ async function saveSettings() {
   const staleThreshold = parseInt(document.getElementById('snapStaleThresholdInput').value, 10) || 0;
   const mapRadius   = parseFloat(document.getElementById('mapRadiusInput').value) || 1;
   const mapRouteWidth = parseFloat(document.getElementById('mapRouteWidthInput').value) || 100;
-  const teWindow    = parseInt(document.getElementById('teWindowInput').value, 10) || 10;
-  const aiEventWindow = parseInt(document.getElementById('aiEventWindowInput').value, 10) || 10;
+  const eventWindow = parseInt(document.getElementById('eventWindowInput').value, 10) || 10;
   const aiEventImageRetention = parseInt(document.getElementById('aiEventImageRetentionInput').value, 10) || 4;
   const trafficFlowRetentionUnlimited = document.getElementById('trafficFlowRetentionUnlimited').checked;
   const trafficFlowRetention = trafficFlowRetentionUnlimited ? -1 : (parseInt(document.getElementById('trafficFlowRetentionInput').value, 10) || 30);
@@ -2685,8 +2723,7 @@ async function saveSettings() {
     snapshot_stale_threshold_sec: staleThreshold,
     map_search_radius_km: mapRadius,
     map_route_width_m: mapRouteWidth,
-    traffic_event_window_minutes: teWindow,
-    ai_event_window_minutes: aiEventWindow,
+    event_window_minutes: eventWindow,
     ai_event_image_retention_hours: aiEventImageRetention,
     traffic_flow_retention_days: trafficFlowRetention,
     default_view_limit_minutes: viewLimit,
@@ -2870,6 +2907,8 @@ function openEdit(u) {
   document.getElementById('f-allow-map-route').checked = !!u.allow_map_route;
   document.getElementById('f-allow-map-incident-add').checked = !!u.allow_map_incident_add;
   document.getElementById('f-allow-map-ai-events').checked = !!u.allow_map_ai_events;
+  document.getElementById('f-allow-ai-analyze').checked = !!u.allow_ai_analyze;
+  document.getElementById('f-allow-ai-watch').checked = !!u.allow_ai_watch;
   document.getElementById('f-allow-map-3d').checked = !!u.allow_map_3d;
   document.getElementById('f-allow-map-traffic-flow').checked = !!u.allow_map_traffic_flow;
   document.getElementById('f-allow-map-gis').checked = !!u.allow_map_gis;
@@ -2886,6 +2925,7 @@ function openEdit(u) {
   document.getElementById('f-view-limit-minutes').value = u.view_limit_minutes > 0 ? u.view_limit_minutes : '';
   toggleViewLimitInput();
   document.getElementById('f-allow-incidents-import').checked = !!u.allow_incidents_import;
+  document.getElementById('f-allow-dashboard2-custom-window').checked = !!u.allow_dashboard2_custom_window;
   setCamChecks(u.streams || []);
   renderRegionChecks(u.region_ids || []);
   renderGisLayerChecks(u.gis_layer_ids || []);
@@ -3868,6 +3908,157 @@ function renderTestPushResultFlow(res) {
     </div>`;
 }
 
+// ════════════════════════════════════════════════════════
+//  Sự cố GT: icon theo loại sự cố (Category is free text — the whole
+//  point of this tab is that there is no fixed category→icon table in
+//  code anywhere; every row here is admin-assigned, not guessed from a
+//  specific category string. See internal/incidents/category_icons.go.
+// ════════════════════════════════════════════════════════
+let _incCategoryIcons = {}; // category -> {content_type,width,height,color,updated_at}
+const INC_CAT_ICON_MAX_DIM = 128; // mirrors internal/incidents.maxCategoryIconDimPx
+
+async function loadIncidentCategoryIconsTab() {
+  document.getElementById('incCatIconMaxDim').textContent = `${INC_CAT_ICON_MAX_DIM}×${INC_CAT_ICON_MAX_DIM}`;
+  let icons = [], meta = { categories: [] };
+  try {
+    [icons, meta] = await Promise.all([
+      apiFetch('/api/incidents/category-icons'),
+      apiFetch('/api/incidents/meta'),
+    ]);
+  } catch (e) {
+    document.getElementById('incCategoryIconsTbody').innerHTML =
+      `<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--red)">Lỗi tải dữ liệu: ${esc(e.message)}</td></tr>`;
+    return;
+  }
+  _incCategoryIcons = {};
+  (icons || []).forEach(ci => { _incCategoryIcons[ci.category] = ci; });
+  // Union of every category ever used (meta.categories) with any category
+  // that has an icon/color configured but hasn't been used yet (an admin
+  // may pre-configure one ahead of first use).
+  const names = new Set([...(meta.categories || []), ...Object.keys(_incCategoryIcons)]);
+  renderIncidentCategoryIconsTable([...names].sort((a, b) => a.localeCompare(b, 'vi')));
+}
+
+function incCategoryIconImgUrl(category) {
+  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' +
+    (_incCategoryIcons[category]?.updated_at || '');
+}
+
+function renderIncidentCategoryIconsTable(names) {
+  const tbody = document.getElementById('incCategoryIconsTbody');
+  if (!names.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--text-muted)">Chưa có thể loại nào được ghi nhận.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = names.map(cat => {
+    const ci = _incCategoryIcons[cat];
+    const preview = ci && ci.content_type
+      ? `<img src="${incCategoryIconImgUrl(cat)}" alt="" style="width:28px;height:28px;object-fit:contain;border-radius:4px;background:var(--surface2)">`
+      : '<span style="color:var(--text-muted);font-size:.72rem">(mặc định)</span>';
+    const color = (ci && ci.color) || '#6b7280';
+    const dims = ci && ci.width ? `<span style="font-size:.68rem;color:var(--text-muted);margin-left:.4rem">${ci.width}×${ci.height}px</span>` : '';
+    return `<tr>
+      <td style="padding:.5rem .75rem">${esc(cat)}</td>
+      <td style="padding:.5rem .75rem">
+        <div style="display:flex;align-items:center;gap:.5rem">
+          ${preview}${dims}
+          <input type="file" accept="image/png,image/jpeg,image/gif" style="font-size:.74rem;max-width:150px"
+            onchange="uploadIncidentCategoryIcon('${esc(cat).replace(/'/g, "\\'")}', this)">
+        </div>
+      </td>
+      <td style="padding:.5rem .75rem">
+        <input type="color" value="${color}" style="width:36px;height:26px;border:none;background:none;cursor:pointer;padding:0"
+          onchange="saveIncidentCategoryColor('${esc(cat).replace(/'/g, "\\'")}', this.value)">
+      </td>
+      <td style="padding:.5rem .75rem">
+        ${ci ? `<button class="btn btn-danger btn-sm" onclick="deleteIncidentCategoryIcon('${esc(cat).replace(/'/g, "\\'")}')">Xóa</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// Client-side pre-check only (immediate feedback) — the server (
+// internal/incidents.SetCategoryIcon) is the real authority and re-checks
+// independently, so this never needs to be exhaustive.
+function checkImageDims(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('không đọc được ảnh')); };
+    img.src = url;
+  });
+}
+
+async function uploadIncidentCategoryIconFile(category, file) {
+  const msg = document.getElementById('incCatIconMsg');
+  try {
+    const { w, h } = await checkImageDims(file);
+    if (w > INC_CAT_ICON_MAX_DIM || h > INC_CAT_ICON_MAX_DIM) {
+      throw new Error(`Ảnh ${w}×${h}px vượt quá kích thước tối đa ${INC_CAT_ICON_MAX_DIM}×${INC_CAT_ICON_MAX_DIM}px — hãy thu nhỏ ảnh trước khi tải lên.`);
+    }
+    const res = await fetch('/api/incidents/category-icons?category=' + encodeURIComponent(category), {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || res.statusText);
+    msg.style.color = '#4ade80'; msg.textContent = `✓ Đã lưu icon cho "${category}"`;
+    await loadIncidentCategoryIconsTab();
+  } catch (e) {
+    msg.style.color = '#f87171'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
+function uploadIncidentCategoryIcon(category, inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  uploadIncidentCategoryIconFile(category, file).finally(() => { inputEl.value = ''; });
+}
+
+async function saveIncidentCategoryColor(category, color) {
+  const msg = document.getElementById('incCatIconMsg');
+  try {
+    await apiFetch('/api/incidents/category-icons/color', { method: 'PUT', body: { category, color } });
+    msg.style.color = '#4ade80'; msg.textContent = `✓ Đã lưu màu cho "${category}"`;
+    await loadIncidentCategoryIconsTab();
+  } catch (e) {
+    msg.style.color = '#f87171'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
+async function deleteIncidentCategoryIcon(category) {
+  if (!confirm(`Xóa icon/màu đã gán cho "${category}"? Sự cố thuộc thể loại này sẽ dùng marker mặc định trên bản đồ.`)) return;
+  const msg = document.getElementById('incCatIconMsg');
+  try {
+    await apiFetch('/api/incidents/category-icons?category=' + encodeURIComponent(category), { method: 'DELETE' });
+    msg.style.color = '#4ade80'; msg.textContent = `✓ Đã xóa cấu hình cho "${category}"`;
+    await loadIncidentCategoryIconsTab();
+  } catch (e) {
+    msg.style.color = '#f87171'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
+async function addIncidentCategoryIconRow() {
+  const nameEl = document.getElementById('incNewCatName');
+  const fileEl = document.getElementById('incNewCatFile');
+  const colorEl = document.getElementById('incNewCatColor');
+  const category = nameEl.value.trim();
+  const msg = document.getElementById('incCatIconMsg');
+  if (!category) { msg.style.color = '#f87171'; msg.textContent = '✗ Nhập tên thể loại trước.'; return; }
+
+  try {
+    await apiFetch('/api/incidents/category-icons/color', { method: 'PUT', body: { category, color: colorEl.value } });
+    const file = fileEl.files && fileEl.files[0];
+    if (file) await uploadIncidentCategoryIconFile(category, file);
+    nameEl.value = ''; fileEl.value = ''; colorEl.value = '#6b7280';
+    msg.style.color = '#4ade80'; msg.textContent = `✓ Đã thêm "${category}"`;
+    await loadIncidentCategoryIconsTab();
+  } catch (e) {
+    msg.style.color = '#f87171'; msg.textContent = '✗ ' + e.message;
+  }
+}
+
 // Disables the day-count input while "Không giới hạn" is checked, so it's
 // visually clear the number is ignored (saveSettings() sends -1 regardless
 // of whatever is left in the input while this is checked).
@@ -4017,6 +4208,8 @@ async function submitForm(e) {
   const allow_map_route        = role === 'admin' ? true : document.getElementById('f-allow-map-route').checked;
   const allow_map_incident_add = role === 'admin' ? true : document.getElementById('f-allow-map-incident-add').checked;
   const allow_map_ai_events   = role === 'admin' ? true : document.getElementById('f-allow-map-ai-events').checked;
+  const allow_ai_analyze      = role === 'admin' ? true : document.getElementById('f-allow-ai-analyze').checked;
+  const allow_ai_watch        = role === 'admin' ? true : document.getElementById('f-allow-ai-watch').checked;
   const allow_map_3d          = role === 'admin' ? true : document.getElementById('f-allow-map-3d').checked;
   const allow_map_traffic_flow = role === 'admin' ? true : document.getElementById('f-allow-map-traffic-flow').checked;
   const allow_map_gis          = role === 'admin' ? true : document.getElementById('f-allow-map-gis').checked;
@@ -4032,8 +4225,9 @@ async function submitForm(e) {
   const allow_unlimited_view   = role === 'admin' ? true : document.getElementById('f-allow-unlimited-view').checked;
   const view_limit_minutes     = parseInt(document.getElementById('f-view-limit-minutes').value, 10) || 0;
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
+  const allow_dashboard2_custom_window = role === 'admin' ? true : document.getElementById('f-allow-dashboard2-custom-window').checked;
   const device_binding_scopes  = role === 'admin' ? [] : getCheckedDeviceScopes();
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_map_3d, allow_map_traffic_flow, allow_map_gis, gis_layer_ids, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, device_binding_scopes, tabs };
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_ai_analyze, allow_ai_watch, allow_map_3d, allow_map_traffic_flow, allow_map_gis, gis_layer_ids, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, allow_dashboard2_custom_window, device_binding_scopes, tabs };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 

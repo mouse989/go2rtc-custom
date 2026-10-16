@@ -35,3 +35,100 @@ func TestUserCanAccessPathMapTrafficFlow(t *testing.T) {
 		t.Fatal("a viewer without AllowMapTrafficFlow must not reach /api/trafficflow/latest")
 	}
 }
+
+// TestUserCanAccessPathDashboardRoute: the Dashboard's travel-time route
+// detail map draws the real road-following path via /api/vietmap/route —
+// same endpoint as map.html's "🛣 Theo tuyến" tool, but a Dashboard viewer
+// needs it regardless of whether they also have the separate AllowMapRoute
+// flag (see tabExtraPaths[TabDashboard]'s own comment).
+func TestUserCanAccessPathDashboardRoute(t *testing.T) {
+	dashViewer := &User{Role: RoleViewer, Tabs: []string{TabDashboard}, AllowMapRoute: false}
+	if !userCanAccessPath(dashViewer, "/api/vietmap/route?point=10.1,106.1&point=10.2,106.2") {
+		t.Fatal("a viewer with the Dashboard tab should reach /api/vietmap/route even without AllowMapRoute")
+	}
+	noDash := &User{Role: RoleViewer, Tabs: []string{TabMap}, AllowMapRoute: false}
+	if userCanAccessPath(noDash, "/api/vietmap/route?point=10.1,106.1&point=10.2,106.2") {
+		t.Fatal("a viewer without the Dashboard tab and without AllowMapRoute must not reach /api/vietmap/route")
+	}
+}
+
+// TestUserCanAccessPathDashboardTrafficData: Dashboard 02's persistent-jam-
+// point KPI reads historical scan files via /api/traffic/data, which is
+// otherwise admin-only (requireTrafficAccess gates config/start/stop/scan/
+// status/logs). A Dashboard-tab viewer must reach /api/traffic/data without
+// needing the separate admin role, same shape as /api/vietmap/route above.
+func TestUserCanAccessPathDashboardTrafficData(t *testing.T) {
+	dashViewer := &User{Role: RoleViewer, Tabs: []string{TabDashboard}}
+	if !userCanAccessPath(dashViewer, "/api/traffic/data?file=2026-10-15.json") {
+		t.Fatal("a viewer with the Dashboard tab should reach /api/traffic/data")
+	}
+	noDash := &User{Role: RoleViewer, Tabs: []string{TabMap}}
+	if userCanAccessPath(noDash, "/api/traffic/data?file=2026-10-15.json") {
+		t.Fatal("a viewer without the Dashboard tab must not reach /api/traffic/data")
+	}
+	// requireTrafficAccess (admin-only) must remain in force for the
+	// control-plane handlers even for a Dashboard-tab viewer.
+	if userCanAccessPath(dashViewer, "/api/traffic/start") {
+		t.Fatal("a non-admin Dashboard viewer must not reach /api/traffic/start")
+	}
+}
+
+// TestUserCanAccessPathDashboardTrafficFlowHourly: Dashboard 02's "Lưu
+// lượng phương tiện" module reads /api/trafficflow/hourly, which is
+// intentionally NOT gated by AllowMapTrafficFlow (that flag is specific to
+// map.html's traffic-flow layer) — a Dashboard-tab viewer must reach it on
+// the Dashboard tab alone, mirroring /api/traffic/data above.
+func TestUserCanAccessPathDashboardTrafficFlowHourly(t *testing.T) {
+	dashViewer := &User{Role: RoleViewer, Tabs: []string{TabDashboard}, AllowMapTrafficFlow: false}
+	if !userCanAccessPath(dashViewer, "/api/trafficflow/hourly?date=2026-10-15") {
+		t.Fatal("a viewer with the Dashboard tab should reach /api/trafficflow/hourly even without AllowMapTrafficFlow")
+	}
+	noDash := &User{Role: RoleViewer, Tabs: []string{TabMap}, AllowMapTrafficFlow: false}
+	if userCanAccessPath(noDash, "/api/trafficflow/hourly?date=2026-10-15") {
+		t.Fatal("a viewer without the Dashboard tab and without AllowMapTrafficFlow must not reach /api/trafficflow/hourly")
+	}
+}
+
+// TestUserCanAccessPathDashboard2IsIndependentOfDashboard: TabDashboard2
+// (dashboard2.html) is a separate grant from TabDashboard (dashboard.html)
+// — an admin may hand either out without the other — but reaches the exact
+// same backend paths. Catches the same "server-side allow forgotten"
+// mistake AllowMapRoute originally shipped with, now for the new tab.
+func TestUserCanAccessPathDashboard2IsIndependentOfDashboard(t *testing.T) {
+	d2Only := &User{Role: RoleViewer, Tabs: []string{TabDashboard2}}
+	for _, p := range []string{"/api/dashboard/summary", "/api/traffic/data?file=2026-10-15.json", "/api/trafficflow/hourly", "/api/traveltime/forecast"} {
+		if !userCanAccessPath(d2Only, p) {
+			t.Fatalf("a viewer with only TabDashboard2 should reach %s", p)
+		}
+	}
+	neither := &User{Role: RoleViewer, Tabs: []string{TabMap}}
+	if userCanAccessPath(neither, "/api/dashboard/summary") {
+		t.Fatal("a viewer with neither TabDashboard nor TabDashboard2 must not reach /api/dashboard/summary")
+	}
+}
+
+// TestUserCanAccessPathAIAnalyze mirrors TestUserCanAccessPathMapRoute
+// above, for the AI Analyze feature's own permission.
+func TestUserCanAccessPathAIAnalyze(t *testing.T) {
+	gated := &User{Role: RoleViewer, AllowAIAnalyze: true}
+	for _, p := range []string{"/api/ai-analyze/model", "/api/ai-analyze/model/meta"} {
+		if !userCanAccessPath(gated, p) {
+			t.Fatalf("a viewer with AllowAIAnalyze should reach %s", p)
+		}
+	}
+	ungated := &User{Role: RoleViewer, AllowAIAnalyze: false}
+	if userCanAccessPath(ungated, "/api/ai-analyze/model") {
+		t.Fatal("a viewer without AllowAIAnalyze must not reach /api/ai-analyze/model")
+	}
+
+	// AllowAIWatch alone (no AllowAIAnalyze) must also reach the same
+	// endpoints — both buttons read the same published model.
+	watchOnly := &User{Role: RoleViewer, AllowAIWatch: true}
+	if !userCanAccessPath(watchOnly, "/api/ai-analyze/model") {
+		t.Fatal("a viewer with AllowAIWatch (but not AllowAIAnalyze) should reach /api/ai-analyze/model")
+	}
+	neitherFlag := &User{Role: RoleViewer}
+	if userCanAccessPath(neitherFlag, "/api/ai-analyze/model") {
+		t.Fatal("a viewer with neither AllowAIAnalyze nor AllowAIWatch must not reach /api/ai-analyze/model")
+	}
+}

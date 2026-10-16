@@ -106,7 +106,7 @@ function mountPTZOverlay(container, streamName) {
 
   const wrap = document.createElement('div');
   wrap.className = 'ptz-overlay';
-  wrap.style.cssText = 'position:absolute;right:16px;bottom:16px;align-items:center;gap:12px;z-index:5';
+  wrap.style.cssText = 'position:absolute;right:16px;bottom:16px;flex-direction:column;align-items:center;gap:8px;z-index:5';
 
   function applyVisibility() {
     wrap.style.display = visible ? 'flex' : 'none';
@@ -118,6 +118,51 @@ function mountPTZOverlay(container, streamName) {
     localStorage.setItem(VISIBLE_KEY, visible ? '1' : '0');
     applyVisibility();
   });
+
+  // ── Pan/tilt speed (Chậm/Vừa/Nhanh) ──────────────────────────────
+  // A quick click still sends a full move+stop round trip over the network,
+  // so at the old fixed max speed (pan/tilt always ±1.0) that round-trip's
+  // own latency alone was enough to visibly oversteer a small framing
+  // nudge — there was no way to dial that back. Scales only pan/tilt
+  // (DIRS below), not zoom/focus, since that's what was reported as hard
+  // to fine-tune. Defaults to Nhanh (×1, the old unscaled behavior) so
+  // existing muscle memory for a normal full-range move isn't changed —
+  // operators opt into a slower speed only when they need the precision.
+  const SPEEDS = [
+    { id: 'slow', mult: 0.15, label: 'Chậm' },
+    { id: 'medium', mult: 0.45, label: 'Vừa' },
+    { id: 'fast', mult: 1, label: 'Nhanh' },
+  ];
+  const SPEED_KEY = 'go2rtc_ptz_speed';
+  let speedIdx = SPEEDS.findIndex(s => s.id === localStorage.getItem(SPEED_KEY));
+  if (speedIdx < 0) speedIdx = SPEEDS.length - 1;
+
+  const speedPill = document.createElement('div');
+  speedPill.style.cssText = 'display:flex;border-radius:10px;overflow:hidden;background:rgba(13,17,23,.6);' +
+    'backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.14)';
+  const speedBtns = SPEEDS.map((s, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = s.label;
+    b.setAttribute('aria-label', 'Tốc độ xoay: ' + s.label);
+    b.title = 'Tốc độ xoay: ' + s.label;
+    b.style.cssText = 'border:none;background:transparent;color:#e6edf3;font-size:11px;font-weight:600;' +
+      'padding:4px 10px;cursor:pointer';
+    b.addEventListener('click', () => {
+      speedIdx = i;
+      localStorage.setItem(SPEED_KEY, s.id);
+      applySpeedUI();
+    });
+    speedPill.appendChild(b);
+    return b;
+  });
+  function applySpeedUI() {
+    speedBtns.forEach((b, i) => { b.style.background = i === speedIdx ? ACTIVE_BG : 'transparent'; });
+  }
+  applySpeedUI();
+
+  const controlsRow = document.createElement('div');
+  controlsRow.style.cssText = 'display:flex;align-items:center;gap:12px';
 
   // ── Pan/Tilt joystick (8-direction), with a Home button at its center ──
   const pad = document.createElement('div');
@@ -185,7 +230,10 @@ function mountPTZOverlay(container, streamName) {
       `color:#e6edf3;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0`;
     btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" style="transform:rotate(${d.rot}deg)">` +
       `<path d="M12 4 L19 16 L12 12.5 L5 16 Z" fill="currentColor"></path></svg>`;
-    wireHoldButton(btn, () => sendMove(d.pan, d.tilt, 0));
+    wireHoldButton(btn, () => {
+      const mult = SPEEDS[speedIdx].mult;
+      sendMove(d.pan * mult, d.tilt * mult, 0);
+    });
     pad.appendChild(btn);
   });
 
@@ -281,10 +329,12 @@ function mountPTZOverlay(container, streamName) {
     }
   });
 
-  wrap.appendChild(zoomPill);
-  wrap.appendChild(pad);
-  wrap.appendChild(focusPill);
-  wrap.appendChild(saveBtn);
+  controlsRow.appendChild(zoomPill);
+  controlsRow.appendChild(pad);
+  controlsRow.appendChild(focusPill);
+  controlsRow.appendChild(saveBtn);
+  wrap.appendChild(speedPill);
+  wrap.appendChild(controlsRow);
   if (!container.style.position) container.style.position = 'relative';
   container.appendChild(wrap);
   container.appendChild(toggleBtn);

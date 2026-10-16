@@ -235,12 +235,24 @@ func HasTab(ctx context.Context, tab string) bool {
 // tabExtraPaths maps tab keys to API paths accessible only to users with that tab.
 // These are checked in addition to viewerDefaultPaths.
 var tabExtraPaths = map[string][]string{
-	TabMonitor:   {"/api/system/stats"},
-	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast"},
-	TabLog:       {"/api/log"},
-	TabConfig:    {"/api/config", "/api/restart"},
-	TabCounting:  {"/api/counting"},
-	TabIncidents: {"/api/incidents"},
+	TabMonitor: {"/api/system/stats"},
+	// /api/vietmap/route here (not just under AllowMapRoute below) is for
+	// the Dashboard's travel-time route detail map, which draws the real
+	// road-following path for the route's own admin-configured origin/
+	// waypoints/destination — a Dashboard viewer needs this regardless of
+	// whether they also have map.html's separate "🛣 Theo tuyến" (free-form
+	// route-building) permission; the two features use the same proxy but
+	// are otherwise unrelated.
+	TabDashboard: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
+	// TabDashboard2 is a separate grant from TabDashboard (Dashboard 02 is a
+	// different page an admin may want to hand out independently of the
+	// original Dashboard) — same extra-path list since it reads the exact
+	// same backend data, just under its own permission.
+	TabDashboard2: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
+	TabLog:        {"/api/log"},
+	TabConfig:     {"/api/config", "/api/restart"},
+	TabCounting:   {"/api/counting"},
+	TabIncidents:  {"/api/incidents"},
 }
 
 func extractToken(r *http.Request) string {
@@ -346,6 +358,18 @@ func userCanAccessPath(u *User, path string) bool {
 		// NOT covered here — it's listed in isPublicPath below and does its
 		// own API-key auth (see internal/aievent), never a user permission.
 		if strings.HasPrefix(path, "/api/aievent/active") || strings.HasPrefix(path, "/api/aievent/image") {
+			return true
+		}
+	}
+	if u.AllowAIAnalyze || u.AllowAIWatch {
+		// GET /api/ai-analyze/model(/meta) is what these flags are actually
+		// for — AI ANALYZE and Watch both read the same published model, so
+		// either flag alone is enough to reach it; POST .../publish and PUT
+		// /api/ai-analyze/model also match this prefix but are separately
+		// re-gated to admin-only INSIDE internal/aianalyze/api.go's own
+		// handlers (requireAdmin) — same double-gate convention as the rest
+		// of this codebase, not a hole.
+		if strings.HasPrefix(path, "/api/ai-analyze/") {
 			return true
 		}
 	}

@@ -108,10 +108,14 @@ echo "--- Installing PyTorch + torchvision ($CUDA_INDEX) ---"
 # that lacks CUDA NMS kernels used by ultralytics).
 "$PIP" install torch torchvision --index-url "$CUDA_INDEX"
 
-echo "--- Installing ultralytics (pulls opencv-python), web stack ---"
+echo "--- Installing ultralytics (pulls opencv-python), web stack, onnx ---"
 # Do NOT add opencv-python-headless alongside: ultralytics depends on
 # opencv-python and having both can conflict.
-"$PIP" install ultralytics fastapi "uvicorn[standard]"
+# onnx/onnxslim: needed by POST /export-onnx (the browser-side AI Analyze
+# feature's .pt->.onnx export) — installed here rather than left to
+# ultralytics' own pip-install-on-first-use fallback, which depends on this
+# machine having outbound internet access at export time.
+"$PIP" install ultralytics fastapi "uvicorn[standard]" onnx onnxslim
 
 echo "--- Verifying cv2 available ---"
 if ! "$PY" -c "import cv2" 2>/dev/null; then

@@ -41,7 +41,7 @@ IF ERRORLEVEL 1 GOTO error
 ECHO --- Installing ultralytics (pulls opencv-python), web stack, PyInstaller ---
 REM ultralytics depends on opencv-python; do not also install opencv-python-headless
 REM as having both packages causes cv2 import failures on Windows.
-pip install ultralytics fastapi "uvicorn[standard]" pyinstaller
+pip install ultralytics fastapi "uvicorn[standard]" pyinstaller onnx onnxslim
 IF ERRORLEVEL 1 GOTO error
 
 ECHO --- Verifying torch imports and sees the GPU (before bundling) ---
@@ -58,7 +58,10 @@ IF EXIST "dist\yolo_counter" rmdir /S /Q "dist\yolo_counter"
 IF EXIST "build\yolo_counter" rmdir /S /Q "build\yolo_counter"
 
 ECHO --- Building binary ---
-python -m PyInstaller --onedir --collect-all torch --collect-all ultralytics --runtime-hook "%REPO%\yolo_counter\pyi_rth_torch_cuda.py" --name yolo_counter "%SCRIPT%"
+REM --collect-all onnx: the frozen exe has no pip, so ultralytics' own
+REM auto-install-on-first-export fallback (POST /export-onnx) can't run —
+REM onnx's package data/extensions must already be bundled.
+python -m PyInstaller --onedir --collect-all torch --collect-all ultralytics --collect-all onnx --runtime-hook "%REPO%\yolo_counter\pyi_rth_torch_cuda.py" --name yolo_counter "%SCRIPT%"
 IF ERRORLEVEL 1 GOTO error
 
 ECHO.
