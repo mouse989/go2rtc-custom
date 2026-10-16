@@ -2,6 +2,7 @@ package incidents
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -19,6 +20,9 @@ func registerHandlers() {
 	http.HandleFunc("/api/incidents/time-slots", handleTimeSlots)
 	http.HandleFunc("/api/incidents/recompute-slots", handleRecomputeSlots)
 	http.HandleFunc("/api/incidents/active", handleActive)
+	http.HandleFunc("/api/incidents/category-icons", handleCategoryIcons)
+	http.HandleFunc("/api/incidents/category-icons/color", handleCategoryIconColor)
+	http.HandleFunc("/api/incidents/category-icons/image", handleCategoryIconImage)
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -363,4 +367,102 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
 	writeJSON(w, out)
+}
+
+// handleCategoryIcons: GET lists every category's icon/color metadata
+// (any Incidents-tab holder — map.html/dashboard2.html need this to draw
+// markers); PUT uploads/replaces one category's icon (admin, raw image
+// bytes as the body, category given as a query param so arbitrary
+// Unicode/slash-containing category strings never need to be safe as a
+// URL path segment); DELETE clears one category's mapping (admin).
+func handleCategoryIcons(w http.ResponseWriter, r *http.Request) {
+	if !requireTab(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, ListCategoryIcons())
+
+	case http.MethodPut:
+		if !requireAdmin(w, r) {
+			return
+		}
+		category := r.URL.Query().Get("category")
+		r.Body = http.MaxBytesReader(w, r.Body, maxCategoryIconUploadBytes)
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "file too large or malformed upload: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		user, _ := auth.UserFromContext(r.Context())
+		ci, err := SetCategoryIcon(category, data, user.Username)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, ci)
+
+	case http.MethodDelete:
+		category := r.URL.Query().Get("category")
+		if err := DeleteCategoryIcon(category); err != nil {
+			status := http.StatusBadRequest
+			if err == errNotFound {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleCategoryIconColor: PUT (admin) sets or clears one category's
+// marker background color independently of its icon.
+func handleCategoryIconColor(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Category string `json:"category"`
+		Color    string `json:"color"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	user, _ := auth.UserFromContext(r.Context())
+	ci, err := SetCategoryColor(req.Category, req.Color, user.Username)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, ci)
+}
+
+// handleCategoryIconImage serves one category's uploaded icon bytes
+// (?category=...) — any Incidents-tab holder, needed to render markers.
+func handleCategoryIconImage(w http.ResponseWriter, r *http.Request) {
+	if !requireTab(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	category := r.URL.Query().Get("category")
+	data, contentType, ok := GetCategoryIconImage(category)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	_, _ = w.Write(data)
 }

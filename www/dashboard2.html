@@ -549,12 +549,27 @@ function renderIncidentMap(list) {
 // ── VietMap GL incident map (VietMap GL, not kepler.gl — this codebase has
 // no kepler.gl dependency; the real kpi.utmc.io.vn source for that embed
 // lives in a separate binary this session has no access to) ────────────
-const CAT_COLOR = { dongxe:'#ef4444', vacham:'#f59e0b', ngapnuoc:'#38bdf8', khac:'#a78bfa' };
+//
+// Point markers are admin-configured per-category icon/color (same store
+// and same endpoint as map.html's Traffic Event layer —
+// internal/incidents/category_icons.go via GET /api/incidents/category-
+// icons) rendered as DOM markers, not a hardcoded category->color table —
+// any category with no configured icon/color falls back to one generic
+// gray marker, regardless of what that category's text is. The heatmap
+// view is density-only (no category info) so it needs no such mapping.
+let _d2CategoryIcons = {}; // category -> {content_type,color,width,height}
+async function loadD2CategoryIcons() {
+  try { _d2CategoryIcons = {}; (await apiFetch('/api/incidents/category-icons') || []).forEach(ci => { _d2CategoryIcons[ci.category] = ci; }); }
+  catch (e) { /* keep whatever was cached before — markers fall back to the generic marker */ }
+}
+function d2CategoryIconSrc(category) {
+  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category);
+}
 function buildIncidentFeatures(pts) {
   return pts.map(i => ({
     type:'Feature',
     geometry:{ type:'Point', coordinates:[i.lng, i.lat] },
-    properties:{ cat: incidentBucket(i.category), content: i.content||'', time: i.time||'', unit: i.unit||'' },
+    properties:{},
   }));
 }
 async function initD2Map() {
@@ -564,26 +579,15 @@ async function initD2Map() {
     const el = document.getElementById('d2Map');
     if (!el) return;
     if (!apiKey) { el.innerHTML = '<div class="d2-empty">Chưa cấu hình VietMap API Key</div>'; return; }
+    await loadD2CategoryIcons();
     _map = new vietmapgl.Map({ container:'d2Map', style:`https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apiKey}`, center:[106.700,10.776], zoom:10.5 });
     _map.addControl(new vietmapgl.NavigationControl({showCompass:false}), 'top-right');
     _map.on('load', () => {
       _mapInited = true;
       _map.addSource('d2incidents', { type:'geojson', data:{type:'FeatureCollection', features:[]} });
-      _map.addLayer({ id:'d2inc-dot', type:'circle', source:'d2incidents',
-        paint:{ 'circle-radius':6, 'circle-color':['match',['get','cat'],'dongxe',CAT_COLOR.dongxe,'vacham',CAT_COLOR.vacham,'ngapnuoc',CAT_COLOR.ngapnuoc,CAT_COLOR.khac],
-          'circle-opacity':.9, 'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,.5)' } });
       _map.addLayer({ id:'d2inc-heat', type:'heatmap', source:'d2incidents', layout:{visibility:'none'},
         paint:{ 'heatmap-weight':1, 'heatmap-intensity':1.2, 'heatmap-radius':['interpolate',['linear'],['zoom'],5,8,12,18],
           'heatmap-color':['interpolate',['linear'],['heatmap-density'],0,'rgba(0,0,0,0)',0.3,'rgba(251,191,36,.5)',0.6,'rgba(239,68,68,.75)',1,'rgba(153,27,27,.9)'] } });
-      _map.on('click','d2inc-dot', e => {
-        const p = e.features[0].properties;
-        const html = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px">` +
-          (p.time ? `<b>${new Date(p.time).toLocaleString('vi-VN')}</b><br>` : '') +
-          escH(p.content) + (p.unit ? `<br><i>${escH(p.unit)}</i>` : '') + `</div>`;
-        new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat(e.lngLat).setHTML(html).addTo(_map);
-      });
-      _map.on('mouseenter','d2inc-dot', () => _map.getCanvas().style.cursor='pointer');
-      _map.on('mouseleave','d2inc-dot', () => _map.getCanvas().style.cursor='');
       if (_pendingMapPts) { updateD2MapData(_pendingMapPts); _pendingMapPts = null; }
     });
   } catch (e) {
@@ -592,14 +596,37 @@ async function initD2Map() {
   }
 }
 let _pendingMapPts = null;
+let _d2IncMarkers = []; // DOM markers for the "points" view — rebuilt on each updateD2MapData
 function updateD2MapData(pts) {
   if (!_map || !_mapInited) { _pendingMapPts = pts; return; }
   try {
-    const features = buildIncidentFeatures(pts);
-    _map.getSource('d2incidents')?.setData({ type:'FeatureCollection', features });
-    if (features.length) {
+    _map.getSource('d2incidents')?.setData({ type:'FeatureCollection', features: buildIncidentFeatures(pts) });
+
+    _d2IncMarkers.forEach(m => m.remove());
+    _d2IncMarkers = pts.map(i => {
+      const ci = _d2CategoryIcons[i.category];
+      const bg = (ci && ci.color) || '#6b7280';
+      const html = (ci && ci.content_type)
+        ? `<img src="${d2CategoryIconSrc(i.category)}" alt="" style="width:18px;height:18px;object-fit:contain;display:block;pointer-events:none">`
+        : '❗';
+      const el = document.createElement('div');
+      el.style.cssText = `width:26px;height:26px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;border:2px solid rgba(255,255,255,.85);box-shadow:0 2px 6px rgba(0,0,0,.5)`;
+      el.innerHTML = html;
+      el.title = [i.category, i.content, i.unit].filter(Boolean).join(' — ');
+      el.addEventListener('click', () => {
+        const html2 = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px">` +
+          (i.time ? `<b>${new Date(i.time).toLocaleString('vi-VN')}</b><br>` : '') +
+          escH(i.content||'') + (i.unit ? `<br><i>${escH(i.unit)}</i>` : '') + `</div>`;
+        new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat([i.lng, i.lat]).setHTML(html2).addTo(_map);
+      });
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]);
+      if (!_mapHeatMode) marker.addTo(_map);
+      return marker;
+    });
+
+    if (pts.length) {
       const b = new vietmapgl.LngLatBounds();
-      features.forEach(f => b.extend(f.geometry.coordinates));
+      pts.forEach(i => b.extend([i.lng, i.lat]));
       _map.fitBounds(b, { padding:40, maxZoom:14, duration:500 });
     }
   } catch(_) {}
@@ -608,7 +635,7 @@ function toggleD2MapMode() {
   if (!_map || !_mapInited) return;
   _mapHeatMode = !_mapHeatMode;
   _map.setLayoutProperty('d2inc-heat', 'visibility', _mapHeatMode ? 'visible' : 'none');
-  _map.setLayoutProperty('d2inc-dot', 'visibility', _mapHeatMode ? 'none' : 'visible');
+  _d2IncMarkers.forEach(m => { if (_mapHeatMode) m.remove(); else m.addTo(_map); });
   document.getElementById('d2MapToggleBtn').textContent = _mapHeatMode ? '📍 Điểm' : '🔥 Bản đồ nhiệt';
 }
 
