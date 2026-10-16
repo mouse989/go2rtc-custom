@@ -777,6 +777,15 @@ func handleExportONNX(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
+	// Forward the worker's real status code — unlike handleTrain above
+	// (which always answers 200 and lets the caller check the JSON body's
+	// own "error" field), this response is consumed by apiFetch(), which
+	// throws on a non-2xx status. Always answering 200 here would hide a
+	// 404 (worker running an older yolo_counter that predates this route)
+	// or a 500 (the export itself failed) behind what looks like a
+	// successful-but-empty response, which is exactly the "onnxFile
+	// required" downstream confusion this fixes.
+	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
 

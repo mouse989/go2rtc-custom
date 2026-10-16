@@ -702,6 +702,15 @@ document.getElementById('btnExportPublish')?.addEventListener('click', async () 
       body: JSON.stringify({ model, imgsz }),
     });
     if (exp.error) { msg.textContent = 'Lỗi xuất ONNX: ' + exp.error; return; }
+    if (!exp.onnx) {
+      // Shouldn't happen once internal/counting's handleExportONNX forwards
+      // the worker's real HTTP status (a non-2xx now throws above, caught
+      // below) — kept as a guard against an unexpected 2xx-but-empty reply
+      // so this never silently falls through to a confusing "onnxFile
+      // required" from the publish step instead.
+      msg.textContent = 'Lỗi: máy chủ yolo_counter không trả về đường dẫn file .onnx đã xuất. Có thể worker cần được khởi động lại để nhận tính năng này (/export-onnx).';
+      return;
+    }
 
     msg.textContent = `✓ Đã xuất (${(exp.labels||[]).join(', ')}). Đang publish…`;
     const pub = await apiFetch('/api/ai-analyze/model/publish', {
