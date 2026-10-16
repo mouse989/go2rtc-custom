@@ -36,6 +36,7 @@ func registerAPI() {
 	api.HandleFunc("api/counting/yolo-status", handleYoloStatus)
 	api.HandleFunc("api/counting/collect", handleCollect)
 	api.HandleFunc("api/counting/train", handleTrain)
+	api.HandleFunc("api/counting/export-onnx", handleExportONNX)
 	api.HandleFunc("api/counting/video-upload", handleVideoUpload)
 	api.HandleFunc("api/counting/video-analyze", handleVideoAnalyze)
 	api.HandleFunc("api/counting/video-status", handleVideoStatus)
@@ -737,6 +738,48 @@ func handleTrain(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, resp.Body)
 }
 
+// POST /api/counting/export-onnx?worker=id
+// Body: {"model": "models/trained_xxx.pt", "imgsz": 416}
+// Proxies to yolo_counter's POST /export-onnx (synchronous — exporting a
+// nano/small YOLO model is a few seconds, unlike /train, so no
+// background-job/polling machinery is needed here). The response —
+// {ok, onnx, labels, vehicleLabels, personLabels, inputSize, format} — is
+// passed straight through to the browser; counting.html's "Export & Publish"
+// button is expected to forward it as-is to
+// POST /api/ai-analyze/model/publish (internal/aianalyze), which is what
+// actually makes the exported file live for the AI Analyze feature. This
+// endpoint only exports; it never decides what gets published.
+func handleExportONNX(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if wid := r.URL.Query().Get("worker"); wid != "" {
+		body, _ := io.ReadAll(r.Body)
+		proxyToWorker(w, wid, http.MethodPost, "/export-onnx", bytes.NewReader(body), "application/json")
+		return
+	}
+	yoloURL := getConfig().YoloURL
+	if yoloURL == "" {
+		yoloURL = "http://localhost:8765"
+	}
+	// ONNX export (PyTorch trace + graph conversion + simplify) can take
+	// noticeably longer than the other quick proxied calls above — give it
+	// a generous timeout rather than reusing their 5-10s ones.
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Post(yoloURL+"/export-onnx", "application/json", r.Body)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
 // POST /api/counting/video-upload?ext=mp4[&worker=id]
 // Streams an uploaded video to the target server's yolo_counter, which saves it
 // and returns its first frame (base64) + metadata so the UI can draw counting
@@ -1274,6 +1317,48 @@ func handleExport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, slots)
 }
 
+// resolveLocalModelPath resolves file (relative, e.g. "models/trained_xxx.pt"
+// or "models/trained_xxx.onnx") against the local yolo_counter dir and
+// checks it doesn't escape that directory.
+func resolveLocalModelPath(file string) (string, error) {
+	base := filepath.Dir(yoloExePath())
+	fullPath := filepath.Join(base, filepath.FromSlash(file))
+	if !strings.HasPrefix(fullPath, base) {
+		return "", fmt.Errorf("file path escapes the yolo_counter directory")
+	}
+	return fullPath, nil
+}
+
+// GetModelFileBytes returns the raw bytes of a model weight/export file
+// (".pt" or ".onnx") under models/ — read directly off local disk when
+// workerID is empty, or fetched from a remote worker's own
+// /api/counting/models/download endpoint otherwise. Exported for
+// internal/aianalyze's publish flow, which needs an exported ONNX file's
+// bytes without a self-referential HTTP round trip through this process's
+// own handleModelsDownload.
+func GetModelFileBytes(workerID, file string) ([]byte, error) {
+	if workerID == "" {
+		fullPath, err := resolveLocalModelPath(file)
+		if err != nil {
+			return nil, err
+		}
+		return os.ReadFile(fullPath)
+	}
+	resp, err := workers.RequestWorker(workerID, http.MethodGet, "/api/counting/models/download?file="+neturl.QueryEscape(file), nil, "")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("worker returned %d: %s", resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
 // GET /api/counting/models/download?file=models/trained_xxx.pt
 // Serves a model weight file for download by the Hub.
 func handleModelsDownload(w http.ResponseWriter, r *http.Request) {
@@ -1285,11 +1370,8 @@ func handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file required", http.StatusBadRequest)
 		return
 	}
-	// Resolve relative to yolo_counter dir (same as models/ logic in launcher)
-	base := filepath.Dir(yoloExePath())
-	fullPath := filepath.Join(base, filepath.FromSlash(file))
-	// Security: must stay within base dir
-	if !strings.HasPrefix(fullPath, base) {
+	fullPath, err := resolveLocalModelPath(file)
+	if err != nil {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

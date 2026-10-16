@@ -64,6 +64,15 @@ type User struct {
 	// AllowMapIncidentAdd: there's no manual-entry counterpart to this
 	// layer, so this flag alone fully controls whether a user can see it.
 	AllowMapAIEvents bool `json:"allow_map_ai_events"`
+	// AllowAIAnalyze gates the "AI ANALYZE"/"WATCH 30S" button in the
+	// shared camera-stream modal (map.html and index.html's #playerWrap) —
+	// an on-device vehicle/person detector (custom-trained YOLO exported to
+	// ONNX, internal/aianalyze) that runs entirely in the viewer's own
+	// browser via a Web Worker; the server never runs inference or sees a
+	// detection result, only serves the published model file + its label
+	// metadata. View-only, same single-flag convention as AllowMapAIEvents
+	// above.
+	AllowAIAnalyze bool `json:"allow_ai_analyze"`
 	// AllowMap3D gates map.html's "🧊 3D" toggle — tilts the camera (pitch)
 	// and shows a 3D building-extrusion layer rendered client-side from the
 	// same VietMap vector tiles the base map already fetches (no separate

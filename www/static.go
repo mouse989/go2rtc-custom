@@ -7,4 +7,6 @@ import "embed"
 //go:embed *.css
 //go:embed *.json
 //go:embed *.png
+//go:embed *.mjs
+//go:embed *.wasm
 var Static embed.FS

@@ -1239,6 +1239,70 @@ def training_status():
         return dict(_training_state)
 
 
+class ExportOnnxRequest(BaseModel):
+    model: str   # e.g. "models/trained_20260101_120000.pt" (relative to this exe's dir)
+    imgsz: int = 416
+
+
+_export_lock = threading.Lock()
+
+
+@app.post("/export-onnx")
+def export_onnx(req: ExportOnnxRequest):
+    """Export a trained .pt weight file to ONNX for the browser-side AI
+    Analyze feature (go2rtc's internal/aianalyze) — a separate, lightweight
+    consumer of these weights from the heavier server-side GPU counting
+    pipeline this same process runs. Synchronous: unlike /train, exporting
+    a nano/small YOLO model to ONNX is a single forward-pass graph
+    conversion that normally finishes in a few seconds, so there's no need
+    for /train's background-process + polling-status machinery.
+
+    The caller (internal/counting's export-onnx proxy, called from
+    counting.html's model list) is expected to pass this response's
+    labels/vehicleLabels/inputSize straight through to
+    POST /api/ai-analyze/model/publish — this endpoint only exports and
+    reports what's in the model, it never decides what gets published.
+    """
+    base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    model_path = req.model
+    if not os.path.isabs(model_path):
+        model_path = os.path.join(base_dir, model_path)
+    # Security: must stay within base_dir (same convention as go2rtc's own
+    # handleModelsDownload path check) — req.model comes from an admin-only
+    # API, but still shouldn't be able to export an arbitrary file on disk.
+    if not os.path.abspath(model_path).startswith(os.path.abspath(base_dir)):
+        raise HTTPException(403, "model path must stay within the yolo_counter directory")
+    if not os.path.exists(model_path):
+        raise HTTPException(400, f"model not found: {req.model}")
+
+    from ultralytics import YOLO
+    with _export_lock:
+        try:
+            model = YOLO(model_path)
+            onnx_path = model.export(format="onnx", imgsz=req.imgsz, simplify=True, opset=12, dynamic=False)
+        except Exception as e:
+            raise HTTPException(500, f"export failed: {e}")
+
+    # model.names is {class_id: name}; sort by id so this list's order
+    # matches the ONNX output's class-score ordering exactly — the browser
+    # decoder (decodeUltralyticsOutput) relies on that position, not the name.
+    names_map = model.names
+    names = [names_map[i] for i in sorted(names_map.keys())]
+    vehicle_names = [n for n in names if n.lower() in _VEHICLE_NAMES]
+    person_names = [n for n in names if n.lower() == "person"]
+
+    rel_path = os.path.relpath(os.path.abspath(str(onnx_path)), base_dir).replace(os.sep, "/")
+    return {
+        "ok": True,
+        "onnx": rel_path,
+        "labels": names,
+        "vehicleLabels": vehicle_names,
+        "personLabels": person_names,
+        "inputSize": req.imgsz,
+        "format": "ultralytics",
+    }
+
+
 @app.get("/models")
 def list_models():
     """List custom-trained weight files available under models/, alongside

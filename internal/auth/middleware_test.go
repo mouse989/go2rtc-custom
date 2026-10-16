@@ -106,3 +106,18 @@ func TestUserCanAccessPathDashboard2IsIndependentOfDashboard(t *testing.T) {
 		t.Fatal("a viewer with neither TabDashboard nor TabDashboard2 must not reach /api/dashboard/summary")
 	}
 }
+
+// TestUserCanAccessPathAIAnalyze mirrors TestUserCanAccessPathMapRoute
+// above, for the AI Analyze feature's own permission.
+func TestUserCanAccessPathAIAnalyze(t *testing.T) {
+	gated := &User{Role: RoleViewer, AllowAIAnalyze: true}
+	for _, p := range []string{"/api/ai-analyze/model", "/api/ai-analyze/model/meta"} {
+		if !userCanAccessPath(gated, p) {
+			t.Fatalf("a viewer with AllowAIAnalyze should reach %s", p)
+		}
+	}
+	ungated := &User{Role: RoleViewer, AllowAIAnalyze: false}
+	if userCanAccessPath(ungated, "/api/ai-analyze/model") {
+		t.Fatal("a viewer without AllowAIAnalyze must not reach /api/ai-analyze/model")
+	}
+}

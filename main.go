@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/AlexxIT/go2rtc/internal/accesslog"
+	"github.com/AlexxIT/go2rtc/internal/aianalyze"
 	"github.com/AlexxIT/go2rtc/internal/aievent"
 	"github.com/AlexxIT/go2rtc/internal/alsa"
 	"github.com/AlexxIT/go2rtc/internal/api"
@@ -133,6 +134,7 @@ func main() {
 		{"aievent", aievent.Init},
 		{"trafficflow", trafficflow.Init},
 		{"gis", gis.Init},
+		{"aianalyze", aianalyze.Init},
 		// Helper modules
 		{"debug", debug.Init},
 		{"ngrok", ngrok.Init},

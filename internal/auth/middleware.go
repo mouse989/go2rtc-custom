@@ -235,7 +235,7 @@ func HasTab(ctx context.Context, tab string) bool {
 // tabExtraPaths maps tab keys to API paths accessible only to users with that tab.
 // These are checked in addition to viewerDefaultPaths.
 var tabExtraPaths = map[string][]string{
-	TabMonitor:   {"/api/system/stats"},
+	TabMonitor: {"/api/system/stats"},
 	// /api/vietmap/route here (not just under AllowMapRoute below) is for
 	// the Dashboard's travel-time route detail map, which draws the real
 	// road-following path for the route's own admin-configured origin/
@@ -249,10 +249,10 @@ var tabExtraPaths = map[string][]string{
 	// original Dashboard) — same extra-path list since it reads the exact
 	// same backend data, just under its own permission.
 	TabDashboard2: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
-	TabLog:       {"/api/log"},
-	TabConfig:    {"/api/config", "/api/restart"},
-	TabCounting:  {"/api/counting"},
-	TabIncidents: {"/api/incidents"},
+	TabLog:        {"/api/log"},
+	TabConfig:     {"/api/config", "/api/restart"},
+	TabCounting:   {"/api/counting"},
+	TabIncidents:  {"/api/incidents"},
 }
 
 func extractToken(r *http.Request) string {
@@ -358,6 +358,16 @@ func userCanAccessPath(u *User, path string) bool {
 		// NOT covered here — it's listed in isPublicPath below and does its
 		// own API-key auth (see internal/aievent), never a user permission.
 		if strings.HasPrefix(path, "/api/aievent/active") || strings.HasPrefix(path, "/api/aievent/image") {
+			return true
+		}
+	}
+	if u.AllowAIAnalyze {
+		// GET /api/ai-analyze/model(/meta) is what this flag is actually
+		// for; POST .../publish and PUT /api/ai-analyze/model also match
+		// this prefix but are separately re-gated to admin-only INSIDE
+		// internal/aianalyze/api.go's own handlers (requireAdmin) — same
+		// double-gate convention as the rest of this codebase, not a hole.
+		if strings.HasPrefix(path, "/api/ai-analyze/") {
 			return true
 		}
 	}

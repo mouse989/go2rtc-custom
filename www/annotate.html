@@ -244,6 +244,23 @@
         <button class="btn btn-primary" id="btnTrain" style="width:100%;font-size:0.8rem;">🚀 Bắt đầu</button>
         <div class="status-msg" id="trainMsg"></div>
       </div>
+
+      <!-- Export & Publish for AI Analyze (client-side detector) -->
+      <div class="rp-section">
+        <div class="rp-title">🔍 Xuất cho AI Analyze</div>
+        <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px;">
+          Xuất model "Model gốc / tiếp tục huấn luyện" ở trên (phải là model .pt đã huấn luyện) sang ONNX
+          và publish để tính năng AI Analyze/Watch 30s chạy trực tiếp trên trình duyệt sử dụng — không ảnh hưởng
+          tới model đang chạy đếm xe trực tiếp.
+        </div>
+        <div style="margin-bottom:6px;">
+          <label style="font-size:0.75rem;color:var(--text-secondary);display:block;margin-bottom:2px;">Kích thước ảnh đầu vào (imgsz)</label>
+          <input id="exportImgsz" type="number" value="416" min="128" max="1280" step="32" style="width:100%;font-size:0.78rem;">
+        </div>
+        <button class="btn btn-primary" id="btnExportPublish" style="width:100%;font-size:0.8rem;">📤 Xuất &amp; Publish</button>
+        <div class="status-msg" id="exportPublishMsg"></div>
+        <div id="exportPublishedInfo" style="font-size:.7rem;color:var(--text-secondary);margin-top:6px"></div>
+      </div>
     </div>
   </div>
 
@@ -644,6 +661,64 @@ async function loadTrainModels(workerID) {
 // Reload model list whenever the train server changes
 document.getElementById('trainServer')?.addEventListener('change', e => {
   loadTrainModels(e.target.value);
+});
+
+// ── Export & Publish for AI Analyze ─────────────────────────────────────
+// Two-step flow: POST /api/counting/export-onnx (internal/counting) runs
+// the actual .pt→.onnx conversion on the yolo_counter worker and reports
+// back the model's real labels (read from model.names, never guessed
+// here); its response is forwarded as-is into
+// POST /api/ai-analyze/model/publish (internal/aianalyze), which pulls the
+// exported file's bytes itself server-side — the (possibly tens-of-MB)
+// binary never has to round-trip through this admin's own browser
+// connection twice.
+async function loadPublishedModelInfo() {
+  const el = document.getElementById('exportPublishedInfo');
+  if (!el) return;
+  try {
+    const m = await apiFetch('/api/ai-analyze/model/meta');
+    const when = m.updated_at ? new Date(m.updated_at).toLocaleString('vi-VN') : '?';
+    el.textContent = `Đang publish: ${(m.labels||[]).join(', ')} · ${m.inputSize}px · cập nhật ${when}` +
+      (m.updated_by ? ` bởi ${m.updated_by}` : '') + (m.sourceModel ? ` · từ ${m.sourceModel.replace(/^models\//,'')}` : '');
+  } catch (e) {
+    el.textContent = 'Chưa publish model nào cho AI Analyze.';
+  }
+}
+loadPublishedModelInfo();
+
+document.getElementById('btnExportPublish')?.addEventListener('click', async () => {
+  const model = document.getElementById('trainModel').value;
+  const imgsz = parseInt(document.getElementById('exportImgsz').value, 10) || 416;
+  const workerId = document.getElementById('trainServer').value;
+  const msg = document.getElementById('exportPublishMsg');
+  if (!model) { msg.textContent = 'Chọn model trước.'; return; }
+  const btn = document.getElementById('btnExportPublish');
+  btn.disabled = true;
+  try {
+    msg.textContent = 'Đang xuất ONNX…';
+    const wParam = workerId ? ('?worker=' + encodeURIComponent(workerId)) : '';
+    const exp = await apiFetch('/api/counting/export-onnx' + wParam, {
+      method: 'POST',
+      body: JSON.stringify({ model, imgsz }),
+    });
+    if (exp.error) { msg.textContent = 'Lỗi xuất ONNX: ' + exp.error; return; }
+
+    msg.textContent = `✓ Đã xuất (${(exp.labels||[]).join(', ')}). Đang publish…`;
+    const pub = await apiFetch('/api/ai-analyze/model/publish', {
+      method: 'POST',
+      body: JSON.stringify({
+        workerId, onnxFile: exp.onnx,
+        labels: exp.labels, vehicleLabels: exp.vehicleLabels, personLabels: exp.personLabels,
+        inputSize: exp.inputSize, format: exp.format, sourceModel: model,
+      }),
+    });
+    msg.textContent = '✓ Đã publish cho AI Analyze.';
+    loadPublishedModelInfo();
+  } catch (e) {
+    msg.textContent = 'Lỗi: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // ── collect frames ──
