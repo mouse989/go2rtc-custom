@@ -1,4 +1,4 @@
-// ai-analyze-hud.js — "AI ANALYZE"/"WATCH 30S" button, tactical HUD overlay
+// ai-analyze-hud.js — "AI ANALYZE"/"Watch" button, tactical HUD overlay
 // and stats panel for the shared single-camera stream modal (same markup
 // on map.html and index.html: #modalBackdrop > .modal-body >
 // #modeTabs + #playerWrap). Detection itself runs in ai-analyze.worker.js;
@@ -199,7 +199,7 @@ function ensureAIHUDMounted() {
   document.getElementById('aiAnalyzeBtn').addEventListener('pointerenter', primeAIWorker);
   document.getElementById('aiAnalyzeBtn').addEventListener('click', () => performAnalyze(true).catch(showAIError));
   document.getElementById('aiWatchBtn').addEventListener('pointerenter', primeAIWorker);
-  document.getElementById('aiWatchBtn').addEventListener('click', () => startWatch30s());
+  document.getElementById('aiWatchBtn').addEventListener('click', () => startWatch());
 
   watchForPlayerReset();
   return relWrap;
@@ -293,7 +293,7 @@ function showAIError(e) {
 // that cadence.
 //
 // freezeFrame=true (WATCH on a live video source only — see
-// startWatch30s()) stages the captured frame AND swaps it onto the
+// startWatch()) stages the captured frame AND swaps it onto the
 // visible freeze canvas in the same synchronous pass that renders the
 // boxes, so what's on screen and what the boxes describe are always the
 // exact same instant. Without this, the live <video> keeps playing under
@@ -301,7 +301,7 @@ function showAIError(e) {
 // of that — the boxes would visibly lag behind a moving vehicle. Freezing
 // trades that for a slower, "dropped fps" slideshow of (frame, result)
 // pairs that are always correct together, paced at whatever rate
-// startWatch30s()'s self-pacing loop already settled on for this device.
+// startWatch()'s self-pacing loop already settled on for this device.
 async function performAnalyze(showScanUI, freezeFrame) {
   const btnRow = document.getElementById('aiBtnRow');
   const scanStatus = document.getElementById('aiScanStatus');
@@ -345,12 +345,16 @@ function stopWatch() {
 // browser naturally settles into whatever rate it can actually sustain —
 // skipping the video frames in between rather than falling behind them —
 // while a fast one still never exceeds the spec's target cadence (1s for
-// live video, 5s for still images), since we take the max. ─────────────
-async function startWatch30s() {
+// live video, 5s for still images), since we take the max.
+//
+// Runs indefinitely — not capped at 30s — until stopWatch() is called,
+// which happens automatically via resetAIOverlay() the moment the user
+// switches stream mode, opens a different camera, or closes the modal
+// (see watchForPlayerReset()). ──────────────────────────────────────────
+async function startWatch() {
   stopWatch();
   const isVideo = !!document.querySelector('#playerWrap video-stream');
   const targetMs = isVideo ? 1000 : 5000; // spec §4.2: 1s for live video, 5s for still images
-  const endAt = Date.now() + 30000;
   const token = {};
   _aiWatchToken = token;
 
@@ -373,7 +377,6 @@ async function startWatch30s() {
       if (showScanUI) { showAIError(e); return; }
     }
     if (_aiWatchToken !== token) return; // stopWatch() ran while the analyze above was in flight
-    if (Date.now() >= endAt) { stopWatch(); return; }
     const elapsed = performance.now() - t0;
     _aiWatchTimer = setTimeout(() => tick(false), Math.max(0, targetMs - elapsed));
   };
@@ -523,14 +526,18 @@ function renderAIStatsPanel(result) {
   const vnTime = vnTimeString(now);
 
   panel.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;font-size:.66rem;letter-spacing:.1em;color:rgba(255,255,255,.6);text-transform:uppercase">
-      <span>👁 ANALYSED ${vnTime} · ${result.light}</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.25rem .6rem;font-size:.66rem;letter-spacing:.1em;color:rgba(255,255,255,.6);text-transform:uppercase">
+      <span>👁 ANALYSED ${vnTime} · ${result.light}
+        <span style="text-transform:none;letter-spacing:.02em;color:rgba(255,255,255,.4);margin-left:.6rem"
+              title="Read by a detector running in this browser, never collect number plates">
+          🔒 Read by a detector running in this browser, never collect number plates
+        </span>
+      </span>
       <button id="aiCloseBtn" class="ai-hud-btn" style="border-color:rgba(255,255,255,.35);color:#fff">✕ LIVE</button>
     </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:.45rem;flex-wrap:wrap;gap:.5rem">
       <div style="display:flex;gap:1.6rem">
         <div><div id="aiCountVehicles" style="font-size:1.7rem;font-weight:700;color:${AI_CYAN}">0</div><div style="font-size:.6rem;letter-spacing:.15em;color:rgba(255,255,255,.5)">VEHICLES</div></div>
-        <div><div id="aiCountPeople" style="font-size:1.7rem;font-weight:700;color:${AI_GOLD}">0</div><div style="font-size:.6rem;letter-spacing:.15em;color:rgba(255,255,255,.5)">PEOPLE</div></div>
       </div>
       <div style="text-align:right;font-size:.66rem;color:rgba(255,255,255,.75)">
         <div>${escHtml(byLabelParts || '—')}</div>
@@ -539,14 +546,9 @@ function renderAIStatsPanel(result) {
     </div>
     <div style="display:flex;gap:1px;height:6px;margin-top:.5rem;border-radius:3px;overflow:hidden">${bar}</div>
     <div style="font-size:.6rem;color:rgba(255,255,255,.6);margin-top:.3rem;letter-spacing:.02em">${legend}</div>
-    <div style="margin-top:.5rem;padding-top:.4rem;border-top:1px solid rgba(255,255,255,.1);font-size:.58rem;letter-spacing:.04em;color:rgba(255,255,255,.5)"
-         title="Read by a detector running in this browser, never collect number plates">
-      🔒 Read by a detector running in this browser, never collect number plates
-    </div>
   `;
   panel.style.display = '';
   animateCountUp(document.getElementById('aiCountVehicles'), result.counts.vehicles, 1100);
-  animateCountUp(document.getElementById('aiCountPeople'), result.counts.people, 1100);
   document.getElementById('aiCloseBtn').addEventListener('click', () => { stopWatch(); resetAIOverlay(); });
 }
 
