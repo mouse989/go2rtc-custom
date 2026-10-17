@@ -469,11 +469,19 @@ async function startWatch() {
 // ── Rendering ────────────────────────────────────────────────────────
 function cornerBracketsSVG(x, y, w, h, color) {
   const L = Math.max(4, Math.min(14, w * 0.25, h * 0.25));
+  // vector-effect="non-scaling-stroke": the SVG's viewBox is the detector's
+  // native frame resolution (e.g. 640x480 vs 2560x1440 for different camera
+  // streams), scaled by the browser to whatever on-screen size the player
+  // actually renders at. Without this, stroke-width is in viewBox units, so
+  // the SAME "2" renders visibly thick on a low-res stream (small viewBox,
+  // large scale-up) and nearly invisible on a high-res one (large viewBox,
+  // scaled down) — this keeps the on-screen line thickness constant
+  // regardless of the source stream's resolution.
   return (
-    `<path d="M${x},${y + L} L${x},${y} L${x + L},${y}" stroke="${color}" stroke-width="2" fill="none"/>` +
-    `<path d="M${x + w - L},${y} L${x + w},${y} L${x + w},${y + L}" stroke="${color}" stroke-width="2" fill="none"/>` +
-    `<path d="M${x + w},${y + h - L} L${x + w},${y + h} L${x + w - L},${y + h}" stroke="${color}" stroke-width="2" fill="none"/>` +
-    `<path d="M${x + L},${y + h} L${x},${y + h} L${x},${y + h - L}" stroke="${color}" stroke-width="2" fill="none"/>`
+    `<path d="M${x},${y + L} L${x},${y} L${x + L},${y}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>` +
+    `<path d="M${x + w - L},${y} L${x + w},${y} L${x + w},${y + L}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>` +
+    `<path d="M${x + w},${y + h - L} L${x + w},${y + h} L${x + w - L},${y + h}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>` +
+    `<path d="M${x + L},${y + h} L${x},${y + h} L${x},${y + h - L}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>`
   );
 }
 
@@ -526,15 +534,15 @@ function renderAIResult(result) {
     const chipText = d.colour ? `${d.colour.toUpperCase()} ${labelWord(d.label, 1).toUpperCase()}` : d.label.toUpperCase();
 
     html += `<g class="ai-det" data-idx="${i}" style="cursor:pointer">`;
-    html += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-opacity="0.3" stroke-width="1"/>`;
+    html += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-opacity="0.3" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
     html += cornerBracketsSVG(x, y, w, h, color);
     if (swatch) {
       const sw = Math.min(14, w * 0.2);
-      html += `<rect x="${x + w - sw - 3}" y="${y + 3}" width="${sw}" height="${sw}" fill="${swatch}" stroke="#fff" stroke-width="1" stroke-opacity="0.7"/>`;
+      html += `<rect x="${x + w - sw - 3}" y="${y + 3}" width="${sw}" height="${sw}" fill="${swatch}" stroke="#fff" stroke-width="1" stroke-opacity="0.7" vector-effect="non-scaling-stroke"/>`;
     }
     if (labelPos.has(i)) {
       const p = labelPos.get(i);
-      html += `<text x="${p.x}" y="${p.y + 10}" font-size="10" font-family="ui-monospace,monospace" fill="${color}" style="paint-order:stroke" stroke="#000" stroke-width="2.5">${escHtml(chipText)}</text>`;
+      html += `<text x="${p.x}" y="${p.y + 10}" font-size="10" font-family="ui-monospace,monospace" fill="${color}" style="paint-order:stroke" stroke="#000" stroke-width="2.5" vector-effect="non-scaling-stroke">${escHtml(chipText)}</text>`;
     }
     html += `</g>`;
   });
@@ -555,6 +563,7 @@ function renderAIResult(result) {
         hoverLabel.setAttribute('fill', '#fff');
         hoverLabel.setAttribute('stroke', '#000');
         hoverLabel.setAttribute('stroke-width', '2.5');
+        hoverLabel.setAttribute('vector-effect', 'non-scaling-stroke');
         hoverLabel.setAttribute('style', 'paint-order:stroke');
         svg.appendChild(hoverLabel);
       }
