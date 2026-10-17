@@ -1,4 +1,4 @@
-// ai-analyze-hud.js — "AI ANALYZE"/"Watch" button, tactical HUD overlay
+// ai-analyze-hud.js — "🔍 AI ANALYZE" button, tactical HUD overlay
 // and stats panel for the shared single-camera stream modal (same markup
 // on map.html and index.html: #modalBackdrop > .modal-body >
 // #modeTabs + #playerWrap). Detection itself runs in ai-analyze.worker.js;
@@ -11,7 +11,12 @@
 // vehicles/people and reads each vehicle's exterior colour, entirely in
 // this browser. See the disclaimer rendered in the stats panel itself.
 
-const AI_GOLD = '#D4AF37';
+// Matches app.css's own --green design token (#3fb950) rather than an
+// invented shade — kept bright/medium-saturated (not a dark forest green)
+// since it has to stay legible against the near-black rgba(0,0,0,.78-.82)
+// backgrounds used throughout this HUD's overlay elements, regardless of
+// the site's own light/dark theme.
+const AI_GREEN = '#3fb950';
 const AI_CYAN = '#00E5FF';
 const COLOUR_SWATCH = {
   white: '#f4f4f5', silver: '#c4c8cc', grey: '#7c8087', black: '#0d0d0f',
@@ -97,6 +102,48 @@ async function captureCurrentFrame() {
   throw new Error('Chưa có khung hình để phân tích');
 }
 
+function isLiveVideoReady() {
+  const vs = document.querySelector('#playerWrap video-stream');
+  return !!(vs && vs.video && vs.video.readyState >= 2 && vs.video.videoWidth > 0);
+}
+
+// ── WATCH always analyzes live video, never a Snapshot-mode still image
+// — so clicking it switches the stream to "Auto" first if it isn't
+// already showing a ready video, instead of requiring the user to click
+// Auto themselves before Watch. Does this by simulating a real click on
+// the Auto mode-tab button, which reuses whichever page's own delegated
+// #modeTabs click handler is already wired up (map.html/index.html each
+// define their own startPlayer()/_currentModalID) — same
+// never-know-the-page's-own-function-names convention as
+// watchForPlayerReset() elsewhere in this file. ─────────────────────────
+async function ensureLiveVideoMode(timeoutMs = 10000) {
+  if (isLiveVideoReady()) return;
+
+  const autoTab = document.querySelector('#modeTabs [data-mode="webrtc,mse,hls"]');
+  if (!autoTab) throw new Error('Không tìm thấy nút Auto để chuyển sang xem video');
+  if (getComputedStyle(autoTab).display === 'none') throw new Error('Tài khoản không có quyền xem video trực tiếp');
+  autoTab.click();
+
+  // That click swaps #playerWrap's contents, which fires
+  // watchForPlayerReset()'s MutationObserver -> resetAIOverlay() once,
+  // resetting btnRow/scanStatus — so this loop re-asserts its own
+  // "switching" status on every tick rather than setting it once
+  // up-front, where it would just get wiped by that reset.
+  const btnRow = document.getElementById('aiBtnRow');
+  const scanStatus = document.getElementById('aiScanStatus');
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (btnRow) btnRow.style.display = 'none';
+    if (scanStatus) {
+      scanStatus.style.display = '';
+      scanStatus.innerHTML = `<div style="position:absolute;left:8px;bottom:8px;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.1em;color:${AI_GREEN};background:rgba(0,0,0,.78);padding:.22rem .55rem;border-radius:3px">ĐANG CHUYỂN SANG AUTO…</div>`;
+    }
+    if (isLiveVideoReady()) return;
+    await new Promise(r => setTimeout(r, 150));
+  }
+  throw new Error('Không nhận được hình ảnh video sau khi chuyển sang Auto — kiểm tra lại kết nối camera');
+}
+
 // ── One-time styles (sweep animation / scan grid need real @keyframes,
 // can't be done with inline style alone) ────────────────────────────────
 function ensureAIStyles() {
@@ -109,15 +156,15 @@ function ensureAIStyles() {
       text-transform:uppercase; cursor:pointer; backdrop-filter:blur(6px); }
     .ai-hud-btn:hover { filter:brightness(1.3); }
     .ai-mode-tabs { display:contents; }
-    .ai-mode-tab { padding:.28rem .7rem;border-radius:var(--radius);border:1px solid ${AI_GOLD};
-      background:rgba(212,175,55,.08);color:${AI_GOLD};font-size:.81rem;font-weight:600;cursor:pointer;
+    .ai-mode-tab { padding:.28rem .7rem;border-radius:var(--radius);border:1px solid ${AI_GREEN};
+      background:rgba(63,185,80,.08);color:${AI_GREEN};font-size:.81rem;font-weight:600;cursor:pointer;
       letter-spacing:.04em;transition:filter .15s,background .15s; }
-    .ai-mode-tab:hover { background:rgba(212,175,55,.18); }
+    .ai-mode-tab:hover { background:rgba(63,185,80,.18); }
     @keyframes ai-sweep { 0% { top:0% } 100% { top:100% } }
     .ai-sweep-line { position:absolute; left:0; right:0; height:2px;
-      background:linear-gradient(90deg, transparent, ${AI_GOLD}, transparent); animation: ai-sweep 1.8s linear infinite; }
+      background:linear-gradient(90deg, transparent, ${AI_GREEN}, transparent); animation: ai-sweep 1.8s linear infinite; }
     .ai-scan-grid { position:absolute; inset:0;
-      background-image: linear-gradient(rgba(212,175,55,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,.14) 1px, transparent 1px);
+      background-image: linear-gradient(rgba(63,185,80,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(63,185,80,.14) 1px, transparent 1px);
       background-size: 10% 10%; }
     .ai-tactical { font-family:ui-monospace,"JetBrains Mono","Share Tech Mono",monospace; }
   `;
@@ -149,19 +196,23 @@ function ensureAIHUDMounted() {
   playerWrap.parentElement.insertBefore(relWrap, playerWrap);
   relWrap.appendChild(playerWrap);
 
+  // A single button — the old separate one-shot "AI ANALYZE" button was
+  // removed; this one carries that label but is the (continuous, runs
+  // until the user switches mode) WATCH behavior underneath. #aiBtnRow
+  // still exists as a wrapper (rather than mounting the button directly)
+  // so resetAIOverlay() etc. keep a stable element to show/hide, same as
+  // when there were two buttons in it.
   const btnRow = document.createElement('div');
   btnRow.id = 'aiBtnRow';
   btnRow.className = 'ai-mode-tabs';
-  btnRow.innerHTML =
-    `<button id="aiAnalyzeBtn" class="ai-mode-tab">🔍 AI ANALYZE</button>` +
-    `<button id="aiWatchBtn" class="ai-mode-tab">⏱ Watch</button>`;
+  btnRow.innerHTML = `<button id="aiAnalyzeBtn" class="ai-mode-tab">🔍 AI ANALYZE</button>`;
   // Appended as a CHILD of #modeTabs (not a sibling) so it visually joins
-  // that same row — safe because these buttons use the distinct
+  // that same row — safe because this button uses the distinct
   // "ai-mode-tab" class, never the page's own "mode-tab" class, so
   // #modeTabs' delegated click handler (which does
   // e.target.closest('.mode-tab') and calls startPlayer(...) on a match)
-  // never matches a click on either of them, however deep they sit inside
-  // #modeTabs. Their own click listeners below fire independently.
+  // never matches a click on it, however deep it sits inside #modeTabs.
+  // Its own click listener below fires independently.
   const modeTabs = document.getElementById('modeTabs');
   if (modeTabs) {
     modeTabs.appendChild(btnRow);
@@ -197,9 +248,15 @@ function ensureAIHUDMounted() {
   relWrap.parentElement.insertBefore(statsPanel, relWrap.nextSibling);
 
   document.getElementById('aiAnalyzeBtn').addEventListener('pointerenter', primeAIWorker);
-  document.getElementById('aiAnalyzeBtn').addEventListener('click', () => performAnalyze(true).catch(showAIError));
-  document.getElementById('aiWatchBtn').addEventListener('pointerenter', primeAIWorker);
-  document.getElementById('aiWatchBtn').addEventListener('click', () => startWatch());
+  document.getElementById('aiAnalyzeBtn').addEventListener('click', async () => {
+    try {
+      await ensureLiveVideoMode();
+    } catch (e) {
+      showAIError(e);
+      return;
+    }
+    startWatch();
+  });
 
   watchForPlayerReset();
   return relWrap;
@@ -237,19 +294,17 @@ function resetAIOverlay() {
   stopWatch();
   const btnRow = document.getElementById('aiBtnRow');
   const analyzeBtn = document.getElementById('aiAnalyzeBtn');
-  const watchBtn = document.getElementById('aiWatchBtn');
   const scanStatus = document.getElementById('aiScanStatus');
   const svg = document.getElementById('aiSvgOverlay');
   const statsPanel = document.getElementById('aiStatsPanel');
   if (!btnRow) return;
   unfreezeDisplayedFrame();
-  // AllowAIAnalyze and AllowAIWatch are independent permissions — each
-  // button shows/hides on its own flag, not as a single all-or-nothing row
-  // (btnRow itself is never hidden here; it's display:contents and only
-  // ever forced to 'none' transiently by performAnalyze()/showAIError()
-  // below, during an active scan).
-  analyzeBtn.style.display = (typeof canAIAnalyze === 'function' && canAIAnalyze()) ? '' : 'none';
-  watchBtn.style.display = (typeof canAIWatch === 'function' && canAIWatch()) ? '' : 'none';
+  // Either AllowAIAnalyze or AllowAIWatch is enough to show this single
+  // button — both predate the merge of the two buttons into one, and a
+  // user previously granted just one of them should keep working.
+  const allowed = (typeof canAIAnalyze === 'function' && canAIAnalyze()) ||
+                   (typeof canAIWatch === 'function' && canAIWatch());
+  analyzeBtn.style.display = allowed ? '' : 'none';
   btnRow.style.display = '';
   scanStatus.style.display = 'none';
   scanStatus.innerHTML = '';
@@ -310,7 +365,7 @@ async function performAnalyze(showScanUI, freezeFrame) {
     scanStatus.style.display = '';
     scanStatus.innerHTML =
       '<div class="ai-scan-grid"></div><div class="ai-sweep-line"></div>' +
-      `<div id="aiScanText" style="position:absolute;left:8px;bottom:8px;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.1em;color:${AI_GOLD};background:rgba(0,0,0,.78);padding:.22rem .55rem;border-radius:3px">LOADING DETECTOR</div>`;
+      `<div id="aiScanText" style="position:absolute;left:8px;bottom:8px;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.1em;color:${AI_GREEN};background:rgba(0,0,0,.78);padding:.22rem .55rem;border-radius:3px">LOADING DETECTOR</div>`;
   }
   const bitmap = await captureCurrentFrame();
   if (freezeFrame) stageFrameForFreeze(bitmap); // reads the bitmap; doesn't consume it — still safe to transfer below
@@ -439,7 +494,7 @@ function renderAIResult(result) {
   dets.forEach((d, i) => {
     const [x, y, w, h] = d.box;
     const isVehicle = vehicleSet.has(d.label.toLowerCase());
-    const color = isVehicle ? AI_CYAN : AI_GOLD;
+    const color = isVehicle ? AI_CYAN : AI_GREEN;
     const swatch = d.colour ? COLOUR_SWATCH[d.colour] : null;
     const chipText = d.colour ? `${d.colour.toUpperCase()} ${labelWord(d.label, 1).toUpperCase()}` : d.label.toUpperCase();
 
