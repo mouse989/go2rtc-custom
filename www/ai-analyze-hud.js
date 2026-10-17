@@ -169,6 +169,17 @@ function ensureAIHUDMounted() {
     relWrap.parentElement.insertBefore(btnRow, relWrap);
   }
 
+  // Hidden until WATCH freezes a frame on it (see freezeDisplayedFrame())
+  // — sits above the live video but below the scan overlay/SVG, same
+  // aspect-ratio-preserving width:100%/height:100% technique the SVG
+  // overlay already uses via its viewBox (this container is sized FROM
+  // the video's own intrinsic aspect ratio, not the other way around, so
+  // no object-fit/letterboxing math is needed here either).
+  const freezeCanvas = document.createElement('canvas');
+  freezeCanvas.id = 'aiFreezeCanvas';
+  freezeCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:none;z-index:3;pointer-events:none';
+  relWrap.appendChild(freezeCanvas);
+
   const scanStatus = document.createElement('div');
   scanStatus.id = 'aiScanStatus';
   scanStatus.style.cssText = 'position:absolute;inset:0;display:none;z-index:6;pointer-events:none';
@@ -194,6 +205,34 @@ function ensureAIHUDMounted() {
   return relWrap;
 }
 
+// ── Frame freeze (WATCH on live video only — see freezeDisplayedFrame()
+// for why) ───────────────────────────────────────────────────────────
+let _aiFreezeStagingCanvas = null; // off-DOM scratch buffer, never shown directly
+function stageFrameForFreeze(bitmap) {
+  // Reads the bitmap via drawImage without consuming it — the caller is
+  // free to still transfer the same bitmap to the worker afterward.
+  if (!_aiFreezeStagingCanvas) _aiFreezeStagingCanvas = document.createElement('canvas');
+  _aiFreezeStagingCanvas.width = bitmap.width;
+  _aiFreezeStagingCanvas.height = bitmap.height;
+  _aiFreezeStagingCanvas.getContext('2d').drawImage(bitmap, 0, 0);
+}
+// Swaps the staged frame onto the VISIBLE freeze canvas and shows it —
+// call this and renderAIResult() back-to-back (same synchronous tick, no
+// await between them) so the displayed frame and its detection boxes
+// always change together, never one without the other.
+function freezeDisplayedFrame() {
+  const canvas = document.getElementById('aiFreezeCanvas');
+  if (!canvas || !_aiFreezeStagingCanvas) return;
+  canvas.width = _aiFreezeStagingCanvas.width;
+  canvas.height = _aiFreezeStagingCanvas.height;
+  canvas.getContext('2d').drawImage(_aiFreezeStagingCanvas, 0, 0);
+  canvas.style.display = '';
+}
+function unfreezeDisplayedFrame() {
+  const canvas = document.getElementById('aiFreezeCanvas');
+  if (canvas) canvas.style.display = 'none';
+}
+
 function resetAIOverlay() {
   stopWatch();
   const btnRow = document.getElementById('aiBtnRow');
@@ -203,6 +242,7 @@ function resetAIOverlay() {
   const svg = document.getElementById('aiSvgOverlay');
   const statsPanel = document.getElementById('aiStatsPanel');
   if (!btnRow) return;
+  unfreezeDisplayedFrame();
   // AllowAIAnalyze and AllowAIWatch are independent permissions — each
   // button shows/hides on its own flag, not as a single all-or-nothing row
   // (btnRow itself is never hidden here; it's display:contents and only
@@ -247,11 +287,22 @@ function showAIError(e) {
 }
 
 // ── Run one analysis pass. showScanUI=true (the AI ANALYZE click, and
-// WATCH 30S's first tick) plays the scanning transition; subsequent
-// WATCH 30S ticks just re-render in place over the existing overlay —
-// replaying the scan animation every 1-5s would be more distracting than
-// informative at that cadence. ─────────────────────────────────────────
-async function performAnalyze(showScanUI) {
+// WATCH's first tick) plays the scanning transition; subsequent WATCH
+// ticks just re-render in place over the existing overlay — replaying the
+// scan animation every 1-5s would be more distracting than informative at
+// that cadence.
+//
+// freezeFrame=true (WATCH on a live video source only — see
+// startWatch30s()) stages the captured frame AND swaps it onto the
+// visible freeze canvas in the same synchronous pass that renders the
+// boxes, so what's on screen and what the boxes describe are always the
+// exact same instant. Without this, the live <video> keeps playing under
+// the overlay at its own 12-20fps while WATCH can only analyze a fraction
+// of that — the boxes would visibly lag behind a moving vehicle. Freezing
+// trades that for a slower, "dropped fps" slideshow of (frame, result)
+// pairs that are always correct together, paced at whatever rate
+// startWatch30s()'s self-pacing loop already settled on for this device.
+async function performAnalyze(showScanUI, freezeFrame) {
   const btnRow = document.getElementById('aiBtnRow');
   const scanStatus = document.getElementById('aiScanStatus');
   if (showScanUI) {
@@ -262,11 +313,13 @@ async function performAnalyze(showScanUI) {
       `<div id="aiScanText" style="position:absolute;left:8px;bottom:8px;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.1em;color:${AI_GOLD};background:rgba(0,0,0,.78);padding:.22rem .55rem;border-radius:3px">LOADING DETECTOR</div>`;
   }
   const bitmap = await captureCurrentFrame();
+  if (freezeFrame) stageFrameForFreeze(bitmap); // reads the bitmap; doesn't consume it — still safe to transfer below
   const result = await requestAnalyze(bitmap, (p) => {
     const t = document.getElementById('aiScanText');
     if (t) t.textContent = `READING · PASS ${p.pass}/${p.total} · ${p.found} FOUND`;
   });
   if (showScanUI) scanStatus.style.display = 'none';
+  if (freezeFrame) freezeDisplayedFrame(); // same synchronous pass as renderAIResult() below — frame and boxes swap together
   renderAIResult(result);
   return result;
 }
@@ -276,6 +329,7 @@ let _aiWatchToken = null;
 function stopWatch() {
   if (_aiWatchTimer) { clearTimeout(_aiWatchTimer); _aiWatchTimer = null; }
   _aiWatchToken = null; // invalidates any tick currently awaiting performAnalyze()
+  unfreezeDisplayedFrame(); // restore the live video view
 }
 
 // ── WATCH's loop is self-pacing, not a fixed setInterval: each tick only
@@ -308,7 +362,10 @@ async function startWatch30s() {
     if (_aiWatchToken !== token) return; // stopWatch() ran while this tick was scheduled/pending
     const t0 = performance.now();
     try {
-      await performAnalyze(showScanUI);
+      // Freeze the displayed frame only for live video — a snapshot
+      // source is already a single static image between its own
+      // auto-refreshes, so there's no live motion to desync from.
+      await performAnalyze(showScanUI, isVideo);
     } catch (e) {
       // First pass failing aborts WATCH entirely; a single missed periodic
       // tick is not worth interrupting the user over — fall through below
