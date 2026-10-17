@@ -97,6 +97,48 @@ async function captureCurrentFrame() {
   throw new Error('Chưa có khung hình để phân tích');
 }
 
+function isLiveVideoReady() {
+  const vs = document.querySelector('#playerWrap video-stream');
+  return !!(vs && vs.video && vs.video.readyState >= 2 && vs.video.videoWidth > 0);
+}
+
+// ── WATCH always analyzes live video, never a Snapshot-mode still image
+// — so clicking it switches the stream to "Auto" first if it isn't
+// already showing a ready video, instead of requiring the user to click
+// Auto themselves before Watch. Does this by simulating a real click on
+// the Auto mode-tab button, which reuses whichever page's own delegated
+// #modeTabs click handler is already wired up (map.html/index.html each
+// define their own startPlayer()/_currentModalID) — same
+// never-know-the-page's-own-function-names convention as
+// watchForPlayerReset() elsewhere in this file. ─────────────────────────
+async function ensureLiveVideoMode(timeoutMs = 10000) {
+  if (isLiveVideoReady()) return;
+
+  const autoTab = document.querySelector('#modeTabs [data-mode="webrtc,mse,hls"]');
+  if (!autoTab) throw new Error('Không tìm thấy nút Auto để chuyển sang xem video');
+  if (getComputedStyle(autoTab).display === 'none') throw new Error('Tài khoản không có quyền xem video trực tiếp');
+  autoTab.click();
+
+  // That click swaps #playerWrap's contents, which fires
+  // watchForPlayerReset()'s MutationObserver -> resetAIOverlay() once,
+  // resetting btnRow/scanStatus — so this loop re-asserts its own
+  // "switching" status on every tick rather than setting it once
+  // up-front, where it would just get wiped by that reset.
+  const btnRow = document.getElementById('aiBtnRow');
+  const scanStatus = document.getElementById('aiScanStatus');
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (btnRow) btnRow.style.display = 'none';
+    if (scanStatus) {
+      scanStatus.style.display = '';
+      scanStatus.innerHTML = `<div style="position:absolute;left:8px;bottom:8px;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.1em;color:${AI_GOLD};background:rgba(0,0,0,.78);padding:.22rem .55rem;border-radius:3px">ĐANG CHUYỂN SANG AUTO…</div>`;
+    }
+    if (isLiveVideoReady()) return;
+    await new Promise(r => setTimeout(r, 150));
+  }
+  throw new Error('Không nhận được hình ảnh video sau khi chuyển sang Auto — kiểm tra lại kết nối camera');
+}
+
 // ── One-time styles (sweep animation / scan grid need real @keyframes,
 // can't be done with inline style alone) ────────────────────────────────
 function ensureAIStyles() {
@@ -199,7 +241,15 @@ function ensureAIHUDMounted() {
   document.getElementById('aiAnalyzeBtn').addEventListener('pointerenter', primeAIWorker);
   document.getElementById('aiAnalyzeBtn').addEventListener('click', () => performAnalyze(true).catch(showAIError));
   document.getElementById('aiWatchBtn').addEventListener('pointerenter', primeAIWorker);
-  document.getElementById('aiWatchBtn').addEventListener('click', () => startWatch());
+  document.getElementById('aiWatchBtn').addEventListener('click', async () => {
+    try {
+      await ensureLiveVideoMode();
+    } catch (e) {
+      showAIError(e);
+      return;
+    }
+    startWatch();
+  });
 
   watchForPlayerReset();
   return relWrap;
