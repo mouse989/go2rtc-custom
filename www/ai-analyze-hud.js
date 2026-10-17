@@ -272,19 +272,55 @@ async function performAnalyze(showScanUI) {
 }
 
 let _aiWatchTimer = null;
+let _aiWatchToken = null;
 function stopWatch() {
-  if (_aiWatchTimer) { clearInterval(_aiWatchTimer); _aiWatchTimer = null; }
+  if (_aiWatchTimer) { clearTimeout(_aiWatchTimer); _aiWatchTimer = null; }
+  _aiWatchToken = null; // invalidates any tick currently awaiting performAnalyze()
 }
+
+// ── WATCH's loop is self-pacing, not a fixed setInterval: each tick only
+// schedules the NEXT one after the current performAnalyze() has fully
+// resolved and rendered, with the gap = max(target cadence, actual time
+// that pass took on THIS device). A fixed-interval timer would instead
+// fire the next tick even while a slow device is still working through
+// the previous one — on a weak CPU that piles up overlapping requests on
+// the single ONNX worker (it has no choice but to queue them, since
+// there's one WASM session), each working from an increasingly stale
+// captured frame, and memory grows with every bitmap still waiting to be
+// processed. Pacing off the measured elapsed time instead means a slow
+// browser naturally settles into whatever rate it can actually sustain —
+// skipping the video frames in between rather than falling behind them —
+// while a fast one still never exceeds the spec's target cadence (1s for
+// live video, 5s for still images), since we take the max. ─────────────
 async function startWatch30s() {
   stopWatch();
   const isVideo = !!document.querySelector('#playerWrap video-stream');
-  const intervalMs = isVideo ? 1000 : 5000; // spec §4.2: 1s for live video, 5s for still images
+  const targetMs = isVideo ? 1000 : 5000; // spec §4.2: 1s for live video, 5s for still images
   const endAt = Date.now() + 30000;
-  try { await performAnalyze(true); } catch (e) { showAIError(e); return; }
-  _aiWatchTimer = setInterval(async () => {
+  const token = {};
+  _aiWatchToken = token;
+
+  // One loop for the first (scan-UI) pass and every periodic tick after
+  // it, so the gap after the FIRST pass is just as adaptive as every
+  // later one — a slow initial pass must not still be followed by a flat
+  // targetMs wait on top of it.
+  const tick = async (showScanUI) => {
+    if (_aiWatchToken !== token) return; // stopWatch() ran while this tick was scheduled/pending
+    const t0 = performance.now();
+    try {
+      await performAnalyze(showScanUI);
+    } catch (e) {
+      // First pass failing aborts WATCH entirely; a single missed periodic
+      // tick is not worth interrupting the user over — fall through below
+      // to reschedule the next one as usual.
+      if (showScanUI) { showAIError(e); return; }
+    }
+    if (_aiWatchToken !== token) return; // stopWatch() ran while the analyze above was in flight
     if (Date.now() >= endAt) { stopWatch(); return; }
-    try { await performAnalyze(false); } catch (_) { /* a single missed tick during WATCH is not worth interrupting the user over */ }
-  }, intervalMs);
+    const elapsed = performance.now() - t0;
+    _aiWatchTimer = setTimeout(() => tick(false), Math.max(0, targetMs - elapsed));
+  };
+  await tick(true);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────
