@@ -9,13 +9,16 @@ import (
 	"testing"
 )
 
-// capabilitiesXML advertises Media/Imaging/PTZ all on the test server
-// itself — NewClient only keeps the PATH portion of each XAddr (see
-// GetPath), so the host in these XAddr values is never actually dialed.
+// capabilitiesXML advertises Media/Imaging/PTZ as relative paths, which
+// resolveServiceURL resolves against baseURL (the test server itself) —
+// an absolute XAddr would instead be taken verbatim (see
+// client_test.go's TestResolveServiceURLPrefersAbsoluteXAddr) and this
+// fixture isn't testing that; it wants every request routed back to this
+// same httptest server regardless.
 const capabilitiesXML = `<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><s:Body><tds:GetCapabilitiesResponse><tds:Capabilities>
-	<tt:Media><tt:XAddr>http://ignored/onvif/media_service</tt:XAddr></tt:Media>
-	<tt:Imaging><tt:XAddr>http://ignored/onvif/imaging_service</tt:XAddr></tt:Imaging>
-	<tt:PTZ><tt:XAddr>http://ignored/onvif/ptz_service</tt:XAddr></tt:PTZ>
+	<tt:Media><tt:XAddr>/onvif/media_service</tt:XAddr></tt:Media>
+	<tt:Imaging><tt:XAddr>/onvif/imaging_service</tt:XAddr></tt:Imaging>
+	<tt:PTZ><tt:XAddr>/onvif/ptz_service</tt:XAddr></tt:PTZ>
 </tds:Capabilities></tds:GetCapabilitiesResponse></s:Body></s:Envelope>`
 
 func newTestClient(t *testing.T, handler func(body string) (status int, resp string)) *Client {

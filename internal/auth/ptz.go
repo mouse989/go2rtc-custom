@@ -1,10 +1,15 @@
 package auth
 
 // ptz.go — pan/tilt/zoom/focus control, entirely independent of the
-// snapshot module (camera_types.go's SnapshotPath/HTTPS/ONVIF/RTSP fields
-// are never read here, and vice versa — a camera's snapshot method and its
-// PTZ method are separate capabilities that happen to live on the same
-// CameraType). Focus (SendPTZFocus/SendPTZFocusStop) reuses the same
+// snapshot module (camera_types.go's SnapshotPath/ONVIF/RTSP fields are
+// never read here, and vice versa — a camera's snapshot method and its PTZ
+// method are separate capabilities that happen to live on the same
+// CameraType). The one exception is HTTPS: ptz_onvif.go DOES read
+// CameraType.HTTPS, since an ONVIF device that requires HTTPS for its
+// snapshot endpoint commonly requires it for its ONVIF SOAP services too
+// (see ptz_onvif.go's getOnvifPTZHandle).
+//
+// Focus (SendPTZFocus/SendPTZFocusStop) reuses the same
 // PTZEnabled/PTZDriver gate as pan/tilt/zoom rather than a capability flag
 // of its own — if a specific camera's lens has no manual focus override,
 // the camera itself rejects or no-ops the command, same tradeoff already

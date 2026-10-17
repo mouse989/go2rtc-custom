@@ -2,6 +2,7 @@ package onvif
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"html"
@@ -13,6 +14,16 @@ import (
 	"sync"
 	"time"
 )
+
+// httpClient is shared by every Request call below. Certificate
+// verification is skipped for the same reason internal/auth's
+// cameraHTTPClient skips it: ONVIF devices on a LAN almost always present
+// a self-signed certificate on their HTTPS management/SOAP endpoints
+// (e.g. Bosch), and there is no CA to validate against in that setting.
+var httpClient = &http.Client{
+	Timeout:   10 * time.Second,
+	Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+}
 
 const PathDevice = "/onvif/device_service"
 
@@ -40,7 +51,11 @@ func NewClient(rawURL string) (*Client, error) {
 		return nil, err
 	}
 
-	baseURL := "http://" + u.Host
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	baseURL := scheme + "://" + u.Host
 
 	client := &Client{url: u}
 	client.deviceURL = baseURL + GetPath(u.Path, PathDevice)
@@ -51,17 +66,37 @@ func NewClient(rawURL string) (*Client, error) {
 	}
 
 	s := FindTagValue(b, "Media.+?XAddr")
-	client.mediaURL = baseURL + GetPath(s, "/onvif/media_service")
+	client.mediaURL = resolveServiceURL(s, baseURL, "/onvif/media_service")
 
 	s = FindTagValue(b, "Imaging.+?XAddr")
-	client.imaginURL = baseURL + GetPath(s, "/onvif/imaging_service")
+	client.imaginURL = resolveServiceURL(s, baseURL, "/onvif/imaging_service")
 
 	// GetCapabilities was already called with Category=All above, so the
 	// PTZ service address is already present in b — no extra round trip.
 	s = FindTagValue(b, "PTZ.+?XAddr")
-	client.ptzURL = baseURL + GetPath(s, "/onvif/ptz_service")
+	client.ptzURL = resolveServiceURL(s, baseURL, "/onvif/ptz_service")
 
 	return client, nil
+}
+
+// resolveServiceURL builds one ONVIF service's full URL. Prefers xAddr
+// verbatim when the device reported a complete absolute URL (scheme+host)
+// for it — some devices (Bosch included) serve individual ONVIF services
+// on a different scheme/port than the device service used to reach
+// GetCapabilities in the first place, e.g. HTTPS-only PTZ/media on an
+// otherwise-HTTP device endpoint. GetPath alone would silently discard
+// that scheme+host and rebuild the URL against baseURL instead, which is
+// exactly why ONVIF PTZ used to fail over HTTPS even when the initial
+// connection (and GetCapabilities) succeeded: every subsequent SOAP call
+// got forced back onto baseURL's scheme. Falls back to baseURL + defPath
+// when xAddr is empty, relative, or unparseable.
+func resolveServiceURL(xAddr, baseURL, defPath string) string {
+	if xAddr != "" {
+		if u, err := url.Parse(xAddr); err == nil && u.IsAbs() && u.Host != "" {
+			return u.String()
+		}
+	}
+	return baseURL + GetPath(xAddr, defPath)
 }
 
 func (c *Client) GetURI() (string, error) {
@@ -380,8 +415,7 @@ func (c *Client) Request(url, body string) ([]byte, error) {
 	e := NewEnvelopeWithUser(c.url.User)
 	e.Append(body)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	res, err := client.Post(url, `application/soap+xml;charset=utf-8`, bytes.NewReader(e.Bytes()))
+	res, err := httpClient.Post(url, `application/soap+xml;charset=utf-8`, bytes.NewReader(e.Bytes()))
 	if err != nil {
 		return nil, err
 	}
