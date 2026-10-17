@@ -467,6 +467,24 @@ tr:hover td { background:var(--surface2); }
 
       <div class="card" style="max-width:520px;margin-top:1rem">
         <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.95rem;font-weight:700">🎨 Màu khung nhận diện AI Analyze</h3>
+        </div>
+        <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            Màu khung đánh dấu (và nhãn chữ) cho từng loại đối tượng khi dùng tính năng
+            <strong>🔍 AI ANALYZE</strong> ở khung xem camera. Áp dụng cho tất cả user, session.
+          </p>
+          <div id="aiColorRows" style="display:flex;flex-direction:column;gap:.5rem"></div>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="saveAIClassColors()">💾 Lưu màu</button>
+            <button class="btn btn-ghost btn-sm" onclick="resetAIClassColors()">↺ Khôi phục mặc định</button>
+            <span id="aiColorSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Đã lưu</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:520px;margin-top:1rem">
+        <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
           <h3 style="font-size:.95rem;font-weight:700">🔒 RTSP Server Security</h3>
         </div>
         <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
@@ -2575,6 +2593,55 @@ async function loadSettings() {
   } catch (e) {}
   loadRtspCreds();
   loadModules();
+  loadAIClassColors();
+}
+
+// ── AI Analyze detection marker colors (per class) ──
+// Must mirror internal/aianalyze/colors.go's DefaultClassColors exactly —
+// used here only as the "↺ Khôi phục mặc định" target and as a fallback
+// if the GET below fails; the server is the real source of truth.
+const AI_DEFAULT_CLASS_COLORS = {
+  car: '#00E5FF', motorcycle: '#3fb950', bus: '#B388FF',
+  truck: '#FFEE58', bicycle: '#F06292', person: '#FF9800',
+};
+const AI_CLASS_LABELS = {
+  car: 'Ô tô con', motorcycle: 'Xe máy', bus: 'Xe buýt',
+  truck: 'Xe tải', bicycle: 'Xe đạp', person: 'Người',
+};
+function renderAIColorRows(colors) {
+  const box = document.getElementById('aiColorRows');
+  box.innerHTML = Object.keys(AI_DEFAULT_CLASS_COLORS).map(cls => `
+    <div style="display:flex;align-items:center;gap:.6rem">
+      <input type="color" id="aiColor_${cls}" value="${esc(colors[cls] || AI_DEFAULT_CLASS_COLORS[cls])}"
+             style="width:42px;height:30px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer">
+      <span style="font-size:.82rem;width:90px">${esc(AI_CLASS_LABELS[cls])}</span>
+      <code style="font-size:.74rem;color:var(--text-muted)">${esc(cls)}</code>
+    </div>`).join('');
+}
+async function loadAIClassColors() {
+  try {
+    const colors = await apiFetch('/api/ai-analyze/class-colors');
+    renderAIColorRows(colors || AI_DEFAULT_CLASS_COLORS);
+  } catch (e) {
+    renderAIColorRows(AI_DEFAULT_CLASS_COLORS);
+  }
+}
+function resetAIClassColors() {
+  renderAIColorRows(AI_DEFAULT_CLASS_COLORS);
+}
+async function saveAIClassColors() {
+  const body = {};
+  Object.keys(AI_DEFAULT_CLASS_COLORS).forEach(cls => {
+    body[cls] = document.getElementById('aiColor_' + cls).value;
+  });
+  try {
+    await apiFetch('/api/ai-analyze/class-colors', { method: 'PUT', body });
+    const msg = document.getElementById('aiColorSaveMsg');
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  } catch (e) {
+    alert('Lưu màu thất bại: ' + e.message);
+  }
 }
 
 // ── Modules (which services to start next boot) ──

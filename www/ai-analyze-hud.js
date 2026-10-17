@@ -18,22 +18,33 @@
 // the site's own light/dark theme.
 const AI_GREEN = '#3fb950';
 const AI_CYAN = '#00E5FF';
-// Per-vehicle-class colours for the detection boxes/labels — this
-// deployment doesn't count people, so there's no more use distinguishing
+// Per-class colours for the detection boxes/labels — this deployment
+// doesn't count people, so there's no more use distinguishing
 // "vehicle vs person" by colour; distinguishing CAR vs MOTORBIKE vs BUS
-// vs TRUCK at a glance is what actually matters here. Picked to read
-// clearly against varied camera footage and stay distinct from each
-// other and from AI_GREEN (still used for person boxes, kept in case a
-// future deployment re-enables people counting).
-const CLASS_COLORS = {
+// vs TRUCK (and PERSON) at a glance is what actually matters here. This
+// table is only the fallback used before /api/ai-analyze/class-colors
+// has loaded (or if it fails) — it must mirror
+// internal/aianalyze/colors.go's DefaultClassColors exactly, since that's
+// the real source of truth an admin can override from Admin Config.
+const FALLBACK_CLASS_COLORS = {
   car: '#00E5FF',        // cyan
-  motorcycle: '#FF9800',  // orange
+  motorcycle: '#3fb950',  // green
   bus: '#B388FF',         // violet
   truck: '#FFEE58',       // yellow
   bicycle: '#F06292',     // pink
+  person: '#FF9800',      // orange
 };
+let _classColorMap = { ...FALLBACK_CLASS_COLORS };
+async function loadClassColors() {
+  try {
+    const r = await fetch('/api/ai-analyze/class-colors', { headers: { Authorization: 'Bearer ' + getToken() } });
+    if (!r.ok) return;
+    const m = await r.json();
+    if (m && typeof m === 'object') _classColorMap = m;
+  } catch (_) { /* keep FALLBACK_CLASS_COLORS */ }
+}
 function classColor(label) {
-  return CLASS_COLORS[label.toLowerCase()] || AI_CYAN;
+  return _classColorMap[label.toLowerCase()] || AI_CYAN;
 }
 const COLOUR_SWATCH = {
   white: '#f4f4f5', silver: '#c4c8cc', grey: '#7c8087', black: '#0d0d0f',
@@ -510,8 +521,7 @@ function renderAIResult(result) {
   let html = '';
   dets.forEach((d, i) => {
     const [x, y, w, h] = d.box;
-    const isVehicle = vehicleSet.has(d.label.toLowerCase());
-    const color = isVehicle ? classColor(d.label) : AI_GREEN;
+    const color = classColor(d.label);
     const swatch = d.colour ? COLOUR_SWATCH[d.colour] : null;
     const chipText = d.colour ? `${d.colour.toUpperCase()} ${labelWord(d.label, 1).toUpperCase()}` : d.label.toUpperCase();
 
@@ -626,7 +636,7 @@ function renderAIStatsPanel(result) {
 
 // ── Boot ─────────────────────────────────────────────────────────────
 (function initAIAnalyzeHUD() {
-  const start = () => { ensureAIHUDMounted(); resetAIOverlay(); };
+  const start = () => { ensureAIHUDMounted(); resetAIOverlay(); loadClassColors(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();

@@ -14,6 +14,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/ai-analyze/model", handleModel)
 	http.HandleFunc("/api/ai-analyze/model/meta", handleModelMeta)
 	http.HandleFunc("/api/ai-analyze/model/publish", handleModelPublish)
+	http.HandleFunc("/api/ai-analyze/class-colors", handleClassColors)
 }
 
 // requireViewer allows admin or any user explicitly granted AllowAIAnalyze
@@ -199,6 +200,40 @@ func handleModelPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, saved)
+}
+
+// GET /api/ai-analyze/class-colors — any viewer (same gate as the model
+// itself): the browser overlay needs this to render boxes, not just the
+// admin who configures it.
+// PUT /api/ai-analyze/class-colors — admin only. Body is the full
+// class→colour map to save (a class omitted or sent with an empty value
+// reverts to DefaultClassColors for that class — see SetClassColors).
+func handleClassColors(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if !requireViewer(w, r) {
+			return
+		}
+		writeJSON(w, GetClassColors())
+
+	case http.MethodPut, http.MethodPost:
+		if !requireAdmin(w, r) {
+			return
+		}
+		var colors map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&colors); err != nil {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := SetClassColors(colors); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, GetClassColors())
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
