@@ -1,4 +1,4 @@
-// ai-analyze-hud.js — "AI ANALYZE"/"WATCH 30S" button, tactical HUD overlay
+// ai-analyze-hud.js — "AI ANALYZE"/"Watch" button, tactical HUD overlay
 // and stats panel for the shared single-camera stream modal (same markup
 // on map.html and index.html: #modalBackdrop > .modal-body >
 // #modeTabs + #playerWrap). Detection itself runs in ai-analyze.worker.js;
@@ -169,6 +169,17 @@ function ensureAIHUDMounted() {
     relWrap.parentElement.insertBefore(btnRow, relWrap);
   }
 
+  // Hidden until WATCH freezes a frame on it (see freezeDisplayedFrame())
+  // — sits above the live video but below the scan overlay/SVG, same
+  // aspect-ratio-preserving width:100%/height:100% technique the SVG
+  // overlay already uses via its viewBox (this container is sized FROM
+  // the video's own intrinsic aspect ratio, not the other way around, so
+  // no object-fit/letterboxing math is needed here either).
+  const freezeCanvas = document.createElement('canvas');
+  freezeCanvas.id = 'aiFreezeCanvas';
+  freezeCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:none;z-index:3;pointer-events:none';
+  relWrap.appendChild(freezeCanvas);
+
   const scanStatus = document.createElement('div');
   scanStatus.id = 'aiScanStatus';
   scanStatus.style.cssText = 'position:absolute;inset:0;display:none;z-index:6;pointer-events:none';
@@ -188,10 +199,38 @@ function ensureAIHUDMounted() {
   document.getElementById('aiAnalyzeBtn').addEventListener('pointerenter', primeAIWorker);
   document.getElementById('aiAnalyzeBtn').addEventListener('click', () => performAnalyze(true).catch(showAIError));
   document.getElementById('aiWatchBtn').addEventListener('pointerenter', primeAIWorker);
-  document.getElementById('aiWatchBtn').addEventListener('click', () => startWatch30s());
+  document.getElementById('aiWatchBtn').addEventListener('click', () => startWatch());
 
   watchForPlayerReset();
   return relWrap;
+}
+
+// ── Frame freeze (WATCH on live video only — see freezeDisplayedFrame()
+// for why) ───────────────────────────────────────────────────────────
+let _aiFreezeStagingCanvas = null; // off-DOM scratch buffer, never shown directly
+function stageFrameForFreeze(bitmap) {
+  // Reads the bitmap via drawImage without consuming it — the caller is
+  // free to still transfer the same bitmap to the worker afterward.
+  if (!_aiFreezeStagingCanvas) _aiFreezeStagingCanvas = document.createElement('canvas');
+  _aiFreezeStagingCanvas.width = bitmap.width;
+  _aiFreezeStagingCanvas.height = bitmap.height;
+  _aiFreezeStagingCanvas.getContext('2d').drawImage(bitmap, 0, 0);
+}
+// Swaps the staged frame onto the VISIBLE freeze canvas and shows it —
+// call this and renderAIResult() back-to-back (same synchronous tick, no
+// await between them) so the displayed frame and its detection boxes
+// always change together, never one without the other.
+function freezeDisplayedFrame() {
+  const canvas = document.getElementById('aiFreezeCanvas');
+  if (!canvas || !_aiFreezeStagingCanvas) return;
+  canvas.width = _aiFreezeStagingCanvas.width;
+  canvas.height = _aiFreezeStagingCanvas.height;
+  canvas.getContext('2d').drawImage(_aiFreezeStagingCanvas, 0, 0);
+  canvas.style.display = '';
+}
+function unfreezeDisplayedFrame() {
+  const canvas = document.getElementById('aiFreezeCanvas');
+  if (canvas) canvas.style.display = 'none';
 }
 
 function resetAIOverlay() {
@@ -203,6 +242,7 @@ function resetAIOverlay() {
   const svg = document.getElementById('aiSvgOverlay');
   const statsPanel = document.getElementById('aiStatsPanel');
   if (!btnRow) return;
+  unfreezeDisplayedFrame();
   // AllowAIAnalyze and AllowAIWatch are independent permissions — each
   // button shows/hides on its own flag, not as a single all-or-nothing row
   // (btnRow itself is never hidden here; it's display:contents and only
@@ -247,11 +287,22 @@ function showAIError(e) {
 }
 
 // ── Run one analysis pass. showScanUI=true (the AI ANALYZE click, and
-// WATCH 30S's first tick) plays the scanning transition; subsequent
-// WATCH 30S ticks just re-render in place over the existing overlay —
-// replaying the scan animation every 1-5s would be more distracting than
-// informative at that cadence. ─────────────────────────────────────────
-async function performAnalyze(showScanUI) {
+// WATCH's first tick) plays the scanning transition; subsequent WATCH
+// ticks just re-render in place over the existing overlay — replaying the
+// scan animation every 1-5s would be more distracting than informative at
+// that cadence.
+//
+// freezeFrame=true (WATCH on a live video source only — see
+// startWatch()) stages the captured frame AND swaps it onto the
+// visible freeze canvas in the same synchronous pass that renders the
+// boxes, so what's on screen and what the boxes describe are always the
+// exact same instant. Without this, the live <video> keeps playing under
+// the overlay at its own 12-20fps while WATCH can only analyze a fraction
+// of that — the boxes would visibly lag behind a moving vehicle. Freezing
+// trades that for a slower, "dropped fps" slideshow of (frame, result)
+// pairs that are always correct together, paced at whatever rate
+// startWatch()'s self-pacing loop already settled on for this device.
+async function performAnalyze(showScanUI, freezeFrame) {
   const btnRow = document.getElementById('aiBtnRow');
   const scanStatus = document.getElementById('aiScanStatus');
   if (showScanUI) {
@@ -262,29 +313,74 @@ async function performAnalyze(showScanUI) {
       `<div id="aiScanText" style="position:absolute;left:8px;bottom:8px;font-family:ui-monospace,monospace;font-size:.68rem;letter-spacing:.1em;color:${AI_GOLD};background:rgba(0,0,0,.78);padding:.22rem .55rem;border-radius:3px">LOADING DETECTOR</div>`;
   }
   const bitmap = await captureCurrentFrame();
+  if (freezeFrame) stageFrameForFreeze(bitmap); // reads the bitmap; doesn't consume it — still safe to transfer below
   const result = await requestAnalyze(bitmap, (p) => {
     const t = document.getElementById('aiScanText');
     if (t) t.textContent = `READING · PASS ${p.pass}/${p.total} · ${p.found} FOUND`;
   });
   if (showScanUI) scanStatus.style.display = 'none';
+  if (freezeFrame) freezeDisplayedFrame(); // same synchronous pass as renderAIResult() below — frame and boxes swap together
   renderAIResult(result);
   return result;
 }
 
 let _aiWatchTimer = null;
+let _aiWatchToken = null;
 function stopWatch() {
-  if (_aiWatchTimer) { clearInterval(_aiWatchTimer); _aiWatchTimer = null; }
+  if (_aiWatchTimer) { clearTimeout(_aiWatchTimer); _aiWatchTimer = null; }
+  _aiWatchToken = null; // invalidates any tick currently awaiting performAnalyze()
+  unfreezeDisplayedFrame(); // restore the live video view
 }
-async function startWatch30s() {
+
+// ── WATCH's loop is self-pacing, not a fixed setInterval: each tick only
+// schedules the NEXT one after the current performAnalyze() has fully
+// resolved and rendered, with the gap = max(target cadence, actual time
+// that pass took on THIS device). A fixed-interval timer would instead
+// fire the next tick even while a slow device is still working through
+// the previous one — on a weak CPU that piles up overlapping requests on
+// the single ONNX worker (it has no choice but to queue them, since
+// there's one WASM session), each working from an increasingly stale
+// captured frame, and memory grows with every bitmap still waiting to be
+// processed. Pacing off the measured elapsed time instead means a slow
+// browser naturally settles into whatever rate it can actually sustain —
+// skipping the video frames in between rather than falling behind them —
+// while a fast one still never exceeds the spec's target cadence (1s for
+// live video, 5s for still images), since we take the max.
+//
+// Runs indefinitely — not capped at 30s — until stopWatch() is called,
+// which happens automatically via resetAIOverlay() the moment the user
+// switches stream mode, opens a different camera, or closes the modal
+// (see watchForPlayerReset()). ──────────────────────────────────────────
+async function startWatch() {
   stopWatch();
   const isVideo = !!document.querySelector('#playerWrap video-stream');
-  const intervalMs = isVideo ? 1000 : 5000; // spec §4.2: 1s for live video, 5s for still images
-  const endAt = Date.now() + 30000;
-  try { await performAnalyze(true); } catch (e) { showAIError(e); return; }
-  _aiWatchTimer = setInterval(async () => {
-    if (Date.now() >= endAt) { stopWatch(); return; }
-    try { await performAnalyze(false); } catch (_) { /* a single missed tick during WATCH is not worth interrupting the user over */ }
-  }, intervalMs);
+  const targetMs = isVideo ? 1000 : 5000; // spec §4.2: 1s for live video, 5s for still images
+  const token = {};
+  _aiWatchToken = token;
+
+  // One loop for the first (scan-UI) pass and every periodic tick after
+  // it, so the gap after the FIRST pass is just as adaptive as every
+  // later one — a slow initial pass must not still be followed by a flat
+  // targetMs wait on top of it.
+  const tick = async (showScanUI) => {
+    if (_aiWatchToken !== token) return; // stopWatch() ran while this tick was scheduled/pending
+    const t0 = performance.now();
+    try {
+      // Freeze the displayed frame only for live video — a snapshot
+      // source is already a single static image between its own
+      // auto-refreshes, so there's no live motion to desync from.
+      await performAnalyze(showScanUI, isVideo);
+    } catch (e) {
+      // First pass failing aborts WATCH entirely; a single missed periodic
+      // tick is not worth interrupting the user over — fall through below
+      // to reschedule the next one as usual.
+      if (showScanUI) { showAIError(e); return; }
+    }
+    if (_aiWatchToken !== token) return; // stopWatch() ran while the analyze above was in flight
+    const elapsed = performance.now() - t0;
+    _aiWatchTimer = setTimeout(() => tick(false), Math.max(0, targetMs - elapsed));
+  };
+  await tick(true);
 }
 
 // ── Rendering ────────────────────────────────────────────────────────
@@ -430,14 +526,18 @@ function renderAIStatsPanel(result) {
   const vnTime = vnTimeString(now);
 
   panel.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;font-size:.66rem;letter-spacing:.1em;color:rgba(255,255,255,.6);text-transform:uppercase">
-      <span>👁 ANALYSED ${vnTime} · ${result.light}</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.25rem .6rem;font-size:.66rem;letter-spacing:.1em;color:rgba(255,255,255,.6);text-transform:uppercase">
+      <span>👁 ANALYSED ${vnTime} · ${result.light}
+        <span style="text-transform:none;letter-spacing:.02em;color:rgba(255,255,255,.4);margin-left:.6rem"
+              title="Read by a detector running in this browser, never collect number plates">
+          🔒 Read by a detector running in this browser, never collect number plates
+        </span>
+      </span>
       <button id="aiCloseBtn" class="ai-hud-btn" style="border-color:rgba(255,255,255,.35);color:#fff">✕ LIVE</button>
     </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:.45rem;flex-wrap:wrap;gap:.5rem">
       <div style="display:flex;gap:1.6rem">
         <div><div id="aiCountVehicles" style="font-size:1.7rem;font-weight:700;color:${AI_CYAN}">0</div><div style="font-size:.6rem;letter-spacing:.15em;color:rgba(255,255,255,.5)">VEHICLES</div></div>
-        <div><div id="aiCountPeople" style="font-size:1.7rem;font-weight:700;color:${AI_GOLD}">0</div><div style="font-size:.6rem;letter-spacing:.15em;color:rgba(255,255,255,.5)">PEOPLE</div></div>
       </div>
       <div style="text-align:right;font-size:.66rem;color:rgba(255,255,255,.75)">
         <div>${escHtml(byLabelParts || '—')}</div>
@@ -446,14 +546,9 @@ function renderAIStatsPanel(result) {
     </div>
     <div style="display:flex;gap:1px;height:6px;margin-top:.5rem;border-radius:3px;overflow:hidden">${bar}</div>
     <div style="font-size:.6rem;color:rgba(255,255,255,.6);margin-top:.3rem;letter-spacing:.02em">${legend}</div>
-    <div style="margin-top:.5rem;padding-top:.4rem;border-top:1px solid rgba(255,255,255,.1);font-size:.58rem;letter-spacing:.04em;color:rgba(255,255,255,.5)"
-         title="Read by a detector running in this browser, never collect number plates">
-      🔒 Read by a detector running in this browser, never collect number plates
-    </div>
   `;
   panel.style.display = '';
   animateCountUp(document.getElementById('aiCountVehicles'), result.counts.vehicles, 1100);
-  animateCountUp(document.getElementById('aiCountPeople'), result.counts.people, 1100);
   document.getElementById('aiCloseBtn').addEventListener('click', () => { stopWatch(); resetAIOverlay(); });
 }
 
