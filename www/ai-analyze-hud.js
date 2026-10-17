@@ -18,6 +18,23 @@
 // the site's own light/dark theme.
 const AI_GREEN = '#3fb950';
 const AI_CYAN = '#00E5FF';
+// Per-vehicle-class colours for the detection boxes/labels — this
+// deployment doesn't count people, so there's no more use distinguishing
+// "vehicle vs person" by colour; distinguishing CAR vs MOTORBIKE vs BUS
+// vs TRUCK at a glance is what actually matters here. Picked to read
+// clearly against varied camera footage and stay distinct from each
+// other and from AI_GREEN (still used for person boxes, kept in case a
+// future deployment re-enables people counting).
+const CLASS_COLORS = {
+  car: '#00E5FF',        // cyan
+  motorcycle: '#FF9800',  // orange
+  bus: '#B388FF',         // violet
+  truck: '#FFEE58',       // yellow
+  bicycle: '#F06292',     // pink
+};
+function classColor(label) {
+  return CLASS_COLORS[label.toLowerCase()] || AI_CYAN;
+}
 const COLOUR_SWATCH = {
   white: '#f4f4f5', silver: '#c4c8cc', grey: '#7c8087', black: '#0d0d0f',
   red: '#d33b3b', orange: '#f08a24', yellow: '#f2c230', green: '#3f9a4a',
@@ -494,7 +511,7 @@ function renderAIResult(result) {
   dets.forEach((d, i) => {
     const [x, y, w, h] = d.box;
     const isVehicle = vehicleSet.has(d.label.toLowerCase());
-    const color = isVehicle ? AI_CYAN : AI_GREEN;
+    const color = isVehicle ? classColor(d.label) : AI_GREEN;
     const swatch = d.colour ? COLOUR_SWATCH[d.colour] : null;
     const chipText = d.colour ? `${d.colour.toUpperCase()} ${labelWord(d.label, 1).toUpperCase()}` : d.label.toUpperCase();
 
@@ -568,7 +585,7 @@ function renderAIStatsPanel(result) {
   const byLabelParts = Object.entries(result.counts.byLabel)
     .filter(([l]) => vehicleSet.has(l.toLowerCase()))
     .sort((a, b) => b[1] - a[1])
-    .map(([l, n]) => `${n} ${labelWord(l, n).toUpperCase()}`)
+    .map(([l, n]) => `<span style="color:${classColor(l)}">${n} ${escHtml(labelWord(l, n).toUpperCase())}</span>`)
     .join(' · ');
 
   const colourEntries = Object.entries(result.coloursCount).sort((a, b) => b[1] - a[1]);
@@ -595,7 +612,7 @@ function renderAIStatsPanel(result) {
         <div><div id="aiCountVehicles" style="font-size:1.7rem;font-weight:700;color:${AI_CYAN}">0</div><div style="font-size:.6rem;letter-spacing:.15em;color:rgba(255,255,255,.5)">VEHICLES</div></div>
       </div>
       <div style="text-align:right;font-size:.66rem;color:rgba(255,255,255,.75)">
-        <div>${escHtml(byLabelParts || '—')}</div>
+        <div>${byLabelParts || '—'}</div>
         <div style="color:rgba(255,255,255,.45);margin-top:.15rem">${result.ms} MS · ON THIS DEVICE</div>
       </div>
     </div>
