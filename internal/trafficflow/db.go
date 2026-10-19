@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -84,7 +85,16 @@ CREATE TABLE IF NOT EXISTS push_log (
 	body            TEXT NOT NULL DEFAULT '',
 	body_truncated  INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_push_log_received ON push_log(received_at);
 `
+
+// push_log.source_uuid and its index are applied in Go after dbSchema and
+// the ALTER TABLE migration below run, not inside dbSchema itself: on an
+// existing trafficflow.db, CREATE TABLE IF NOT EXISTS above is a no-op
+// against the already-existing push_log table, so if this index were
+// created as part of dbSchema it would run before the ALTER TABLE that
+// backfills the column even exists — "no such column: source_uuid".
+const pushLogSourceIndexSchema = `CREATE INDEX IF NOT EXISTS idx_push_log_source_received ON push_log(source_uuid, received_at DESC);`
 
 // initDB opens (creating if absent) trafficflow_data/trafficflow.db and
 // applies the schema above (idempotent — CREATE TABLE/INDEX IF NOT EXISTS).
@@ -107,5 +117,21 @@ func initDB(dir string) error {
 	if _, err := db.Exec(dbSchema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
+	// push_log.source_uuid was added after this table's initial release —
+	// CREATE TABLE IF NOT EXISTS above is a no-op against an already-
+	// existing table, so a plain ALTER TABLE is needed to backfill the
+	// column on an existing trafficflow.db. SQLite has no
+	// "ADD COLUMN IF NOT EXISTS", so this just ignores the "duplicate
+	// column name" error a second run produces once the column exists.
+	if _, err := db.Exec("ALTER TABLE push_log ADD COLUMN source_uuid TEXT NOT NULL DEFAULT ''"); err != nil && !isDuplicateColumnErr(err) {
+		return fmt.Errorf("migrate push_log.source_uuid: %w", err)
+	}
+	if _, err := db.Exec(pushLogSourceIndexSchema); err != nil {
+		return fmt.Errorf("apply push_log.source_uuid index: %w", err)
+	}
 	return nil
+}
+
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }

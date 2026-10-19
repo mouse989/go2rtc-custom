@@ -523,12 +523,13 @@ function doGet() {
 
     <!-- Logs -->
     <div class="tf-section">
-      <h3 style="display:flex;justify-content:space-between;align-items:center">
-        Recent Logs
+      <h3 style="display:flex;justify-content:space-between;align-items:center;gap:.4rem">
+        <span style="flex:1">Recent Logs</span>
+        <button class="btn btn-sm btn-primary" id="btnQueryLogs" style="font-size:.72rem">🔍 Tra cứu</button>
         <button class="btn btn-sm" id="btnClearLogs" style="font-size:.72rem">Clear</button>
       </h3>
       <div class="tf-log-wrap" id="logContainer">
-        <div class="tf-empty">No logs yet.</div>
+        <div class="tf-empty">Bấm "Tra cứu" để xem log gần nhất — không tự tải liên tục.</div>
       </div>
     </div>
 
@@ -1012,19 +1013,30 @@ function updateCountdown() {
 }
 
 // ── Logs ──────────────────────────────────────────────────────────────────
+// Query-gated: the server only keeps the last 200 lines in memory (see
+// internal/traffic/monitor.go's addLog), but this view used to poll and
+// re-render them every 5s regardless — a wall of log text nobody asked to
+// see. Now it's a one-shot fetch on "Tra cứu", same spirit as the
+// trafficflow push-log viewer in admin.html.
 let localLogs = [];
+let logsQueried = false;
 
 async function loadLogs() {
   try {
     const logs = await apiFetch('/api/traffic/logs');
     if (!Array.isArray(logs)) return;
     localLogs = logs;
+    logsQueried = true;
     renderLogs();
   } catch(e) { /* silent */ }
 }
 
 function renderLogs() {
   const container = document.getElementById('logContainer');
+  if (!logsQueried) {
+    container.innerHTML = '<div class="tf-empty">Bấm "Tra cứu" để xem log gần nhất — không tự tải liên tục.</div>';
+    return;
+  }
   if (localLogs.length === 0) {
     container.innerHTML = '<div class="tf-empty">No logs yet.</div>';
     return;
@@ -1040,8 +1052,11 @@ function renderLogs() {
   if (wasAtBottom) container.scrollTop = 0;
 }
 
+document.getElementById('btnQueryLogs').addEventListener('click', loadLogs);
+
 document.getElementById('btnClearLogs').addEventListener('click', () => {
   localLogs = [];
+  logsQueried = false;
   renderLogs();
 });
 
@@ -1122,9 +1137,11 @@ document.getElementById('btnScanNow').addEventListener('click', async () => {
 document.getElementById('btnSaveConfig').addEventListener('click', saveConfig);
 
 // ── Polling ───────────────────────────────────────────────────────────────
+// Logs are query-gated (see btnQueryLogs above) and intentionally excluded
+// from this loop — status/countdown still refresh live, but log lines only
+// load when the user explicitly asks.
 async function poll() {
   await loadStatus();
-  await loadLogs();
 }
 
 // ── Apps Script copy button ───────────────────────────────────────────────
