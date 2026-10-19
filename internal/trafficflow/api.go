@@ -37,6 +37,7 @@ package trafficflow
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,6 +54,7 @@ func RegisterHandlers() {
 	http.HandleFunc("/api/trafficflow/sensors/", handleSensors)
 	http.HandleFunc("/api/trafficflow/observed-sensors", handleObservedSensors)
 	http.HandleFunc("/api/trafficflow/hourly", handleHourly)
+	http.HandleFunc("/api/trafficflow/push-log", handlePushLog)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -181,17 +183,21 @@ func extractPushAPIKey(r *http.Request) string {
 }
 
 func handlePush(w http.ResponseWriter, r *http.Request) {
+	ip := auth.ClientIP(r)
+
 	if r.Method != http.MethodPost {
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "bad_method", HTTPStatus: http.StatusMethodNotAllowed})
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only POST is supported", "")
 		return
 	}
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "bad_content_type", HTTPStatus: http.StatusUnsupportedMediaType})
 		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json", "")
 		return
 	}
 
-	ip := auth.ClientIP(r)
 	if locked, remaining := auth.IntegrationAuthLocked(ip); locked {
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "rate_limited_ip", HTTPStatus: http.StatusTooManyRequests})
 		w.Header().Set("Retry-After", strconv.Itoa(int(remaining.Seconds())+1))
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many failed authentication attempts from this address, try again later", "")
 		return
@@ -199,6 +205,7 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 
 	key := extractPushAPIKey(r)
 	if key == "" {
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "missing_api_key", HTTPStatus: http.StatusUnauthorized})
 		writeError(w, http.StatusUnauthorized, "missing_api_key", "X-API-Key (or Authorization: Bearer <key>) header is required", "")
 		return
 	}
@@ -207,29 +214,46 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 		if auth.RecordIntegrationAuthFailure(ip) {
 			auth.RaiseIntegrationAuthFailedAlert(ip)
 		}
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "invalid_api_key", HTTPStatus: http.StatusUnauthorized})
 		writeError(w, http.StatusUnauthorized, "invalid_api_key", "the provided API key is invalid or has been revoked", "")
 		return
 	}
 	auth.RecordIntegrationAuthSuccess(ip)
 
 	if allowed, retryAfterSec := checkPushRateLimit(integration.ID); !allowed {
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "rate_limited_integration", Integration: integration.Name, HTTPStatus: http.StatusTooManyRequests})
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSec))
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded for this integration", "")
 		return
 	}
 
-	body := http.MaxBytesReader(w, r.Body, maxPushBodyBytes)
-	var req hawkwisePush
-	if err := json.NewDecoder(body).Decode(&req); err != nil {
+	// Past this point the caller is authenticated, so the raw body is read
+	// and logged in full (capped — see pushlog.go) regardless of what
+	// happens next: a malformed or schema-mismatched body is exactly what
+	// this log exists to surface.
+	bodyBytes, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPushBodyBytes))
+	if readErr != nil {
 		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
+		if errors.As(readErr, &mbe) {
+			logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusRequestEntityTooLarge, BodyTruncated: true})
 			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "request body exceeds the size limit", "")
 			return
 		}
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusBadRequest, ParseError: readErr.Error()})
+		writeError(w, http.StatusBadRequest, "invalid_json", readErr.Error(), "")
+		return
+	}
+
+	var req hawkwisePush
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		valid := false
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusBadRequest, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: err.Error()})
 		writeError(w, http.StatusBadRequest, "invalid_json", err.Error(), "")
 		return
 	}
 	if apiErr := validatePush(&req); apiErr != nil {
+		valid := true
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusBadRequest, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: apiErr.Code + ": " + apiErr.Message})
 		writeError(w, http.StatusBadRequest, apiErr.Code, apiErr.Message, apiErr.Field)
 		return
 	}
@@ -249,6 +273,8 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 		if Exists(req.General.EventID) {
 			action = "duplicate"
 		}
+		valid := true
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "dry_run=1, not stored"})
 		writeJSON(w, http.StatusOK, struct {
 			Status  string `json:"status"`
 			Action  string `json:"action"`
@@ -290,9 +316,14 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := Ingest(rec); err != nil {
+		valid := true
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusInternalServerError, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "Ingest failed: " + err.Error()})
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to store flow record", "")
 		return
 	}
+
+	valid := true
+	logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid})
 
 	// Response body is for internal debug only — Hawkwise never reads it,
 	// only the 2xx status code (see plan §1.5).
@@ -537,4 +568,30 @@ func handleObservedSensors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ListObservedSensors())
+}
+
+// handlePushLog serves pushlog.go's rolling log of raw push attempts — see
+// that file's doc comment for why it exists and what it does and doesn't
+// capture. GET returns the retained entries (newest first); DELETE clears
+// them, so an admin can reset the log right before a test push.
+func handlePushLog(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficFlowAdmin(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		entries := ListPushLog()
+		if entries == nil {
+			entries = []PushLogEntry{}
+		}
+		writeJSON(w, http.StatusOK, entries)
+	case http.MethodDelete:
+		if err := ClearPushLog(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
