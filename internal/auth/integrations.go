@@ -74,6 +74,28 @@ func (s *integrationStore) load() error {
 	}
 	var list []*Integration
 	if err := json.Unmarshal(data, &list); err != nil {
+		// The file exists but isn't valid JSON — almost certainly a
+		// truncated/corrupted write (the old saveLocked() used a plain
+		// os.WriteFile, which is NOT atomic: a crash or kill signal
+		// arriving mid-write leaves a half-written file on disk), not "this
+		// admin genuinely has zero integrations". Falling back to an empty
+		// in-memory store is still the only option (there's nothing else to
+		// load from), but doing that silently — Init() in auth.go treats
+		// this whole store as non-fatal and only logs a Warn — would then
+		// let the very next integration create/edit/delete call saveLocked()
+		// and permanently overwrite s.path with that empty list, destroying
+		// whatever bytes were still sitting there. Preserve the unreadable
+		// original for forensics before that can happen, and log loud
+		// enough that an admin staring at an empty "Tích hợp đẩy dữ liệu"
+		// table has a chance of finding out why.
+		backupPath := s.path + ".corrupt-" + time.Now().UTC().Format("20060102T150405Z")
+		if bakErr := os.WriteFile(backupPath, data, 0644); bakErr == nil {
+			log.Error().Err(err).Str("path", s.path).Str("backup", backupPath).
+				Msg("[auth] integrations.json is not valid JSON — starting with an EMPTY integration list; the unreadable original was preserved at the backup path for recovery, but creating/editing/deleting ANY integration now will overwrite integrations.json with that empty list")
+		} else {
+			log.Error().Err(err).Str("path", s.path).AnErr("backup_error", bakErr).
+				Msg("[auth] integrations.json is not valid JSON — starting with an EMPTY integration list, AND failed to back up the unreadable original (it will be overwritten on the next integration change)")
+		}
 		return err
 	}
 	s.integrations = make(map[string]*Integration, len(list))
@@ -83,6 +105,12 @@ func (s *integrationStore) load() error {
 	return nil
 }
 
+// saveLocked persists the current integration list. Writes to a temp file
+// and renames over s.path rather than writing s.path directly — os.Rename
+// is atomic on the same filesystem, so a crash or kill signal arriving
+// mid-write can only ever leave a stray .tmp file, never a truncated/
+// corrupted integrations.json (see load()'s doc comment for what used to
+// happen when it did).
 func (s *integrationStore) saveLocked() error {
 	list := make([]*Integration, 0, len(s.integrations))
 	for _, in := range s.integrations {
@@ -93,7 +121,15 @@ func (s *integrationStore) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0644)
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // ListIntegrations returns every registered integration (defensive copies),

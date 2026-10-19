@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -215,5 +217,79 @@ func TestRevealIntegrationKeyErrorsWhenKeyEncMissing(t *testing.T) {
 	istore.mu.Unlock()
 	if _, err := RevealIntegrationKey(in.ID); err != errIntegrationKeyUnavailable {
 		t.Errorf("expected errIntegrationKeyUnavailable, got %v", err)
+	}
+}
+
+// A corrupted integrations.json (e.g. truncated by a crash mid-write, back
+// when saveLocked() wrote the file directly instead of via a temp+rename)
+// must never be silently discarded: load() should back up the unreadable
+// bytes next to the original path rather than let the first subsequent
+// save overwrite them with an empty list.
+func TestLoadCorruptedIntegrationsFileBacksUpOriginal(t *testing.T) {
+	dir := t.TempDir()
+	if err := initSecret(filepath.Join(dir, ".jwt_secret")); err != nil {
+		t.Fatalf("initSecret: %v", err)
+	}
+	path := filepath.Join(dir, "integrations.json")
+	const corrupt = `[{"id":"abc","name":"truncated mid-wri`
+	if err := os.WriteFile(path, []byte(corrupt), 0644); err != nil {
+		t.Fatalf("seed corrupt file: %v", err)
+	}
+
+	err := initIntegrations(path)
+	if err == nil {
+		t.Fatal("expected initIntegrations to surface the parse error, got nil")
+	}
+	if len(ListIntegrations()) != 0 {
+		t.Fatalf("expected an empty in-memory store after a corrupt load, got %d entries", len(ListIntegrations()))
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	var backup string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "integrations.json.corrupt-") {
+			backup = e.Name()
+		}
+	}
+	if backup == "" {
+		t.Fatalf("expected a integrations.json.corrupt-* backup file, directory has: %v", entries)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, backup))
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if string(got) != corrupt {
+		t.Fatalf("backup content = %q, want %q", got, corrupt)
+	}
+}
+
+// saveLocked must write via a temp file + rename, never the live path
+// directly, so a crash mid-write can't leave integrations.json truncated —
+// see load()'s own test above for what that used to cause.
+func TestSaveLockedWritesAtomicallyAndCleansUpTempFile(t *testing.T) {
+	setupIntegrationsTest(t)
+	if _, _, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push"); err != nil {
+		t.Fatalf("CreateIntegration: %v", err)
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(istore.path))
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("expected no leftover .tmp file after a successful save, found %s", e.Name())
+		}
+	}
+
+	data, err := os.ReadFile(istore.path)
+	if err != nil {
+		t.Fatalf("read %s: %v", istore.path, err)
+	}
+	if !strings.Contains(string(data), "OMNIA") {
+		t.Fatalf("expected the saved file to contain the new integration, got: %s", data)
 	}
 }
