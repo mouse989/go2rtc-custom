@@ -22,8 +22,8 @@
 .d2-header { display:flex; align-items:center; gap:.6rem; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.45rem .8rem; flex-wrap:wrap; flex-shrink:0; }
 .d2-summary { font-size:.8rem; color:var(--text-muted); flex:1; min-width:260px; }
 .d2-pills { display:flex; gap:.35rem; flex-wrap:wrap; }
-.d2-live { display:inline-flex; align-items:center; gap:.3rem; font-size:.66rem; font-weight:700; color:#f87171; text-transform:uppercase; letter-spacing:.05em; }
-.d2-live-dot { width:7px; height:7px; border-radius:50%; background:#f87171; animation:d2-pulse 1.4s ease-in-out infinite; }
+.d2-live { display:inline-flex; align-items:center; gap:.3rem; font-size:.66rem; font-weight:700; color:#38bdf8; text-transform:uppercase; letter-spacing:.05em; }
+.d2-live-dot { width:7px; height:7px; border-radius:50%; background:#38bdf8; animation:d2-pulse 1.4s ease-in-out infinite; }
 @keyframes d2-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
 .d2-clock { font-size:.95rem; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); }
 
@@ -36,11 +36,14 @@
 .d2-section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.55rem .75rem; display:flex; flex-direction:column; min-height:0; }
 .d2-section h3 { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:0 0 .4rem; display:flex; align-items:center; gap:.4rem; flex-shrink:0; flex-wrap:wrap; }
 
-/* ── KPI strip ── */
+/* ── KPI strip — each tile carries a semantic accent color (passed as
+   --kpi-c inline on the tile) so the row reads at a glance instead of as
+   a wall of identical white numbers: a faint tinted background + colored
+   left edge + the big number itself all pick it up. ── */
 .d2-kpi-row { display:flex; gap:.4rem; flex-shrink:0; }
-.d2-kpi { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:.45rem .6rem; min-width:0; }
+.d2-kpi { --kpi-c: var(--text-muted); flex:1; background:linear-gradient(135deg, color-mix(in srgb, var(--kpi-c) 10%, var(--surface)), var(--surface) 65%); border:1px solid var(--border); border-left:3px solid var(--kpi-c); border-radius:var(--radius-lg); padding:.45rem .6rem; min-width:0; }
 .d2-kpi .lbl { font-size:.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.d2-kpi .val { font-size:1.35rem; font-weight:800; line-height:1.05; color:var(--text); }
+.d2-kpi .val { font-size:1.35rem; font-weight:800; line-height:1.05; color:var(--kpi-c); }
 .d2-kpi .delta { font-size:.68rem; font-weight:700; margin-top:.1rem; }
 .d2-kpi .delta.up { color:#f87171; }
 .d2-kpi .delta.down { color:#4ade80; }
@@ -196,7 +199,7 @@
     <h2 class="page-title">🚦 Trung tâm Quản lý Điều hành Giao thông Đô thị — Dashboard 02</h2>
     <div class="topbar-actions">
       <span class="d2-clock" id="d2Clock">--:--:--</span>
-      <span class="d2-live"><span class="d2-live-dot"></span>LIVE</span>
+      <span class="d2-live"><span class="d2-live-dot"></span>TRAFFIC MONITOR</span>
     </div>
   </header>
 
@@ -642,10 +645,29 @@ const WD_VI = ['T2','T3','T4','T5','T6','T7','CN'];
 function weekdayIdx(dateStr) { return (new Date(dateStr).getDay() + 6) % 7; }
 const CAT_BAR_COLORS = { dongxe:'#ef4444', vacham:'#fb923c', ngapnuoc:'#38bdf8', khac:'#a78bfa' };
 const CAT_BAR_LABELS = { dongxe:'Ùn tắc/Đông xe', vacham:'Va chạm/TNGT', ngapnuoc:'Ngập nước', khac:'Sự cố khác' };
+
+// Chart.js draws straight to canvas, so it never picks up this page's own
+// CSS variables (--text-muted/--border) the way the HTML around it does —
+// every chart here used to hardcode dark-theme-only tick/grid/line colors,
+// which on the light theme read as barely-there pale gray on a near-white
+// background. d2ChartColors() mirrors each CSS var's per-theme value so
+// Chart.js text stays legible in both themes; every chart below pulls its
+// colors from here instead of a literal hex.
+function d2IsLightTheme() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+function d2ChartColors() {
+  const light = d2IsLightTheme();
+  return {
+    tick: light ? '#46536b' : '#94a3b8',      // mirrors --text-muted
+    grid: light ? '#d7dfea99' : '#1e2d4555',  // mirrors --border, translucent
+    axisLabel: light ? '#1e293b' : '#cbd5e1', // street-name labels — a touch stronger than tick
+    avgLine: light ? '#1e293b' : '#e2e8f0',   // the "TB trượt 7 ngày" moving-average line
+  };
+}
 function renderWeekChart() {
   const el = document.getElementById('d2WeekChart');
   if (!el) return;
   if (_incidents === null) return; // tiles already show the permission error
+  const cc = d2ChartColors();
 
   const catCounts = { dongxe:[0,0,0,0,0,0,0], vacham:[0,0,0,0,0,0,0], ngapnuoc:[0,0,0,0,0,0,0], khac:[0,0,0,0,0,0,0] };
   (_incidents||[]).forEach(i => { if (i.time) catCounts[incidentBucket(i.category)][weekdayIdx(i.time)]++; });
@@ -675,10 +697,10 @@ function renderWeekChart() {
       data: { labels: WD_VI, datasets },
       options: {
         responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
-        plugins:{ legend:{ labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
+        plugins:{ legend:{ labels:{color:cc.tick, boxWidth:9, font:{size:9}} } },
         scales:{
-          x:{ stacked:true, grouped:false, ticks:{color:'#94a3b8'}, grid:{display:false} },
-          y:{ stacked:true, beginAtZero:true, ticks:{precision:0, color:'#94a3b8'}, grid:{color:'#1e2d4555'} },
+          x:{ stacked:true, grouped:false, ticks:{color:cc.tick}, grid:{display:false} },
+          y:{ stacked:true, beginAtZero:true, ticks:{precision:0, color:cc.tick}, grid:{color:cc.grid} },
         },
       },
     });
@@ -777,6 +799,7 @@ function renderIncidentAnalytics() {
   const to = document.getElementById('d2To').value;
   const days = (from && to && from <= to) ? d2DateRangeList(from, to) : [];
   const n = _incidents.length;
+  const cc = d2ChartColors();
 
   // ── KPI row ──
   const avgPerDay = days.length ? n / days.length : null;
@@ -784,14 +807,14 @@ function renderIncidentAnalytics() {
   const peak = _d2PeakWindowNames.length ? _incidents.filter(i => _d2PeakWindowNames.includes(i.time_slot)).length : null;
   const sevHigh = _incidents.filter(i => (i.severity||0) >= 3).length;
   const kpiTiles = [
-    ['Tổng sự cố', n, null],
-    ['TB mỗi ngày', avgPerDay != null ? avgPerDay.toLocaleString('vi-VN',{maximumFractionDigits:1}) : '—', days.length ? `${days.length} ngày trong kỳ` : null],
-    ['Thuộc điểm nguy cơ', inRisk, n ? `${Math.round(inRisk/n*100)}% tổng số` : null],
-    ['Tập trung giờ cao điểm', peak != null ? `${Math.round(peak/(n||1)*100)}%` : '—', peak != null ? `${peak}/${n} sự cố` : null],
-    ['Mức độ nghiêm trọng cao', sevHigh, 'Mức ≥3/4'],
+    ['Tổng sự cố', n, null, D2_KPI_NEUTRAL],
+    ['TB mỗi ngày', avgPerDay != null ? avgPerDay.toLocaleString('vi-VN',{maximumFractionDigits:1}) : '—', days.length ? `${days.length} ngày trong kỳ` : null, D2_KPI_NEUTRAL],
+    ['Thuộc điểm nguy cơ', inRisk, n ? `${Math.round(inRisk/n*100)}% tổng số` : null, D2_KPI_RISK],
+    ['Tập trung giờ cao điểm', peak != null ? `${Math.round(peak/(n||1)*100)}%` : '—', peak != null ? `${peak}/${n} sự cố` : null, '#fb923c'],
+    ['Mức độ nghiêm trọng cao', sevHigh, 'Mức ≥3/4', D2_KPI_BAD],
   ];
-  kpiWrap.innerHTML = kpiTiles.map(([l,v,sub]) =>
-    `<div class="d2-kpi"><div class="lbl">${escH(l)}</div><div class="val">${v}</div>${sub?`<div class="sub2">${escH(sub)}</div>`:''}</div>`
+  kpiWrap.innerHTML = kpiTiles.map(([l,v,sub,color]) =>
+    d2KpiTileHtml(l, v, sub?`<div class="sub2">${escH(sub)}</div>`:'', color)
   ).join('');
 
   // ── Diễn biến sự cố theo ngày: stacked bar per category + 7-day MA line ──
@@ -811,12 +834,12 @@ function renderIncidentAnalytics() {
       type:'bar',
       data: { labels: days.map(d2ShortDate), datasets: [
         ...Object.keys(CAT_BAR_COLORS).map(k => ({ type:'bar', label:CAT_BAR_LABELS[k], data:days.map(d=>byDate[d][k]), backgroundColor:CAT_BAR_COLORS[k], stack:'s', borderRadius:2 })),
-        { type:'line', label:'TB trượt 7 ngày', data: ma7, borderColor:'#e2e8f0', backgroundColor:'#e2e8f0', borderWidth:2, pointRadius:1.5, tension:.25 },
+        { type:'line', label:'TB trượt 7 ngày', data: ma7, borderColor:cc.avgLine, backgroundColor:cc.avgLine, borderWidth:2, pointRadius:1.5, tension:.25 },
       ] },
       options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{ position:'bottom', labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
-        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{color:'#94a3b8', maxRotation:0, autoSkip:true} },
-                 y:{ stacked:true, beginAtZero:true, grid:{color:'#1e2d4555'}, ticks:{precision:0, color:'#94a3b8'} } } },
+        plugins:{ legend:{ position:'bottom', labels:{color:cc.tick, boxWidth:9, font:{size:9}} } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{color:cc.tick, maxRotation:0, autoSkip:true} },
+                 y:{ stacked:true, beginAtZero:true, grid:{color:cc.grid}, ticks:{precision:0, color:cc.tick} } } },
     });
   } else {
     showD2ChartEmpty('d2AnDaily', 'Chưa chọn khoảng Từ–Đến.');
@@ -833,7 +856,7 @@ function renderIncidentAnalytics() {
       data: { labels: slotLabels, datasets:[{ data: slotLabels.map(s=>slotCounts[s]),
         backgroundColor: slotLabels.map((s,idx) => s===_d2DefaultSlotLabel ? '#64748b' : slotPalette[idx % slotPalette.length]),
         borderWidth:0 }] },
-      options: { maintainAspectRatio:false, cutout:'58%', plugins:{ legend:{ position:'bottom', labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } } },
+      options: { maintainAspectRatio:false, cutout:'58%', plugins:{ legend:{ position:'bottom', labels:{color:cc.tick, boxWidth:9, font:{size:9}} } } },
     });
   } else {
     showD2ChartEmpty('d2AnSlot', 'Chưa có sự cố nào trong kỳ.');
@@ -853,9 +876,9 @@ function renderIncidentAnalytics() {
         { label:'Ngoài điểm nguy cơ', data:outRiskHour, backgroundColor:'#38bdf8', stack:'h', borderRadius:2 },
       ] },
       options: { maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{ position:'bottom', labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
-        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{color:'#94a3b8', maxRotation:0, autoSkip:true} },
-                 y:{ stacked:true, beginAtZero:true, grid:{color:'#1e2d4555'}, ticks:{precision:0, color:'#94a3b8'} } } },
+        plugins:{ legend:{ position:'bottom', labels:{color:cc.tick, boxWidth:9, font:{size:9}} } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{color:cc.tick, maxRotation:0, autoSkip:true} },
+                 y:{ stacked:true, beginAtZero:true, grid:{color:cc.grid}, ticks:{precision:0, color:cc.tick} } } },
     });
   } else {
     showD2ChartEmpty('d2AnHour', 'Chưa có sự cố nào trong kỳ.');
@@ -874,9 +897,9 @@ function renderIncidentAnalytics() {
       type:'bar',
       data: { labels: topLocs, datasets: Object.keys(CAT_BAR_COLORS).map(k => ({ label:CAT_BAR_LABELS[k], data:topLocs.map(l=>byLoc[l][k]), backgroundColor:CAT_BAR_COLORS[k], stack:'s', borderRadius:2 })) },
       options: { indexAxis:'y', maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{ position:'bottom', labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
-        scales:{ x:{ stacked:true, beginAtZero:true, grid:{color:'#1e2d4555'}, ticks:{precision:0, color:'#94a3b8'} },
-                 y:{ stacked:true, grid:{display:false}, ticks:{color:'#cbd5e1', autoSkip:false, font:{size:10}} } } },
+        plugins:{ legend:{ position:'bottom', labels:{color:cc.tick, boxWidth:9, font:{size:9}} } },
+        scales:{ x:{ stacked:true, beginAtZero:true, grid:{color:cc.grid}, ticks:{precision:0, color:cc.tick} },
+                 y:{ stacked:true, grid:{display:false}, ticks:{color:cc.axisLabel, autoSkip:false, font:{size:10}} } } },
     });
   } else {
     showD2ChartEmpty('d2AnStreet', 'Chưa có sự cố nào trong kỳ.');
@@ -904,7 +927,7 @@ function renderIncidentAnalytics() {
         backgroundColor: weeks.map(w => weekMap[w].days < 7 ? '#93c5fd' : '#38bdf8'), borderRadius:3 }] },
       options: { maintainAspectRatio:false, plugins:{ legend:{display:false},
         tooltip:{ callbacks:{ afterLabel:(c) => weekMap[weeks[c.dataIndex]].days + '/7 ngày có trong kỳ' } } },
-        scales:{ x:{ grid:{display:false}, ticks:{color:'#94a3b8'} }, y:{ beginAtZero:true, grid:{color:'#1e2d4555'}, ticks:{precision:0, color:'#94a3b8'} } } },
+        scales:{ x:{ grid:{display:false}, ticks:{color:cc.tick} }, y:{ beginAtZero:true, grid:{color:cc.grid}, ticks:{precision:0, color:cc.tick} } } },
     });
   } else {
     showD2ChartEmpty('d2AnWeek', 'Khoảng Từ–Đến quá ngắn để nhóm theo tuần (cần hơn 7 ngày).');
@@ -1408,6 +1431,13 @@ function renderHeader(tt) {
 }
 
 // ── Render: KPI tiles ────────────────────────────────────────────────────
+// Each tile carries a semantic accent color (not just the default muted
+// style) — a flat gray number row doesn't read as "modern dashboard"; a
+// consistent color per metric's meaning (health/neutral-info/risk/
+// severity) does, and it reuses colors already established elsewhere in
+// this file (TTI tiers via ttiColor, the risk-point amber from the hour
+// chart, the severity red from the sev badges) rather than inventing a
+// new palette.
 function deltaHtml(cur, base, unit, invert) {
   if (cur == null || base == null) return `<div class="sub2">Chưa đủ dữ liệu so sánh</div>`;
   const diff = cur - base;
@@ -1417,6 +1447,11 @@ function deltaHtml(cur, base, unit, invert) {
   const arrow = cls === 'flat' ? '▬' : (worse ? '▲' : '▼');
   return `<div class="delta ${cls}">${arrow} ${diff>=0?'+':''}${diff.toFixed(2)}${unit||''} (${pct>=0?'+':''}${pct.toFixed(0)}%)</div>`;
 }
+function d2KpiTileHtml(lbl, val, extra, color) {
+  const style = color ? ` style="--kpi-c:${color}"` : '';
+  return `<div class="d2-kpi"${style}><div class="lbl">${escH(lbl)}</div><div class="val">${val}</div>${extra||''}</div>`;
+}
+const D2_KPI_NEUTRAL = '#38bdf8', D2_KPI_WARN = '#f59e0b', D2_KPI_RISK = '#d97706', D2_KPI_BAD = '#ef4444';
 function renderKPIs(tt, tf) {
   const curSlot = slotOfTs(new Date().toISOString());
   const routeIds = (tt.routes||[]).map(r => r.id);
@@ -1432,16 +1467,16 @@ function renderKPIs(tt, tf) {
   const delayBase = delayBaseN ? (delayBaseSum/delayBaseN)/60 : null;
 
   const tiles = [
-    { lbl:'TTI trung bình', val: tt.avgTTI ? tt.avgTTI.toFixed(2) : '—', extra: deltaHtml(tt.avgTTI||null, ttiBase, '', true) },
-    { lbl:'Trễ TB (phút/tuyến)', val: tt.avgDelaySec ? (tt.avgDelaySec/60).toFixed(1) : '—', extra: deltaHtml(tt.avgDelaySec ? tt.avgDelaySec/60 : null, delayBase, 'p', true) },
-    { lbl:'Điểm ùn tắc >10 phút', val: _persistCmp.current ?? (tf.persistent ?? '—'), extra:
+    { lbl:'TTI trung bình', val: tt.avgTTI ? tt.avgTTI.toFixed(2) : '—', extra: deltaHtml(tt.avgTTI||null, ttiBase, '', true), color: tt.avgTTI ? (ttiColor(tt.avgTTI) || D2_KPI_NEUTRAL) : null },
+    { lbl:'Trễ TB (phút/tuyến)', val: tt.avgDelaySec ? (tt.avgDelaySec/60).toFixed(1) : '—', extra: deltaHtml(tt.avgDelaySec ? tt.avgDelaySec/60 : null, delayBase, 'p', true), color: D2_KPI_WARN },
+    { lbl:'Điểm ùn tắc >10 phút', val: _persistCmp.current ?? (tf.persistent ?? '—'), color: D2_KPI_BAD, extra:
         `<div class="sub2">So hôm qua cùng giờ: ${_persistCmp.yesterday!=null ? (_persistCmp.current - _persistCmp.yesterday >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.yesterday) : '—'}</div>` +
         `<div class="sub2">So TB ${_persistCmp.baselineWeeks||0} tuần cùng giờ: ${_persistCmp.baseline4w!=null ? (_persistCmp.current - _persistCmp.baseline4w >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.baseline4w).toFixed(1) : '—'}</div>` },
-    { lbl:'Số tuyến giám sát', val: tt.routeCount ?? '—' },
-    { lbl:'Chiều dài (km)', val: tt.totalLengthKm ? tt.totalLengthKm.toFixed(1) : '—' },
+    { lbl:'Số tuyến giám sát', val: tt.routeCount ?? '—', color: D2_KPI_NEUTRAL },
+    { lbl:'Chiều dài (km)', val: tt.totalLengthKm ? tt.totalLengthKm.toFixed(1) : '—', color: D2_KPI_NEUTRAL },
   ];
   document.getElementById('d2KpiRow').innerHTML = tiles.map(t =>
-    `<div class="d2-kpi"><div class="lbl">${escH(t.lbl)}</div><div class="val">${t.val}</div>${t.extra||''}</div>`
+    d2KpiTileHtml(t.lbl, t.val, t.extra, t.color)
   ).join('');
 }
 
@@ -1710,6 +1745,14 @@ async function loadAll() {
   initIncidentFilterDefaults();
   tickClock();
   setInterval(tickClock, 1000);
+
+  // app.js's theme toggle (#btnTheme, sidebar footer) just flips the
+  // data-theme attribute — it has no event of its own, and Chart.js text
+  // colors are baked in at render time, so without this a theme switch
+  // would leave every chart's ticks/legend in the OLD theme's colors
+  // until the next 60s auto-refresh happened to redraw them.
+  const themeBtn = document.getElementById('btnTheme');
+  if (themeBtn) themeBtn.addEventListener('click', () => { renderWeekChart(); renderIncidentAnalytics(); });
 
   await loadTtiAppearance();
   initD2Map();
