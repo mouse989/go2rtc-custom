@@ -1036,10 +1036,11 @@ rtsp:
         <div class="card" style="padding:1.1rem 1.25rem">
           <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem;flex-wrap:wrap">
             <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;flex:1">Dữ liệu thu thập</div>
-            <select id="ttLogDate" class="input" style="width:auto;padding:.3rem .6rem;font-size:.82rem" onchange="loadTTLogs()">
+            <select id="ttLogDate" class="input" style="width:auto;padding:.3rem .6rem;font-size:.82rem" onchange="ttLogDateChanged()">
               <option value="">— Hôm nay —</option>
             </select>
             <button class="btn btn-secondary btn-sm" onclick="refreshTTLogDates()">↺</button>
+            <button class="btn btn-primary btn-sm" onclick="loadTTLogs()">🔍 Tra cứu</button>
             <button class="btn btn-secondary btn-sm" onclick="exportTTLogs()">⬇ CSV</button>
           </div>
           <div class="table-wrap">
@@ -1049,7 +1050,7 @@ rtsp:
                 <th>Thực tế (s)</th><th>Chuẩn (s)</th><th>Trễ (s)</th><th>TTI</th>
               </tr></thead>
               <tbody id="ttLogsBody">
-                <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chọn ngày</td></tr>
+                <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chọn ngày và bấm "🔍 Tra cứu" để xem dữ liệu</td></tr>
               </tbody>
             </table>
           </div>
@@ -5837,6 +5838,11 @@ async function deleteTTRoute(id) {
 }
 
 // ── Logs ─────────────────────────────────────────────────────────
+// Query-gated, same as the trafficflow push-log viewer: with many routes
+// collected every few minutes, a day's log can run long, so it's no longer
+// auto-loaded on tab open or on every date change — only on an explicit
+// "🔍 Tra cứu" click.
+let _ttLogsQueried = false;
 
 async function refreshTTLogDates() {
   try {
@@ -5846,7 +5852,11 @@ async function refreshTTLogDates() {
     sel.innerHTML = '<option value="">— Hôm nay —</option>' +
       dates.map(d => `<option value="${d}"${d===cur?' selected':''}>${d}</option>`).join('');
   } catch (_) {}
-  await loadTTLogs();
+}
+
+function ttLogDateChanged() {
+  _ttLogsQueried = false;
+  renderTTLogs();
 }
 
 async function loadTTLogs() {
@@ -5854,11 +5864,16 @@ async function loadTTLogs() {
   const url = '/api/traveltime/logs?limit=500' + (date ? '&date=' + encodeURIComponent(date) : '');
   try { _ttLogs = await apiFetch(url) || []; }
   catch (_) { _ttLogs = []; }
+  _ttLogsQueried = true;
   renderTTLogs();
 }
 
 function renderTTLogs() {
   const tbody = document.getElementById('ttLogsBody');
+  if (!_ttLogsQueried) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chọn ngày và bấm "🔍 Tra cứu" để xem dữ liệu</td></tr>';
+    return;
+  }
   if (!_ttLogs.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Không có dữ liệu</td></tr>';
     return;
