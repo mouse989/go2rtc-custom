@@ -1418,29 +1418,33 @@ rtsp:
         <div style="padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
           <h3 style="font-size:.9rem;font-weight:700;flex:1;margin:0">📨 Nhật ký bản tin đã nhận (Push Log)</h3>
           <button class="btn btn-secondary btn-sm" onclick="clearPushLog()">🗑 Xóa nhật ký</button>
-          <button class="btn btn-secondary btn-sm" onclick="loadPushLogTab()">🔄 Tải lại</button>
         </div>
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
-          Vì dữ liệu đo đếm lưu lượng giờ lưu trong SQLite (không còn file JSON thô để mở trực tiếp), bảng này
-          ghi lại <b>nguyên văn</b> tối đa 300 bản tin gần nhất gửi đến
+          Vì dữ liệu đo đếm lưu lượng giờ lưu trong SQLite (không còn file JSON thô để mở trực tiếp), hệ thống
+          ghi lại <b>nguyên văn</b> tối đa 3000 bản tin gần nhất gửi đến
           <code>/api/trafficdata/hawkwise/v1/flow-push</code> — kể cả những lần bị từ chối do thiếu/sai API key
-          (chỉ không có nội dung bản tin, vì hệ thống từ chối trước khi đọc phần thân request) — để kiểm tra
-          hệ thống ngoài có đang thực sự gửi gì đến hay không, và đúng khuôn dạng mong đợi hay chưa.
+          (chỉ không có nội dung bản tin, vì hệ thống từ chối trước khi đọc phần thân request). Chọn khoảng
+          thời gian rồi bấm "Tra cứu" để xem — không tự hiển thị liên tục để tránh làm rối giao diện. Kết quả
+          nhóm theo từng nguồn (source_uuid), kèm tên điểm đo đã gán (nếu có) để biết đúng vị trí thực tế.
           Đây là nhật ký tạm thời để debug, không phải log lưu trữ lâu dài.
         </div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:.83rem">
-            <thead><tr>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thời gian</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ IP</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Xác thực</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tích hợp</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">HTTP</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Bản tin</th>
-              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
-            </tr></thead>
-            <tbody id="pushLogTbody"></tbody>
-          </table>
+        <div style="padding:0 1.1rem 1rem;display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="margin:0">
+            <label>Từ</label>
+            <input type="datetime-local" id="plq-from" class="input">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Đến</label>
+            <input type="datetime-local" id="plq-to" class="input">
+          </div>
+          <div class="form-group" style="margin:0;flex:1;min-width:200px">
+            <label>Nguồn (source_uuid)</label>
+            <select id="plq-source" class="input"><option value="">Tất cả nguồn</option></select>
+          </div>
+          <button class="btn btn-primary" onclick="queryPushLog()">🔍 Tra cứu</button>
+        </div>
+        <div id="pushLogResult" style="padding:0 1.1rem 1.1rem">
+          <div style="padding:1rem;color:var(--text-muted);font-size:.78rem">Chọn khoảng thời gian rồi bấm "Tra cứu" để xem.</div>
         </div>
       </div>
 
@@ -3664,13 +3668,16 @@ function renderTestPushResult(res) {
 const TRAFFICFLOW_PUSH_PATH = '/api/trafficdata/hawkwise/v1/flow-push';
 
 async function loadTrafficFlowTab() {
-  await Promise.all([loadIntegrationsTab(), loadSensorsTab(), loadObservedSensorsTab(), loadPushLogTab()]);
+  await Promise.all([loadIntegrationsTab(), loadSensorsTab(), loadObservedSensorsTab()]);
   renderTrafficFlowIntegrationsTable();
   // loadSensorsTab/loadObservedSensorsTab ran concurrently above, so
   // renderObservedSensorsTable's "already mapped?" filter (which reads
   // _sensorsData) may have run before _sensorsData was populated —
   // re-render now that both have settled.
   renderObservedSensorsTable();
+  // Push log is query-driven, not auto-loaded (see queryPushLog) — this
+  // just fills in default Từ/Đến values if they're still empty.
+  initPushLogDefaults();
   if (!document.getElementById('tpf-body').value.trim()) loadTestPushFlowTemplate();
 }
 
@@ -3919,8 +3926,16 @@ function openAddSensorFromObserved(idx) {
 }
 
 // ── Push log (debug view of raw bodies hitting the Hawkwise push endpoint —
-// see internal/trafficflow/pushlog.go for what is and isn't captured) ──────
-let _pushLogData = [];
+// see internal/trafficflow/pushlog.go for what is and isn't captured).
+// Query-driven, not auto-loaded: with potentially many cameras pushing every
+// few seconds, an always-on live table would just be noise — an admin picks
+// a Từ/Đến range and clicks "Tra cứu" explicitly. Results are grouped by
+// source_uuid (one collapsible section per camera, newest group first) with
+// its current Sensor-mapping label shown right in the header — knowing
+// WHICH camera/location a push came from is the whole point; the flat list
+// this replaced made that illegible. ───────────────────────────────────────
+let _pushLogData = [];   // flat list from the last query — viewPushLogBody indexes into this
+let _pushLogGroups = []; // [{sourceUuid, label, entries}], built from _pushLogData by renderPushLogGroups
 const PUSH_LOG_AUTH_LABELS = {
   ok: ['Hợp lệ', 'var(--green)'],
   missing_api_key: ['Thiếu API key', 'var(--red)'],
@@ -3930,45 +3945,134 @@ const PUSH_LOG_AUTH_LABELS = {
   bad_method: ['Sai phương thức HTTP', 'var(--text-muted)'],
   bad_content_type: ['Sai Content-Type', 'var(--text-muted)'],
 };
-async function loadPushLogTab() {
-  const tbody = document.getElementById('pushLogTbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
-  try {
-    _pushLogData = await apiFetch('/api/trafficflow/push-log') || [];
-    renderPushLogTable();
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
-  }
+function toDatetimeLocalValue(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-function renderPushLogTable() {
-  const tbody = document.getElementById('pushLogTbody');
-  if (!_pushLogData.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Chưa ghi nhận bản tin nào — chưa có request nào gửi đến đường dẫn này kể từ khi khởi động lại, hoặc đã bị "Xóa nhật ký".</td></tr>';
+function initPushLogDefaults() {
+  // Only fills in empty fields — loadTrafficFlowTab() re-runs this every
+  // time the admin switches to this tab (or hits the unrelated "Tải lại"
+  // next to Sensor Mapping), and shouldn't clobber a range they're mid-way
+  // through picking.
+  const fromEl = document.getElementById('plq-from'), toEl = document.getElementById('plq-to');
+  if (fromEl.value || toEl.value) return;
+  const now = new Date();
+  fromEl.value = toDatetimeLocalValue(new Date(now.getTime() - 3600000));
+  toEl.value = toDatetimeLocalValue(now);
+}
+async function queryPushLog() {
+  const fromEl = document.getElementById('plq-from'), toEl = document.getElementById('plq-to');
+  const result = document.getElementById('pushLogResult');
+  if (!fromEl.value || !toEl.value) { alert('Chọn đủ Từ và Đến.'); return; }
+  if (new Date(fromEl.value) > new Date(toEl.value)) { alert('"Từ" phải trước "Đến".'); return; }
+  const qs = new URLSearchParams({ from: new Date(fromEl.value).toISOString(), to: new Date(toEl.value).toISOString() });
+  result.innerHTML = '<div style="padding:1rem;color:var(--text-muted)">Đang tra cứu…</div>';
+  try {
+    _pushLogData = await apiFetch('/api/trafficflow/push-log?' + qs.toString()) || [];
+  } catch (e) {
+    result.innerHTML = `<div style="padding:1rem;color:var(--red)">Không tra cứu được: ${esc(e.message)}</div>`;
     return;
   }
-  tbody.innerHTML = _pushLogData.map((e, idx) => {
-    const [authLabel, authColor] = PUSH_LOG_AUTH_LABELS[e.auth_result] || [e.auth_result, 'var(--text-muted)'];
-    let bodyCell;
-    if (e.body_valid_json == null) {
-      bodyCell = '<span style="color:var(--text-muted)">— (bị từ chối trước khi đọc)</span>';
-    } else if (e.body_valid_json) {
-      bodyCell = '<span style="color:var(--green)">✓ JSON hợp lệ</span>' + (e.body_truncated ? ' <span style="color:var(--text-muted)">(đã cắt bớt)</span>' : '');
+  populatePushLogSourceFilter();
+  renderPushLogGroups();
+}
+function populatePushLogSourceFilter() {
+  const sel = document.getElementById('plq-source');
+  const current = sel.value;
+  const labelByUUID = new Map();
+  _pushLogData.forEach(e => { if (e.source_uuid) labelByUUID.set(e.source_uuid, e.sensor_label || labelByUUID.get(e.source_uuid) || ''); });
+  const uuids = [...labelByUUID.keys()].sort();
+  sel.innerHTML = ['<option value="">Tất cả nguồn</option>']
+    .concat(uuids.map(uuid => {
+      const label = labelByUUID.get(uuid);
+      return `<option value="${esc(uuid)}">${esc(label ? `${label} (${uuid})` : uuid)}</option>`;
+    })).join('');
+  if (uuids.includes(current)) sel.value = current;
+}
+function renderPushLogGroups() {
+  const result = document.getElementById('pushLogResult');
+  const sourceFilter = document.getElementById('plq-source').value;
+  const filtered = sourceFilter ? _pushLogData.filter(e => e.source_uuid === sourceFilter) : _pushLogData;
+
+  if (!filtered.length) {
+    result.innerHTML = '<div style="padding:1rem;color:var(--text-muted)">Không có bản tin nào trong khoảng đã chọn.</div>';
+    _pushLogGroups = [];
+    return;
+  }
+
+  const byUUID = new Map(); // '' key = no source_uuid captured (rejected before the body was read, or the field was missing/empty)
+  filtered.forEach(e => {
+    const key = e.source_uuid || '';
+    if (!byUUID.has(key)) byUUID.set(key, []);
+    byUUID.get(key).push(e); // server already returns newest-first (ORDER BY id DESC)
+  });
+  _pushLogGroups = [...byUUID.entries()]
+    .map(([uuid, entries]) => ({ sourceUuid: uuid, label: entries.find(e => e.sensor_label)?.sensor_label || '', entries }))
+    .sort((a, b) => b.entries.length - a.entries.length);
+
+  result.innerHTML = _pushLogGroups.map((g, gi) => {
+    let title;
+    if (!g.sourceUuid) {
+      title = '<span style="color:var(--text-muted);font-weight:400">(không rõ nguồn — bị từ chối trước khi đọc bản tin, hoặc thiếu source_uuid)</span>';
+    } else if (g.label) {
+      title = `${esc(g.label)} <span style="color:var(--text-muted);font-weight:400;font-family:monospace;font-size:.72rem">(${esc(g.sourceUuid)})</span>`;
     } else {
-      bodyCell = '<span style="color:var(--red)">✗ JSON lỗi</span>';
+      title = `<span style="font-family:monospace">${esc(g.sourceUuid)}</span> <span style="color:#f59e0b;font-weight:400">(chưa gán điểm đo)</span>`;
     }
     return `
-    <tr>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted);white-space:nowrap">${aiEventFmtTime(e.received_at)}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.76rem">${esc(e.remote_ip || '—')}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:${authColor}">${esc(authLabel)}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem">${esc(e.integration || '—')}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.78rem">${e.http_status}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem">${bodyCell}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
-        ${e.body ? `<button class="btn btn-secondary btn-sm" onclick="viewPushLogBody(${idx})">👁 Xem</button>` : ''}
-      </td>
-    </tr>`;
+    <div style="border:1px solid var(--border);border-radius:8px;margin-top:.6rem;overflow:hidden">
+      <div onclick="togglePushLogGroup(${gi})" style="cursor:pointer;display:flex;align-items:center;gap:.6rem;padding:.55rem .75rem;background:var(--surface2)">
+        <span id="plg-caret-${gi}" style="font-size:.7rem;color:var(--text-muted);display:inline-block;transition:transform .15s">▶</span>
+        <span style="flex:1;font-size:.82rem">${title}</span>
+        <span style="font-size:.74rem;color:var(--text-muted);white-space:nowrap">${g.entries.length} bản tin · gần nhất ${aiEventFmtTime(g.entries[0].received_at)}</span>
+      </div>
+      <div id="plg-body-${gi}" style="display:none;overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+          <thead><tr>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thời gian</th>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ IP</th>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Xác thực</th>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tích hợp</th>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">HTTP</th>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Bản tin</th>
+            <th style="padding:.4rem .75rem;text-align:left;font-size:.68rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Thao tác</th>
+          </tr></thead>
+          <tbody>${g.entries.map(e => pushLogRowHtml(e)).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
   }).join('');
+}
+function pushLogRowHtml(e) {
+  const [authLabel, authColor] = PUSH_LOG_AUTH_LABELS[e.auth_result] || [e.auth_result, 'var(--text-muted)'];
+  let bodyCell;
+  if (e.body_valid_json == null) {
+    bodyCell = '<span style="color:var(--text-muted)">— (bị từ chối trước khi đọc)</span>';
+  } else if (e.body_valid_json) {
+    bodyCell = '<span style="color:var(--green)">✓ JSON hợp lệ</span>' + (e.body_truncated ? ' <span style="color:var(--text-muted)">(đã cắt bớt)</span>' : '');
+  } else {
+    bodyCell = '<span style="color:var(--red)">✗ JSON lỗi</span>';
+  }
+  const idx = _pushLogData.indexOf(e);
+  return `
+  <tr>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border);font-size:.76rem;color:var(--text-muted);white-space:nowrap">${aiEventFmtTime(e.received_at)}</td>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.74rem">${esc(e.remote_ip || '—')}</td>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border);font-size:.76rem;color:${authColor}">${esc(authLabel)}</td>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border);font-size:.76rem">${esc(e.integration || '—')}</td>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.76rem">${e.http_status}</td>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border);font-size:.76rem">${bodyCell}</td>
+    <td style="padding:.45rem .75rem;border-bottom:1px solid var(--border)">
+      ${e.body ? `<button class="btn btn-secondary btn-sm" onclick="viewPushLogBody(${idx})">👁 Xem</button>` : ''}
+    </td>
+  </tr>`;
+}
+function togglePushLogGroup(gi) {
+  const body = document.getElementById('plg-body-' + gi);
+  const caret = document.getElementById('plg-caret-' + gi);
+  const willOpen = body.style.display === 'none';
+  body.style.display = willOpen ? '' : 'none';
+  caret.style.transform = willOpen ? 'rotate(90deg)' : '';
 }
 function viewPushLogBody(idx) {
   const e = _pushLogData[idx];
@@ -3977,6 +4081,7 @@ function viewPushLogBody(idx) {
   const metaParts = [
     `${aiEventFmtTime(e.received_at)} · ${esc(e.remote_ip || '—')} · HTTP ${e.http_status} · ${esc(authLabel)}`,
   ];
+  if (e.source_uuid) metaParts.push(`Nguồn: <span style="font-family:monospace">${esc(e.source_uuid)}</span>${e.sensor_label ? ' — ' + esc(e.sensor_label) : ' (chưa gán điểm đo)'}`);
   if (e.integration) metaParts.push(`Tích hợp: ${esc(e.integration)}`);
   if (e.parse_error) metaParts.push(`<span style="color:var(--red)">${esc(e.parse_error)}</span>`);
   if (e.body_truncated) metaParts.push('<span style="color:var(--text-muted)">(nội dung đã bị cắt bớt do quá dài)</span>');
@@ -4003,7 +4108,9 @@ async function clearPushLog() {
   if (!confirm('Xóa toàn bộ nhật ký bản tin đã nhận? (chỉ xóa nhật ký debug này, không ảnh hưởng dữ liệu đo đếm lưu lượng đã lưu)')) return;
   try {
     await apiFetch('/api/trafficflow/push-log', { method: 'DELETE' });
-    await loadPushLogTab();
+    _pushLogData = [];
+    _pushLogGroups = [];
+    document.getElementById('pushLogResult').innerHTML = '<div style="padding:1rem;color:var(--text-muted)">Đã xóa nhật ký. Chọn khoảng thời gian rồi bấm "Tra cứu" để xem lại.</div>';
   } catch (e) { alert('Không xóa được: ' + e.message); }
 }
 

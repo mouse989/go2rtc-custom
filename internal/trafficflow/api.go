@@ -253,7 +253,7 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 	}
 	if apiErr := validatePush(&req); apiErr != nil {
 		valid := true
-		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusBadRequest, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: apiErr.Code + ": " + apiErr.Message})
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusBadRequest, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: apiErr.Code + ": " + apiErr.Message, SourceUUID: req.General.Camera.SourceUUID})
 		writeError(w, http.StatusBadRequest, apiErr.Code, apiErr.Message, apiErr.Field)
 		return
 	}
@@ -274,7 +274,7 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 			action = "duplicate"
 		}
 		valid := true
-		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "dry_run=1, not stored"})
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "dry_run=1, not stored", SourceUUID: req.General.Camera.SourceUUID})
 		writeJSON(w, http.StatusOK, struct {
 			Status  string `json:"status"`
 			Action  string `json:"action"`
@@ -317,13 +317,13 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := Ingest(rec); err != nil {
 		valid := true
-		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusInternalServerError, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "Ingest failed: " + err.Error()})
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusInternalServerError, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "Ingest failed: " + err.Error(), SourceUUID: req.General.Camera.SourceUUID})
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to store flow record", "")
 		return
 	}
 
 	valid := true
-	logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid})
+	logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, SourceUUID: req.General.Camera.SourceUUID})
 
 	// Response body is for internal debug only — Hawkwise never reads it,
 	// only the 2xx status code (see plan §1.5).
@@ -580,7 +580,24 @@ func handlePushLog(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		entries := ListPushLog()
+		var filter PushLogFilter
+		if s := r.URL.Query().Get("from"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				http.Error(w, "invalid from: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			filter.From = t
+		}
+		if s := r.URL.Query().Get("to"); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				http.Error(w, "invalid to: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			filter.To = t
+		}
+		entries := ListPushLog(filter)
 		if entries == nil {
 			entries = []PushLogEntry{}
 		}
