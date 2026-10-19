@@ -42,9 +42,6 @@
 
 /* ── TTI chart — ported from dashboard.html's own #ttiChartBody mechanism,
    just scaled down to fit the kiosk's tighter vertical budget. ── */
-.d2-hist-ctrl { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin-left:auto; font-weight:400; text-transform:none; letter-spacing:0; }
-.d2-hist-ctrl label { font-size:.68rem; color:var(--text-muted); }
-.d2-hist-ctrl select, .d2-hist-ctrl input[type=date] { font-size:.68rem; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:.18rem .4rem; }
 .d2-route-status { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; margin:.1rem 0 .45rem; flex-shrink:0; }
 .d2-rs-chip { display:inline-flex; align-items:center; gap:.28rem; font-size:.7rem; font-weight:600; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.1rem .5rem; }
 .d2-rs-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
@@ -186,27 +183,13 @@
         <div class="d2-kpi-row" id="d2KpiRow"></div>
 
         <div class="d2-section" style="flex:1; min-height:0;">
-          <h3>
-            📊 Biểu đồ TTI theo thời gian trong ngày
-            <div class="d2-hist-ctrl">
-              <label>Độ mịn:</label>
-              <select id="d2SlotSel" onchange="onSlotSelChange(this.value)"></select>
-              <label>Ngày 1:</label>
-              <input type="date" id="d2PrimaryDate">
-              <label>Ngày 2:</label>
-              <input type="date" id="d2HistDate">
-              <button class="btn btn-sm btn-secondary" onclick="loadComparisonDays()" style="font-size:.68rem;padding:.15rem .5rem">So sánh</button>
-              <span id="d2HistStatus" style="font-size:.64rem;color:var(--text-muted)"></span>
-              <button id="d2TtiCfgBtn" onclick="toggleTtiCfg()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);font-size:.64rem;padding:.1rem .4rem;cursor:pointer;font-family:inherit;display:none">⚙ Màu TTI</button>
-            </div>
-          </h3>
+          <h3>📊 Top 10 tuyến đường</h3>
           <div class="d2-route-status" id="d2RouteStatus"></div>
           <div class="d2-tti-wrap">
             <div id="d2TtiChartBody"></div>
             <div class="d2-tti-axis-wrap" id="d2TtiAxis"></div>
           </div>
           <div class="d2-tti-legend" id="d2TtiLegend"></div>
-          <div id="d2TtiCfgPanel" style="display:none;margin-top:.45rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.55rem .7rem;font-size:.7rem;flex-shrink:0"></div>
         </div>
       </div>
 
@@ -387,7 +370,6 @@ let _mapFrom = null, _mapTo = null; // Date objects
 // own comment for why that is a UI convenience, not a security boundary.
 let _mapFollowScan = true;
 let _trafficIntervalMin = 15; // configured traffic-jam scan interval (server) — updated from /api/dashboard/summary
-let _ttiCfgOpen = false;
 let _primaryDate = '', _primaryLogs = null, _histDate = '', _histLogs = [];
 let _abnormalRoutes = [];
 let _weekChart = null;
@@ -1137,7 +1119,7 @@ function renderKPIs(tt, tf) {
   const tiles = [
     { lbl:'TTI trung bình', val: tt.avgTTI ? tt.avgTTI.toFixed(2) : '—', extra: deltaHtml(tt.avgTTI||null, ttiBase, '', true) },
     { lbl:'Trễ TB (phút/tuyến)', val: tt.avgDelaySec ? (tt.avgDelaySec/60).toFixed(1) : '—', extra: deltaHtml(tt.avgDelaySec ? tt.avgDelaySec/60 : null, delayBase, 'p', true) },
-    { lbl:'Điểm ùn tắc dai dẳng', val: _persistCmp.current ?? (tf.persistent ?? '—'), extra:
+    { lbl:'Điểm ùn tắc >10 phút', val: _persistCmp.current ?? (tf.persistent ?? '—'), extra:
         `<div class="sub2">So hôm qua cùng giờ: ${_persistCmp.yesterday!=null ? (_persistCmp.current - _persistCmp.yesterday >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.yesterday) : '—'}</div>` +
         `<div class="sub2">So TB ${_persistCmp.baselineWeeks||0} tuần cùng giờ: ${_persistCmp.baseline4w!=null ? (_persistCmp.current - _persistCmp.baseline4w >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.baseline4w).toFixed(1) : '—'}</div>` },
     { lbl:'Số tuyến giám sát', val: tt.routeCount ?? '—' },
@@ -1254,38 +1236,6 @@ function highlightAbnormalRoutes() {
   });
 }
 
-function renderSlotSelect() {
-  const sel = document.getElementById('d2SlotSel');
-  if (!sel) return;
-  const pref = slotPref();
-  const opts = [`<option value="auto">Tự động (${fmtMin(_ttIntervalMin)}/ô)</option>`];
-  [5,10,15,20,30,60].filter(m => m > _ttIntervalMin).forEach(m => opts.push(`<option value="${m}">${fmtMin(m)}/ô</option>`));
-  sel.innerHTML = opts.join('');
-  sel.value = [...sel.options].some(o => o.value === pref) ? pref : 'auto';
-}
-function onSlotSelChange(v) {
-  try { localStorage.setItem(SLOT_PREF_KEY, v); } catch (_) {}
-  if (!applySlotSize()) return;
-  _forecast = { byRoute:{}, weeks:0 };
-  if (_sum) { const tt = _sum.travelTime || {}; updateRouteStatus(tt); renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
-  loadBaseline(); loadForecast();
-}
-async function loadComparisonDays() {
-  const primaryEl = document.getElementById('d2PrimaryDate'), histEl = document.getElementById('d2HistDate');
-  const statusEl = document.getElementById('d2HistStatus');
-  _primaryDate = primaryEl.value || todayISO();
-  _histDate = histEl.value || '';
-  statusEl.textContent = 'Đang tải…';
-  const fetches = [];
-  if (_primaryDate && _primaryDate !== todayISO()) fetches.push(apiFetch('/api/dashboard/history?date=' + _primaryDate).then(r => { _primaryLogs = r || []; }).catch(() => { _primaryLogs = []; }));
-  else _primaryLogs = null;
-  if (_histDate) fetches.push(apiFetch('/api/dashboard/history?date=' + _histDate).then(r => { _histLogs = r || []; }).catch(() => { _histLogs = []; }));
-  else _histLogs = [];
-  await Promise.all(fetches);
-  statusEl.textContent = '';
-  if (_sum) { const tt = _sum.travelTime || {}; renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
-}
-
 function renderSlotBar(slots, currentSlot, isHistory, forecast, dateLabel) {
   return slots.map((s, i) => {
     const isFuture = !isHistory && currentSlot >= 0 && i > currentSlot;
@@ -1324,7 +1274,8 @@ function renderTTIChart(routes, primaryLogs, histLogs) {
 
   // Sorted descending by latestTTI (most congested route first) — a route
   // with no measurement yet (latestTTI 0/undefined) sorts last, not first.
-  routes = routes.slice().sort((a, b) => (b.latestTTI || 0) - (a.latestTTI || 0));
+  // Capped at 10 to match this panel's "Top 10 tuyến đường" title.
+  routes = routes.slice().sort((a, b) => (b.latestTTI || 0) - (a.latestTTI || 0)).slice(0, 10);
 
   const now = new Date();
   const currentSlot = slotOfTs(now.toISOString());
@@ -1398,76 +1349,6 @@ function renderTtiLegend() {
   html += `<span><span class="d2-tti-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
   html += `<span><span class="d2-tti-legend-dot" style="background-color:#64748b" class="d2-tti-forecast"></span>Dự báo Holt-Winters</span>`;
   el.innerHTML = html;
-  if (getUser()?.role === 'admin') document.getElementById('d2TtiCfgBtn').style.display = '';
-}
-
-// ── TTI color-config admin panel (ported verbatim from dashboard.html) ──
-function toggleTtiCfg() {
-  const p = document.getElementById('d2TtiCfgPanel');
-  if (!p) return;
-  _ttiCfgOpen = !_ttiCfgOpen;
-  p.style.display = _ttiCfgOpen ? '' : 'none';
-  if (_ttiCfgOpen) renderTtiCfgPanel();
-}
-function renderTtiCfgPanel() {
-  const panel = document.getElementById('d2TtiCfgPanel');
-  if (!panel || !_ttiAppearance) return;
-  const tiers = _ttiAppearance.tiers;
-  const nd = _ttiAppearance.noDataColor || '#334155';
-  const rowHtml = tiers.map((t, i) => {
-    const isLast = i === tiers.length - 1;
-    const maxInput = isLast
-      ? `<span style="width:70px;font-size:.66rem;color:var(--text-muted)">≥ giá trị trước</span>`
-      : `<span style="font-size:.66rem;color:var(--text-muted)">&lt; </span><input type="number" value="${t.maxTTI}" step="0.05" min="1.01" max="9.9" oninput="_ttiAppearance.tiers[${i}].maxTTI=+this.value;renderTtiLegend()" style="width:48px;font-size:.7rem;border:1px solid var(--border);border-radius:4px;padding:.15rem .3rem;background:var(--surface);color:var(--text)">`;
-    const delBtn = tiers.length > 1
-      ? `<button onclick="removeTtiTier(${i})" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:.85rem;line-height:1;padding:.1rem .25rem">✕</button>` : '';
-    return `<div style="display:flex;align-items:center;gap:.35rem;margin-bottom:.25rem">
-      <input type="color" value="${t.color}" oninput="_ttiAppearance.tiers[${i}].color=this.value;renderTtiLegend()" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0;border-radius:3px;flex-shrink:0">
-      <input type="text" value="${escH(t.label)}" oninput="_ttiAppearance.tiers[${i}].label=this.value;renderTtiLegend()" style="flex:1;min-width:60px;font-size:.7rem;border:1px solid var(--border);border-radius:4px;padding:.15rem .35rem;background:var(--surface);color:var(--text)">
-      ${maxInput}${delBtn}
-    </div>`;
-  }).join('');
-  panel.innerHTML = `
-    <div style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:.4rem">Ngưỡng màu TTI</div>
-    ${rowHtml}
-    <button onclick="addTtiTier()" style="width:100%;margin:.3rem 0;background:none;border:1px dashed var(--border);border-radius:4px;color:var(--text-muted);font-size:.66rem;padding:.2rem .5rem;cursor:pointer;font-family:inherit">+ Thêm ngưỡng</button>
-    <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.4rem;font-size:.7rem">
-      <span style="color:var(--text-muted)">Không có dữ liệu:</span>
-      <input type="color" value="${nd}" oninput="_ttiAppearance.noDataColor=this.value;renderTtiLegend()" style="width:26px;height:22px;border:none;background:none;cursor:pointer;padding:0;border-radius:3px">
-    </div>
-    <div style="display:flex;gap:.35rem">
-      <button onclick="saveTtiAppearance()" class="btn btn-sm" style="flex:1;font-size:.68rem">💾 Lưu</button>
-      <button onclick="resetTtiAppearance()" class="btn btn-sm btn-secondary" style="font-size:.68rem">↺ Mặc định</button>
-    </div>
-    <div id="d2TtiCfgMsg" style="font-size:.66rem;margin-top:.3rem;min-height:.85rem"></div>`;
-}
-function addTtiTier() {
-  if (!_ttiAppearance) return;
-  const tiers = _ttiAppearance.tiers;
-  const prevMax = tiers.length > 1 ? tiers[tiers.length-2].maxTTI : 1.5;
-  tiers.splice(tiers.length-1, 0, { maxTTI: Math.round((prevMax+0.1)*100)/100, color:'#94a3b8', label:'Ngưỡng mới' });
-  renderTtiCfgPanel(); renderTtiLegend();
-}
-function removeTtiTier(i) {
-  if (!_ttiAppearance || _ttiAppearance.tiers.length <= 1) return;
-  _ttiAppearance.tiers.splice(i, 1);
-  renderTtiCfgPanel(); renderTtiLegend();
-}
-function resetTtiAppearance() {
-  _ttiAppearance = JSON.parse(JSON.stringify(_ttiDefault));
-  renderTtiCfgPanel(); renderTtiLegend();
-}
-async function saveTtiAppearance() {
-  const msg = document.getElementById('d2TtiCfgMsg');
-  if (msg) { msg.textContent = 'Đang lưu…'; msg.style.color = 'var(--text-muted)'; }
-  try {
-    await apiFetch('/api/traveltime/appearance', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(_ttiAppearance)});
-    if (msg) { msg.textContent = '✓ Đã lưu'; msg.style.color = '#4ade80'; }
-    renderTtiLegend();
-    if (_sum) { const tt = _sum.travelTime || {}; renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs); }
-  } catch (e) {
-    if (msg) { msg.textContent = '✗ ' + e.message; msg.style.color = '#f87171'; }
-  }
 }
 
 // ── Orchestration: each fetch is error-isolated so one failing source
@@ -1489,7 +1370,6 @@ async function loadAll() {
   renderKPIs(tt, tf);
   updateRouteStatus(tt);
   renderTTIChart(tt.routes||[], primaryTTILogs(tt), _histLogs);
-  renderSlotSelect();
   refreshMapWindow().catch(() => {});
 
   loadPersistentComparisons().then(() => renderKPIs(tt, tf)).catch(() => {});
@@ -1505,10 +1385,6 @@ async function loadAll() {
     document.getElementById('d2Content').innerHTML = '<div class="d2-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard 02.</div>';
     return;
   }
-  document.getElementById('d2PrimaryDate').value = todayISO();
-  document.getElementById('d2HistDate').value = vnDateStr(new Date(Date.now()-86400000));
-  document.getElementById('d2PrimaryDate').max = todayISO();
-  document.getElementById('d2HistDate').max = todayISO();
   initIncidentFilterDefaults();
   tickClock();
   setInterval(tickClock, 1000);
