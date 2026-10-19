@@ -59,6 +59,7 @@
 .d2-tti-label { width:120px; flex-shrink:0; padding-top:1px; }
 .d2-tti-rname { font-size:.68rem; font-weight:600; color:var(--text); line-height:1.25; word-break:break-word; cursor:pointer; }
 .d2-tti-bars { flex:1; min-width:0; }
+.d2-tti-val { width:34px; flex-shrink:0; text-align:right; font-size:.72rem; font-weight:800; line-height:15px; font-variant-numeric:tabular-nums; }
 .d2-tti-bar { display:flex; width:100%; overflow:hidden; border-radius:2px; position:relative; }
 .d2-tti-bar-today { height:15px; }
 .d2-tti-bar-hist { height:8px; margin-top:1px; opacity:.82; }
@@ -255,7 +256,7 @@
          above; reached by scrolling, not locked to the first screen. -->
     <div class="d2-an-wrap">
       <div class="d2-section" style="flex-shrink:0;">
-        <h3>📊 Thống kê sự cố giao thông <span class="d2-an-hint">theo bộ lọc Từ–Đến ở trên</span></h3>
+        <h3>📊 Thống kê sự cố giao thông</h3>
         <div class="d2-kpi-row" id="d2AnKpiRow"></div>
       </div>
 
@@ -274,7 +275,7 @@
       </div>
 
       <div class="d2-an-grid" style="grid-template-columns:1fr 1fr;">
-        <div class="d2-section"><h3>Tuyến đường nhiều sự cố nhất<span class="d2-an-hint">Top 12</span></h3>
+        <div class="d2-section"><h3>Tuyến đường nhiều sự cố nhất<span class="d2-an-hint">Top 10</span></h3>
           <div class="d2-an-cbox tall"><canvas id="d2AnStreet"></canvas></div></div>
         <div class="d2-section"><h3>Tổng theo tuần<span class="d2-an-hint">tuần tính từ Thứ Hai</span></h3>
           <div class="d2-an-cbox tall"><canvas id="d2AnWeek"></canvas></div></div>
@@ -673,7 +674,7 @@ function renderWeekChart() {
       type:'bar',
       data: { labels: WD_VI, datasets },
       options: {
-        responsive:true, maintainAspectRatio:false,
+        responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
         plugins:{ legend:{ labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
         scales:{
           x:{ stacked:true, grouped:false, ticks:{color:'#94a3b8'}, grid:{display:false} },
@@ -831,36 +832,43 @@ function renderIncidentAnalytics() {
       type:'doughnut',
       data: { labels: slotLabels, datasets:[{ data: slotLabels.map(s=>slotCounts[s]),
         backgroundColor: slotLabels.map((s,idx) => s===_d2DefaultSlotLabel ? '#64748b' : slotPalette[idx % slotPalette.length]),
-        borderWidth:2, borderColor:'#0b1422' }] },
+        borderWidth:0 }] },
       options: { maintainAspectRatio:false, cutout:'58%', plugins:{ legend:{ position:'bottom', labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } } },
     });
   } else {
     showD2ChartEmpty('d2AnSlot', 'Chưa có sự cố nào trong kỳ.');
   }
 
-  // ── Phân bố theo giờ trong ngày (0h–23h) ──
+  // ── Phân bố theo giờ trong ngày (0h–23h), chồng trong/ngoài 28 điểm nguy cơ ──
   if (n) {
-    const hourCounts = Array(24).fill(0);
-    _incidents.forEach(i => { if (i.time) hourCounts[new Date(i.time).getHours()]++; });
+    const inRiskHour = Array(24).fill(0), outRiskHour = Array(24).fill(0);
+    _incidents.forEach(i => {
+      if (!i.time) return;
+      (i.congestion_risk_point ? inRiskHour : outRiskHour)[new Date(i.time).getHours()]++;
+    });
     renderD2Chart('d2AnHour', {
       type:'bar',
-      data: { labels:[...Array(24).keys()].map(h=>h+'h'), datasets:[{ label:'Số sự cố', data:hourCounts, backgroundColor:'#38bdf8', borderRadius:2 }] },
-      options: { maintainAspectRatio:false, plugins:{ legend:{display:false} },
-        scales:{ x:{ grid:{display:false}, ticks:{color:'#94a3b8', maxRotation:0, autoSkip:true} },
-                 y:{ beginAtZero:true, grid:{color:'#1e2d4555'}, ticks:{precision:0, color:'#94a3b8'} } } },
+      data: { labels:[...Array(24).keys()].map(h=>h+'h'), datasets:[
+        { label:'Thuộc điểm nguy cơ', data:inRiskHour, backgroundColor:'#d97706', stack:'h', borderRadius:2 },
+        { label:'Ngoài điểm nguy cơ', data:outRiskHour, backgroundColor:'#38bdf8', stack:'h', borderRadius:2 },
+      ] },
+      options: { maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{ position:'bottom', labels:{color:'#94a3b8', boxWidth:9, font:{size:9}} } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{color:'#94a3b8', maxRotation:0, autoSkip:true} },
+                 y:{ stacked:true, beginAtZero:true, grid:{color:'#1e2d4555'}, ticks:{precision:0, color:'#94a3b8'} } } },
     });
   } else {
     showD2ChartEmpty('d2AnHour', 'Chưa có sự cố nào trong kỳ.');
   }
 
-  // ── Tuyến đường/vị trí nhiều sự cố nhất (top 12, ngang, chồng theo loại) ──
+  // ── Tuyến đường/vị trí nhiều sự cố nhất (top 10, ngang, chồng theo loại) ──
   const byLoc = {};
   _incidents.forEach(i => {
     const loc = (i.location||'').trim() || '(Không rõ vị trí)';
     if (!byLoc[loc]) byLoc[loc] = { dongxe:0, vacham:0, ngapnuoc:0, khac:0, total:0 };
     byLoc[loc][incidentBucket(i.category)]++; byLoc[loc].total++;
   });
-  const topLocs = Object.keys(byLoc).sort((a,b) => byLoc[b].total - byLoc[a].total).slice(0, 12);
+  const topLocs = Object.keys(byLoc).sort((a,b) => byLoc[b].total - byLoc[a].total).slice(0, 10);
   if (topLocs.length) {
     renderD2Chart('d2AnStreet', {
       type:'bar',
@@ -1618,6 +1626,12 @@ function renderTTIChart(routes, primaryLogs, histLogs) {
     const abn = _abnormalRoutes.find(a => a.id === r.id);
     const abnMark = abn ? `<span title="Bất thường: cao hơn +${Math.round((abn.ratio-1)*100)}% so với mức bình thường cùng giờ" style="color:#ef4444;flex-shrink:0">⚠</span>` : '';
 
+    // Current TTI, colored to match its own tier in the bar/legend below —
+    // same ttiColor() the slots themselves use, so this reads as "the
+    // number behind the rightmost color in the bar", not an unrelated stat.
+    const curTti = r.latestTTI > 0 ? r.latestTTI : null;
+    const curTtiHtml = `<div class="d2-tti-val" style="color:${curTti ? ttiColor(curTti) : 'var(--text-muted)'}" title="TTI hiện tại${curTti ? ' — ' + ttiLabel(curTti) : ''}">${curTti ? curTti.toFixed(2) : '—'}</div>`;
+
     return `<div class="d2-tti-row" id="d2TtiRow-${escH(r.id)}">
       <div class="d2-tti-label">
         <div style="display:flex;align-items:center;gap:.25rem">${trendArrow(trend)}${abnMark}<span class="d2-tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
@@ -1628,6 +1642,7 @@ function renderTTIChart(routes, primaryLogs, histLogs) {
         ${histSlots ? `<div class="d2-tti-bar d2-tti-bar-hist">${histBar}</div>` : ''}
         ${histLabelHtml}
       </div>
+      ${curTtiHtml}
     </div>`;
   }).join('');
 
@@ -1654,7 +1669,7 @@ function renderTtiLegend() {
     html += `<span><span class="d2-tti-legend-dot" style="background:${t.color}"></span>${escH(range)}${escH(t.label)}</span>`;
   }
   html += `<span><span class="d2-tti-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
-  html += `<span><span class="d2-tti-legend-dot" style="background-color:#64748b" class="d2-tti-forecast"></span>Dự báo Holt-Winters</span>`;
+  html += `<span><span class="d2-tti-legend-dot" style="background-color:#64748b" class="d2-tti-forecast"></span>Dự báo</span>`;
   el.innerHTML = html;
 }
 
