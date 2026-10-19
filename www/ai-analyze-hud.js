@@ -18,6 +18,34 @@
 // the site's own light/dark theme.
 const AI_GREEN = '#3fb950';
 const AI_CYAN = '#00E5FF';
+// Per-class colours for the detection boxes/labels — this deployment
+// doesn't count people, so there's no more use distinguishing
+// "vehicle vs person" by colour; distinguishing CAR vs MOTORBIKE vs BUS
+// vs TRUCK (and PERSON) at a glance is what actually matters here. This
+// table is only the fallback used before /api/ai-analyze/class-colors
+// has loaded (or if it fails) — it must mirror
+// internal/aianalyze/colors.go's DefaultClassColors exactly, since that's
+// the real source of truth an admin can override from Admin Config.
+const FALLBACK_CLASS_COLORS = {
+  car: '#00E5FF',        // cyan
+  motorcycle: '#3fb950',  // green
+  bus: '#B388FF',         // violet
+  truck: '#FFEE58',       // yellow
+  bicycle: '#F06292',     // pink
+  person: '#FF9800',      // orange
+};
+let _classColorMap = { ...FALLBACK_CLASS_COLORS };
+async function loadClassColors() {
+  try {
+    const r = await fetch('/api/ai-analyze/class-colors', { headers: { Authorization: 'Bearer ' + getToken() } });
+    if (!r.ok) return;
+    const m = await r.json();
+    if (m && typeof m === 'object') _classColorMap = m;
+  } catch (_) { /* keep FALLBACK_CLASS_COLORS */ }
+}
+function classColor(label) {
+  return _classColorMap[label.toLowerCase()] || AI_CYAN;
+}
 const COLOUR_SWATCH = {
   white: '#f4f4f5', silver: '#c4c8cc', grey: '#7c8087', black: '#0d0d0f',
   red: '#d33b3b', orange: '#f08a24', yellow: '#f2c230', green: '#3f9a4a',
@@ -441,11 +469,19 @@ async function startWatch() {
 // ── Rendering ────────────────────────────────────────────────────────
 function cornerBracketsSVG(x, y, w, h, color) {
   const L = Math.max(4, Math.min(14, w * 0.25, h * 0.25));
+  // vector-effect="non-scaling-stroke": the SVG's viewBox is the detector's
+  // native frame resolution (e.g. 640x480 vs 2560x1440 for different camera
+  // streams), scaled by the browser to whatever on-screen size the player
+  // actually renders at. Without this, stroke-width is in viewBox units, so
+  // the SAME "2" renders visibly thick on a low-res stream (small viewBox,
+  // large scale-up) and nearly invisible on a high-res one (large viewBox,
+  // scaled down) — this keeps the on-screen line thickness constant
+  // regardless of the source stream's resolution.
   return (
-    `<path d="M${x},${y + L} L${x},${y} L${x + L},${y}" stroke="${color}" stroke-width="2" fill="none"/>` +
-    `<path d="M${x + w - L},${y} L${x + w},${y} L${x + w},${y + L}" stroke="${color}" stroke-width="2" fill="none"/>` +
-    `<path d="M${x + w},${y + h - L} L${x + w},${y + h} L${x + w - L},${y + h}" stroke="${color}" stroke-width="2" fill="none"/>` +
-    `<path d="M${x + L},${y + h} L${x},${y + h} L${x},${y + h - L}" stroke="${color}" stroke-width="2" fill="none"/>`
+    `<path d="M${x},${y + L} L${x},${y} L${x + L},${y}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>` +
+    `<path d="M${x + w - L},${y} L${x + w},${y} L${x + w},${y + L}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>` +
+    `<path d="M${x + w},${y + h - L} L${x + w},${y + h} L${x + w - L},${y + h}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>` +
+    `<path d="M${x + L},${y + h} L${x},${y + h} L${x},${y + h - L}" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" fill="none"/>`
   );
 }
 
@@ -493,21 +529,20 @@ function renderAIResult(result) {
   let html = '';
   dets.forEach((d, i) => {
     const [x, y, w, h] = d.box;
-    const isVehicle = vehicleSet.has(d.label.toLowerCase());
-    const color = isVehicle ? AI_CYAN : AI_GREEN;
+    const color = classColor(d.label);
     const swatch = d.colour ? COLOUR_SWATCH[d.colour] : null;
     const chipText = d.colour ? `${d.colour.toUpperCase()} ${labelWord(d.label, 1).toUpperCase()}` : d.label.toUpperCase();
 
     html += `<g class="ai-det" data-idx="${i}" style="cursor:pointer">`;
-    html += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-opacity="0.3" stroke-width="1"/>`;
+    html += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-opacity="0.3" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
     html += cornerBracketsSVG(x, y, w, h, color);
     if (swatch) {
       const sw = Math.min(14, w * 0.2);
-      html += `<rect x="${x + w - sw - 3}" y="${y + 3}" width="${sw}" height="${sw}" fill="${swatch}" stroke="#fff" stroke-width="1" stroke-opacity="0.7"/>`;
+      html += `<rect x="${x + w - sw - 3}" y="${y + 3}" width="${sw}" height="${sw}" fill="${swatch}" stroke="#fff" stroke-width="1" stroke-opacity="0.7" vector-effect="non-scaling-stroke"/>`;
     }
     if (labelPos.has(i)) {
       const p = labelPos.get(i);
-      html += `<text x="${p.x}" y="${p.y + 10}" font-size="10" font-family="ui-monospace,monospace" fill="${color}" style="paint-order:stroke" stroke="#000" stroke-width="2.5">${escHtml(chipText)}</text>`;
+      html += `<text x="${p.x}" y="${p.y + 10}" font-size="10" font-family="ui-monospace,monospace" fill="${color}" style="paint-order:stroke" stroke="#000" stroke-width="2.5" vector-effect="non-scaling-stroke">${escHtml(chipText)}</text>`;
     }
     html += `</g>`;
   });
@@ -528,6 +563,7 @@ function renderAIResult(result) {
         hoverLabel.setAttribute('fill', '#fff');
         hoverLabel.setAttribute('stroke', '#000');
         hoverLabel.setAttribute('stroke-width', '2.5');
+        hoverLabel.setAttribute('vector-effect', 'non-scaling-stroke');
         hoverLabel.setAttribute('style', 'paint-order:stroke');
         svg.appendChild(hoverLabel);
       }
@@ -568,7 +604,7 @@ function renderAIStatsPanel(result) {
   const byLabelParts = Object.entries(result.counts.byLabel)
     .filter(([l]) => vehicleSet.has(l.toLowerCase()))
     .sort((a, b) => b[1] - a[1])
-    .map(([l, n]) => `${n} ${labelWord(l, n).toUpperCase()}`)
+    .map(([l, n]) => `<span style="color:${classColor(l)}">${n} ${escHtml(labelWord(l, n).toUpperCase())}</span>`)
     .join(' · ');
 
   const colourEntries = Object.entries(result.coloursCount).sort((a, b) => b[1] - a[1]);
@@ -595,7 +631,7 @@ function renderAIStatsPanel(result) {
         <div><div id="aiCountVehicles" style="font-size:1.7rem;font-weight:700;color:${AI_CYAN}">0</div><div style="font-size:.6rem;letter-spacing:.15em;color:rgba(255,255,255,.5)">VEHICLES</div></div>
       </div>
       <div style="text-align:right;font-size:.66rem;color:rgba(255,255,255,.75)">
-        <div>${escHtml(byLabelParts || '—')}</div>
+        <div>${byLabelParts || '—'}</div>
         <div style="color:rgba(255,255,255,.45);margin-top:.15rem">${result.ms} MS · ON THIS DEVICE</div>
       </div>
     </div>
@@ -609,7 +645,7 @@ function renderAIStatsPanel(result) {
 
 // ── Boot ─────────────────────────────────────────────────────────────
 (function initAIAnalyzeHUD() {
-  const start = () => { ensureAIHUDMounted(); resetAIOverlay(); };
+  const start = () => { ensureAIHUDMounted(); resetAIOverlay(); loadClassColors(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();

@@ -44,6 +44,7 @@ func Init() {
 	}
 
 	loadMeta()
+	loadClassColors()
 	registerHandlers()
 
 	log.Info().Str("dir", dataDir).Msg("[aianalyze] ready")

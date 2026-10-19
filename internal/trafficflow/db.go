@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS flow_records (
 );
 CREATE INDEX IF NOT EXISTS idx_flow_records_source_received ON flow_records(source_uuid, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_flow_records_received ON flow_records(received_at);
+
+CREATE TABLE IF NOT EXISTS push_log (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	received_at     TEXT NOT NULL,
+	remote_ip       TEXT NOT NULL DEFAULT '',
+	auth_result     TEXT NOT NULL,
+	integration     TEXT NOT NULL DEFAULT '',
+	http_status     INTEGER NOT NULL,
+	body_valid_json INTEGER,
+	parse_error     TEXT NOT NULL DEFAULT '',
+	body            TEXT NOT NULL DEFAULT '',
+	body_truncated  INTEGER NOT NULL DEFAULT 0
+);
 `
 
 // initDB opens (creating if absent) trafficflow_data/trafficflow.db and

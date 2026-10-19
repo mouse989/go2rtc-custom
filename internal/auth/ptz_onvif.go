@@ -50,11 +50,30 @@ func getOnvifPTZHandle(ctx context.Context, streamName string) (*onvifPTZHandle,
 		return nil, err
 	}
 
+	// Mirror fetchDirectJPEG's scheme/port resolution (camera_types.go) —
+	// a camera type with HTTPS set (Bosch and similar ONVIF devices often
+	// require it for every ONVIF service, not just the direct-snapshot
+	// path) must reach the device service over HTTPS too, not just the
+	// snapshot fetch. onvif.NewClient additionally prefers each
+	// individual service's own self-reported XAddr scheme/host when the
+	// camera advertises one (see pkg/onvif/client.go), so this initial
+	// scheme only has to get the FIRST connection (GetCapabilities)
+	// right — a device that serves its PTZ/media services on a different
+	// scheme than its own device service is still handled correctly.
+	ct := cameraTypeForStream(streamName)
+	scheme, port := "http", 80
+	if ct != nil && ct.HTTPS {
+		scheme, port = "https", 443
+	}
+	if ct != nil && ct.HTTPPort > 0 {
+		port = ct.HTTPPort
+	}
+
 	var rawURL string
 	if creds != nil {
-		rawURL = fmt.Sprintf("http://%s@%s/?subtype=0", creds.String(), host)
+		rawURL = fmt.Sprintf("%s://%s@%s:%d/?subtype=0", scheme, creds.String(), host, port)
 	} else {
-		rawURL = fmt.Sprintf("http://%s/?subtype=0", host)
+		rawURL = fmt.Sprintf("%s://%s:%d/?subtype=0", scheme, host, port)
 	}
 
 	type result struct {
