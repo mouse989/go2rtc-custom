@@ -19,6 +19,15 @@ const (
 	TabAPIDocs    = "api_docs"   // /api-docs.html
 	TabCounting   = "counting"   // /counting.html
 	TabIncidents  = "incidents"  // /incidents.html
+	// TabSubAdmin gates /subadmin.html — a delegated console scoped to a
+	// specific group of OTHER viewer accounts (see User.SubAdminManagedUsers
+	// below), with only the specific capabilities the top admin grants.
+	// Deliberately NOT in allAdminTabs: an admin doesn't need this reduced
+	// page (they already have unrestricted Users management in admin.html),
+	// and granting it automatically would make "tabs" alone enough to
+	// identify a sub admin account inconsistent with the rest of this file's
+	// doc comments — see models.go's "Sub Admin delegation" block below.
+	TabSubAdmin = "subadmin"
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
@@ -161,6 +170,39 @@ type User struct {
 	// /api/traffic/data) are already scoped by TabDashboard2/TabIncidents
 	// regardless of which window a caller requests.
 	AllowDashboard2CustomWindow bool `json:"allow_dashboard2_custom_window"`
+
+	// ── Sub Admin delegation ──
+	// A user becomes a "sub admin" by having TabSubAdmin in Tabs — the same
+	// page-permission mechanism as every other tab, NOT a third Role value:
+	// every existing `user.Role != RoleAdmin` check across this codebase
+	// (80+ call sites) keeps treating this account exactly like any other
+	// viewer. Its elevated capabilities are reachable ONLY through the
+	// dedicated /api/subadmin/* endpoints (internal/auth/api_subadmin.go),
+	// each independently gated by one of the SubAdminCan* flags below, never
+	// by widening any existing admin-only path.
+	//
+	// SubAdminManagedUsers is an explicit allowlist of OTHER users'
+	// usernames this sub admin may act on — the top admin assigns it per
+	// sub admin (not derived automatically), same additive-list convention
+	// as RegionIDs/GisLayerIDs above. A username may appear in more than one
+	// sub admin's list. Server-side (never just client-side) this is also
+	// restricted to exclude admin and other sub-admin accounts — see
+	// managedTarget in api_subadmin.go — so this field being user-controlled
+	// JSON (stored verbatim from the admin.html form) can't be abused to
+	// reach an account outside that boundary even if the UI were bypassed.
+	SubAdminManagedUsers []string `json:"sub_admin_managed_users,omitempty"`
+	// Which of the delegable sub-admin actions this account has — granted
+	// individually ("một số loại chức năng", not all-or-nothing just from
+	// having TabSubAdmin):
+	SubAdminCanToggleEnabled bool `json:"sub_admin_can_toggle_enabled"` // bật/tắt tài khoản user trong nhóm quản lý
+	SubAdminCanResetPassword bool `json:"sub_admin_can_reset_password"` // đặt lại mật khẩu cho user trong nhóm (tuỳ chọn buộc đổi mật khẩu ở lần đăng nhập tới)
+	// SubAdminCanGrantCameras lets this sub admin edit a managed user's
+	// camera access, but ONLY within the slice of cameras this sub admin's
+	// own account can itself see (computed via AccessibleStreamNames) —
+	// camera access the top admin granted directly, outside that slice, is
+	// never touched by this capability. See api_subadmin.go's cameras
+	// handler for the exact union/prune logic.
+	SubAdminCanGrantCameras bool `json:"sub_admin_can_grant_cameras"`
 
 	// DeviceBindingScopes lists which sensitive-data categories (keys from
 	// DeviceScopeCatalog — see device_binding.go) this user may only reach

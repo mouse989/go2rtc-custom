@@ -165,6 +165,13 @@ func Init() {
 	}
 	startIntegrationThrottleSweeper()
 
+	// Sub admin action audit log (non-fatal — just a subdirectory next to users.json)
+	subAdminAuditPath := filepath.Join(filepath.Dir(usersPath), "subadmin_audit")
+	if usersPath == "users.json" {
+		subAdminAuditPath = "subadmin_audit"
+	}
+	initSubAdminAudit(subAdminAuditPath)
+
 	registerHandlers()
 	registerProxyHandlers()
 	registerLocationHandlers()
@@ -185,6 +192,8 @@ func Init() {
 	registerTrafficLiveHandler()
 	registerPTZHandlers()
 	registerIntegrationsHandler()
+	registerSubAdminAuditHandler()
+	registerSubAdminHandlers()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }

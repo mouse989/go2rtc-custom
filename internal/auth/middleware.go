@@ -223,6 +223,29 @@ func UserCanAccessStream(u *User, streamName string) bool {
 	return userStreamInAnyRegion(u, streamName)
 }
 
+// AccessibleStreamNames returns every stream name u may view, same
+// permission logic as UserCanAccessStream but computed once over every
+// stream the server knows about (streamIDMap) rather than checked one name
+// at a time — used by the sub admin console to compute "which cameras can
+// THIS sub admin grant to someone else" (api_subadmin.go), bounded to
+// exactly what the sub admin's own account can already see.
+func AccessibleStreamNames(u *User) []string {
+	streamIDMu.RLock()
+	names := make([]string, 0, len(streamIDMap))
+	for _, name := range streamIDMap {
+		names = append(names, name)
+	}
+	streamIDMu.RUnlock()
+
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if UserCanAccessStream(u, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // HasTab reports whether the user in ctx has the given tab permission.
 func HasTab(ctx context.Context, tab string) bool {
 	u, ok := UserFromContext(ctx)
@@ -253,6 +276,11 @@ var tabExtraPaths = map[string][]string{
 	TabConfig:     {"/api/config", "/api/restart"},
 	TabCounting:   {"/api/counting"},
 	TabIncidents:  {"/api/incidents"},
+	// requireSubAdmin (api_subadmin.go) does the real per-action gating
+	// (SubAdminCan* flags + SubAdminManagedUsers membership) — this entry
+	// only gets a sub admin account past the outer path check, same as
+	// every other tab here.
+	TabSubAdmin: {"/api/subadmin"},
 }
 
 func extractToken(r *http.Request) string {
