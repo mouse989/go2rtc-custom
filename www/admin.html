@@ -4014,7 +4014,7 @@ function renderPushLogGroups() {
   result.innerHTML = _pushLogGroups.map((g, gi) => {
     let title;
     if (!g.sourceUuid) {
-      title = '<span style="color:var(--text-muted);font-weight:400">(không rõ nguồn — bị từ chối trước khi đọc bản tin, hoặc thiếu source_uuid)</span>';
+      title = '<span style="color:var(--text-muted);font-weight:400">(không rõ nguồn — bị từ chối trước khi xác thực, hoặc bản tin lỗi/thiếu source_uuid — mở từng dòng bên dưới và xem cột "Bản tin"/"Xem" để biết lý do cụ thể)</span>';
     } else if (g.label) {
       title = `${esc(g.label)} <span style="color:var(--text-muted);font-weight:400;font-family:monospace;font-size:.72rem">(${esc(g.sourceUuid)})</span>`;
     } else {

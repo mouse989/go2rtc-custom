@@ -190,12 +190,19 @@ body.embedded .content { padding:.25rem 0 1rem !important; }
 }
 .tf-map-hint .btn { margin-left:auto; }
 
-/* ── Scan history ── */
+/* ── Scan history ──
+   Capped height + sticky header: with daily retention (default 30 days,
+   configurable up to "keep forever") this table can grow to dozens of
+   rows, which used to just push the rest of the page down indefinitely.
+   A fixed-height scroll area keeps the card's footprint constant no
+   matter how much history is retained. */
+.tf-history-wrap { max-height:300px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; }
 .tf-history-table { width:100%; border-collapse:collapse; font-size:.8rem; }
 .tf-history-table th {
   text-align:left; padding:.4rem .6rem; color:var(--text-muted);
   font-size:.7rem; text-transform:uppercase; letter-spacing:.05em;
   border-bottom:1px solid var(--border);
+  position:sticky; top:0; background:var(--surface); z-index:1;
 }
 .tf-history-table td { padding:.45rem .6rem; border-bottom:1px solid var(--border); }
 .tf-history-table tr:last-child td { border-bottom:none; }
@@ -1069,7 +1076,7 @@ async function loadHistory() {
       container.innerHTML = '<div class="tf-empty">No saved scans.</div>';
       return;
     }
-    container.innerHTML = `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    container.innerHTML = `<div class="tf-history-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
       <table class="tf-history-table">
         <thead><tr>
           <th>Date</th><th class="num">Scans</th><th class="num">Raw</th>
