@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Camera Map – UTMC Platform</title>
+<title>Bản đồ điều hành – UTMC Platform</title>
 <link href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 <style>
@@ -780,7 +780,7 @@ body.sb-collapsed           { --map-left:0; }
         <path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
       </svg>
     </button>
-    <h2 class="page-title">Camera Map</h2>
+    <h2 class="page-title">Bản đồ điều hành</h2>
   </header>
 </main>
 
@@ -808,6 +808,13 @@ body.sb-collapsed           { --map-left:0; }
   <div class="map-group" data-group="live">
     <button class="map-group-header" type="button">📡 Dữ liệu trực tiếp <span class="map-group-chev">▾</span></button>
     <div class="map-group-body">
+      <!-- Camera layer: the base camera markers/clusters shown on map load (rebuildMapLayers).
+           No special permission — camera markers are the map's core content, available to
+           anyone who can open this page at all. Toggle only hides/shows the layer; it never
+           stops polling camera state. -->
+      <button class="map-btn" id="btnCameraLayer" title="Bật/tắt hiển thị camera trên bản đồ">
+        📷 Camera
+      </button>
       <!-- Traffic Event: shown only for admin or users with allow_map_incident_add (and the Incidents tab).
            While on: shows "bubble" markers for incidents reported within the admin-configured
            time window (see loadActiveIncidents), AND lets right-click open the quick-add modal
@@ -1544,6 +1551,10 @@ let _heatmapOn = false, _heatmapData = null, _heatmapCfg = null, _heatmapTimer =
 const HEATMAP_REFRESH_MS = 60000; // server rescans every few minutes; this just keeps the layer from going stale while it's open
 let _clusterMarkers = new Map();  // cluster_id → {marker, el, count} — diff-based, avoids full rebuild every frame
 let _clusterUpdatePending = false;
+// Camera layer ("📷 Camera" toggle) — persisted per-browser like _map3DMode/_trafficSource.
+// Only hides/shows the 'clusters'/'unclustered-point' layers rebuildMapLayers() builds; camera
+// polling (status, hit/active markers) keeps running underneath so toggling back on is instant.
+let _camerasVisible = localStorage.getItem('map_cameras_visible') !== '0';
 let _ovUpdatePending = false;
 
 // Display name for a camera: respects allow_cam_names permission.
@@ -1760,6 +1771,12 @@ function rebuildMapLayers() {
       }
     });
   }
+
+  // Restore camera layer visibility (style.load wipes layout properties
+  // along with everything else these are freshly re-added here).
+  const camVis = _camerasVisible ? 'visible' : 'none';
+  map.setLayoutProperty('clusters', 'visibility', camVis);
+  map.setLayoutProperty('unclustered-point', 'visibility', camVis);
 
   // Search circle sources/layers
   if (!map.getSource('search-circle')) map.addSource('search-circle', { type:'geojson', data: emptyFC() });
@@ -3015,6 +3032,22 @@ document.getElementById('btnSearch').addEventListener('click', function() {
     forceMapResize();
   } else {
     clearSearch();
+  }
+});
+
+// Independent passive display layer — never exclusive with any other map
+// tool (same convention as 🤖 AI Event / 📊 Đo đếm lưu lượng below), so it's
+// intentionally left out of exitOtherMapModes(). Only toggles the GL layers'
+// visibility; camera status polling keeps running underneath so turning it
+// back on shows current state immediately, with no re-fetch needed.
+document.getElementById('btnCameraLayer').addEventListener('click', function() {
+  _camerasVisible = !_camerasVisible;
+  localStorage.setItem('map_cameras_visible', _camerasVisible ? '1' : '0');
+  this.classList.toggle('active', _camerasVisible);
+  if (map && map.getLayer('clusters') && map.getLayer('unclustered-point')) {
+    const vis = _camerasVisible ? 'visible' : 'none';
+    map.setLayoutProperty('clusters', 'visibility', vis);
+    map.setLayoutProperty('unclustered-point', 'visibility', vis);
   }
 });
 
@@ -6041,6 +6074,10 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
     document.getElementById('mapNoKey').style.display = 'flex';
     return;
   }
+
+  // Camera layer has no gating permission (core map content) — just sync
+  // the button's active state to the persisted toggle before anyone clicks.
+  document.getElementById('btnCameraLayer').classList.toggle('active', _camerasVisible);
 
   // Show traffic/heatmap buttons only if user has permission
   const trafficAllowed = canUseTraffic();
