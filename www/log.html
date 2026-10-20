@@ -110,6 +110,10 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
       Sự cố GT
     </a>
+    <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
+    </a>
     <a href="/admin.html" class="nav-item admin-only">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
       Admin Config
@@ -142,6 +146,7 @@
     <button class="page-tab" id="tabBtnAccess">Nhật ký truy cập camera</button>
     <button class="page-tab" id="tabBtnSummary">Tổng hợp truy cập</button>
     <button class="page-tab" id="tabBtnLogin">Lịch sử đăng nhập</button>
+    <button class="page-tab" id="tabBtnSubAdmin">🛡 Sub Admin</button>
     <button class="page-tab" id="tabBtnAlerts">⚠️ Cảnh báo bảo mật</button>
     <button class="page-tab" id="tabBtnLockouts">🔒 Khóa đăng nhập</button>
     <button class="page-tab" id="tabBtnUserLoc" style="display:none">📍 Vị trí người dùng</button>
@@ -245,6 +250,33 @@
         <table class="log-table">
           <thead><tr><th class="log-time">Thời gian</th><th>User</th><th>IP</th><th>Kết quả</th><th>User-Agent</th></tr></thead>
           <tbody id="loginBody"><tr><td colspan="5" class="log-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="content" id="tabSubAdmin" style="display:none">
+    <div class="log-toolbar">
+      <label style="font-size:.78rem;color:var(--text-muted)">Từ ngày
+        <input type="date" id="subAdminFrom" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <label style="font-size:.78rem;color:var(--text-muted)">Đến ngày
+        <input type="date" id="subAdminTo" class="btn btn-sm" style="margin-left:.3rem">
+      </label>
+      <button class="btn btn-sm" id="btnSubAdminFilter">🔍 Lọc</button>
+      <input type="text" id="subAdminSearch" class="btn btn-sm" placeholder="Tìm sub admin / user bị tác động…" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" style="min-width:200px">
+      <span class="spacer"></span>
+      <span class="log-count" id="subAdminCount">—</span>
+    </div>
+    <div style="font-size:.72rem;color:var(--text-muted);padding:0 .2rem .5rem">
+      Nhật ký mọi hành động các tài khoản Sub Admin thực hiện (bật/tắt tài khoản, đặt lại mật khẩu, cấp/thu hồi quyền xem camera) đối với user trong nhóm họ quản lý — xem thêm tại Admin Config → Users.
+    </div>
+
+    <div class="log-wrap">
+      <div class="log-scroll" id="subAdminScroll">
+        <table class="log-table">
+          <thead><tr><th class="log-time">Thời gian</th><th>Sub Admin</th><th>Hành động</th><th>User bị tác động</th><th>Chi tiết</th><th>IP</th></tr></thead>
+          <tbody id="subAdminBody"><tr><td colspan="6" class="log-empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -591,6 +623,53 @@ async function loadLoginLog() {
 document.getElementById('btnLoginFilter').addEventListener('click', loadLoginLog);
 document.getElementById('loginSearch').addEventListener('input', renderLoginLog);
 
+// ── Sub Admin action audit (admin only) ─────────────────────────
+const SUB_ADMIN_ACTION_LABELS = {
+  toggle_enabled: 'Bật/tắt tài khoản',
+  reset_password: 'Đặt lại mật khẩu',
+  grant_cameras:  'Cấp quyền camera',
+};
+let subAdminEntries = [];
+
+function renderSubAdminLog() {
+  const q = (document.getElementById('subAdminSearch').value || '').toLowerCase();
+  const rows = q
+    ? subAdminEntries.filter(e => (e.sub_admin || '').toLowerCase().includes(q) || (e.target_user || '').toLowerCase().includes(q))
+    : subAdminEntries;
+
+  document.getElementById('subAdminCount').textContent = rows.length + ' hành động';
+  document.getElementById('subAdminBody').innerHTML = rows.length
+    ? rows.map(e => `<tr>
+        <td class="log-time">${escHtml(fmtAccTime(e.time))}</td>
+        <td>${escHtml(e.sub_admin || '')}</td>
+        <td>${escHtml(SUB_ADMIN_ACTION_LABELS[e.action] || e.action || '')}</td>
+        <td>${escHtml(e.target_user || '')}</td>
+        <td>${escHtml(e.detail || '')}</td>
+        <td>${escHtml(e.ip || '')}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="log-empty">Không có dữ liệu trong khoảng ngày đã chọn.</td></tr>';
+}
+
+async function loadSubAdminLog() {
+  document.getElementById('subAdminBody').innerHTML = '<tr><td colspan="6" class="log-empty">Loading…</td></tr>';
+  try {
+    const from = document.getElementById('subAdminFrom').value;
+    const to = document.getElementById('subAdminTo').value;
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const entries = await apiFetch('/api/subadmin-audit?' + params.toString());
+    subAdminEntries = entries || [];
+    renderSubAdminLog();
+  } catch (e) {
+    document.getElementById('subAdminBody').innerHTML =
+      `<tr><td colspan="6" class="log-empty">Cannot load sub admin audit log: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('btnSubAdminFilter').addEventListener('click', loadSubAdminLog);
+document.getElementById('subAdminSearch').addEventListener('input', renderSubAdminLog);
+
 // ── Security alerts (admin only) ────────────────────────────────
 let alertEntries = [];
 const SEV_LABEL = { low: 'Thấp', medium: 'Trung bình', high: 'Cao' };
@@ -811,6 +890,7 @@ function switchLogTab(name) {
     access:  ['tabBtnAccess', 'tabAccessLog'],
     summary: ['tabBtnSummary', 'tabSummary'],
     login:   ['tabBtnLogin', 'tabLoginLog'],
+    subadmin: ['tabBtnSubAdmin', 'tabSubAdmin'],
     alerts:  ['tabBtnAlerts', 'tabAlerts'],
     userloc:  ['tabBtnUserLoc', 'tabUserLoc'],
     lockouts: ['tabBtnLockouts', 'tabLockouts'],
@@ -823,6 +903,7 @@ function switchLogTab(name) {
   if (name === 'access' && !accEntries.length) loadAccessLog();
   if (name === 'summary') loadSummaryUsers();
   if (name === 'login' && !loginEntries.length) loadLoginLog();
+  if (name === 'subadmin' && !subAdminEntries.length) loadSubAdminLog();
   if (name === 'alerts' && !alertEntries.length) loadAlerts();
   if (name === 'userloc') { populateUserDropdown('ulUser'); if (!userLocEntries) loadUserLoc(); }
   if (name === 'lockouts') loadLockouts();
@@ -832,6 +913,7 @@ document.getElementById('tabBtnServer').addEventListener('click', () => switchLo
 document.getElementById('tabBtnAccess').addEventListener('click', () => switchLogTab('access'));
 document.getElementById('tabBtnSummary').addEventListener('click', () => switchLogTab('summary'));
 document.getElementById('tabBtnLogin').addEventListener('click', () => switchLogTab('login'));
+document.getElementById('tabBtnSubAdmin').addEventListener('click', () => switchLogTab('subadmin'));
 document.getElementById('tabBtnAlerts').addEventListener('click', () => switchLogTab('alerts'));
 document.getElementById('tabBtnUserLoc').addEventListener('click', () => switchLogTab('userloc'));
 document.getElementById('tabBtnLockouts').addEventListener('click', () => switchLogTab('lockouts'));
@@ -850,6 +932,8 @@ document.getElementById('tabBtnLockouts').addEventListener('click', () => switch
     document.getElementById('summTo').value = today;
     document.getElementById('loginFrom').value = today;
     document.getElementById('loginTo').value = today;
+    document.getElementById('subAdminFrom').value = today;
+    document.getElementById('subAdminTo').value = today;
     document.getElementById('alertFrom').value = today;
     document.getElementById('alertTo').value = today;
     // Left open-ended (all-time) by default, unlike the other tabs — GPS
@@ -863,6 +947,7 @@ document.getElementById('tabBtnLockouts').addEventListener('click', () => switch
     document.getElementById('tabBtnAccess').style.display = 'none';
     document.getElementById('tabBtnSummary').style.display = 'none';
     document.getElementById('tabBtnLogin').style.display = 'none';
+    document.getElementById('tabBtnSubAdmin').style.display = 'none';
     document.getElementById('tabBtnAlerts').style.display = 'none';
     document.getElementById('tabBtnLockouts').style.display = 'none';
   }
