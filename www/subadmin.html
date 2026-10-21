@@ -38,7 +38,6 @@
 .sa-dlg h3 { margin:0 0 .85rem; font-size:1rem; }
 .sa-dlg .form-group { margin-bottom:.75rem; }
 .sa-dlg label { font-size:.8rem; display:block; margin-bottom:.3rem; }
-.sa-cam-list { display:flex; flex-wrap:wrap; gap:.4rem; max-height:280px; overflow-y:auto; padding:.3rem 0; }
 .sa-dlg-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:.9rem; }
 @media (max-width:768px) {
   .topbar { flex-wrap:wrap; height:auto !important; padding:8px 12px !important; gap:6px; }
@@ -159,28 +158,11 @@
   </div>
 </div>
 
-<!-- Camera grant dialog -->
-<div class="sa-dlg-backdrop" id="saCamDlg">
-  <div class="sa-dlg" style="width:520px">
-    <h3 id="saCamDlgTitle">Quyền xem camera</h3>
-    <div style="font-size:.76rem;color:var(--text-muted);margin-bottom:.6rem">
-      Chỉ hiển thị camera trong phạm vi bạn đang được xem. Camera do admin cấp trực tiếp ngoài phạm vi này không bị ảnh hưởng.
-    </div>
-    <div class="sa-cam-list" id="saCamList"><div class="sa-empty">Đang tải…</div></div>
-    <div id="saCamErr" style="display:none;color:var(--red,#f85149);font-size:.8rem;margin-top:.3rem"></div>
-    <div class="sa-dlg-actions">
-      <button class="btn btn-secondary" onclick="closeSaCamDlg()">Huỷ</button>
-      <button class="btn btn-primary" id="saCamSubmit" onclick="submitSaCam()">Lưu</button>
-    </div>
-  </div>
-</div>
-
 <script src="app.js"></script>
 <script>
 let saUsers = [];
-let saCanToggle = false, saCanResetPwd = false, saCanGrantCam = false;
-let saCamCatalog = null; // lazy-loaded [{id,label}]
-let saPwdTarget = null, saCamTarget = null;
+let saCanToggle = false, saCanResetPwd = false;
+let saPwdTarget = null;
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -203,9 +185,6 @@ function renderSaList() {
     }
     if (saCanResetPwd) {
       actions.push(`<button class="btn btn-sm" onclick="openSaPwdDlg('${esc(u.username)}')">🔑 Đặt lại mật khẩu</button>`);
-    }
-    if (saCanGrantCam) {
-      actions.push(`<button class="btn btn-sm" onclick="openSaCamDlg('${esc(u.username)}')">📷 Quyền camera (${(u.camera_ids||[]).length})</button>`);
     }
     return `<div class="sa-card">
       <span class="sa-user">${esc(u.username)}</span>
@@ -265,51 +244,6 @@ async function submitSaPwd() {
   } finally { btn.disabled = false; }
 }
 
-// ── Camera grant dialog ─────────────────────────────────────────
-async function openSaCamDlg(username) {
-  saCamTarget = username;
-  document.getElementById('saCamDlgTitle').textContent = 'Quyền camera: ' + username;
-  document.getElementById('saCamErr').style.display = 'none';
-  document.getElementById('saCamList').innerHTML = '<div class="sa-empty">Đang tải…</div>';
-  document.getElementById('saCamDlg').classList.add('open');
-
-  try {
-    if (!saCamCatalog) saCamCatalog = await apiFetch('/api/subadmin/cameras') || [];
-    const target = saUsers.find(u => u.username === username);
-    const selected = new Set((target && target.camera_ids) || []);
-    const listEl = document.getElementById('saCamList');
-    if (!saCamCatalog.length) {
-      listEl.innerHTML = '<div class="sa-empty">Bạn chưa được xem camera nào để cấp phát.</div>';
-      return;
-    }
-    listEl.innerHTML = saCamCatalog.map(c => `
-      <label class="tab-perm-chip" style="display:flex;align-items:center;gap:.3rem">
-        <input type="checkbox" class="sa-cam-check" value="${esc(c.id)}" ${selected.has(c.id) ? 'checked' : ''}>
-        ${esc(c.label || c.id)}
-      </label>`).join('');
-  } catch (e) {
-    document.getElementById('saCamList').innerHTML = `<div class="sa-empty">Lỗi tải danh sách camera: ${esc(e.message)}</div>`;
-  }
-}
-function closeSaCamDlg() { document.getElementById('saCamDlg').classList.remove('open'); }
-
-async function submitSaCam() {
-  const camera_ids = [...document.querySelectorAll('.sa-cam-check:checked')].map(cb => cb.value);
-  const btn = document.getElementById('saCamSubmit');
-  btn.disabled = true;
-  try {
-    await apiFetch(`/api/subadmin/users/${encodeURIComponent(saCamTarget)}/cameras`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ camera_ids }),
-    });
-    closeSaCamDlg();
-    await loadSaUsers();
-  } catch (e) {
-    const errEl = document.getElementById('saCamErr');
-    errEl.textContent = e.message || 'Lỗi không xác định';
-    errEl.style.display = '';
-  } finally { btn.disabled = false; }
-}
-
 document.getElementById('btnLogout').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST' });
   localStorage.removeItem('go2rtc_token');
@@ -325,7 +259,6 @@ document.getElementById('btnLogout').addEventListener('click', async () => {
 
   saCanToggle   = user.role === 'admin' || !!user.sub_admin_can_toggle_enabled;
   saCanResetPwd = user.role === 'admin' || !!user.sub_admin_can_reset_password;
-  saCanGrantCam = user.role === 'admin' || !!user.sub_admin_can_grant_cameras;
 
   await loadSaUsers();
 })();

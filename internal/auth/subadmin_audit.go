@@ -2,7 +2,7 @@ package auth
 
 // subadmin_audit.go — a durable, admin-only audit trail of every write a
 // sub admin makes through /api/subadmin/* (see api_subadmin.go). Delegating
-// enable/disable, password-reset and camera-grant capability to a non-admin
+// enable/disable and password-reset capability to a non-admin
 // account was only acceptable on the condition that the top admin can
 // always see exactly what was done with it — this is that record. Same
 // day-bucketed JSONL storage pattern as login_history.go: small, append-
@@ -25,7 +25,7 @@ import (
 type SubAdminAuditEntry struct {
 	Time       string `json:"time"` // RFC3339, Asia/Ho_Chi_Minh
 	SubAdmin   string `json:"sub_admin"`
-	Action     string `json:"action"` // "toggle_enabled" | "reset_password" | "grant_cameras"
+	Action     string `json:"action"` // "toggle_enabled" | "reset_password"
 	TargetUser string `json:"target_user"`
 	// Detail is a human-readable summary of what changed — NEVER the
 	// plaintext password itself, even for "reset_password" (see

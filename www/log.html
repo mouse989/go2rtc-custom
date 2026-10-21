@@ -269,7 +269,7 @@
       <span class="log-count" id="subAdminCount">—</span>
     </div>
     <div style="font-size:.72rem;color:var(--text-muted);padding:0 .2rem .5rem">
-      Nhật ký mọi hành động các tài khoản Sub Admin thực hiện (bật/tắt tài khoản, đặt lại mật khẩu, cấp/thu hồi quyền xem camera) đối với user trong nhóm họ quản lý — xem thêm tại Admin Config → Users.
+      Nhật ký mọi hành động các tài khoản Sub Admin thực hiện (bật/tắt tài khoản, đặt lại mật khẩu) đối với user trong nhóm họ quản lý — xem thêm tại Admin Config → Users.
     </div>
 
     <div class="log-wrap">
@@ -627,7 +627,6 @@ document.getElementById('loginSearch').addEventListener('input', renderLoginLog)
 const SUB_ADMIN_ACTION_LABELS = {
   toggle_enabled: 'Bật/tắt tài khoản',
   reset_password: 'Đặt lại mật khẩu',
-  grant_cameras:  'Cấp quyền camera',
 };
 let subAdminEntries = [];
 

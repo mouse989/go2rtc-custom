@@ -11,34 +11,28 @@ package auth
 //   GET   /api/subadmin/users                     — list the caller's managed users
 //   PUT   /api/subadmin/users/{username}/enabled   — {enabled: bool}
 //   POST  /api/subadmin/users/{username}/password  — {password, force_change}
-//   GET   /api/subadmin/cameras                    — cameras the caller may grant (its own accessible streams)
-//   PUT   /api/subadmin/users/{username}/cameras   — {camera_ids: [...]}  (masked IDs, see below)
+//
+// Camera access is deliberately NOT delegable here — that's a separate,
+// more involved mechanism elsewhere (per-camera grants AND "địa bàn"/region
+// assignment together), out of scope for this console.
 //
 // Every target username is always re-validated server-side against
 // managedTarget — the admin.html-side "managed users" picker is a
 // convenience, not a trust boundary; a request naming a username outside
 // the caller's SubAdminManagedUsers (or an admin/sub-admin account) is
 // rejected regardless of what the client sends.
-//
-// Camera grants are deliberately masked-ID based (like the ordinary,
-// non-admin /api/cameras response), not real stream names — a sub admin
-// gets exactly the same "real camera names are sensitive" treatment as any
-// other non-admin account (see AllowCamNames elsewhere in this package),
-// never more, regardless of which managed user is being edited.
 
 import (
 	"encoding/json"
 	"net/http"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 )
 
 func registerSubAdminHandlers() {
 	http.HandleFunc("/api/subadmin/users", subAdminUsersHandler)
 	http.HandleFunc("/api/subadmin/users/", subAdminUserActionHandler)
-	http.HandleFunc("/api/subadmin/cameras", subAdminCamerasHandler)
 }
 
 // requireSubAdmin returns the caller if authenticated and either a real
@@ -112,16 +106,9 @@ func sanitizeSubAdminManagedUsers(requested []string, selfUsername string) []str
 }
 
 type subAdminManagedUserOut struct {
-	Username           string   `json:"username"`
-	Enabled            bool     `json:"enabled"`
-	MustChangePassword bool     `json:"must_change_password"`
-	// CameraIDs are masked IDs for the subset of the target's current
-	// Streams that fall within the caller's OWN accessible scope — the only
-	// ones this caller could meaningfully toggle via the cameras endpoint
-	// below. Cameras the target has outside that scope aren't reported here
-	// at all (the caller has no way to act on them, and no need to know
-	// what they are).
-	CameraIDs []string `json:"camera_ids"`
+	Username           string `json:"username"`
+	Enabled            bool   `json:"enabled"`
+	MustChangePassword bool   `json:"must_change_password"`
 }
 
 // subAdminUsersHandler  GET /api/subadmin/users
@@ -135,11 +122,6 @@ func subAdminUsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	callerScope := make(map[string]bool)
-	for _, name := range AccessibleStreamNames(caller) {
-		callerScope[name] = true
-	}
-
 	out := make([]subAdminManagedUserOut, 0, len(caller.SubAdminManagedUsers))
 	for _, username := range caller.SubAdminManagedUsers {
 		u, found := GetUser(username)
@@ -150,67 +132,13 @@ func subAdminUsersHandler(w http.ResponseWriter, r *http.Request) {
 		if !found || u.Role != RoleViewer || slices.Contains(u.EffectiveTabs(), TabSubAdmin) {
 			continue
 		}
-		camIDs := make([]string, 0, len(u.Streams))
-		for _, name := range u.Streams {
-			if callerScope[name] {
-				camIDs = append(camIDs, StreamID(name))
-			}
-		}
-		sort.Strings(camIDs)
 		out = append(out, subAdminManagedUserOut{
 			Username:           u.Username,
 			Enabled:            u.Enabled,
 			MustChangePassword: u.MustChangePassword,
-			CameraIDs:          camIDs,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Username) < strings.ToLower(out[j].Username) })
-	responseJSON(w, out)
-}
-
-// subAdminCamerasHandler  GET /api/subadmin/cameras — the caller's own
-// accessible camera list (masked ID + label), i.e. everything they could
-// potentially grant to a managed user.
-func subAdminCamerasHandler(w http.ResponseWriter, r *http.Request) {
-	caller, ok := requireSubAdmin(w, r)
-	if !ok {
-		return
-	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	type camOut struct {
-		ID    string `json:"id"`
-		Label string `json:"label,omitempty"`
-	}
-	locMu.RLock()
-	locByName := make(map[string]*CameraLocation, len(locMap))
-	for name, loc := range locMap {
-		locByName[name] = loc
-	}
-	locMu.RUnlock()
-
-	names := AccessibleStreamNames(caller)
-	out := make([]camOut, 0, len(names))
-	for _, name := range names {
-		item := camOut{ID: StreamID(name)}
-		if loc := locByName[name]; loc != nil {
-			item.Label = loc.Label
-		}
-		out = append(out, item)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		li, lj := out[i].Label, out[j].Label
-		if li == "" {
-			li = out[i].ID
-		}
-		if lj == "" {
-			lj = out[j].ID
-		}
-		return li < lj
-	})
 	responseJSON(w, out)
 }
 
@@ -235,8 +163,6 @@ func subAdminUserActionHandler(w http.ResponseWriter, r *http.Request) {
 		subAdminToggleEnabled(w, r, caller, targetUsername, ip)
 	case "password":
 		subAdminResetPassword(w, r, caller, targetUsername, ip)
-	case "cameras":
-		subAdminGrantCameras(w, r, caller, targetUsername, ip)
 	default:
 		http.Error(w, "unknown action", http.StatusNotFound)
 	}
@@ -313,81 +239,4 @@ func subAdminResetPassword(w http.ResponseWriter, r *http.Request, caller *User,
 	}
 	recordSubAdminAction(caller.Username, "reset_password", target.Username, detail, ip)
 	responseJSON(w, map[string]string{"status": "ok"})
-}
-
-func subAdminGrantCameras(w http.ResponseWriter, r *http.Request, caller *User, targetUsername, ip string) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !caller.SubAdminCanGrantCameras && caller.Role != RoleAdmin {
-		http.Error(w, "forbidden: this sub admin cannot grant camera access", http.StatusForbidden)
-		return
-	}
-	var req struct {
-		CameraIDs []string `json:"camera_ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	target, ok := managedTarget(w, caller, targetUsername)
-	if !ok {
-		return
-	}
-
-	// The caller's own accessible scope bounds everything below — a camera
-	// outside it is simply not resolvable to a name the caller is allowed
-	// to touch, regardless of what camera_ids the request names.
-	callerScope := make(map[string]bool)
-	for _, name := range AccessibleStreamNames(caller) {
-		callerScope[name] = true
-	}
-
-	desired := make(map[string]bool, len(req.CameraIDs))
-	for _, id := range req.CameraIDs {
-		if name, found := StreamNameByID(id); found && callerScope[name] {
-			desired[name] = true
-		}
-	}
-
-	// New Streams = (target's current list, minus anything in caller's own
-	// scope) UNION (desired, which is already filtered to caller's scope).
-	// This only ever adds/removes cameras within the caller's own reach —
-	// access the top admin granted directly outside that reach is left
-	// completely untouched, added or removed count included in the audit
-	// detail below.
-	kept := make([]string, 0, len(target.Streams))
-	for _, name := range target.Streams {
-		if !callerScope[name] {
-			kept = append(kept, name)
-		}
-	}
-	var added, removed int
-	hadBefore := make(map[string]bool, len(target.Streams))
-	for _, name := range target.Streams {
-		hadBefore[name] = true
-	}
-	newStreams := kept
-	for name := range desired {
-		newStreams = append(newStreams, name)
-		if !hadBefore[name] {
-			added++
-		}
-	}
-	for name := range callerScope {
-		if hadBefore[name] && !desired[name] {
-			removed++
-		}
-	}
-	sort.Strings(newStreams)
-	target.Streams = newStreams
-
-	if err := UpdateUser(target, ""); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	recordSubAdminAction(caller.Username, "grant_cameras", target.Username,
-		"added="+strconv.Itoa(added)+" removed="+strconv.Itoa(removed), ip)
-	responseJSON(w, map[string]any{"streams_count": len(target.Streams)})
 }

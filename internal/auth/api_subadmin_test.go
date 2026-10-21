@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
-	"sort"
 	"testing"
 )
 
@@ -45,8 +43,6 @@ func doSubAdminRequest(t *testing.T, caller *User, method, path string, body any
 	switch {
 	case path == "/api/subadmin/users":
 		subAdminUsersHandler(w, req)
-	case path == "/api/subadmin/cameras":
-		subAdminCamerasHandler(w, req)
 	default:
 		subAdminUserActionHandler(w, req)
 	}
@@ -198,54 +194,4 @@ func TestSubAdminResetPasswordNeverLeaksPasswordInAudit(t *testing.T) {
 	if bytes.Contains([]byte(entries[0].Detail), []byte("S3cur3-Pass!")) {
 		t.Fatal("audit detail must never contain the plaintext password")
 	}
-}
-
-// TestSubAdminGrantCamerasOnlyTouchesCallerOwnScope is the core security
-// property of the whole camera-grant feature: a sub admin may add/remove
-// cameras for a managed user, but ONLY within cameras the sub admin's own
-// account can already see — access the top admin granted directly, outside
-// that scope, must survive untouched.
-func TestSubAdminGrantCamerasOnlyTouchesCallerOwnScope(t *testing.T) {
-	setupSubAdminTest(t)
-
-	// Register 3 fake streams so StreamID/StreamNameByID resolve.
-	for _, name := range []string{"cam-a", "cam-b", "cam-outside-scope"} {
-		RegisterStreamID(name)
-	}
-	camAID := StreamID("cam-a")
-	camBID := StreamID("cam-b")
-
-	// Target already has cam-a (will be removed by this grant) and
-	// cam-outside-scope (must survive, since the caller can't see it).
-	if err := CreateUser(&User{
-		Username: "frank", Role: RoleViewer, Enabled: true,
-		Streams: []string{"cam-a", "cam-outside-scope"},
-	}, "pw"); err != nil {
-		t.Fatalf("CreateUser frank: %v", err)
-	}
-
-	caller := &User{
-		Username: "suba", Role: RoleViewer, Tabs: []string{TabSubAdmin},
-		SubAdminCanGrantCameras: true,
-		SubAdminManagedUsers:    []string{"frank"},
-		Streams:                 []string{"cam-a", "cam-b"}, // caller's own scope — cam-outside-scope is NOT in it
-	}
-
-	// Desired: only cam-b (drop cam-a, which is within caller's scope so this IS allowed).
-	w := doSubAdminRequest(t, caller, http.MethodPut, "/api/subadmin/users/frank/cameras",
-		map[string]any{"camera_ids": []string{camBID}})
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	frank, _ := GetUser("frank")
-	got := append([]string{}, frank.Streams...)
-	sort.Strings(got)
-	expected := []string{"cam-b", "cam-outside-scope"}
-	sort.Strings(expected)
-	if !slices.Equal(got, expected) {
-		t.Fatalf("expected frank.Streams=%v, got %v (cam-a should be dropped, cam-outside-scope must survive, cam-b added)", expected, got)
-	}
-
-	_ = camAID // registered above so StreamNameByID resolves it; not asserted on directly
 }

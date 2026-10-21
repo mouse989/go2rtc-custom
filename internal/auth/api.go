@@ -230,7 +230,6 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"sub_admin_managed_users":        user.SubAdminManagedUsers,
 		"sub_admin_can_toggle_enabled":   user.SubAdminCanToggleEnabled,
 		"sub_admin_can_reset_password":   user.SubAdminCanResetPassword,
-		"sub_admin_can_grant_cameras":    user.SubAdminCanGrantCameras,
 		"tabs":                           user.EffectiveTabs(),
 		"device_binding_scopes":          user.DeviceBindingScopes,
 		"device_verified":                requestHasVerifiedDevice(r, user.Username),
@@ -308,7 +307,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			SubAdminManagedUsers        []string `json:"sub_admin_managed_users"`
 			SubAdminCanToggleEnabled    bool     `json:"sub_admin_can_toggle_enabled"`
 			SubAdminCanResetPassword    bool     `json:"sub_admin_can_reset_password"`
-			SubAdminCanGrantCameras     bool     `json:"sub_admin_can_grant_cameras"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -371,7 +369,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			SubAdminManagedUsers:        sanitizeSubAdminManagedUsers(req.SubAdminManagedUsers, req.Username),
 			SubAdminCanToggleEnabled:    req.SubAdminCanToggleEnabled,
 			SubAdminCanResetPassword:    req.SubAdminCanResetPassword,
-			SubAdminCanGrantCameras:     req.SubAdminCanGrantCameras,
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -433,7 +430,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			SubAdminManagedUsers        []string `json:"sub_admin_managed_users"`
 			SubAdminCanToggleEnabled    *bool    `json:"sub_admin_can_toggle_enabled"`
 			SubAdminCanResetPassword    *bool    `json:"sub_admin_can_reset_password"`
-			SubAdminCanGrantCameras     *bool    `json:"sub_admin_can_grant_cameras"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -476,9 +472,6 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.SubAdminCanResetPassword != nil {
 			existing.SubAdminCanResetPassword = *req.SubAdminCanResetPassword
-		}
-		if req.SubAdminCanGrantCameras != nil {
-			existing.SubAdminCanGrantCameras = *req.SubAdminCanGrantCameras
 		}
 		if req.Enabled != nil {
 			existing.Enabled = *req.Enabled

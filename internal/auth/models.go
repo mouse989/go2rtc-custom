@@ -196,13 +196,9 @@ type User struct {
 	// having TabSubAdmin):
 	SubAdminCanToggleEnabled bool `json:"sub_admin_can_toggle_enabled"` // bật/tắt tài khoản user trong nhóm quản lý
 	SubAdminCanResetPassword bool `json:"sub_admin_can_reset_password"` // đặt lại mật khẩu cho user trong nhóm (tuỳ chọn buộc đổi mật khẩu ở lần đăng nhập tới)
-	// SubAdminCanGrantCameras lets this sub admin edit a managed user's
-	// camera access, but ONLY within the slice of cameras this sub admin's
-	// own account can itself see (computed via AccessibleStreamNames) —
-	// camera access the top admin granted directly, outside that slice, is
-	// never touched by this capability. See api_subadmin.go's cameras
-	// handler for the exact union/prune logic.
-	SubAdminCanGrantCameras bool `json:"sub_admin_can_grant_cameras"`
+	// Camera/region access delegation is NOT handled here — that's a
+	// separate mechanism (per-camera grants together with "địa bàn"/region
+	// assignment) out of this console's scope.
 
 	// DeviceBindingScopes lists which sensitive-data categories (keys from
 	// DeviceScopeCatalog — see device_binding.go) this user may only reach
