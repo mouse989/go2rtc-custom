@@ -739,6 +739,10 @@ body.sb-collapsed           { --map-left:0; }
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
       Sự cố GT
     </a>
+    <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
+    </a>
     <a href="/admin.html" class="nav-item admin-only">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
       Admin Config
@@ -1029,8 +1033,9 @@ body.sb-collapsed           { --map-left:0; }
              style="width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
     </div>
     <p style="font-size:.71rem;color:var(--text-muted);margin:0">
-      Click lên bản đồ để thêm điểm vẽ vùng. Địa bàn rời rạc/phức tạp? Bấm "Đóng vùng con" rồi vẽ tiếp một vùng khác — tất cả sẽ tính chung vào 1 địa bàn.
+      Click lên bản đồ để thêm điểm vẽ vùng. Click vào một điểm đã có (kể cả của vùng vẽ/nhập từ trước) để xoá điểm đó; kéo giữ một điểm để di chuyển vị trí. Địa bàn rời rạc/phức tạp? Bấm "Đóng vùng con" rồi vẽ tiếp một vùng khác — tất cả sẽ tính chung vào 1 địa bàn, mỗi vùng con có thể xoá riêng ở danh sách bên dưới.
     </p>
+    <div id="regionRingsList" style="display:flex;flex-direction:column;gap:.3rem"></div>
     <div style="display:flex;gap:.4rem;flex-wrap:wrap">
       <button class="btn btn-secondary" id="regionUndoPoint" style="font-size:.76rem">↩ Hoàn tác điểm</button>
       <button class="btn btn-secondary" id="regionCloseRing" style="font-size:.76rem">Đóng vùng con</button>
@@ -4079,6 +4084,7 @@ let _regions = [];            // cached list from GET /api/regions
 let _editingRegionID = null;  // null = creating a new region
 let _draftRings = [];         // completed rings: [][ [lng,lat], ... ]
 let _draftCurrent = [];       // in-progress ring being clicked out
+let _draftVertexMarkers = []; // draggable/clickable HTML markers, one per existing vertex (any ring + the in-progress one) — see renderRegionVertexMarkers()
 
 function pointInRingJS(lon, lat, ring) {
   const n = ring.length;
@@ -4938,9 +4944,14 @@ function updateRegionDraftLayers() {
   }
   map.getSource('region-draft-fill').setData({ type:'FeatureCollection', features:polyFeatures });
 
-  const pointFeatures = [..._draftRings.flat(), ..._draftCurrent]
-    .map(pt => ({ type:'Feature', properties:{ color }, geometry:{ type:'Point', coordinates:pt } }));
-  map.getSource('region-draft-points').setData({ type:'FeatureCollection', features:pointFeatures });
+  // Vertices render as draggable/clickable HTML markers (see
+  // renderRegionVertexMarkers) rather than this GL circle layer, so admins
+  // can move or delete an existing point — region-draft-points is left
+  // empty; the source/layer stay registered (ensureRegionLayers) only so
+  // nothing else here has to special-case their absence.
+  map.getSource('region-draft-points').setData(emptyFC());
+  renderRegionVertexMarkers();
+  renderRegionRingsList();
 
   // Live-highlight cameras currently enclosed by the draft
   const inside = _locations.filter(l => _streamByID[l.id] && pointInDraft(l.lon, l.lat));
@@ -4960,6 +4971,94 @@ function updateRegionDraftLayers() {
       type:'Feature', properties:{ color }, geometry:{ type:'Polygon', coordinates:[[...ring, ring[0]]] },
     })),
   });
+}
+
+// ── Vertex editing: drag an existing point to move it, click it to delete
+// it — the gap this fills is that until now the only way to change an
+// already-drawn or imported region was "Hoàn tác điểm" (undo only the very
+// last point added) or redrawing from scratch. ─────────────────────────
+function clearRegionVertexMarkers() {
+  _draftVertexMarkers.forEach(m => m.remove());
+  _draftVertexMarkers = [];
+}
+
+function renderRegionVertexMarkers() {
+  clearRegionVertexMarkers();
+  if (!map) return;
+  const color = currentRegionColor();
+
+  // ringRef is the actual array (one entry of _draftRings, or _draftCurrent
+  // itself) — mutating ringRef[idx] in place keeps every other reference to
+  // that same array (e.g. the fill/line preview) in sync with no extra
+  // bookkeeping, since this whole marker set is torn down and rebuilt fresh
+  // on every edit anyway (see updateRegionDraftLayers).
+  const addVertexMarker = (ringRef, idx) => {
+    const [lng, lat] = ringRef[idx];
+    const el = document.createElement('div');
+    el.title = 'Kéo để di chuyển · Click để xoá điểm này';
+    el.style.cssText = `width:14px;height:14px;border-radius:50%;background:#fff;` +
+      `border:2.5px solid ${color};cursor:pointer;box-sizing:border-box`;
+    const marker = new vietmapgl.Marker({ element: el, draggable: true })
+      .setLngLat([lng, lat]).addTo(map);
+
+    let dragged = false;
+    marker.on('dragstart', () => { dragged = false; });
+    marker.on('drag', () => { dragged = true; });
+    marker.on('dragend', () => {
+      const ll = marker.getLngLat();
+      ringRef[idx] = [ll.lng, ll.lat];
+      updateRegionDraftLayers();
+    });
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (dragged) return;
+      deleteRegionVertex(ringRef, idx);
+    });
+    _draftVertexMarkers.push(marker);
+  };
+
+  _draftRings.forEach(ring => ring.forEach((_, idx) => addVertexMarker(ring, idx)));
+  _draftCurrent.forEach((_, idx) => addVertexMarker(_draftCurrent, idx));
+}
+
+// deleteRegionVertex removes one point. If that drops a CLOSED ring below 3
+// points (no longer a valid polygon), the ring is dissolved and its
+// remaining points are handed back to the in-progress ring so the admin can
+// keep editing instead of being left with a silently-invalid sub-vùng.
+function deleteRegionVertex(ringRef, idx) {
+  ringRef.splice(idx, 1);
+  if (ringRef !== _draftCurrent && ringRef.length < 3) {
+    const i = _draftRings.indexOf(ringRef);
+    if (i !== -1) {
+      _draftRings.splice(i, 1);
+      _draftCurrent = [...ringRef, ..._draftCurrent];
+    }
+  }
+  updateRegionDraftLayers();
+}
+
+// renderRegionRingsList shows each CLOSED sub-vùng with its point count and
+// a delete button — covers removing a whole ring (e.g. one placemark from a
+// multi-placemark KML import) without having to click every one of its
+// points individually.
+function renderRegionRingsList() {
+  const wrap = document.getElementById('regionRingsList');
+  if (!wrap) return;
+  if (!_draftRings.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = _draftRings.map((ring, i) => `
+    <div style="display:flex;align-items:center;gap:.4rem;font-size:.74rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.25rem .5rem">
+      <span style="flex:1">Vùng con ${i + 1} (${ring.length} điểm)</span>
+      <button type="button" class="btn btn-danger" data-ring-idx="${i}" style="font-size:.68rem;padding:.1rem .4rem">🗑 Xoá</button>
+    </div>`).join('');
+  wrap.querySelectorAll('[data-ring-idx]').forEach(btn =>
+    btn.addEventListener('click', () => deleteRegionRing(parseInt(btn.dataset.ringIdx, 10))));
+}
+
+function deleteRegionRing(idx) {
+  if (idx < 0 || idx >= _draftRings.length) return;
+  if (!confirm(`Xoá vùng con ${idx + 1}? (${_draftRings[idx].length} điểm)`)) return;
+  _draftRings.splice(idx, 1);
+  updateRegionDraftLayers();
 }
 
 function startRegionDrawing() {
@@ -5027,6 +5126,7 @@ document.getElementById('regionPanelClose').addEventListener('click', closeRegio
 function showRegionListView() {
   stopRegionDrawing();
   removeRegionLayers();
+  clearRegionVertexMarkers();
   document.getElementById('regionListView').style.display = '';
   document.getElementById('regionEditView').style.display = 'none';
 }

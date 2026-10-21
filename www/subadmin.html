@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sub Admin – UTMC Platform</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.sa-wrap { max-width:960px; }
+.sa-hint {
+  font-size:.78rem; color:var(--text-muted); background:var(--surface);
+  border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:.75rem 1rem; margin-bottom:1.1rem;
+}
+.sa-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:.9rem 1.1rem; margin-bottom:.75rem;
+  display:flex; align-items:center; gap:.75rem; flex-wrap:wrap;
+}
+.sa-user { font-weight:700; font-size:.95rem; flex:1; min-width:140px; }
+.sa-badge { font-size:.7rem; padding:.15rem .5rem; border-radius:4px; font-weight:600; }
+.sa-badge.on  { background:#1a7f4522; color:#3fb950; }
+.sa-badge.off { background:#7f1d1d22; color:#f85149; }
+.sa-badge.pwd { background:#92400e22; color:#fbbf24; }
+.sa-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+.sa-empty { text-align:center; color:var(--text-muted); padding:2.5rem; font-size:.85rem; }
+
+.sa-dlg-backdrop {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
+  align-items:center; justify-content:center; z-index:200;
+}
+.sa-dlg-backdrop.open { display:flex; }
+.sa-dlg {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+  width:420px; max-width:calc(100vw - 32px); max-height:80vh; overflow-y:auto;
+  padding:1.1rem 1.25rem;
+}
+.sa-dlg h3 { margin:0 0 .85rem; font-size:1rem; }
+.sa-dlg .form-group { margin-bottom:.75rem; }
+.sa-dlg label { font-size:.8rem; display:block; margin-bottom:.3rem; }
+.sa-dlg-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:.9rem; }
+@media (max-width:768px) {
+  .topbar { flex-wrap:wrap; height:auto !important; padding:8px 12px !important; gap:6px; }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Platform</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/dashboard2.html" class="nav-item" data-tab-require="dashboard2" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 02
+    </a>
+    <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/annotate.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm-1 4h1v2H4V9zm1 4H4v2h1v-2z" clip-rule="evenodd"/></svg>
+      Annotate
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/incidents.html" class="nav-item" data-tab-require="incidents" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      Sự cố GT
+    </a>
+    <a href="/subadmin.html" class="nav-item active" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Admin Config
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Sub Admin — Quản lý nhóm user</h2>
+  </header>
+
+  <div class="content sa-wrap">
+    <div class="sa-hint">
+      Đây là trang quản lý giới hạn cho các chức năng admin đã giao cho bạn, chỉ áp dụng với nhóm user bên dưới.
+      Mọi thao tác tại đây đều được ghi lại để admin có thể xem lại.
+    </div>
+    <div id="saList">
+      <div class="sa-empty">Đang tải…</div>
+    </div>
+  </div>
+</main>
+
+<!-- Reset password dialog -->
+<div class="sa-dlg-backdrop" id="saPwdDlg">
+  <div class="sa-dlg">
+    <h3 id="saPwdDlgTitle">Đặt lại mật khẩu</h3>
+    <div class="form-group">
+      <label>Mật khẩu mới</label>
+      <input type="password" id="saPwdInput" class="input" autocomplete="new-password">
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:.4rem">
+      <input type="checkbox" id="saPwdForce" checked style="width:15px;height:15px">
+      <label style="margin:0" for="saPwdForce">Buộc user đổi mật khẩu ở lần đăng nhập tới</label>
+    </div>
+    <div id="saPwdErr" style="display:none;color:var(--red,#f85149);font-size:.8rem;margin-top:.3rem"></div>
+    <div class="sa-dlg-actions">
+      <button class="btn btn-secondary" onclick="closeSaPwdDlg()">Huỷ</button>
+      <button class="btn btn-primary" id="saPwdSubmit" onclick="submitSaPwd()">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+let saUsers = [];
+let saCanToggle = false, saCanResetPwd = false;
+let saPwdTarget = null;
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderSaList() {
+  const wrap = document.getElementById('saList');
+  if (!saUsers.length) {
+    wrap.innerHTML = '<div class="sa-empty">Chưa có user nào được giao cho bạn quản lý — liên hệ admin để được gán.</div>';
+    return;
+  }
+  wrap.innerHTML = saUsers.map(u => {
+    const badges = [
+      `<span class="sa-badge ${u.enabled ? 'on' : 'off'}">${u.enabled ? 'Đang hoạt động' : 'Đã khoá'}</span>`,
+    ];
+    if (u.must_change_password) badges.push('<span class="sa-badge pwd">Chờ đổi mật khẩu</span>');
+    const actions = [];
+    if (saCanToggle) {
+      actions.push(`<button class="btn btn-sm ${u.enabled ? '' : 'btn-primary'}" onclick="toggleSaEnabled('${esc(u.username)}', ${!u.enabled})">${u.enabled ? '🔌 Tắt' : '▶ Bật'}</button>`);
+    }
+    if (saCanResetPwd) {
+      actions.push(`<button class="btn btn-sm" onclick="openSaPwdDlg('${esc(u.username)}')">🔑 Đặt lại mật khẩu</button>`);
+    }
+    return `<div class="sa-card">
+      <span class="sa-user">${esc(u.username)}</span>
+      ${badges.join(' ')}
+      <div class="sa-actions">${actions.join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+async function loadSaUsers() {
+  try {
+    saUsers = await apiFetch('/api/subadmin/users') || [];
+    renderSaList();
+  } catch (e) {
+    document.getElementById('saList').innerHTML = `<div class="sa-empty">Không tải được danh sách: ${esc(e.message)}</div>`;
+  }
+}
+
+async function toggleSaEnabled(username, enabled) {
+  try {
+    await apiFetch(`/api/subadmin/users/${encodeURIComponent(username)}/enabled`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+    });
+    await loadSaUsers();
+  } catch (e) { alert('Lỗi: ' + e.message); }
+}
+
+// ── Password reset dialog ──────────────────────────────────────
+function openSaPwdDlg(username) {
+  saPwdTarget = username;
+  document.getElementById('saPwdDlgTitle').textContent = 'Đặt lại mật khẩu: ' + username;
+  document.getElementById('saPwdInput').value = '';
+  document.getElementById('saPwdForce').checked = true;
+  document.getElementById('saPwdErr').style.display = 'none';
+  document.getElementById('saPwdDlg').classList.add('open');
+}
+function closeSaPwdDlg() { document.getElementById('saPwdDlg').classList.remove('open'); }
+
+async function submitSaPwd() {
+  const password = document.getElementById('saPwdInput').value;
+  const force_change = document.getElementById('saPwdForce').checked;
+  const errEl = document.getElementById('saPwdErr');
+  errEl.style.display = 'none';
+  if (!password) { errEl.textContent = 'Nhập mật khẩu mới.'; errEl.style.display = ''; return; }
+  const btn = document.getElementById('saPwdSubmit');
+  btn.disabled = true;
+  try {
+    await apiFetch(`/api/subadmin/users/${encodeURIComponent(saPwdTarget)}/password`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, force_change }),
+    });
+    closeSaPwdDlg();
+    await loadSaUsers();
+  } catch (e) {
+    errEl.textContent = e.message || 'Lỗi không xác định';
+    errEl.style.display = '';
+  } finally { btn.disabled = false; }
+}
+
+document.getElementById('btnLogout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  localStorage.removeItem('go2rtc_token');
+  localStorage.removeItem('go2rtc_user');
+  window.location.href = '/login.html';
+});
+
+// ── Boot ──
+(async () => {
+  await initApp('subadmin');
+  const user = getUser();
+  if (!user || !hasTab('subadmin')) { window.location.href = '/'; return; }
+
+  saCanToggle   = user.role === 'admin' || !!user.sub_admin_can_toggle_enabled;
+  saCanResetPwd = user.role === 'admin' || !!user.sub_admin_can_reset_password;
+
+  await loadSaUsers();
+})();
+</script>
+</body>
+</html>

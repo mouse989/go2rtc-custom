@@ -253,6 +253,11 @@ var tabExtraPaths = map[string][]string{
 	TabConfig:     {"/api/config", "/api/restart"},
 	TabCounting:   {"/api/counting"},
 	TabIncidents:  {"/api/incidents"},
+	// requireSubAdmin (api_subadmin.go) does the real per-action gating
+	// (SubAdminCan* flags + SubAdminManagedUsers membership) — this entry
+	// only gets a sub admin account past the outer path check, same as
+	// every other tab here.
+	TabSubAdmin: {"/api/subadmin"},
 }
 
 func extractToken(r *http.Request) string {

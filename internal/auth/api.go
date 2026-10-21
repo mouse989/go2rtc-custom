@@ -227,6 +227,9 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 		"allow_incidents_import":         user.AllowIncidentsImport,
 		"allow_traffic_live":             user.AllowTrafficLive,
 		"allow_dashboard2_custom_window": user.AllowDashboard2CustomWindow,
+		"sub_admin_managed_users":        user.SubAdminManagedUsers,
+		"sub_admin_can_toggle_enabled":   user.SubAdminCanToggleEnabled,
+		"sub_admin_can_reset_password":   user.SubAdminCanResetPassword,
 		"tabs":                           user.EffectiveTabs(),
 		"device_binding_scopes":          user.DeviceBindingScopes,
 		"device_verified":                requestHasVerifiedDevice(r, user.Username),
@@ -301,6 +304,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowTrafficLive            bool     `json:"allow_traffic_live"`
 			AllowDashboard2CustomWindow bool     `json:"allow_dashboard2_custom_window"`
 			DeviceBindingScopes         []string `json:"device_binding_scopes"`
+			SubAdminManagedUsers        []string `json:"sub_admin_managed_users"`
+			SubAdminCanToggleEnabled    bool     `json:"sub_admin_can_toggle_enabled"`
+			SubAdminCanResetPassword    bool     `json:"sub_admin_can_reset_password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -360,6 +366,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowTrafficLive:            req.AllowTrafficLive,
 			AllowDashboard2CustomWindow: req.AllowDashboard2CustomWindow,
 			DeviceBindingScopes:         validDeviceScopeKeys(req.DeviceBindingScopes),
+			SubAdminManagedUsers:        sanitizeSubAdminManagedUsers(req.SubAdminManagedUsers, req.Username),
+			SubAdminCanToggleEnabled:    req.SubAdminCanToggleEnabled,
+			SubAdminCanResetPassword:    req.SubAdminCanResetPassword,
 		}
 		if _, exists := GetUser(req.Username); exists {
 			http.Error(w, "user already exists", http.StatusConflict)
@@ -418,6 +427,9 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 			AllowDashboard2CustomWindow *bool    `json:"allow_dashboard2_custom_window"`
 			MustChangePassword          *bool    `json:"must_change_password"` // admin: force/clear the first-login-style password reset
 			DeviceBindingScopes         []string `json:"device_binding_scopes"`
+			SubAdminManagedUsers        []string `json:"sub_admin_managed_users"`
+			SubAdminCanToggleEnabled    *bool    `json:"sub_admin_can_toggle_enabled"`
+			SubAdminCanResetPassword    *bool    `json:"sub_admin_can_reset_password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -451,6 +463,15 @@ func usersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.DeviceBindingScopes != nil {
 			existing.DeviceBindingScopes = validDeviceScopeKeys(req.DeviceBindingScopes)
+		}
+		if req.SubAdminManagedUsers != nil {
+			existing.SubAdminManagedUsers = sanitizeSubAdminManagedUsers(req.SubAdminManagedUsers, existing.Username)
+		}
+		if req.SubAdminCanToggleEnabled != nil {
+			existing.SubAdminCanToggleEnabled = *req.SubAdminCanToggleEnabled
+		}
+		if req.SubAdminCanResetPassword != nil {
+			existing.SubAdminCanResetPassword = *req.SubAdminCanResetPassword
 		}
 		if req.Enabled != nil {
 			existing.Enabled = *req.Enabled

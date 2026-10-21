@@ -174,6 +174,10 @@ tr:hover td { background:var(--surface2); }
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
       Sự cố GT
     </a>
+    <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
+    </a>
     <a href="/admin.html" class="nav-item active admin-only">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
       Admin Config
@@ -2072,6 +2076,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="config"> Config</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="api_docs"> API Docs</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="incidents"> ⚠ Sự cố GT</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="subadmin" onchange="onSubAdminTabChange()"> 🛡 Sub Admin (trang quản lý nhóm user riêng)</label>
         </div>
         <label style="font-size:.8rem;font-weight:600;display:block;margin-top:.75rem;margin-bottom:.45rem">Map Permissions</label>
         <div style="display:flex;flex-wrap:wrap;gap:.4rem">
@@ -2123,6 +2128,24 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <div style="font-size:.7rem;color:var(--text-muted);margin:.3rem 0 0">
             Với mỗi mục được chọn, user chỉ xem được loại dữ liệu đó sau khi xác minh thiết bị (WebAuthn) đã được duyệt —
             các quyền khác của user vẫn hoạt động bình thường. Cần bật "Xác minh thiết bị" trong tab Settings trước.
+          </div>
+
+          <!-- Sub Admin — only meaningful once "🛡 Sub Admin" tab above is
+               checked. A sub admin is still a plain viewer everywhere else
+               in the system; these are the ONLY elevated things this
+               account may do, each independently grantable, scoped to the
+               exact group of other users picked below. Every action is
+               logged (see Logs → 🛡 Sub Admin) so admin always knows what
+               was done. -->
+          <div id="f-subadmin-section" style="display:none;margin-top:.9rem;padding-top:.7rem;border-top:1px dashed var(--border)">
+            <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.3rem;letter-spacing:.04em;text-transform:uppercase;font-weight:600">🛡 Sub Admin — chức năng được giao</div>
+            <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+              <label class="tab-perm-chip"><input type="checkbox" id="f-suba-toggle-enabled"> 🔌 Bật/tắt tài khoản user trong nhóm</label>
+              <label class="tab-perm-chip"><input type="checkbox" id="f-suba-reset-password"> 🔑 Đặt lại mật khẩu user trong nhóm</label>
+            </div>
+            <label style="font-size:.78rem;font-weight:600;display:block;margin-top:.75rem;margin-bottom:.4rem">Nhóm user được quản lý</label>
+            <div id="subAdminUserCheckWrap" style="display:flex;flex-wrap:wrap;gap:.4rem"></div>
+            <div style="font-size:.7rem;color:var(--text-muted);margin-top:.3rem">Chỉ liệt kê các tài khoản viewer khác (không gồm admin/sub admin khác). Một user có thể thuộc nhóm của nhiều sub admin.</div>
           </div>
         </div>
         <p style="font-size:.7rem;color:var(--text-muted);margin:.35rem 0 0">Quyền hiển thị lớp traffic, heatmap, sửa vị trí camera, xem tên thật camera, xem/config trạm đo đếm lưu lượng trên tab Map.</p>
@@ -2944,7 +2967,7 @@ function renderTable(users) {
   }
   users.forEach(u => {
     const streams = (u.streams || []).join(', ') || (u.role === 'admin' ? 'All cameras' : '—');
-    const tabLabels = { monitor:'Monitor', dashboard:'Dashboard', log:'Logs', config:'Config', api_docs:'API Docs' };
+    const tabLabels = { monitor:'Monitor', dashboard:'Dashboard', log:'Logs', config:'Config', api_docs:'API Docs', subadmin:'🛡 Sub Admin' };
     const tabBadges = u.role === 'admin'
       ? '<span style="font-size:.7rem;color:var(--text-muted)">All</span>'
       : (u.tabs || []).length
@@ -2987,9 +3010,13 @@ function openAdd() {
   document.getElementById('f-orig').value = '';
   document.querySelectorAll('input[name="userTab"]').forEach(cb => { cb.checked = false; });
   document.getElementById('f-allow-map-snapshot-preview').checked = false; // new users: off by default
+  document.getElementById('f-suba-toggle-enabled').checked = false;
+  document.getElementById('f-suba-reset-password').checked = false;
   renderRegionChecks([]);
   renderGisLayerChecks([]);
   renderDeviceScopeChecks([]);
+  renderSubAdminUserChecks([], '');
+  onSubAdminTabChange();
   uncheckAll(); updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
 }
@@ -3041,10 +3068,14 @@ function openEdit(u) {
   toggleViewLimitInput();
   document.getElementById('f-allow-incidents-import').checked = !!u.allow_incidents_import;
   document.getElementById('f-allow-dashboard2-custom-window').checked = !!u.allow_dashboard2_custom_window;
+  document.getElementById('f-suba-toggle-enabled').checked = !!u.sub_admin_can_toggle_enabled;
+  document.getElementById('f-suba-reset-password').checked = !!u.sub_admin_can_reset_password;
   setCamChecks(u.streams || []);
   renderRegionChecks(u.region_ids || []);
   renderGisLayerChecks(u.gis_layer_ids || []);
   renderDeviceScopeChecks(u.device_binding_scopes || []);
+  renderSubAdminUserChecks(u.sub_admin_managed_users || [], u.username);
+  onSubAdminTabChange();
   updateCamCount(); onRoleChange();
   document.getElementById('dlg').classList.add('open');
 }
@@ -3078,6 +3109,38 @@ function renderRegionChecks(selectedIDs) {
 
 function getCheckedRegions() {
   return [...document.querySelectorAll('.region-check:checked')].map(cb => cb.value);
+}
+
+// ════════════════════════════════════════════════════════
+//  SUB ADMIN — managed-users picker (checklist of OTHER viewer accounts
+//  this user, once granted the "subadmin" tab, may manage). Same checklist
+//  pattern as renderRegionChecks above. The permission section itself is
+//  only shown while the "🛡 Sub Admin" tab checkbox is ticked — see
+//  onSubAdminTabChange(), wired to that checkbox's onchange.
+// ════════════════════════════════════════════════════════
+function onSubAdminTabChange() {
+  const checked = document.querySelector('input[name="userTab"][value="subadmin"]').checked;
+  document.getElementById('f-subadmin-section').style.display = checked ? '' : 'none';
+}
+
+function renderSubAdminUserChecks(selectedUsernames, selfUsername) {
+  const wrap = document.getElementById('subAdminUserCheckWrap');
+  if (!wrap) return;
+  const candidates = (usersCache || []).filter(u => u.role === 'viewer' && !(u.tabs || []).includes('subadmin') && u.username !== selfUsername);
+  if (!candidates.length) {
+    wrap.innerHTML = '<span style="font-size:.78rem;color:var(--text-muted)">Chưa có tài khoản viewer nào khác để gán.</span>';
+    return;
+  }
+  const sel = new Set(selectedUsernames || []);
+  wrap.innerHTML = candidates.map(u => `
+    <label class="tab-perm-chip">
+      <input type="checkbox" class="subadmin-user-check" value="${esc(u.username)}" ${sel.has(u.username) ? 'checked' : ''}>
+      ${esc(u.username)}
+    </label>`).join('');
+}
+
+function getCheckedSubAdminUsers() {
+  return [...document.querySelectorAll('.subadmin-user-check:checked')].map(cb => cb.value);
 }
 
 // ════════════════════════════════════════════════════════
@@ -4534,7 +4597,11 @@ async function submitForm(e) {
   const allow_incidents_import = role === 'admin' ? true : document.getElementById('f-allow-incidents-import').checked;
   const allow_dashboard2_custom_window = role === 'admin' ? true : document.getElementById('f-allow-dashboard2-custom-window').checked;
   const device_binding_scopes  = role === 'admin' ? [] : getCheckedDeviceScopes();
-  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_ai_analyze, allow_ai_watch, allow_map_3d, allow_map_traffic_flow, allow_map_gis, gis_layer_ids, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, allow_dashboard2_custom_window, device_binding_scopes, tabs };
+  const isSubAdmin = tabs.includes('subadmin');
+  const sub_admin_can_toggle_enabled = isSubAdmin && document.getElementById('f-suba-toggle-enabled').checked;
+  const sub_admin_can_reset_password = isSubAdmin && document.getElementById('f-suba-reset-password').checked;
+  const sub_admin_managed_users      = isSubAdmin ? getCheckedSubAdminUsers() : [];
+  const body = { role, enabled, streams, region_ids, allow_traffic, allow_traffic_live, allow_heatmap, allow_map_edit, allow_cam_names, allow_view_stations, allow_config_stations, allow_map_search, allow_map_route, allow_map_incident_add, allow_map_ai_events, allow_ai_analyze, allow_ai_watch, allow_map_3d, allow_map_traffic_flow, allow_map_gis, gis_layer_ids, allow_monitor_workers, allow_monitor_process, allow_monitor_streaming, allow_monitor_snapshot, allow_monitor_devices, allow_cam_snapshot, allow_cam_video, allow_ptz, allow_map_snapshot_preview, allow_unlimited_view, view_limit_minutes, allow_incidents_import, allow_dashboard2_custom_window, device_binding_scopes, tabs, sub_admin_can_toggle_enabled, sub_admin_can_reset_password, sub_admin_managed_users };
   if (password) body.password = password;
   if (editing) body.must_change_password = document.getElementById('f-force-pwd-change').checked;
 
