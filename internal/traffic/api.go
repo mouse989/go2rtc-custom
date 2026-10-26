@@ -16,6 +16,7 @@ func registerAPIHandlers() {
 	http.HandleFunc("/api/traffic/status", handleStatus)
 	http.HandleFunc("/api/traffic/logs", handleLogs)
 	http.HandleFunc("/api/traffic/data", handleData)
+	http.HandleFunc("/api/traffic/persistent-export", handlePersistentExport)
 }
 
 func requireTrafficAccess(w http.ResponseWriter, r *http.Request) bool {
@@ -230,4 +231,46 @@ func handleData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, files)
+}
+
+// handlePersistentExport  GET /api/traffic/persistent-export?from=RFC3339&to=RFC3339
+// (admin only — same gate as every other Traffic Monitor tool, requireTrafficAccess)
+// Returns the flattened persistent-point rows for the "Xuất điểm Persistent
+// (CSV)" tool in www/traffic.html; the CSV itself is assembled client-side.
+func handlePersistentExport(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficAccess(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+	if fromStr == "" || toStr == "" {
+		http.Error(w, "from and to are required (RFC3339)", http.StatusBadRequest)
+		return
+	}
+	from, err := time.Parse(time.RFC3339, fromStr)
+	if err != nil {
+		http.Error(w, "invalid from: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	to, err := time.Parse(time.RFC3339, toStr)
+	if err != nil {
+		http.Error(w, "invalid to: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if to.Before(from) {
+		http.Error(w, "to must not be before from", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := PersistentPointsInRange(from, to)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
 }
