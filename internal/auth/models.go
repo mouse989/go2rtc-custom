@@ -260,6 +260,7 @@ var viewerDefaultPaths = []string{
 	"/api/cameras",              // camera list with GPS coords (no stream URLs)
 	"/api/traffic-heatmap",      // map: jam points for heatmap overlay (read-only)
 	"/api/heatmap-cfg",          // map/dashboard: heatmap config (write guarded inside handler)
+	"/api/jam-color-cfg",        // map/dashboard/trafficinsight: JF color scale (write guarded inside handler)
 	"/api/auth/webauthn",        // device-binding enroll/step-up ceremonies (own account only)
 	"/api/device-scopes",        // device-binding scope catalog (labels only, nothing sensitive)
 	"/api/device-bindings",      // own trusted devices; admin-only listing/actions guarded inside handler

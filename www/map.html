@@ -5415,11 +5415,17 @@ function _addHeatmapLayers() {
       id: 'map-jams-dot', type: 'circle', source: 'map-jams', minzoom: 13,
       paint: {
         'circle-radius': ['interpolate',['linear'],['get','jf'], 0,d.crf, 10,d.crt],
-        'circle-color':  ['case',['>=',['get','jf'],8],'#f87171',['>=',['get','jf'],5],'#fbbf24','#94a3b8'],
+        'circle-color':  jfColorExpression(),
         'circle-opacity': 0.85,
         'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,.4)',
       }
     }, before);
+  } else {
+    // Style was reloaded and this layer already exists from a previous
+    // _addHeatmapLayers() call made before loadJamColorStops() resolved —
+    // refresh its paint property so it doesn't stay stuck on the fallback
+    // gradient for the rest of the session.
+    map.setPaintProperty('map-jams-dot', 'circle-color', jfColorExpression());
   }
 }
 
@@ -6124,6 +6130,7 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
 // ── Boot ──────────────────────────────────────────────────────
 (async () => {
   await initApp('map');
+  loadJamColorStops(); // non-blocking: _addHeatmapLayers() falls back to JF_COLOR_FALLBACK until this resolves
   _token = getToken(); _isAdmin = isAdmin();
   if (_isAdmin) document.querySelectorAll('.admin-only').forEach(el=>el.style.display='');
   if (canEditMapLocations()) {

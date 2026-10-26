@@ -33,9 +33,9 @@
 .ti-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
 
 #tiMap { height:360px; border-radius:10px; overflow:hidden; background:var(--surface2); }
-.ti-map-legend { display:flex; gap:1rem; margin-top:.6rem; font-size:.74rem; color:var(--text-muted); flex-wrap:wrap; }
-.ti-map-legend span { display:inline-flex; align-items:center; gap:.3rem; }
-.ti-legend-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+.ti-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.72rem; color:var(--text-muted); }
+.ti-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
+.ti-jf-legend-label { font-variant-numeric:tabular-nums; }
 
 .ti-chart-box { height:260px; position:relative; }
 
@@ -171,10 +171,10 @@
         </div>
       </h3>
       <div id="tiMap"></div>
-      <div class="ti-map-legend">
-        <span><span class="ti-legend-dot" style="background:#94a3b8"></span> Thông thoáng (&lt;5)</span>
-        <span><span class="ti-legend-dot" style="background:#fbbf24"></span> Đông xe (5–7.9)</span>
-        <span><span class="ti-legend-dot" style="background:#f87171"></span> Ùn tắc (≥8)</span>
+      <div class="ti-jf-legend">
+        <span class="ti-jf-legend-label">0</span>
+        <div class="ti-jf-legend-bar" id="tiJfLegendBar"></div>
+        <span class="ti-jf-legend-label">10</span>
       </div>
     </div>
 
@@ -284,7 +284,8 @@ async function loadKpis() {
 // ── Map: live ("hiện tại") or historical ("theo ngày") persistent points ──
 async function initTiMap() {
   try {
-    const settings = await apiFetch('/api/settings');
+    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops()]);
+    renderJfLegend();
     const apiKey = (settings || {}).vietmap_api_key || '';
     const el = document.getElementById('tiMap');
     if (!apiKey) { el.innerHTML = '<div class="ti-empty">Chưa cấu hình VietMap API Key</div>'; return; }
@@ -297,14 +298,17 @@ async function initTiMap() {
         id: 'ti-points-dot', type: 'circle', source: 'ti-points',
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['get', 'jf'], 0, 4, 10, 10],
-          'circle-color': ['case', ['>=', ['get', 'jf'], 8], '#f87171', ['>=', ['get', 'jf'], 5], '#fbbf24', '#94a3b8'],
+          'circle-color': jfColorExpression(),
           'circle-opacity': .85, 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,.5)',
         },
       });
       _tiMap.on('click', 'ti-points-dot', e => {
         const p = e.features[0].properties;
+        const jf = +p.jf;
         const html = `<div style="font-family:sans-serif;line-height:1.5;min-width:110px;color:#1a1a1a">` +
-          `<div style="font-size:.95rem;font-weight:700">JF ${(+p.jf).toFixed(1)}</div>` +
+          `<div style="font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:.35rem">` +
+          `<span style="width:10px;height:10px;border-radius:50%;background:${jfToColor(jf)};display:inline-block"></span>` +
+          `JF ${Number.isNaN(jf) ? '—' : jf.toFixed(1)}</div>` +
           (p.area ? `<div style="color:#111;font-size:.82rem">${escHtml(p.area)}</div>` : '') +
           (p.label ? `<div style="color:#333;font-size:.75rem">${escHtml(p.label)}</div>` : '') +
           `</div>`;
@@ -319,9 +323,16 @@ async function initTiMap() {
   }
 }
 
+function renderJfLegend() {
+  const bar = document.getElementById('tiJfLegendBar');
+  if (bar) bar.style.background = jfGradientCssString();
+}
+
 function setMapPoints(pts) {
   if (!_tiMapInited) return;
-  const features = (pts || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { jf: p.jamFactor, label: p.label || '', area: p.area || '' } }));
+  // traffic.DashPoint marshals JamFactor as "jf" (not "jamFactor") — both
+  // /today and /jam-points return that shape, so read p.jf here too.
+  const features = (pts || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { jf: p.jf, label: p.label || '', area: p.area || '' } }));
   _tiMap.getSource('ti-points')?.setData({ type: 'FeatureCollection', features });
 }
 

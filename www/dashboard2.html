@@ -987,7 +987,7 @@ async function initD2Map() {
   // CDN, …) — the config it edits is independent of the map rendering.
   document.getElementById('d2HeatCfgBtn').style.display = '';
   try {
-    const settings = await apiFetch('/api/settings');
+    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops()]);
     const apiKey = (settings||{}).vietmap_api_key || '';
     const el = document.getElementById('d2Map');
     if (!el) return;
@@ -1038,14 +1038,15 @@ function addJamLayers() {
     id:'jams-dot', type:'circle', source:'jams', minzoom:13,
     paint:{
       'circle-radius': ['interpolate',['linear'],['get','jf'], 0,2, 10,7],
-      'circle-color': ['case',['>=',['get','jf'],8],'#f87171',['>=',['get','jf'],5],'#fbbf24','#94a3b8'],
+      'circle-color': jfColorExpression(),
       'circle-opacity': .85, 'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,.45)',
     },
   });
   _map.on('click','jams-dot', e => {
     const p = e.features[0].properties;
-    const jf = (+p.jf).toFixed(1);
-    const jfColor = +p.jf >= 8 ? '#dc2626' : +p.jf >= 5 ? '#d97706' : '#475569';
+    const jfNum = +p.jf;
+    const jf = jfNum.toFixed(1);
+    const jfColor = jfToColor(jfNum);
     // Explicit dark colors, NOT var(--text) — vietmapgl's Popup box is
     // always plain white regardless of the app's theme, so inherited
     // dark-theme light text is unreadable here (same bug/fix as commit

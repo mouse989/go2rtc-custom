@@ -493,6 +493,28 @@ tr:hover td { background:var(--surface2); }
 
       <div class="card" style="max-width:520px;margin-top:1rem">
         <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.95rem;font-weight:700">🎨 Thang màu JamFactor (JF) trên bản đồ</h3>
+        </div>
+        <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            Thang màu dùng chung để tô điểm ùn ứ (JF 0–10) trên <strong>mọi bản đồ</strong> hiển thị JF — Map, Dashboard 02,
+            Xu hướng giao thông. Màu chuyển liên tục (nhuyễn) giữa các điểm mốc bên dưới, không còn ngắt bậc cứng như
+            trước. Thêm nhiều điểm mốc sát nhau ở vùng cần phân biệt kỹ (ví dụ 8.5–10) để vùng đó chuyển màu chi tiết hơn.
+          </p>
+          <div id="jfColorGradientPreview" style="height:16px;border-radius:8px"></div>
+          <div id="jfColorRows" style="display:flex;flex-direction:column;gap:.4rem"></div>
+          <button class="btn btn-ghost btn-sm" onclick="addJfColorRow()" style="align-self:flex-start">+ Thêm điểm mốc</button>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="saveJfColorStops()">💾 Lưu thang màu</button>
+            <button class="btn btn-ghost btn-sm" onclick="resetJfColorStops()">↺ Khôi phục mặc định</button>
+            <span id="jfColorSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Đã lưu</span>
+            <span id="jfColorDefaultBadge" style="font-size:.73rem;color:var(--text-muted);display:none">(đang dùng mặc định hệ thống)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="max-width:520px;margin-top:1rem">
+        <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
           <h3 style="font-size:.95rem;font-weight:700">🔒 RTSP Server Security</h3>
         </div>
         <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
@@ -2670,6 +2692,7 @@ async function loadSettings() {
   loadRtspCreds();
   loadModules();
   loadAIClassColors();
+  loadJfColorStops();
 }
 
 // ── AI Analyze detection marker colors (per class) ──
@@ -2717,6 +2740,86 @@ async function saveAIClassColors() {
     setTimeout(() => { msg.style.display = 'none'; }, 2500);
   } catch (e) {
     alert('Lưu màu thất bại: ' + e.message);
+  }
+}
+
+// ── JamFactor (JF) color scale — shared across every map (app.js's
+// jfColorExpression/jfToColor are what actually render it; this just
+// edits the stop list stored server-side via /api/jam-color-cfg) ──
+let _jfColorRows = []; // [{value, color}], kept sorted by value
+let _jfColorIsDefault = true;
+
+function renderJfColorRows() {
+  const box = document.getElementById('jfColorRows');
+  box.innerHTML = _jfColorRows.map((s, i) => `
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <input type="number" min="0" max="10" step="0.1" value="${s.value}"
+             oninput="updateJfColorRow(${i}, 'value', this.value)"
+             style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+      <input type="color" value="${esc(s.color)}" oninput="updateJfColorRow(${i}, 'color', this.value)"
+             style="width:42px;height:30px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer">
+      <code style="font-size:.74rem;color:var(--text-muted);flex:1">${esc(s.color)}</code>
+      <button class="btn btn-ghost btn-sm" onclick="removeJfColorRow(${i})" title="Xoá điểm mốc" ${_jfColorRows.length<=2?'disabled':''}>🗑</button>
+    </div>`).join('');
+  renderJfColorGradientPreview();
+}
+function renderJfColorGradientPreview() {
+  const el = document.getElementById('jfColorGradientPreview');
+  if (!el || _jfColorRows.length < 2) { if (el) el.style.background = 'var(--surface2)'; return; }
+  const sorted = [..._jfColorRows].sort((a,b) => a.value - b.value);
+  const min = sorted[0].value, max = sorted[sorted.length-1].value, span = (max - min) || 1;
+  const parts = sorted.map(s => `${s.color} ${((s.value - min) / span * 100).toFixed(1)}%`);
+  el.style.background = `linear-gradient(to right, ${parts.join(', ')})`;
+}
+function updateJfColorRow(i, field, value) {
+  _jfColorRows[i][field] = field === 'value' ? parseFloat(value) || 0 : value;
+  // Re-render on color change too (keeps the <code> label and preview in
+  // sync) but not on every keystroke of the value field — that would
+  // steal focus mid-type since renderJfColorRows() replaces the inputs.
+  if (field === 'color') renderJfColorRows();
+  else renderJfColorGradientPreview();
+}
+function addJfColorRow() {
+  const last = _jfColorRows[_jfColorRows.length - 1];
+  const nextVal = last ? Math.min(10, Math.round((last.value + 0.5) * 10) / 10) : 0;
+  _jfColorRows.push({ value: nextVal, color: last ? last.color : '#ef4444' });
+  renderJfColorRows();
+}
+function removeJfColorRow(i) {
+  if (_jfColorRows.length <= 2) return; // need at least 2 stops to interpolate between
+  _jfColorRows.splice(i, 1);
+  renderJfColorRows();
+}
+async function loadJfColorStops() {
+  try {
+    const data = await apiFetch('/api/jam-color-cfg');
+    _jfColorRows = (data && Array.isArray(data.stops) && data.stops.length) ? data.stops.map(s => ({...s})) : [...JF_COLOR_FALLBACK];
+    _jfColorIsDefault = !!(data && data.isDefault);
+  } catch (e) {
+    _jfColorRows = [...JF_COLOR_FALLBACK];
+    _jfColorIsDefault = true;
+  }
+  document.getElementById('jfColorDefaultBadge').style.display = _jfColorIsDefault ? '' : 'none';
+  renderJfColorRows();
+}
+function resetJfColorStops() {
+  _jfColorRows = JF_COLOR_FALLBACK.map(s => ({...s}));
+  _jfColorIsDefault = true;
+  document.getElementById('jfColorDefaultBadge').style.display = '';
+  renderJfColorRows();
+}
+async function saveJfColorStops() {
+  const sorted = [..._jfColorRows].sort((a,b) => a.value - b.value);
+  if (sorted.length < 2) { alert('Cần ít nhất 2 điểm mốc màu.'); return; }
+  try {
+    await apiFetch('/api/jam-color-cfg', { method: 'PUT', body: sorted });
+    _jfColorIsDefault = false;
+    document.getElementById('jfColorDefaultBadge').style.display = 'none';
+    const msg = document.getElementById('jfColorSaveMsg');
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  } catch (e) {
+    alert('Lưu thang màu thất bại: ' + e.message);
   }
 }
 
