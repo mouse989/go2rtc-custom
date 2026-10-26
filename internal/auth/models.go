@@ -19,6 +19,14 @@ const (
 	TabAPIDocs    = "api_docs"   // /api-docs.html
 	TabCounting   = "counting"   // /counting.html
 	TabIncidents  = "incidents"  // /incidents.html
+	// TabTrafficInsight gates /trafficinsight.html — the trend/comparison
+	// page (today vs. 7-day/30-day average, weekday-by-week matrix). It
+	// only reads data other tabs already expose elsewhere (traffic,
+	// traveltime, incidents), so it's its own grant rather than reusing
+	// one of those — a viewer may be allowed to see the trend summary
+	// without also getting raw access to Traffic Monitor config/Incidents
+	// entry or vice versa.
+	TabTrafficInsight = "trafficinsight"
 	// TabSubAdmin gates /subadmin.html — a delegated console scoped to a
 	// specific group of OTHER viewer accounts (see User.SubAdminManagedUsers
 	// below), with only the specific capabilities the top admin grants.
@@ -31,7 +39,7 @@ const (
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight}
 
 // User represents an application user
 type User struct {

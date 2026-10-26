@@ -51,6 +51,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/tapo"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
 	"github.com/AlexxIT/go2rtc/internal/trafficflow"
+	"github.com/AlexxIT/go2rtc/internal/trafficinsight"
 	"github.com/AlexxIT/go2rtc/internal/traveltime"
 	"github.com/AlexxIT/go2rtc/internal/tuya"
 	"github.com/AlexxIT/go2rtc/internal/v4l2"
@@ -133,6 +134,7 @@ func main() {
 		{"incidents", incidents.Init},
 		{"aievent", aievent.Init},
 		{"trafficflow", trafficflow.Init},
+		{"trafficinsight", trafficinsight.Init},
 		{"gis", gis.Init},
 		{"aianalyze", aianalyze.Init},
 		// Helper modules

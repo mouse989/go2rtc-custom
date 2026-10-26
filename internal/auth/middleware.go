@@ -248,11 +248,12 @@ var tabExtraPaths = map[string][]string{
 	// different page an admin may want to hand out independently of the
 	// original Dashboard) — same extra-path list since it reads the exact
 	// same backend data, just under its own permission.
-	TabDashboard2: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
-	TabLog:        {"/api/log"},
-	TabConfig:     {"/api/config", "/api/restart"},
-	TabCounting:   {"/api/counting"},
-	TabIncidents:  {"/api/incidents"},
+	TabDashboard2:     {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
+	TabLog:            {"/api/log"},
+	TabConfig:         {"/api/config", "/api/restart"},
+	TabCounting:       {"/api/counting"},
+	TabIncidents:      {"/api/incidents"},
+	TabTrafficInsight: {"/api/trafficinsight"},
 	// requireSubAdmin (api_subadmin.go) does the real per-action gating
 	// (SubAdminCan* flags + SubAdminManagedUsers membership) — this entry
 	// only gets a sub admin account past the outer path check, same as
