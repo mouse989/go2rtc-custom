@@ -532,6 +532,24 @@ function doGet() {
       </div>
     </div>
 
+    <!-- Persistent Points CSV Export -->
+    <div class="tf-section">
+      <h3>Xuất điểm Persistent (CSV)</h3>
+      <div class="tf-grid">
+        <div class="tf-field">
+          <label>Từ</label>
+          <input type="datetime-local" id="peFrom" step="1">
+        </div>
+        <div class="tf-field">
+          <label>Đến</label>
+          <input type="datetime-local" id="peTo" step="1">
+        </div>
+      </div>
+      <div style="margin-top:1.1rem;display:flex;gap:.5rem;justify-content:flex-end">
+        <button class="btn btn-primary" id="btnExportPersistent">⬇ Xuất CSV</button>
+      </div>
+    </div>
+
     <!-- Logs -->
     <div class="tf-section">
       <h3 style="display:flex;justify-content:space-between;align-items:center;gap:.4rem">
@@ -1128,6 +1146,39 @@ async function downloadScan(name) {
 }
 
 document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
+
+// ── Xuất điểm Persistent (CSV) ──────────────────────────────────────────────
+// datetime-local gives "YYYY-MM-DDTHH:mm:ss" with no timezone info; always
+// read it as Vietnam wall-clock time (not the browser's own zone) by
+// appending the +07:00 offset explicitly before sending it to the server.
+function vnDatetimeLocalToISO(value) {
+  if (!value) return '';
+  const withSeconds = value.length === 16 ? value + ':00' : value;
+  return withSeconds + '+07:00';
+}
+
+async function exportPersistentPoints() {
+  const fromEl = document.getElementById('peFrom');
+  const toEl = document.getElementById('peTo');
+  if (!fromEl.value || !toEl.value) { showToast('Chọn đủ Từ và Đến', true); return; }
+  const from = vnDatetimeLocalToISO(fromEl.value);
+  const to = vnDatetimeLocalToISO(toEl.value);
+  try {
+    const rows = await apiFetch('/api/traffic/persistent-export?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    if (!rows || !rows.length) { showToast('Không có dữ liệu trong khoảng đã chọn', true); return; }
+    const lines = ['Timestamp,Lat,Lng,JamFactor'];
+    rows.forEach(r => lines.push(`"${r.timestamp}",${r.lat},${r.lng},${r.jamFactor}`));
+    const csv = lines.join('\r\n');
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })),
+      download: `Diem_Persistent_${fromEl.value.replace(/[:T-]/g, '')}_${toEl.value.replace(/[:T-]/g, '')}.csv`,
+    });
+    document.body.appendChild(a); a.click(); a.remove();
+    showToast(`Đã xuất ${rows.length} điểm`);
+  } catch(e) { showToast('Xuất CSV thất bại: ' + e.message, true); }
+}
+
+document.getElementById('btnExportPersistent').addEventListener('click', exportPersistentPoints);
 
 // ── Buttons ───────────────────────────────────────────────────────────────
 document.getElementById('btnStartStop').addEventListener('click', async () => {
