@@ -9,6 +9,13 @@ package trafficinsight
 // tabExtraPaths entry) rather than TabDashboard/TabDashboard2, so a
 // trafficinsight-only viewer can reach it without also needing Dashboard
 // access.
+//
+// Routes are ranked by an AVERAGE over the comparison scope (the whole
+// day, or one chosen hour — see hour below), not by the single
+// latest-measured reading: the latest reading is whatever the most recent
+// scan happened to catch, which is a poor stand-in for "which route was
+// actually worst" across a day or an hour. LatestTTI is still reported
+// alongside AvgTTI, as separate context, not as the ranking key.
 
 import (
 	"sort"
@@ -24,21 +31,29 @@ const (
 
 // RouteSlot is one 15-minute bucket's averaged TTI for a route. A nil
 // *RouteSlot in RouteTTIRow.Slots means no measurement fell in that
-// window that day.
+// window that day. Slots always covers the FULL day regardless of the
+// hour filter below — only AvgTTI/AvgDelaySec/Samples are scoped to it —
+// so the chart keeps showing the whole day for context even when ranking
+// by one hour.
 type RouteSlot struct {
 	TTI      float64 `json:"tti"`
 	DelaySec int     `json:"delaySec"`
 	Samples  int     `json:"samples"`
 }
 
-// RouteTTIRow is one route's full day of slotted TTI data. Slots always
-// has exactly routeTotalSlots entries.
+// RouteTTIRow is one route's TTI data for the comparison scope requested.
 type RouteTTIRow struct {
 	RouteID   string       `json:"routeId"`
 	RouteName string       `json:"routeName"`
 	LengthM   int          `json:"lengthM"`
-	LatestTTI float64      `json:"latestTTI"` // this day's last-measured TTI (0 if none)
-	Slots     []*RouteSlot `json:"slots"`
+	LatestTTI float64      `json:"latestTTI"` // this day's last-measured TTI (0 if none) — context, not the ranking key
+	// AvgTTI/AvgDelaySec/Samples are the comparison-scope average this
+	// row was ranked by: the whole day's entries, or just the selected
+	// hour's when GetRouteTTIForDate's hour parameter is >= 0.
+	AvgTTI      float64      `json:"avgTTI"`
+	AvgDelaySec int          `json:"avgDelaySec"`
+	Samples     int          `json:"samples"`
+	Slots       []*RouteSlot `json:"slots"`
 }
 
 // slotOfTimestamp converts a log entry's RFC3339 (UTC) Timestamp into a
@@ -52,28 +67,45 @@ func slotOfTimestamp(ts string) int {
 	return (local.Hour()*60 + local.Minute()) / routeSlotMinutes
 }
 
+// hourOfTimestamp returns the Vietnam-local hour (0-23) of an RFC3339
+// timestamp, or -1 if it doesn't parse.
+func hourOfTimestamp(ts string) int {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return -1
+	}
+	return t.In(vnLocation).Hour()
+}
+
 // GetRouteTTIForDate returns one row per route with at least one valid
-// (TTI > 0) measurement in traveltime's log for the given Vietnam-local
-// calendar day ("YYYY-MM-DD"), sorted by that day's latest-measured TTI
-// descending (most congested first — same ordering dashboard2.html's
-// panel uses) and capped at the top 10.
-func GetRouteTTIForDate(date string) ([]RouteTTIRow, error) {
+// (TTI > 0) measurement within the comparison scope — the full Vietnam-
+// local calendar day ("YYYY-MM-DD") when hour < 0, or just that single
+// Vietnam-local hour (0-23) when hour >= 0 — sorted by that scope's
+// average TTI descending (most congested first) and capped at the top 10.
+// A route with no measurement anywhere in the scope is dropped entirely:
+// there is nothing to compare it on.
+func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
 	entries, err := traveltime.GetLogsForDate(date, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	type accSlot struct {
-		ttiSum   float64
-		delaySum int
-		n        int
-	}
 	type routeAcc struct {
 		name      string
 		lengthM   int
-		slots     [routeTotalSlots]accSlot
+		slots     [routeTotalSlots]struct {
+			ttiSum   float64
+			delaySum int
+			n        int
+		}
 		latestTS  string
 		latestTTI float64
+		// scopeTTISum/scopeDelaySum/scopeN: the comparison-scope totals
+		// (whole day, or just the selected hour) — separate from the
+		// per-slot totals above, since Slots always covers the full day.
+		scopeTTISum   float64
+		scopeDelaySum int
+		scopeN        int
 	}
 	byID := map[string]*routeAcc{}
 	var order []string
@@ -98,12 +130,25 @@ func GetRouteTTIForDate(date string) ([]RouteTTIRow, error) {
 			a.latestTS = e.Timestamp
 			a.latestTTI = e.TTI
 		}
+		if hour < 0 || hourOfTimestamp(e.Timestamp) == hour {
+			a.scopeTTISum += e.TTI
+			a.scopeDelaySum += e.DelaySec
+			a.scopeN++
+		}
 	}
 
 	rows := make([]RouteTTIRow, 0, len(order))
 	for _, id := range order {
 		a := byID[id]
-		row := RouteTTIRow{RouteID: id, RouteName: a.name, LengthM: a.lengthM, LatestTTI: a.latestTTI}
+		if a.scopeN == 0 {
+			continue // nothing in the requested scope — exclude from the comparison
+		}
+		row := RouteTTIRow{
+			RouteID: id, RouteName: a.name, LengthM: a.lengthM, LatestTTI: a.latestTTI,
+			AvgTTI:      a.scopeTTISum / float64(a.scopeN),
+			AvgDelaySec: a.scopeDelaySum / a.scopeN,
+			Samples:     a.scopeN,
+		}
 		row.Slots = make([]*RouteSlot, routeTotalSlots)
 		for i := range a.slots {
 			if a.slots[i].n > 0 {
@@ -117,7 +162,7 @@ func GetRouteTTIForDate(date string) ([]RouteTTIRow, error) {
 		rows = append(rows, row)
 	}
 
-	sort.Slice(rows, func(i, j int) bool { return rows[i].LatestTTI > rows[j].LatestTTI })
+	sort.Slice(rows, func(i, j int) bool { return rows[i].AvgTTI > rows[j].AvgTTI })
 	if len(rows) > 10 {
 		rows = rows[:10]
 	}
