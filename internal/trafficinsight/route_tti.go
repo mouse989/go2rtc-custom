@@ -25,16 +25,42 @@ import (
 )
 
 const (
-	routeSlotMinutes = 15
-	routeTotalSlots  = 1440 / routeSlotMinutes // 96 fifteen-minute slots/day
+	routeMinSlotMinutes = 1  // finest slot width allowed, regardless of config
+	routeMaxSlotMinutes = 60 // coarsest slot width allowed, regardless of config
 )
 
-// RouteSlot is one 15-minute bucket's averaged TTI for a route. A nil
-// *RouteSlot in RouteTTIRow.Slots means no measurement fell in that
-// window that day. Slots always covers the FULL day regardless of the
-// hour filter below — only AvgTTI/AvgDelaySec/Samples are scoped to it —
-// so the chart keeps showing the whole day for context even when ranking
-// by one hour.
+// RouteSlotMinutes returns the slot width (minutes) the "Top 10 tuyến
+// đường" chart buckets into — the travel-time module's own configured
+// collection interval (admin-configurable in Config → Travel Time,
+// typically 10 or 15 min), clamped to a sane range. This mirrors
+// dashboard2.html's own slot sizing (its SLOT_MIN, driven by the same
+// traveltime.IntervalMin()) so the two per-route TTI charts read off the
+// same grid instead of a value hardcoded independently of the config.
+func RouteSlotMinutes() int {
+	m := traveltime.IntervalMin()
+	if m < routeMinSlotMinutes {
+		return routeMinSlotMinutes
+	}
+	if m > routeMaxSlotMinutes {
+		return routeMaxSlotMinutes
+	}
+	return m
+}
+
+// routeTotalSlots returns how many slots of the given width cover a full
+// day, rounded up — so a configured interval that doesn't evenly divide
+// 1440 (e.g. 7 min) still gets a trailing partial slot instead of losing
+// the last few minutes of the day to integer truncation.
+func routeTotalSlots(slotMin int) int {
+	return (1440 + slotMin - 1) / slotMin
+}
+
+// RouteSlot is one slot's (width given by RouteSlotMinutes) averaged TTI
+// for a route. A nil *RouteSlot in RouteTTIRow.Slots means no measurement
+// fell in that window that day. Slots always covers the FULL day
+// regardless of the hour filter below — only AvgTTI/AvgDelaySec/Samples
+// are scoped to it — so the chart keeps showing the whole day for context
+// even when ranking by one hour.
 type RouteSlot struct {
 	TTI      float64 `json:"tti"`
 	DelaySec int     `json:"delaySec"`
@@ -57,14 +83,15 @@ type RouteTTIRow struct {
 }
 
 // slotOfTimestamp converts a log entry's RFC3339 (UTC) Timestamp into a
-// Vietnam-local 15-minute slot index, or -1 if it doesn't parse.
-func slotOfTimestamp(ts string) int {
+// Vietnam-local slot index of the given width (minutes), or -1 if it
+// doesn't parse.
+func slotOfTimestamp(ts string, slotMin int) int {
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
 		return -1
 	}
 	local := t.In(vnLocation)
-	return (local.Hour()*60 + local.Minute()) / routeSlotMinutes
+	return (local.Hour()*60 + local.Minute()) / slotMin
 }
 
 // hourOfTimestamp returns the Vietnam-local hour (0-23) of an RFC3339
@@ -90,14 +117,18 @@ func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
 		return nil, err
 	}
 
+	slotMin := RouteSlotMinutes()
+	totalSlots := routeTotalSlots(slotMin)
+
+	type slotAcc struct {
+		ttiSum   float64
+		delaySum int
+		n        int
+	}
 	type routeAcc struct {
 		name      string
 		lengthM   int
-		slots     [routeTotalSlots]struct {
-			ttiSum   float64
-			delaySum int
-			n        int
-		}
+		slots     []slotAcc
 		latestTS  string
 		latestTTI float64
 		// scopeTTISum/scopeDelaySum/scopeN: the comparison-scope totals
@@ -116,11 +147,11 @@ func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
 		}
 		a, ok := byID[e.RouteID]
 		if !ok {
-			a = &routeAcc{name: e.RouteName, lengthM: e.LengthM}
+			a = &routeAcc{name: e.RouteName, lengthM: e.LengthM, slots: make([]slotAcc, totalSlots)}
 			byID[e.RouteID] = a
 			order = append(order, e.RouteID)
 		}
-		if si := slotOfTimestamp(e.Timestamp); si >= 0 && si < routeTotalSlots {
+		if si := slotOfTimestamp(e.Timestamp, slotMin); si >= 0 && si < totalSlots {
 			s := &a.slots[si]
 			s.ttiSum += e.TTI
 			s.delaySum += e.DelaySec
@@ -149,7 +180,7 @@ func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
 			AvgDelaySec: a.scopeDelaySum / a.scopeN,
 			Samples:     a.scopeN,
 		}
-		row.Slots = make([]*RouteSlot, routeTotalSlots)
+		row.Slots = make([]*RouteSlot, totalSlots)
 		for i := range a.slots {
 			if a.slots[i].n > 0 {
 				row.Slots[i] = &RouteSlot{

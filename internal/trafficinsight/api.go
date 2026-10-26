@@ -144,9 +144,10 @@ func handleJamPoints(w http.ResponseWriter, r *http.Request) {
 }
 
 type routeTTIResponse struct {
-	Date   string        `json:"date"`
-	Hour   int           `json:"hour"` // -1 when the comparison scope is the whole day
-	Routes []RouteTTIRow `json:"routes"`
+	Date    string        `json:"date"`
+	Hour    int           `json:"hour"`    // -1 when the comparison scope is the whole day
+	SlotMin int           `json:"slotMin"` // width (minutes) of each Slots bucket — the travel-time module's configured collection interval
+	Routes  []RouteTTIRow `json:"routes"`
 }
 
 // GET /api/trafficinsight/route-tti?date=YYYY-MM-DD&hour=H (date default:
@@ -184,7 +185,7 @@ func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, routeTTIResponse{Date: date, Hour: hour, Routes: routes})
+	writeJSON(w, routeTTIResponse{Date: date, Hour: hour, SlotMin: RouteSlotMinutes(), Routes: routes})
 }
 
 // GET /api/trafficinsight/weekday-matrix?weeks=N (default 6, capped at 12)

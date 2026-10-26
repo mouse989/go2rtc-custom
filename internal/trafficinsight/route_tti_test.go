@@ -32,12 +32,13 @@ func TestGetRouteTTIForDateAggregatesIntoSlots(t *testing.T) {
 	if r.RouteID != "r1" || r.RouteName != "Tuyến 1" || r.LengthM != 5000 {
 		t.Errorf("unexpected route identity: %+v", r)
 	}
-	if len(r.Slots) != routeTotalSlots {
-		t.Fatalf("expected %d slots, got %d", routeTotalSlots, len(r.Slots))
+	wantSlots := routeTotalSlots(RouteSlotMinutes())
+	if len(r.Slots) != wantSlots {
+		t.Fatalf("expected %d slots, got %d", wantSlots, len(r.Slots))
 	}
-	// 08:02 and 08:09 fall in the same 15-minute slot (08:00-08:15) and
-	// should be averaged together.
-	slot8 := 8 * 60 / routeSlotMinutes
+	// 08:02 and 08:09 fall in the same slot (the configured collection
+	// interval, 15 min by default) and should be averaged together.
+	slot8 := 8 * 60 / RouteSlotMinutes()
 	if r.Slots[slot8] == nil {
 		t.Fatalf("expected slot %d to have data", slot8)
 	}
@@ -49,7 +50,7 @@ func TestGetRouteTTIForDateAggregatesIntoSlots(t *testing.T) {
 		t.Errorf("slot %d Samples = %d, want 2", slot8, r.Slots[slot8].Samples)
 	}
 
-	slot9 := 9 * 60 / routeSlotMinutes
+	slot9 := 9 * 60 / RouteSlotMinutes()
 	if r.Slots[slot9] == nil || r.Slots[slot9].Samples != 1 {
 		t.Fatalf("expected slot %d to have exactly 1 sample, got %+v", slot9, r.Slots[slot9])
 	}
@@ -222,10 +223,10 @@ func TestGetRouteTTIForDateHourFilterScopesAverageAndExcludesRoutesOutsideIt(t *
 	}
 
 	// Slots always cover the whole day regardless of the hour filter.
-	if len(rowsH8[0].Slots) != routeTotalSlots {
-		t.Errorf("expected full-day slots even with hour filter, got %d", len(rowsH8[0].Slots))
+	if wantSlots := routeTotalSlots(RouteSlotMinutes()); len(rowsH8[0].Slots) != wantSlots {
+		t.Errorf("expected full-day slots (%d) even with hour filter, got %d", wantSlots, len(rowsH8[0].Slots))
 	}
-	slot7 := 7 * 60 / routeSlotMinutes
+	slot7 := 7 * 60 / RouteSlotMinutes()
 	if rowsH8[0].Slots[slot7] == nil {
 		t.Error("expected hour-7 slot data to still be present in Slots even when ranking by hour=8")
 	}
@@ -243,8 +244,31 @@ func TestGetRouteTTIForDateEmptyDayReturnsEmptySlice(t *testing.T) {
 }
 
 func TestSlotOfTimestampHandlesInvalidInput(t *testing.T) {
-	if got := slotOfTimestamp("not-a-timestamp"); got != -1 {
+	if got := slotOfTimestamp("not-a-timestamp", 15); got != -1 {
 		t.Errorf("slotOfTimestamp(invalid) = %d, want -1", got)
+	}
+}
+
+func TestSlotOfTimestampUsesGivenSlotWidth(t *testing.T) {
+	ts := tsVN(2027, 6, 14, 8, 25) // 08:25 Vietnam-local
+	if got := slotOfTimestamp(ts, 15); got != 33 {
+		t.Errorf("slotOfTimestamp(08:25, 15) = %d, want 33 (8*60+25)/15", got)
+	}
+	if got := slotOfTimestamp(ts, 10); got != 50 {
+		t.Errorf("slotOfTimestamp(08:25, 10) = %d, want 50 (8*60+25)/10", got)
+	}
+}
+
+func TestRouteTotalSlotsRoundsUpNonDivisorIntervals(t *testing.T) {
+	cases := []struct{ slotMin, want int }{
+		{15, 96},  // 1440/15, exact
+		{10, 144}, // 1440/10, exact
+		{7, 206},  // ceil(1440/7) = 205.71... -> 206, covers the trailing partial slot
+	}
+	for _, c := range cases {
+		if got := routeTotalSlots(c.slotMin); got != c.want {
+			t.Errorf("routeTotalSlots(%d) = %d, want %d", c.slotMin, got, c.want)
+		}
 	}
 }
 

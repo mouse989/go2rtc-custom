@@ -596,7 +596,11 @@ async function loadMatrix() {
 // Simplified, un-forecast version of dashboard2.html's own per-route TTI
 // panel: today's (or one chosen past day's) measured values only — no
 // trend arrows, no abnormal-route detection, no +10'/+60' forecast.
-const TI_ROUTE_SLOT_MIN = 15, TI_ROUTE_TOTAL_SLOTS = 96; // must match internal/trafficinsight/route_tti.go
+// Slot width (minutes) for the route bar/axis — set from the API response's
+// slotMin on each load, which mirrors the travel-time module's actual
+// configured collection interval (Config → Travel Time), not a hardcoded
+// guess. Falls back to 15 only until the first response arrives.
+let TI_ROUTE_SLOT_MIN = 15;
 let _tiTtiAppearance = null;
 const TI_TTI_DEFAULT_APPEARANCE = {
   tiers: [
@@ -636,8 +640,10 @@ function tiFmtMinSec(sec) {
 
 function renderRouteSlotBar(slots, hlHour) {
   const hasHl = hlHour != null && hlHour >= 0;
-  const hlStart = hasHl ? hlHour * 4 : -1;
-  const hlEnd = hlStart + 3;
+  // Slot width need not divide 60 evenly (e.g. a 7-min interval), so the
+  // highlighted range is computed from minutes, not a fixed "4 slots/hour".
+  const hlStart = hasHl ? Math.floor(hlHour * 60 / TI_ROUTE_SLOT_MIN) : -1;
+  const hlEnd = hasHl ? Math.floor((hlHour * 60 + 59) / TI_ROUTE_SLOT_MIN) : -1;
   return slots.map((s, i) => {
     const hl = hasHl && i >= hlStart && i <= hlEnd;
     const cls = 'ti-route-slot' + (hl ? ' ti-route-slot-hl' : '');
@@ -706,6 +712,7 @@ async function loadRouteTTI() {
   const qs = params.toString();
   try {
     const res = await apiFetch('/api/trafficinsight/route-tti' + (qs ? '?' + qs : ''));
+    if (res.slotMin > 0) TI_ROUTE_SLOT_MIN = res.slotMin;
     renderRouteChart(res.routes || [], hour);
   } catch (e) {
     toast('Không tải được Top 10 tuyến đường: ' + e.message, 'error');
