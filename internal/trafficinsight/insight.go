@@ -40,19 +40,34 @@ func loadVNLocation() *time.Location {
 // no incidents logged) just leaves its Has*Data flag false rather than
 // failing the whole call.
 type DailyMetrics struct {
-	Date string `json:"date"`
+	Date    string `json:"date"`
+	Weekday string `json:"weekday"` // "T2".."T7","CN" — Vietnam-local day of week, for chart/matrix labels
 
 	JamAvgFactor  float64 `json:"jamAvgFactor"`
 	JamPointCount int     `json:"jamPointCount"` // persistent-point readings summed across the day's scans
 	JamScanCount  int     `json:"jamScanCount"`  // distinct scan timestamps that day
 	HasJamData    bool    `json:"hasJamData"`
 
-	TTIAvg         float64 `json:"ttiAvg"`
+	TTIAvg float64 `json:"ttiAvg"`
+	// TTIAvgDelayMin is the average delay in minutes (traveltime.LogEntry's
+	// DelaySec/60) behind the dimensionless TTIAvg ratio — TTI alone
+	// ("1.4") doesn't say whether that's 2 minutes or 20; this is what lets
+	// the page show "TTI 1.4 (trễ ~6 phút)" instead of just the ratio.
+	TTIAvgDelayMin float64 `json:"ttiAvgDelayMin"`
 	TTISampleCount int     `json:"ttiSampleCount"`
 	HasTTIData     bool    `json:"hasTTIData"`
 
 	IncidentCount       int            `json:"incidentCount"`
 	IncidentsByCategory map[string]int `json:"incidentsByCategory,omitempty"`
+}
+
+// shortVietnameseWeekdays indexes Monday=0 .. Sunday=6 — compact labels for
+// chart ticks and matrix cells (vietnameseWeekdays below spells them out).
+var shortVietnameseWeekdays = []string{"T2", "T3", "T4", "T5", "T6", "T7", "CN"}
+
+// weekdayAbbr returns t's short Vietnamese weekday label, Monday-anchored.
+func weekdayAbbr(t time.Time) string {
+	return shortVietnameseWeekdays[(int(t.Weekday())+6)%7]
 }
 
 // dayBounds returns the [start, end] instants of the Vietnam-local calendar
@@ -73,7 +88,7 @@ func GetDailyMetrics(date string) (DailyMetrics, error) {
 	if err != nil {
 		return DailyMetrics{}, err
 	}
-	m := DailyMetrics{Date: date}
+	m := DailyMetrics{Date: date, Weekday: weekdayAbbr(start)}
 
 	if rows, err := traffic.PersistentPointsInRange(start, end); err == nil && len(rows) > 0 {
 		var sum float64
@@ -89,12 +104,15 @@ func GetDailyMetrics(date string) (DailyMetrics, error) {
 	}
 
 	if entries, err := traveltime.GetLogsForDate(date, 0); err == nil && len(entries) > 0 {
-		var sum float64
+		var ttiSum float64
+		var delaySecSum int
 		for _, e := range entries {
-			sum += e.TTI
+			ttiSum += e.TTI
+			delaySecSum += e.DelaySec
 		}
 		m.TTISampleCount = len(entries)
-		m.TTIAvg = sum / float64(len(entries))
+		m.TTIAvg = ttiSum / float64(len(entries))
+		m.TTIAvgDelayMin = float64(delaySecSum) / float64(len(entries)) / 60.0
 		m.HasTTIData = true
 	}
 
@@ -131,6 +149,7 @@ type AggregateMetrics struct {
 	JamPointAvgPerDay float64 `json:"jamPointAvgPerDay"`
 
 	TTIAvg          float64 `json:"ttiAvg"`
+	TTIAvgDelayMin  float64 `json:"ttiAvgDelayMin"`
 	TTIDaysWithData int     `json:"ttiDaysWithData"`
 
 	IncidentAvgPerDay float64 `json:"incidentAvgPerDay"`
@@ -147,7 +166,7 @@ func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
 		ToDate:   toLocal.Format("2006-01-02"),
 	}
 
-	var jamSum, ttiSum float64
+	var jamSum, ttiSum, ttiDelaySum float64
 	var jamPointSum int
 
 	day := time.Date(fromLocal.Year(), fromLocal.Month(), fromLocal.Day(), 0, 0, 0, 0, vnLocation)
@@ -163,6 +182,7 @@ func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
 			}
 			if m.HasTTIData {
 				ttiSum += m.TTIAvg
+				ttiDelaySum += m.TTIAvgDelayMin
 				out.TTIDaysWithData++
 			}
 			out.IncidentTotal += m.IncidentCount
@@ -176,6 +196,7 @@ func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
 	}
 	if out.TTIDaysWithData > 0 {
 		out.TTIAvg = ttiSum / float64(out.TTIDaysWithData)
+		out.TTIAvgDelayMin = ttiDelaySum / float64(out.TTIDaysWithData)
 	}
 	if out.DayCount > 0 {
 		out.IncidentAvgPerDay = float64(out.IncidentTotal) / float64(out.DayCount)
@@ -243,12 +264,15 @@ func GetDailySeries(days int) []DailyMetrics {
 // WeekdayMatrixCell is one day's metrics placed at a (weekday, week)
 // position in the comparison grid.
 type WeekdayMatrixCell struct {
-	Date          string  `json:"date"`
-	JamAvgFactor  float64 `json:"jamAvgFactor"`
-	TTIAvg        float64 `json:"ttiAvg"`
-	IncidentCount int     `json:"incidentCount"`
-	HasData       bool    `json:"hasData"` // any source had data this day
-	Future        bool    `json:"future"`  // day hasn't happened yet (current week's remaining days)
+	Date           string  `json:"date"`
+	JamAvgFactor   float64 `json:"jamAvgFactor"`
+	HasJamData     bool    `json:"hasJamData"`
+	TTIAvg         float64 `json:"ttiAvg"`
+	TTIAvgDelayMin float64 `json:"ttiAvgDelayMin"`
+	HasTTIData     bool    `json:"hasTTIData"`
+	IncidentCount  int     `json:"incidentCount"`
+	HasData        bool    `json:"hasData"` // any source had data this day — used to grey out a cell entirely
+	Future         bool    `json:"future"`  // day hasn't happened yet (current week's remaining days)
 }
 
 // WeekInfo labels one column (one week) of the matrix.
@@ -311,7 +335,10 @@ func GetWeekdayMatrix(weeks int) WeekdayMatrixResult {
 				cell.Future = true
 			} else if m, err := GetDailyMetrics(cell.Date); err == nil {
 				cell.JamAvgFactor = m.JamAvgFactor
+				cell.HasJamData = m.HasJamData
 				cell.TTIAvg = m.TTIAvg
+				cell.TTIAvgDelayMin = m.TTIAvgDelayMin
+				cell.HasTTIData = m.HasTTIData
 				cell.IncidentCount = m.IncidentCount
 				cell.HasData = m.HasJamData || m.HasTTIData || m.IncidentCount > 0
 			}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/traffic"
 )
 
 func Init() {
@@ -22,6 +23,7 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/averages", handleAverages)
 	http.HandleFunc("/api/trafficinsight/daily-series", handleDailySeries)
 	http.HandleFunc("/api/trafficinsight/weekday-matrix", handleWeekdayMatrix)
+	http.HandleFunc("/api/trafficinsight/jam-points", handleJamPoints)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -104,6 +106,40 @@ func handleDailySeries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, GetDailySeries(days))
+}
+
+type jamPointsResponse struct {
+	Date   string              `json:"date"`
+	Points []traffic.DashPoint `json:"points"`
+}
+
+// GET /api/trafficinsight/jam-points?date=YYYY-MM-DD — every persistent
+// jam point recorded on that Vietnam-local calendar day (the map's "xem
+// theo ngày" mode); the "hiện tại" mode instead uses /today's live
+// points, which is the current in-memory scan result, not history.
+func handleJamPoints(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		http.Error(w, "date is required (YYYY-MM-DD)", http.StatusBadRequest)
+		return
+	}
+	if _, err := time.ParseInLocation("2006-01-02", date, vnLocation); err != nil {
+		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	points, err := traffic.PersistentPointsForDate(date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, jamPointsResponse{Date: date, Points: points})
 }
 
 // GET /api/trafficinsight/weekday-matrix?weeks=N (default 6, capped at 12)

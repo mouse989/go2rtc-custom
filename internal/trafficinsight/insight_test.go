@@ -51,6 +51,8 @@ type fixturePersistentPoint struct {
 	Lat       float64 `json:"lat"`
 	Lng       float64 `json:"lng"`
 	JamFactor float64 `json:"jamFactor"`
+	Label     string  `json:"label,omitempty"`
+	Area      string  `json:"area,omitempty"`
 }
 type fixtureScan struct {
 	ScannedAt  string                   `json:"scannedAt"`
@@ -146,8 +148,8 @@ func TestGetDailyMetricsCombinesAllThreeSources(t *testing.T) {
 	})
 
 	writeTravelTimeDay(t, date, []traveltime.LogEntry{
-		{Timestamp: date + "T09:00:00+07:00", RouteID: "r1", TTI: 1.5},
-		{Timestamp: date + "T15:00:00+07:00", RouteID: "r1", TTI: 2.5},
+		{Timestamp: date + "T09:00:00+07:00", RouteID: "r1", TTI: 1.5, DelaySec: 180},
+		{Timestamp: date + "T15:00:00+07:00", RouteID: "r1", TTI: 2.5, DelaySec: 300},
 	})
 
 	createIncident(t, time.Date(2027, 3, 15, 10, 0, 0, 0, vnLocation), "Va chạm")
@@ -176,12 +178,81 @@ func TestGetDailyMetricsCombinesAllThreeSources(t *testing.T) {
 	if diff := m.TTIAvg - 2.0; diff > 1e-9 || diff < -1e-9 {
 		t.Errorf("TTIAvg = %v, want 2.0", m.TTIAvg)
 	}
+	wantDelayMin := (180.0 + 300.0) / 2.0 / 60.0 // 4 minutes
+	if diff := m.TTIAvgDelayMin - wantDelayMin; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("TTIAvgDelayMin = %v, want %v", m.TTIAvgDelayMin, wantDelayMin)
+	}
+
+	wantWeekday := weekdayAbbr(time.Date(2027, 3, 15, 0, 0, 0, 0, vnLocation))
+	if m.Weekday != wantWeekday {
+		t.Errorf("Weekday = %q, want %q", m.Weekday, wantWeekday)
+	}
 
 	if m.IncidentCount != 3 {
 		t.Fatalf("IncidentCount = %d, want 3", m.IncidentCount)
 	}
 	if m.IncidentsByCategory["Va chạm"] != 2 || m.IncidentsByCategory["Đông xe"] != 1 {
 		t.Errorf("IncidentsByCategory = %+v, want {Va chạm:2, Đông xe:1}", m.IncidentsByCategory)
+	}
+}
+
+func TestWeekdayAbbrAgainstKnownCalendarDates(t *testing.T) {
+	cases := []struct {
+		date string
+		want string
+	}{
+		{"2024-01-01", "T2"}, // real-world Monday
+		{"2024-01-02", "T3"},
+		{"2024-01-06", "T7"},
+		{"2024-01-07", "CN"}, // real-world Sunday
+	}
+	for _, c := range cases {
+		d, err := time.ParseInLocation("2006-01-02", c.date, vnLocation)
+		if err != nil {
+			t.Fatalf("parse %q: %v", c.date, err)
+		}
+		if got := weekdayAbbr(d); got != c.want {
+			t.Errorf("weekdayAbbr(%s) = %q, want %q", c.date, got, c.want)
+		}
+	}
+}
+
+func TestPersistentPointsForDateKeepsLabelAndArea(t *testing.T) {
+	setupSources(t)
+	date := "2027-05-10"
+	writeTrafficDay(t, date, []fixtureScan{
+		{
+			ScannedAt: time.Date(2027, 5, 10, 8, 0, 0, 0, vnLocation).UTC().Format(time.RFC3339),
+			Persistent: []fixturePersistentPoint{
+				{Lat: 10.5, Lng: 106.5, JamFactor: 9, Label: "Ngã tư Hàng Xanh", Area: "Bình Thạnh"},
+			},
+		},
+	})
+
+	points, err := traffic.PersistentPointsForDate(date)
+	if err != nil {
+		t.Fatalf("PersistentPointsForDate: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d: %+v", len(points), points)
+	}
+	p := points[0]
+	if p.Lat != 10.5 || p.Lng != 106.5 || p.JamFactor != 9 {
+		t.Errorf("unexpected point coords/jamFactor: %+v", p)
+	}
+	if p.Label != "Ngã tư Hàng Xanh" || p.Area != "Bình Thạnh" {
+		t.Errorf("expected Label/Area to be preserved (unlike the CSV export's 4-column shape), got %+v", p)
+	}
+}
+
+func TestPersistentPointsForDateEmptyWhenNoFile(t *testing.T) {
+	setupSources(t)
+	points, err := traffic.PersistentPointsForDate("2027-05-11")
+	if err != nil {
+		t.Fatalf("PersistentPointsForDate: %v", err)
+	}
+	if len(points) != 0 {
+		t.Fatalf("expected no points, got %+v", points)
 	}
 }
 
@@ -241,6 +312,40 @@ func TestGetDailySeriesReturnsOneEntryPerDayOldestFirst(t *testing.T) {
 		if series[i].Date <= series[i-1].Date {
 			t.Fatalf("series not strictly increasing by date at index %d: %q then %q", i, series[i-1].Date, series[i].Date)
 		}
+	}
+}
+
+// TestGetWeekdayMatrixPerMetricHasDataFlags guards against a cell showing
+// "0.0" for a metric that was never actually measured that day (e.g. jam
+// data exists but no TTI samples were collected) — HasJamData/HasTTIData
+// must be independent, not both tied to the OR'd HasData used only to grey
+// out a cell with nothing at all.
+func TestGetWeekdayMatrixPerMetricHasDataFlags(t *testing.T) {
+	setupSources(t)
+	today := time.Now().In(vnLocation)
+	date := today.Format("2006-01-02")
+
+	// Jam data only for today — no travel-time fixture is written.
+	writeTrafficDay(t, date, []fixtureScan{
+		scanAtVN(today.Year(), int(today.Month()), today.Day(), 9, 0, []fixturePersistentPoint{
+			{Lat: 1, Lng: 1, JamFactor: 5},
+		}),
+	})
+
+	result := GetWeekdayMatrix(1)
+	offset := (int(today.Weekday()) + 6) % 7
+	cell := result.Cells[offset][0]
+	if cell.Date != date {
+		t.Fatalf("expected today's cell at [%d][0] to be %q, got %q", offset, date, cell.Date)
+	}
+	if !cell.HasJamData {
+		t.Error("expected HasJamData=true (jam fixture was written for today)")
+	}
+	if cell.HasTTIData {
+		t.Error("expected HasTTIData=false (no travel-time fixture was written for today)")
+	}
+	if !cell.HasData {
+		t.Error("expected the OR'd HasData=true since jam data exists")
 	}
 }
 

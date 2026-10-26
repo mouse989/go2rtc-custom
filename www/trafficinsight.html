@@ -40,7 +40,7 @@
 .ti-chart-box { height:260px; position:relative; }
 
 .ti-matrix-controls { display:flex; gap:.4rem; align-items:center; }
-.ti-matrix-controls select {
+.ti-matrix-controls select, .ti-matrix-controls input[type=date] {
   background:var(--surface2); border:1px solid var(--border); color:var(--text);
   border-radius:6px; padding:.3rem .5rem; font-size:.78rem;
 }
@@ -157,11 +157,18 @@
       </div>
     </div>
 
-    <!-- Map: today's persistent jam points -->
+    <!-- Map: persistent jam points, live or by date -->
     <div class="ti-section">
       <h3>
-        <span>Bản đồ điểm ùn ứ — hiện tại</span>
-        <span id="tiMapScannedAt" style="font-size:.72rem;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0"></span>
+        <span>Bản đồ điểm ùn ứ</span>
+        <div class="ti-matrix-controls">
+          <select id="tiMapMode">
+            <option value="live">Hiện tại</option>
+            <option value="date">Theo ngày</option>
+          </select>
+          <input type="date" id="tiMapDate" style="display:none">
+          <span id="tiMapScannedAt" style="font-size:.72rem;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0"></span>
+        </div>
       </h3>
       <div id="tiMap"></div>
       <div class="ti-map-legend">
@@ -179,6 +186,7 @@
           <select id="tiTrendMetric">
             <option value="jam">Ùn ứ (jamFactor TB)</option>
             <option value="tti">TTI trung bình</option>
+            <option value="delay">Thời gian trễ (phút)</option>
             <option value="incident">Số sự cố</option>
           </select>
         </div>
@@ -194,6 +202,7 @@
           <select id="tiMatrixMetric">
             <option value="jam">Ùn ứ (jamFactor TB)</option>
             <option value="tti">TTI trung bình</option>
+            <option value="delay">Thời gian trễ (phút)</option>
             <option value="incident">Số sự cố</option>
           </select>
           <select id="tiMatrixWeeks">
@@ -255,9 +264,9 @@ async function loadKpis() {
       </div>
       <div class="ti-kpi-card">
         <div class="ti-kpi-title">⏱ Chỉ số thời gian di chuyển (TTI)</div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 7 ngày qua</span><span class="ti-kpi-value">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2) : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 30 ngày qua</span><span class="ti-kpi-value">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) + ' (trễ ~' + fmtNum(t.ttiAvgDelayMin,0) + ' phút)' : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 7 ngày qua</span><span class="ti-kpi-value">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2) + ' (trễ ~' + fmtNum(a7.ttiAvgDelayMin,0) + ' phút)' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 30 ngày qua</span><span class="ti-kpi-value">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2) + ' (trễ ~' + fmtNum(a30.ttiAvgDelayMin,0) + ' phút)' : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label">Số mẫu đo hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.ttiSampleCount||0}</span></div>
       </div>
       <div class="ti-kpi-card">
@@ -272,7 +281,7 @@ async function loadKpis() {
   }
 }
 
-// ── Map: today's live persistent points ──────────────────────────────────
+// ── Map: live ("hiện tại") or historical ("theo ngày") persistent points ──
 async function initTiMap() {
   try {
     const settings = await apiFetch('/api/settings');
@@ -303,26 +312,44 @@ async function initTiMap() {
       });
       _tiMap.on('mouseenter', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
       _tiMap.on('mouseleave', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = '');
-      loadTodaySnapshot();
+      loadMapPoints();
     });
   } catch (e) {
     document.getElementById('tiMap').innerHTML = `<div class="ti-empty">Lỗi bản đồ: ${escHtml(e.message)}</div>`;
   }
 }
 
-async function loadTodaySnapshot() {
+function setMapPoints(pts) {
+  if (!_tiMapInited) return;
+  const features = (pts || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { jf: p.jamFactor, label: p.label || '', area: p.area || '' } }));
+  _tiMap.getSource('ti-points')?.setData({ type: 'FeatureCollection', features });
+}
+
+// loadMapPoints dispatches on #tiMapMode: "live" uses /today's current
+// in-memory scan snapshot (what toggling the map to "Hiện tại" means),
+// "date" uses /jam-points for the date picked, aggregating every scan
+// recorded that Vietnam-local calendar day.
+async function loadMapPoints() {
+  const mode = document.getElementById('tiMapMode').value;
+  const label = document.getElementById('tiMapScannedAt');
   try {
-    const snap = await apiFetch('/api/trafficinsight/today');
-    const pts = snap.points || [];
-    document.getElementById('tiMapScannedAt').textContent = snap.scannedAt
-      ? 'Lần quét gần nhất: ' + new Date(snap.scannedAt).toLocaleString('vi-VN')
-      : '';
-    if (_tiMapInited) {
-      const features = pts.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { jf: p.jamFactor, label: p.label || '', area: p.area || '' } }));
-      _tiMap.getSource('ti-points')?.setData({ type: 'FeatureCollection', features });
+    if (mode === 'date') {
+      const date = document.getElementById('tiMapDate').value;
+      if (!date) { label.textContent = ''; setMapPoints([]); return; }
+      const res = await apiFetch('/api/trafficinsight/jam-points?date=' + encodeURIComponent(date));
+      const pts = res.points || [];
+      label.textContent = `Ngày ${date} — ${pts.length} điểm ghi nhận`;
+      setMapPoints(pts);
+    } else {
+      const snap = await apiFetch('/api/trafficinsight/today');
+      const pts = snap.points || [];
+      label.textContent = snap.scannedAt
+        ? 'Lần quét gần nhất: ' + new Date(snap.scannedAt).toLocaleString('vi-VN')
+        : '';
+      setMapPoints(pts);
     }
   } catch (e) {
-    toast('Không tải được điểm ùn ứ hiện tại: ' + e.message, 'error');
+    toast('Không tải được điểm ùn ứ: ' + e.message, 'error');
   }
 }
 
@@ -331,16 +358,19 @@ function trendSeriesFor(metric) {
   return _tiDailySeries.map(d => {
     if (metric === 'jam') return d.hasJamData ? d.jamAvgFactor : null;
     if (metric === 'tti') return d.hasTTIData ? d.ttiAvg : null;
+    if (metric === 'delay') return d.hasTTIData ? d.ttiAvgDelayMin : null;
     return d.incidentCount;
   });
 }
-const TREND_LABELS = { jam: 'jamFactor trung bình', tti: 'TTI trung bình', incident: 'Số sự cố' };
+const TREND_LABELS = { jam: 'jamFactor trung bình', tti: 'TTI trung bình', delay: 'Thời gian trễ trung bình (phút)', incident: 'Số sự cố' };
 
 function renderTrendChart() {
   const el = document.getElementById('tiTrendChart');
   if (!el || !_tiDailySeries.length) return;
   const metric = document.getElementById('tiTrendMetric').value;
-  const labels = _tiDailySeries.map(d => d.date.slice(5).replace('-', '/'));
+  // "ngày/thứ" — e.g. "20/10 T3" — so a spike is traceable to a day of
+  // the week at a glance, not just a bare date.
+  const labels = _tiDailySeries.map(d => d.date.slice(5).replace('-', '/') + ' ' + (d.weekday || ''));
   const data = trendSeriesFor(metric);
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
   const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)';
@@ -374,6 +404,7 @@ async function loadDailySeries() {
 function matrixCellValue(cell, metric) {
   if (metric === 'jam') return cell.jamAvgFactor;
   if (metric === 'tti') return cell.ttiAvg;
+  if (metric === 'delay') return cell.ttiAvgDelayMin;
   return cell.incidentCount;
 }
 function matrixCellColor(value, metric) {
@@ -386,6 +417,11 @@ function matrixCellColor(value, metric) {
   if (metric === 'tti') {
     if (value >= 1.8) return 'rgba(248,113,113,.35)';
     if (value >= 1.3) return 'rgba(251,191,36,.3)';
+    return 'rgba(148,163,184,.18)';
+  }
+  if (metric === 'delay') {
+    if (value >= 10) return 'rgba(248,113,113,.35)';
+    if (value >= 5) return 'rgba(251,191,36,.3)';
     return 'rgba(148,163,184,.18)';
   }
   // incident count
@@ -405,8 +441,16 @@ function renderMatrix() {
   let rows = weekdays.map((label, d) => {
     const tds = cells[d].map(cell => {
       if (cell.future) return '<td class="ti-future">—</td>';
+      // Each metric needs its own "was this actually measured" flag — a
+      // day can have jam data but no TTI samples (or vice versa), and
+      // showing "0.0" there would misread as "perfectly clear" or "no
+      // delay" rather than "not measured". Incident count has no such
+      // ambiguity: 0 incidents is itself a real, meaningful value.
+      const hasData = metric === 'jam' ? cell.hasJamData
+        : (metric === 'tti' || metric === 'delay') ? cell.hasTTIData
+        : true;
+      if (!hasData) return '<td class="ti-nodata">—</td>';
       const v = matrixCellValue(cell, metric);
-      if (!cell.hasData) return '<td class="ti-nodata">—</td>';
       const bg = matrixCellColor(v, metric);
       const text = metric === 'incident' ? String(v) : fmtNum(v, metric === 'tti' ? 2 : 1);
       return `<td style="background:${bg}" title="${cell.date}">${text}</td>`;
@@ -432,19 +476,34 @@ document.getElementById('btnRefreshKpi').addEventListener('click', loadKpis);
 document.getElementById('tiTrendMetric').addEventListener('change', renderTrendChart);
 document.getElementById('tiMatrixMetric').addEventListener('change', renderMatrix);
 document.getElementById('tiMatrixWeeks').addEventListener('change', loadMatrix);
+document.getElementById('tiMapMode').addEventListener('change', () => {
+  const mode = document.getElementById('tiMapMode').value;
+  document.getElementById('tiMapDate').style.display = mode === 'date' ? '' : 'none';
+  loadMapPoints();
+});
+document.getElementById('tiMapDate').addEventListener('change', loadMapPoints);
 
 // ── Boot ──────────────────────────────────────────────────────────────
 (async () => {
   await initApp('trafficinsight');
+  // Date picker defaults to today (Vietnam-local, not the viewer's own
+  // browser timezone) so switching to "Theo ngày" shows something
+  // immediately instead of an empty map.
+  document.getElementById('tiMapDate').value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+
   loadKpis();
   initTiMap();
   loadDailySeries();
   loadMatrix();
 
-  // Keep the KPI row and map reasonably live without being a hot poll —
-  // same ~60s cadence dashboard2.html's own summary refresh uses.
+  // Keep the KPI row and the map's live mode reasonably fresh without
+  // being a hot poll — same ~60s cadence dashboard2.html's own summary
+  // refresh uses. A historical "theo ngày" view doesn't change on its
+  // own, so the map only re-polls while still in "live" mode.
   setInterval(loadKpis, 60000);
-  setInterval(loadTodaySnapshot, 60000);
+  setInterval(() => {
+    if (document.getElementById('tiMapMode').value === 'live') loadMapPoints();
+  }, 60000);
 
   const themeBtn = document.getElementById('btnTheme');
   if (themeBtn) themeBtn.addEventListener('click', renderTrendChart);
