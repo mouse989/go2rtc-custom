@@ -176,7 +176,7 @@ tr:hover td { background:var(--surface2); }
     </a>
     <a href="/trafficinsight.html" class="nav-item" data-tab-require="trafficinsight" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
-      Xu hướng GT
+      Tổng quan giao thông
     </a>
     <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
@@ -498,7 +498,7 @@ tr:hover td { background:var(--surface2); }
         <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.8rem">
           <p style="font-size:.78rem;color:var(--text-muted);margin:0">
             Thang màu dùng chung để tô điểm ùn ứ (JF 0–10) trên <strong>mọi bản đồ</strong> hiển thị JF — Map, Dashboard 02,
-            Xu hướng giao thông. Màu chuyển liên tục (nhuyễn) giữa các điểm mốc bên dưới, không còn ngắt bậc cứng như
+            Tổng quan giao thông. Màu chuyển liên tục (nhuyễn) giữa các điểm mốc bên dưới, không còn ngắt bậc cứng như
             trước. Thêm nhiều điểm mốc sát nhau ở vùng cần phân biệt kỹ (ví dụ 8.5–10) để vùng đó chuyển màu chi tiết hơn.
           </p>
           <div id="jfColorGradientPreview" style="height:16px;border-radius:8px"></div>
@@ -2102,7 +2102,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="config"> Config</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="api_docs"> API Docs</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="incidents"> ⚠ Sự cố GT</label>
-          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="trafficinsight"> 📈 Xu hướng giao thông</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="trafficinsight"> 📈 Tổng quan giao thông</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="subadmin" onchange="onSubAdminTabChange()"> 🛡 Sub Admin (trang quản lý nhóm user riêng)</label>
         </div>
         <label style="font-size:.8rem;font-weight:600;display:block;margin-top:.75rem;margin-bottom:.45rem">Map Permissions</label>
@@ -3075,7 +3075,7 @@ function renderTable(users) {
   }
   users.forEach(u => {
     const streams = (u.streams || []).join(', ') || (u.role === 'admin' ? 'All cameras' : '—');
-    const tabLabels = { monitor:'Monitor', dashboard:'Dashboard', log:'Logs', config:'Config', api_docs:'API Docs', trafficinsight:'📈 Xu hướng GT', subadmin:'🛡 Sub Admin' };
+    const tabLabels = { monitor:'Monitor', dashboard:'Dashboard', log:'Logs', config:'Config', api_docs:'API Docs', trafficinsight:'📈 Tổng quan giao thông', subadmin:'🛡 Sub Admin' };
     const tabBadges = u.role === 'admin'
       ? '<span style="font-size:.7rem;color:var(--text-muted)">All</span>'
       : (u.tabs || []).length

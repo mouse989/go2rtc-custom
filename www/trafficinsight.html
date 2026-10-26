@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Xu hướng giao thông – UTMC Platform</title>
+<title>Tổng quan giao thông – UTMC Platform</title>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
 <style>
@@ -16,21 +16,58 @@
   letter-spacing:.06em; color:var(--text-muted); margin:0 0 1rem;
   display:flex; align-items:center; justify-content:space-between; gap:.5rem;
 }
-.ti-kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.9rem; }
+.ti-kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
 .ti-kpi-card {
-  background:var(--surface2); border:1px solid var(--border); border-radius:10px;
-  padding:1rem 1.1rem;
+  position:relative; background:var(--surface2); border:1px solid var(--border);
+  border-radius:12px; padding:1.1rem 1.2rem 1.2rem; overflow:hidden;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
 }
-.ti-kpi-card .ti-kpi-title { font-size:.78rem; font-weight:700; color:var(--text-muted); margin-bottom:.7rem; }
-.ti-kpi-row { display:flex; align-items:baseline; justify-content:space-between; padding:.3rem 0; border-top:1px solid var(--border); }
+.ti-kpi-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:4px;
+  background:var(--ti-accent, #60a5fa);
+}
+.ti-kpi-card.ti-kpi-jam  { --ti-accent: linear-gradient(90deg,#fbbf24,#ef4444); }
+.ti-kpi-card.ti-kpi-jam::before { background:var(--ti-accent); }
+.ti-kpi-card.ti-kpi-tti  { --ti-accent: linear-gradient(90deg,#38bdf8,#6366f1); }
+.ti-kpi-card.ti-kpi-tti::before { background:var(--ti-accent); }
+.ti-kpi-card.ti-kpi-inc  { --ti-accent: linear-gradient(90deg,#f472b6,#a855f7); }
+.ti-kpi-card.ti-kpi-inc::before { background:var(--ti-accent); }
+.ti-kpi-card .ti-kpi-title {
+  font-size:.82rem; font-weight:700; color:var(--text); margin-bottom:.9rem;
+  display:flex; align-items:center; gap:.5rem;
+}
+.ti-kpi-icon {
+  width:28px; height:28px; border-radius:8px; display:inline-flex; align-items:center;
+  justify-content:center; font-size:.9rem; flex-shrink:0;
+}
+.ti-kpi-jam .ti-kpi-icon  { background:#f9731622; }
+.ti-kpi-tti .ti-kpi-icon  { background:#6366f122; }
+.ti-kpi-inc .ti-kpi-icon  { background:#a855f722; }
+.ti-kpi-row { display:flex; align-items:center; justify-content:space-between; padding:.42rem 0; border-top:1px solid var(--border); gap:.5rem; }
 .ti-kpi-row:first-of-type { border-top:none; }
-.ti-kpi-row .ti-kpi-label { font-size:.74rem; color:var(--text-muted); }
-.ti-kpi-row .ti-kpi-value { font-size:1.15rem; font-weight:800; font-variant-numeric:tabular-nums; }
-.ti-delta { font-size:.68rem; font-weight:700; border-radius:4px; padding:.05rem .4rem; margin-left:.4rem; }
+.ti-kpi-row.ti-kpi-hero { padding-bottom:.6rem; }
+.ti-kpi-row .ti-kpi-label { font-size:.76rem; color:var(--text-muted); white-space:nowrap; }
+.ti-kpi-row .ti-kpi-value { font-size:1.1rem; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.ti-kpi-hero .ti-kpi-value { font-size:1.9rem; font-variant-numeric:normal; line-height:1; }
+.ti-kpi-sub { font-size:.72rem; color:var(--text-muted); font-weight:500; margin-left:.3rem; }
+.ti-jf-swatch { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; margin-right:.3rem; box-shadow:0 0 0 2px var(--surface2); }
+.ti-delta { display:inline-flex; align-items:center; gap:.15rem; font-size:.7rem; font-weight:700; border-radius:5px; padding:.1rem .45rem; margin-left:.4rem; }
 .ti-delta.up { background:#dc262622; color:#f87171; }
 .ti-delta.down { background:#16a34a22; color:#4ade80; }
 .ti-delta.flat { background:#4b556322; color:#9ca3af; }
 .ti-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
+
+.ti-stat-strip { display:flex; gap:.7rem; flex-wrap:wrap; }
+.ti-stat-tile {
+  --ti-stat-c: var(--text-muted); flex:1; min-width:140px;
+  background:linear-gradient(135deg, color-mix(in srgb, var(--ti-stat-c) 12%, var(--surface2)), var(--surface2) 65%);
+  border:1px solid var(--border); border-left:3px solid var(--ti-stat-c);
+  border-radius:10px; padding:.65rem .8rem;
+}
+.ti-stat-tile .ti-stat-lbl { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ti-stat-tile .ti-stat-val { font-size:1.55rem; font-weight:800; line-height:1.15; color:var(--ti-stat-c); margin-top:.2rem; }
+.ti-stat-tile .ti-stat-sub { font-size:.7rem; color:var(--text-muted); margin-top:.2rem; }
+@media (max-width:900px) { .ti-stat-tile { min-width:46%; } }
 
 #tiMap { height:360px; border-radius:10px; overflow:hidden; background:var(--surface2); }
 .ti-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.72rem; color:var(--text-muted); }
@@ -51,6 +88,19 @@
 .ti-matrix-table td.ti-rowlabel { text-align:left; font-weight:700; color:var(--text); background:none; border:none; font-size:.74rem; white-space:nowrap; padding-right:.8rem; }
 .ti-matrix-table td.ti-future { color:var(--text-muted); font-weight:400; background:none !important; }
 .ti-matrix-table td.ti-nodata { color:var(--text-muted); font-weight:400; }
+
+.ti-route-row { display:flex; align-items:flex-start; gap:.4rem; margin-bottom:.25rem; }
+.ti-route-label { width:130px; flex-shrink:0; padding-top:1px; }
+.ti-route-rname { font-size:.7rem; font-weight:600; color:var(--text); line-height:1.25; word-break:break-word; }
+.ti-route-bars { flex:1; min-width:0; }
+.ti-route-val { width:38px; flex-shrink:0; text-align:right; font-size:.74rem; font-weight:800; line-height:17px; font-variant-numeric:tabular-nums; }
+.ti-route-bar { display:flex; width:100%; height:17px; overflow:hidden; border-radius:3px; }
+.ti-route-slot { flex:1; height:100%; }
+.ti-route-axis-wrap { position:relative; height:16px; margin-left:calc(130px + .4rem); margin-top:.2rem; flex-shrink:0; }
+.ti-route-axis-lbl { position:absolute; font-size:.62rem; color:var(--text-muted); transform:translateX(-50%); white-space:nowrap; }
+.ti-route-legend { display:flex; gap:.6rem; margin-top:.6rem; font-size:.7rem; color:var(--text-muted); flex-wrap:wrap; align-items:center; }
+.ti-route-legend span { display:flex; align-items:center; gap:.3rem; }
+.ti-route-legend-dot { width:9px; height:9px; border-radius:2px; display:inline-block; flex-shrink:0; }
 
 @media (max-width:900px) {
   .ti-kpi-grid { grid-template-columns:1fr; }
@@ -111,7 +161,7 @@
     </a>
     <a href="/trafficinsight.html" class="nav-item active" data-tab-require="trafficinsight" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
-      Xu hướng GT
+      Tổng quan giao thông
     </a>
     <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
@@ -141,10 +191,18 @@
     <button class="sidebar-toggle" id="sidebarToggle">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
     </button>
-    <h2 class="page-title">Xu hướng giao thông</h2>
+    <h2 class="page-title">Tổng quan giao thông</h2>
   </header>
 
   <div class="content">
+
+    <!-- Live stat strip -->
+    <div class="ti-section">
+      <h3>📊 Chỉ số giao thông hôm nay</h3>
+      <div class="ti-stat-strip" id="tiStatStrip">
+        <div class="ti-empty">Đang tải…</div>
+      </div>
+    </div>
 
     <!-- KPI comparison: hôm nay / 7 ngày / 30 ngày -->
     <div class="ti-section">
@@ -186,7 +244,7 @@
           <select id="tiTrendMetric">
             <option value="jam">Ùn ứ (jamFactor TB)</option>
             <option value="tti">TTI trung bình</option>
-            <option value="delay">Thời gian trễ (phút)</option>
+            <option value="delay" selected>Thời gian trễ (phút)</option>
             <option value="incident">Số sự cố</option>
           </select>
         </div>
@@ -202,7 +260,7 @@
           <select id="tiMatrixMetric">
             <option value="jam">Ùn ứ (jamFactor TB)</option>
             <option value="tti">TTI trung bình</option>
-            <option value="delay">Thời gian trễ (phút)</option>
+            <option value="delay" selected>Thời gian trễ (phút)</option>
             <option value="incident">Số sự cố</option>
           </select>
           <select id="tiMatrixWeeks">
@@ -216,6 +274,23 @@
       <div class="ti-matrix-wrap">
         <table class="ti-matrix-table" id="tiMatrixTable"></table>
       </div>
+    </div>
+
+    <!-- Top 10 tuyến đường -->
+    <div class="ti-section">
+      <h3>
+        <span>📊 Top 10 tuyến đường</span>
+        <div class="ti-matrix-controls">
+          <select id="tiRouteMode">
+            <option value="live">Hôm nay</option>
+            <option value="date">Theo ngày</option>
+          </select>
+          <input type="date" id="tiRouteDate" style="display:none">
+        </div>
+      </h3>
+      <div id="tiRouteBody"><div class="ti-empty">Đang tải…</div></div>
+      <div class="ti-route-axis-wrap" id="tiRouteAxis"></div>
+      <div class="ti-route-legend" id="tiRouteLegend"></div>
     </div>
 
   </div><!-- content -->
@@ -247,6 +322,33 @@ function deltaBadge(now, baseline) {
   return `<span class="ti-delta ${cls}">${pct>=0?'+':''}${pct.toFixed(0)}%</span>`;
 }
 
+// ── Live stat strip ───────────────────────────────────────────────────────
+// Right-now numbers (not the Hôm nay/TB7/TB30 historical comparison below)
+// — TTI/delay mirror the comparison card's "today" row, the rest come only
+// from here: live persistent-point count, monitored route count and total
+// length, all from /today's TodaySnapshot.
+async function loadStatStrip() {
+  const el = document.getElementById('tiStatStrip');
+  try {
+    const snap = await apiFetch('/api/trafficinsight/today');
+    const m = snap.metrics || {};
+    const tiles = [
+      { lbl: 'TTI trung bình', val: m.hasTTIData ? fmtNum(m.ttiAvg, 2) : '—', color: '#38bdf8' },
+      { lbl: 'Trễ TB (phút)', val: m.hasTTIData ? fmtNum(m.ttiAvgDelayMin, 1) : '—', color: '#f59e0b' },
+      { lbl: 'Điểm ùn tắc hiện tại', val: snap.livePersistentCount ?? 0, color: '#ef4444' },
+      { lbl: 'Số tuyến giám sát', val: snap.routeCount ?? '—', color: '#60a5fa' },
+      { lbl: 'Chiều dài (km)', val: snap.routeTotalLengthKm ? fmtNum(snap.routeTotalLengthKm, 1) : '—', color: '#818cf8' },
+    ];
+    el.innerHTML = tiles.map(x => `
+      <div class="ti-stat-tile" style="--ti-stat-c:${x.color}">
+        <div class="ti-stat-lbl">${x.lbl}</div>
+        <div class="ti-stat-val">${x.val}</div>
+      </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="ti-empty">Lỗi tải dữ liệu: ${escHtml(e.message)}</div>`;
+  }
+}
+
 // ── KPI grid ────────────────────────────────────────────────────────────
 async function loadKpis() {
   const grid = document.getElementById('tiKpiGrid');
@@ -254,26 +356,32 @@ async function loadKpis() {
     const data = await apiFetch('/api/trafficinsight/averages');
     const t = data.today || {}, a7 = data.avg7 || {}, a30 = data.avg30 || {};
 
+    // "Mức độ ùn ứ": primary comparison is now the NUMBER OF LOCATIONS
+    // jammed (point count), each row accompanied by its JF severity level
+    // (swatch colored the same way the maps color a point, via jfToColor)
+    // — not just a bare jamFactor average, per feedback that only showing
+    // the average hid how many places were actually affected.
+    const jfSwatch = v => `<span class="ti-jf-swatch" style="background:${jfToColor(v)}"></span>`;
     grid.innerHTML = `
-      <div class="ti-kpi-card">
-        <div class="ti-kpi-title">🚦 Mức độ ùn ứ (jamFactor trung bình)</div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasJamData ? fmtNum(t.jamAvgFactor) : '—'}${deltaBadge(t.hasJamData?t.jamAvgFactor:null, a7.jamDaysWithData?a7.jamAvgFactor:null)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 7 ngày qua</span><span class="ti-kpi-value">${a7.jamDaysWithData ? fmtNum(a7.jamAvgFactor) : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 30 ngày qua</span><span class="ti-kpi-value">${a30.jamDaysWithData ? fmtNum(a30.jamAvgFactor) : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Số điểm ùn ứ hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.jamPointCount||0}</span></div>
+      <div class="ti-kpi-card ti-kpi-jam">
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">🚦</span> Mức độ ùn ứ — số điểm</div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasJamData ? t.jamPointCount : '—'}<span class="ti-kpi-sub">điểm</span>${deltaBadge(t.hasJamData?t.jamPointCount:null, a7.jamDaysWithData?a7.jamPointAvgPerDay:null)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(t.hasJamData?t.jamAvgFactor:0)}JF trung bình hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasJamData ? fmtNum(t.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(a7.jamDaysWithData?a7.jamAvgFactor:0)}TB 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.jamDaysWithData ? fmtNum(a7.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(a30.jamDaysWithData?a30.jamAvgFactor:0)}TB 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.jamDaysWithData ? fmtNum(a30.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a30.jamAvgFactor) : '—'}</span></div>
       </div>
-      <div class="ti-kpi-card">
-        <div class="ti-kpi-title">⏱ Chỉ số thời gian di chuyển (TTI)</div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) + ' (trễ ~' + fmtNum(t.ttiAvgDelayMin,0) + ' phút)' : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 7 ngày qua</span><span class="ti-kpi-value">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2) + ' (trễ ~' + fmtNum(a7.ttiAvgDelayMin,0) + ' phút)' : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 30 ngày qua</span><span class="ti-kpi-value">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2) + ' (trễ ~' + fmtNum(a30.ttiAvgDelayMin,0) + ' phút)' : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Số mẫu đo hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.ttiSampleCount||0}</span></div>
+      <div class="ti-kpi-card ti-kpi-tti">
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">⏱</span> Chỉ số thời gian di chuyển (TTI)</div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">Trễ trung bình</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasTTIData ? fmtNum(t.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2)+' · trễ '+fmtNum(a7.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">TB 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2)+' · trễ '+fmtNum(a30.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
       </div>
-      <div class="ti-kpi-card">
-        <div class="ti-kpi-title">⚠ Sự cố giao thông</div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.incidentCount||0}${deltaBadge(t.incidentCount, a7.incidentAvgPerDay)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB/ngày — 7 ngày qua</span><span class="ti-kpi-value">${fmtNum(a7.incidentAvgPerDay,1)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">TB/ngày — 30 ngày qua</span><span class="ti-kpi-value">${fmtNum(a30.incidentAvgPerDay,1)}</span></div>
+      <div class="ti-kpi-card ti-kpi-inc">
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">⚠</span> Sự cố giao thông</div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.incidentCount||0}${deltaBadge(t.incidentCount, a7.incidentAvgPerDay)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">TB/ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a7.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">TB/ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a30.incidentAvgPerDay,1)}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label">Tổng 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.incidentTotal||0}</span></div>
       </div>`;
   } catch (e) {
@@ -482,6 +590,116 @@ async function loadMatrix() {
   }
 }
 
+// ── Top 10 tuyến đường ────────────────────────────────────────────────────
+// Simplified, un-forecast version of dashboard2.html's own per-route TTI
+// panel: today's (or one chosen past day's) measured values only — no
+// trend arrows, no abnormal-route detection, no +10'/+60' forecast.
+const TI_ROUTE_SLOT_MIN = 15, TI_ROUTE_TOTAL_SLOTS = 96; // must match internal/trafficinsight/route_tti.go
+let _tiTtiAppearance = null;
+const TI_TTI_DEFAULT_APPEARANCE = {
+  tiers: [
+    { maxTTI: 1.2, color: '#22c55e', label: 'Thông thoáng' },
+    { maxTTI: 1.35, color: '#84cc16', label: 'Bình thường' },
+    { maxTTI: 1.5, color: '#f59e0b', label: 'Chậm' },
+    { maxTTI: 0, color: '#ef4444', label: 'Tắc nghẽn' },
+  ],
+  noDataColor: '#334155',
+};
+function tiTtiTiers() { return (_tiTtiAppearance || TI_TTI_DEFAULT_APPEARANCE).tiers || []; }
+function tiTtiTier(v) {
+  if (!v || v <= 0) return null;
+  const tiers = tiTtiTiers();
+  for (let i = 0; i < tiers.length - 1; i++) if (v < tiers[i].maxTTI) return tiers[i];
+  return tiers[tiers.length - 1] || null;
+}
+function tiTtiColor(v) { const t = tiTtiTier(v); return t ? t.color : ''; }
+function tiTtiLabel(v) { const t = tiTtiTier(v); return t ? t.label : 'Không có dữ liệu'; }
+async function loadTiTtiAppearance() {
+  try {
+    const a = await apiFetch('/api/traveltime/appearance');
+    if (a && Array.isArray(a.tiers) && a.tiers.length) _tiTtiAppearance = a;
+  } catch (_) { /* keep built-in default */ }
+}
+
+function tiSlotLabel(idx) {
+  const s = idx * TI_ROUTE_SLOT_MIN, e = Math.min(s + TI_ROUTE_SLOT_MIN, 1440);
+  const p = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  return p(s) + '–' + p(e);
+}
+function tiFmtMinSec(sec) {
+  if (sec === null || sec === undefined || Number.isNaN(sec)) return '—';
+  const m = sec / 60;
+  return (Math.abs(m) >= 10 ? Math.round(m) : m.toFixed(1)).toString().replace('.', ',') + ' phút';
+}
+
+function renderRouteSlotBar(slots) {
+  return slots.map((s, i) => {
+    if (!s) return `<div class="ti-route-slot" style="background:var(--surface2)"></div>`;
+    const bg = tiTtiColor(s.tti) || 'var(--surface2)';
+    const tip = `${tiSlotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${tiTtiLabel(s.tti)}\nTrễ TB: ${tiFmtMinSec(s.delaySec)}\n${s.samples} lần đo`;
+    return `<div class="ti-route-slot" style="background:${bg}" title="${escHtml(tip)}"></div>`;
+  }).join('');
+}
+
+function renderRouteChart(routes) {
+  const body = document.getElementById('tiRouteBody');
+  const axis = document.getElementById('tiRouteAxis');
+  if (!routes || !routes.length) {
+    body.innerHTML = '<div class="ti-empty">Chưa có dữ liệu tuyến đường cho ngày này</div>';
+    axis.innerHTML = '';
+    document.getElementById('tiRouteLegend').innerHTML = '';
+    return;
+  }
+  body.innerHTML = routes.map(r => {
+    const bar = renderRouteSlotBar(r.slots || []);
+    const val = r.latestTTI > 0
+      ? `<div class="ti-route-val" style="color:${tiTtiColor(r.latestTTI)}" title="TTI — ${tiTtiLabel(r.latestTTI)}">${r.latestTTI.toFixed(2)}</div>`
+      : `<div class="ti-route-val" style="color:var(--text-muted)">—</div>`;
+    return `<div class="ti-route-row">
+      <div class="ti-route-label"><span class="ti-route-rname" title="${escHtml(r.routeName)}">${escHtml(r.routeName)}</span></div>
+      <div class="ti-route-bars"><div class="ti-route-bar">${bar}</div></div>
+      ${val}
+    </div>`;
+  }).join('');
+
+  const marks = [0, 3, 6, 9, 12, 15, 18, 21].map(h => `<span class="ti-route-axis-lbl" style="left:${(h / 24 * 100).toFixed(2)}%">${String(h).padStart(2, '0')}:00</span>`).join('');
+  axis.innerHTML = marks;
+
+  const legendEl = document.getElementById('tiRouteLegend');
+  const tiers = tiTtiTiers();
+  const nd = (_tiTtiAppearance || TI_TTI_DEFAULT_APPEARANCE).noDataColor || '#334155';
+  let html = '';
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    const prevMax = i > 0 ? tiers[i - 1].maxTTI : null;
+    const curMax = t.maxTTI;
+    let range = '';
+    if (curMax === 0 || i === tiers.length - 1) range = prevMax != null ? `≥${prevMax} ` : '';
+    else if (prevMax == null) range = `< ${curMax} `;
+    else range = `${prevMax}–${curMax} `;
+    html += `<span><span class="ti-route-legend-dot" style="background:${t.color}"></span>${escHtml(range)}${escHtml(t.label)}</span>`;
+  }
+  html += `<span><span class="ti-route-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
+  legendEl.innerHTML = html;
+}
+
+async function loadRouteTTI() {
+  const mode = document.getElementById('tiRouteMode').value;
+  const body = document.getElementById('tiRouteBody');
+  let url = '/api/trafficinsight/route-tti';
+  if (mode === 'date') {
+    const date = document.getElementById('tiRouteDate').value;
+    if (!date) { body.innerHTML = '<div class="ti-empty">Chọn một ngày</div>'; return; }
+    url += '?date=' + encodeURIComponent(date);
+  }
+  try {
+    const res = await apiFetch(url);
+    renderRouteChart(res.routes || []);
+  } catch (e) {
+    toast('Không tải được Top 10 tuyến đường: ' + e.message, 'error');
+  }
+}
+
 // ── Wiring ──────────────────────────────────────────────────────────────
 document.getElementById('btnRefreshKpi').addEventListener('click', loadKpis);
 document.getElementById('tiTrendMetric').addEventListener('change', renderTrendChart);
@@ -493,27 +711,42 @@ document.getElementById('tiMapMode').addEventListener('change', () => {
   loadMapPoints();
 });
 document.getElementById('tiMapDate').addEventListener('change', loadMapPoints);
+document.getElementById('tiRouteMode').addEventListener('change', () => {
+  const mode = document.getElementById('tiRouteMode').value;
+  document.getElementById('tiRouteDate').style.display = mode === 'date' ? '' : 'none';
+  loadRouteTTI();
+});
+document.getElementById('tiRouteDate').addEventListener('change', loadRouteTTI);
 
 // ── Boot ──────────────────────────────────────────────────────────────
 (async () => {
   await initApp('trafficinsight');
-  // Date picker defaults to today (Vietnam-local, not the viewer's own
+  // Date pickers default to today (Vietnam-local, not the viewer's own
   // browser timezone) so switching to "Theo ngày" shows something
-  // immediately instead of an empty map.
-  document.getElementById('tiMapDate').value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+  // immediately instead of an empty map/chart.
+  const todayVN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+  document.getElementById('tiMapDate').value = todayVN;
+  document.getElementById('tiRouteDate').value = todayVN;
 
+  await loadTiTtiAppearance();
+  loadStatStrip();
   loadKpis();
   initTiMap();
   loadDailySeries();
   loadMatrix();
+  loadRouteTTI();
 
-  // Keep the KPI row and the map's live mode reasonably fresh without
+  // Keep the live numbers and the map's live mode reasonably fresh without
   // being a hot poll — same ~60s cadence dashboard2.html's own summary
   // refresh uses. A historical "theo ngày" view doesn't change on its
-  // own, so the map only re-polls while still in "live" mode.
+  // own, so the map and route panel only re-poll while still showing live/today.
+  setInterval(loadStatStrip, 60000);
   setInterval(loadKpis, 60000);
   setInterval(() => {
     if (document.getElementById('tiMapMode').value === 'live') loadMapPoints();
+  }, 60000);
+  setInterval(() => {
+    if (document.getElementById('tiRouteMode').value === 'live') loadRouteTTI();
   }, 60000);
 
   const themeBtn = document.getElementById('btnTheme');

@@ -248,12 +248,16 @@ var tabExtraPaths = map[string][]string{
 	// different page an admin may want to hand out independently of the
 	// original Dashboard) — same extra-path list since it reads the exact
 	// same backend data, just under its own permission.
-	TabDashboard2:     {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
-	TabLog:            {"/api/log"},
-	TabConfig:         {"/api/config", "/api/restart"},
-	TabCounting:       {"/api/counting"},
-	TabIncidents:      {"/api/incidents"},
-	TabTrafficInsight: {"/api/trafficinsight"},
+	TabDashboard2: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
+	TabLog:        {"/api/log"},
+	TabConfig:     {"/api/config", "/api/restart"},
+	TabCounting:   {"/api/counting"},
+	TabIncidents:  {"/api/incidents"},
+	// /api/traveltime/appearance here too: the "Top 10 tuyến đường" panel
+	// colors its TTI bars by the same admin-configured tiers Dashboard/
+	// Dashboard 02 use, and this is a read of a shared display config
+	// (handler itself is "any logged-in user"), not Dashboard-specific data.
+	TabTrafficInsight: {"/api/trafficinsight", "/api/traveltime/appearance"},
 	// requireSubAdmin (api_subadmin.go) does the real per-action gating
 	// (SubAdminCan* flags + SubAdminManagedUsers membership) — this entry
 	// only gets a sub admin account past the outer path check, same as

@@ -214,6 +214,12 @@ type TodaySnapshot struct {
 	Metrics   DailyMetrics        `json:"metrics"`
 	Points    []traffic.DashPoint `json:"points"`
 	ScannedAt string              `json:"scannedAt,omitempty"`
+	// LivePersistentCount is the CURRENT (not day-aggregated) number of
+	// persistent jam points — len(Points), named explicitly so the "Chỉ số
+	// giao thông hôm nay" strip doesn't have to infer it from array length.
+	LivePersistentCount int     `json:"livePersistentCount"`
+	RouteCount          int     `json:"routeCount"`         // traveltime.LatestSnapshot()
+	RouteTotalLengthKm  float64 `json:"routeTotalLengthKm"` // traveltime.LatestSnapshot()
 }
 
 // GetTodaySnapshot returns TodaySnapshot for the current Vietnam-local date.
@@ -224,11 +230,15 @@ func GetTodaySnapshot() (TodaySnapshot, error) {
 		return TodaySnapshot{}, err
 	}
 	live := traffic.LatestSnapshot()
+	tt := traveltime.LatestSnapshot()
 	return TodaySnapshot{
-		Date:      date,
-		Metrics:   m,
-		Points:    live.Points,
-		ScannedAt: live.ScannedAt,
+		Date:                date,
+		Metrics:             m,
+		Points:              live.Points,
+		ScannedAt:           live.ScannedAt,
+		LivePersistentCount: len(live.Points),
+		RouteCount:          tt.RouteCount,
+		RouteTotalLengthKm:  tt.TotalLengthKm,
 	}, nil
 }
 

@@ -24,6 +24,7 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/daily-series", handleDailySeries)
 	http.HandleFunc("/api/trafficinsight/weekday-matrix", handleWeekdayMatrix)
 	http.HandleFunc("/api/trafficinsight/jam-points", handleJamPoints)
+	http.HandleFunc("/api/trafficinsight/route-tti", handleRouteTTI)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -140,6 +141,38 @@ func handleJamPoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, jamPointsResponse{Date: date, Points: points})
+}
+
+type routeTTIResponse struct {
+	Date   string        `json:"date"`
+	Routes []RouteTTIRow `json:"routes"`
+}
+
+// GET /api/trafficinsight/route-tti?date=YYYY-MM-DD (default: today) — the
+// "Top 10 tuyến đường" panel's data, for either today or a chosen
+// historical day (the panel's "hôm nay" / "theo ngày" toggle, same
+// convention the map section above uses).
+func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().In(vnLocation).Format("2006-01-02")
+	} else if _, err := time.ParseInLocation("2006-01-02", date, vnLocation); err != nil {
+		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	routes, err := GetRouteTTIForDate(date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, routeTTIResponse{Date: date, Routes: routes})
 }
 
 // GET /api/trafficinsight/weekday-matrix?weeks=N (default 6, capped at 12)
