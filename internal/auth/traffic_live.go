@@ -114,14 +114,17 @@ func trafficLiveTileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch status {
 	case http.StatusUnauthorized:
+		log.Warn().Str("tile", key).Msg("[auth] live traffic tile rejected: upstream API key invalid or expired (401) — check Settings")
 		http.Error(w, "live traffic API key rejected by upstream — check Settings", http.StatusBadGateway)
 		return
 	case http.StatusForbidden:
+		log.Warn().Str("tile", key).Msg("[auth] live traffic tile rejected: this server's IP is not allow-listed upstream (403) — contact VietMap")
 		http.Error(w, "this server's IP is not allow-listed for live traffic — contact VietMap", http.StatusBadGateway)
 		return
 	case http.StatusOK:
 		// fall through
 	default:
+		log.Warn().Str("tile", key).Int("status", status).Msg("[auth] live traffic tile fetch: unexpected upstream status")
 		http.Error(w, fmt.Sprintf("upstream returned HTTP %d", status), http.StatusBadGateway)
 		return
 	}
