@@ -70,9 +70,12 @@
 @media (max-width:900px) { .ti-stat-tile { min-width:46%; } }
 
 #tiMap { height:360px; border-radius:10px; overflow:hidden; background:var(--surface2); }
-.ti-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.72rem; color:var(--text-muted); }
-.ti-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
+.ti-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.72rem; color:var(--text-muted); flex-wrap:wrap; }
+.ti-jf-legend-bar { flex:1; min-width:120px; height:10px; border-radius:5px; }
 .ti-jf-legend-label { font-variant-numeric:tabular-nums; }
+.ti-layer-toggle { display:flex; align-items:center; gap:.3rem; font-size:.74rem; font-weight:600; color:var(--text); text-transform:none; letter-spacing:0; cursor:pointer; white-space:nowrap; }
+.ti-layer-toggle input { accent-color:#60a5fa; cursor:pointer; }
+.ti-legend-dot-incident { width:9px; height:9px; border-radius:50%; background:#a855f7; display:inline-block; flex-shrink:0; box-shadow:0 0 0 1.5px rgba(255,255,255,.6); }
 
 .ti-chart-box { height:260px; position:relative; }
 
@@ -216,11 +219,13 @@
       </div>
     </div>
 
-    <!-- Map: persistent jam points, live or by date -->
+    <!-- Map: persistent jam points + incidents, live or by date -->
     <div class="ti-section">
       <h3>
-        <span>Bản đồ điểm ùn ứ</span>
+        <span>Bản đồ điểm ùn tắc</span>
         <div class="ti-matrix-controls">
+          <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerJF" checked> <span class="ti-jf-swatch" style="background:#ef4444"></span>Điểm JF</label>
+          <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerIncident" checked> <span class="ti-legend-dot-incident"></span>Sự cố GT</label>
           <select id="tiMapMode">
             <option value="live">Hiện tại</option>
             <option value="date">Theo ngày</option>
@@ -243,7 +248,7 @@
         <span>Xu hướng theo ngày (30 ngày qua)</span>
         <div class="ti-matrix-controls">
           <select id="tiTrendMetric">
-            <option value="jam">Ùn ứ (jamFactor TB)</option>
+            <option value="jam">Ùn tắc (jamFactor TB)</option>
             <option value="tti">TTI trung bình</option>
             <option value="delay" selected>Thời gian trễ (phút)</option>
             <option value="incident">Số sự cố</option>
@@ -259,7 +264,7 @@
         <span>So sánh theo thứ giữa các tuần</span>
         <div class="ti-matrix-controls">
           <select id="tiMatrixMetric">
-            <option value="jam">Ùn ứ (jamFactor TB)</option>
+            <option value="jam">Ùn tắc (jamFactor TB)</option>
             <option value="tti">TTI trung bình</option>
             <option value="delay" selected>Thời gian trễ (phút)</option>
             <option value="incident">Số sự cố</option>
@@ -272,8 +277,14 @@
           </select>
         </div>
       </h3>
+      <div style="font-size:.7rem;color:var(--text-muted);margin:-.6rem 0 .7rem">Màu theo thang riêng từng hàng — so sánh mỗi thứ với chính nó qua các tuần, không so giữa các thứ khác nhau.</div>
       <div class="ti-matrix-wrap">
         <table class="ti-matrix-table" id="tiMatrixTable"></table>
+      </div>
+      <div class="ti-jf-legend" style="margin-top:.6rem">
+        <span class="ti-jf-legend-label">Thấp</span>
+        <div class="ti-jf-legend-bar" style="background:linear-gradient(to right, #22c55e, #84cc16, #f59e0b, #ef4444)"></div>
+        <span class="ti-jf-legend-label">Cao (so với chính hàng đó)</span>
       </div>
     </div>
 
@@ -312,6 +323,15 @@ let _tiMatrixResult = null;
 function fmtNum(v, digits) {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   return Number(v).toFixed(digits === undefined ? 1 : digits);
+}
+
+// tiTodayVN: today's date as Vietnam-local "YYYY-MM-DD" — not the viewer's
+// own browser timezone. Shared by every date-picker default on this page
+// and by loadMapPoints' "live" mode, which has no separate "current
+// incidents" endpoint and instead just asks for today's date like "theo
+// ngày" mode would.
+function tiTodayVN() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 }
 
 function deltaBadge(now, baseline) {
@@ -358,7 +378,7 @@ async function loadKpis() {
     const data = await apiFetch('/api/trafficinsight/averages');
     const t = data.today || {}, a7 = data.avg7 || {}, a30 = data.avg30 || {};
 
-    // "Mức độ ùn ứ": primary comparison is now the NUMBER OF LOCATIONS
+    // "Mức độ ùn tắc": primary comparison is now the NUMBER OF LOCATIONS
     // jammed (point count), each row accompanied by its JF severity level
     // (swatch colored the same way the maps color a point, via jfToColor)
     // — not just a bare jamFactor average, per feedback that only showing
@@ -366,7 +386,7 @@ async function loadKpis() {
     const jfSwatch = v => `<span class="ti-jf-swatch" style="background:${jfToColor(v)}"></span>`;
     grid.innerHTML = `
       <div class="ti-kpi-card ti-kpi-jam">
-        <div class="ti-kpi-title"><span class="ti-kpi-icon">🚦</span> Mức độ ùn ứ — số điểm</div>
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">🚦</span> Mức độ ùn tắc — số điểm</div>
         <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasJamData ? t.jamPointCount : '—'}<span class="ti-kpi-sub">điểm</span>${deltaBadge(t.hasJamData?t.jamPointCount:null, a7.jamDaysWithData?a7.jamPointAvgPerDay:null)}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(t.hasJamData?t.jamAvgFactor:0)}JF trung bình hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasJamData ? fmtNum(t.jamAvgFactor) : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(a7.jamDaysWithData?a7.jamAvgFactor:0)}TB 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.jamDaysWithData ? fmtNum(a7.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7.jamAvgFactor) : '—'}</span></div>
@@ -426,6 +446,35 @@ async function initTiMap() {
       });
       _tiMap.on('mouseenter', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
       _tiMap.on('mouseleave', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = '');
+
+      // "Sự cố GT" (incidents) layer — fixed accent color (matches the
+      // "Sự cố giao thông" KPI card elsewhere on this page), distinct from
+      // the JF jam-point circles so the two never get mistaken for each
+      // other even with both layers on at once.
+      _tiMap.addSource('ti-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _tiMap.addLayer({
+        id: 'ti-incidents-dot', type: 'circle', source: 'ti-incidents',
+        paint: {
+          'circle-radius': 6, 'circle-color': '#a855f7',
+          'circle-opacity': .9, 'circle-stroke-width': 1.5, 'circle-stroke-color': 'rgba(255,255,255,.85)',
+        },
+      });
+      _tiMap.on('click', 'ti-incidents-dot', e => {
+        const p = e.features[0].properties;
+        const html = `<div style="font-family:sans-serif;line-height:1.5;min-width:140px;max-width:220px;color:#1a1a1a">` +
+          `<div style="font-size:.9rem;font-weight:700;display:flex;align-items:center;gap:.35rem">` +
+          `<span style="width:10px;height:10px;border-radius:50%;background:#a855f7;display:inline-block"></span>` +
+          `${escHtml(p.category || 'Sự cố')}</div>` +
+          (p.time ? `<div style="color:#555;font-size:.72rem">${new Date(p.time).toLocaleString('vi-VN')}</div>` : '') +
+          (p.location ? `<div style="color:#111;font-size:.8rem;margin-top:.2rem">${escHtml(p.location)}</div>` : '') +
+          (p.content ? `<div style="color:#333;font-size:.75rem;margin-top:.15rem">${escHtml(p.content)}</div>` : '') +
+          `</div>`;
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '240px' }).setLngLat(e.lngLat).setHTML(html).addTo(_tiMap);
+      });
+      _tiMap.on('mouseenter', 'ti-incidents-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
+      _tiMap.on('mouseleave', 'ti-incidents-dot', () => _tiMap.getCanvas().style.cursor = '');
+
+      applyTiLayerVisibility();
       loadMapPoints();
     });
   } catch (e) {
@@ -446,31 +495,60 @@ function setMapPoints(pts) {
   _tiMap.getSource('ti-points')?.setData({ type: 'FeatureCollection', features });
 }
 
+function setIncidentPoints(pts) {
+  if (!_tiMapInited) return;
+  const features = (pts || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { category: p.category || '', content: p.content || '', location: p.location || '', time: p.time || '' } }));
+  _tiMap.getSource('ti-incidents')?.setData({ type: 'FeatureCollection', features });
+}
+
+// applyTiLayerVisibility reflects the two "ti-layer-toggle" checkboxes
+// (#tiLayerJF / #tiLayerIncident) onto the map's two GL layers — called on
+// init and on every checkbox change.
+function applyTiLayerVisibility() {
+  if (!_tiMapInited) return;
+  const jfOn = document.getElementById('tiLayerJF').checked;
+  const incOn = document.getElementById('tiLayerIncident').checked;
+  _tiMap.setLayoutProperty('ti-points-dot', 'visibility', jfOn ? 'visible' : 'none');
+  _tiMap.setLayoutProperty('ti-incidents-dot', 'visibility', incOn ? 'visible' : 'none');
+}
+
 // loadMapPoints dispatches on #tiMapMode: "live" uses /today's current
-// in-memory scan snapshot (what toggling the map to "Hiện tại" means),
-// "date" uses /jam-points for the date picked, aggregating every scan
-// recorded that Vietnam-local calendar day.
+// in-memory scan snapshot for the JF layer (what toggling the map to "Hiện
+// tại" means) alongside today's incidents (there's no separate "live"
+// incident snapshot, so it just asks for today's date like "theo ngày"
+// mode would); "date" uses /jam-points + /incident-points for the date
+// picked — both layers always share this exact same date, per their one
+// shared #tiMapMode/#tiMapDate filter above the map.
 async function loadMapPoints() {
   const mode = document.getElementById('tiMapMode').value;
   const label = document.getElementById('tiMapScannedAt');
   try {
     if (mode === 'date') {
       const date = document.getElementById('tiMapDate').value;
-      if (!date) { label.textContent = ''; setMapPoints([]); return; }
-      const res = await apiFetch('/api/trafficinsight/jam-points?date=' + encodeURIComponent(date));
-      const pts = res.points || [];
-      label.textContent = `Ngày ${date} — ${pts.length} điểm ghi nhận`;
+      if (!date) { label.textContent = ''; setMapPoints([]); setIncidentPoints([]); return; }
+      const [jamRes, incRes] = await Promise.all([
+        apiFetch('/api/trafficinsight/jam-points?date=' + encodeURIComponent(date)),
+        apiFetch('/api/trafficinsight/incident-points?date=' + encodeURIComponent(date)),
+      ]);
+      const pts = jamRes.points || [];
+      label.textContent = `Ngày ${date} — ${pts.length} điểm ùn tắc, ${(incRes.points || []).length} sự cố`;
       setMapPoints(pts);
+      setIncidentPoints(incRes.points || []);
     } else {
-      const snap = await apiFetch('/api/trafficinsight/today');
+      const today = tiTodayVN();
+      const [snap, incRes] = await Promise.all([
+        apiFetch('/api/trafficinsight/today'),
+        apiFetch('/api/trafficinsight/incident-points?date=' + encodeURIComponent(today)),
+      ]);
       const pts = snap.points || [];
       label.textContent = snap.scannedAt
         ? 'Lần quét gần nhất: ' + new Date(snap.scannedAt).toLocaleString('vi-VN')
         : '';
       setMapPoints(pts);
+      setIncidentPoints(incRes.points || []);
     }
   } catch (e) {
-    toast('Không tải được điểm ùn ứ: ' + e.message, 'error');
+    toast('Không tải được điểm ùn tắc: ' + e.message, 'error');
   }
 }
 
@@ -528,28 +606,28 @@ function matrixCellValue(cell, metric) {
   if (metric === 'delay') return cell.ttiAvgDelayMin;
   return cell.incidentCount;
 }
-function matrixCellColor(value, metric) {
-  if (value === null || value === undefined) return '';
-  if (metric === 'jam') {
-    if (value >= 8) return 'rgba(248,113,113,.35)';
-    if (value >= 5) return 'rgba(251,191,36,.3)';
-    return 'rgba(148,163,184,.18)';
-  }
-  if (metric === 'tti') {
-    if (value >= 1.8) return 'rgba(248,113,113,.35)';
-    if (value >= 1.3) return 'rgba(251,191,36,.3)';
-    return 'rgba(148,163,184,.18)';
-  }
-  if (metric === 'delay') {
-    if (value >= 10) return 'rgba(248,113,113,.35)';
-    if (value >= 5) return 'rgba(251,191,36,.3)';
-    return 'rgba(148,163,184,.18)';
-  }
-  // incident count
-  if (value >= 5) return 'rgba(248,113,113,.35)';
-  if (value >= 2) return 'rgba(251,191,36,.3)';
-  if (value > 0) return 'rgba(148,163,184,.18)';
-  return '';
+// Row-relative heatmap scale: each weekday row (Thứ 2, Thứ 3, …) is colored
+// against its OWN min/max across the weeks shown, not a single scale for
+// the whole table — a Monday's typical rush-hour numbers aren't comparable
+// to a Sunday's naturally lower ones, so painting both against one shared
+// scale would make every Sunday read as "fine" and every Monday as "bad"
+// regardless of whether this particular week was actually unusual. Reuses
+// the same green→amber→red severity ramp the TTI tiers elsewhere on this
+// page already use, so "bad" reads the same color everywhere.
+const TI_MATRIX_HEAT_STOPS = ['#22c55e', '#84cc16', '#f59e0b', '#ef4444'];
+function tiHeatColorAt(t) {
+  if (t <= 0) return TI_MATRIX_HEAT_STOPS[0];
+  if (t >= 1) return TI_MATRIX_HEAT_STOPS[TI_MATRIX_HEAT_STOPS.length - 1];
+  const n = TI_MATRIX_HEAT_STOPS.length - 1, seg = t * n, i = Math.min(Math.floor(seg), n - 1);
+  return _lerpHexColor(TI_MATRIX_HEAT_STOPS[i], TI_MATRIX_HEAT_STOPS[i + 1], seg - i);
+}
+// A solid-ish fill needs its own text color, not the theme's default —
+// var(--text) can be near-white in dark mode, which would vanish against a
+// light-green cell. Picking black/white off the fill's own luminance keeps
+// every cell readable regardless of page theme.
+function tiHeatTextColor(hex) {
+  const [r, g, b] = _hexToRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.6 ? '#fff' : '#1a1a1a';
 }
 
 function renderMatrix() {
@@ -558,23 +636,34 @@ function renderMatrix() {
   const metric = document.getElementById('tiMatrixMetric').value;
   const { weeks, weekdays, cells } = _tiMatrixResult;
 
+  // Each metric needs its own "was this actually measured" flag — a day
+  // can have jam data but no TTI samples (or vice versa), and showing
+  // "0.0" there would misread as "perfectly clear" or "no delay" rather
+  // than "not measured". Incident count has no such ambiguity: 0 incidents
+  // is itself a real, meaningful value.
+  const hasDataFor = cell => metric === 'jam' ? cell.hasJamData
+    : (metric === 'tti' || metric === 'delay') ? cell.hasTTIData
+    : true;
+
   let thead = '<tr><th></th>' + weeks.map(w => `<th>${w.label}</th>`).join('') + '</tr>';
   let rows = weekdays.map((label, d) => {
+    const rowValues = cells[d].filter(cell => !cell.future && hasDataFor(cell)).map(cell => matrixCellValue(cell, metric));
+    const rowMin = rowValues.length ? Math.min(...rowValues) : 0;
+    const rowSpan = rowValues.length ? Math.max(...rowValues) - rowMin : 0;
+
     const tds = cells[d].map(cell => {
       if (cell.future) return '<td class="ti-future">—</td>';
-      // Each metric needs its own "was this actually measured" flag — a
-      // day can have jam data but no TTI samples (or vice versa), and
-      // showing "0.0" there would misread as "perfectly clear" or "no
-      // delay" rather than "not measured". Incident count has no such
-      // ambiguity: 0 incidents is itself a real, meaningful value.
-      const hasData = metric === 'jam' ? cell.hasJamData
-        : (metric === 'tti' || metric === 'delay') ? cell.hasTTIData
-        : true;
-      if (!hasData) return '<td class="ti-nodata">—</td>';
+      if (!hasDataFor(cell)) return '<td class="ti-nodata">—</td>';
       const v = matrixCellValue(cell, metric);
-      const bg = matrixCellColor(v, metric);
       const text = metric === 'incident' ? String(v) : fmtNum(v, metric === 'tti' ? 2 : 1);
-      return `<td style="background:${bg}" title="${cell.date}">${text}</td>`;
+      // A single measured week (or every week tied) has no spread to
+      // compare against — paint it neutral instead of implying it's the
+      // row's worst value just because it's the only one.
+      if (rowValues.length < 2 || rowSpan < 1e-9) {
+        return `<td title="${cell.date}">${text}</td>`;
+      }
+      const bg = tiHeatColorAt((v - rowMin) / rowSpan);
+      return `<td style="background:${bg};color:${tiHeatTextColor(bg)}" title="${cell.date}">${text}</td>`;
     }).join('');
     return `<tr><td class="ti-rowlabel">${label}</td>${tds}</tr>`;
   }).join('');
@@ -730,6 +819,8 @@ document.getElementById('tiMapMode').addEventListener('change', () => {
   loadMapPoints();
 });
 document.getElementById('tiMapDate').addEventListener('change', loadMapPoints);
+document.getElementById('tiLayerJF').addEventListener('change', applyTiLayerVisibility);
+document.getElementById('tiLayerIncident').addEventListener('change', applyTiLayerVisibility);
 document.getElementById('tiRouteMode').addEventListener('change', () => {
   const mode = document.getElementById('tiRouteMode').value;
   document.getElementById('tiRouteDate').style.display = mode === 'date' ? '' : 'none';

@@ -24,6 +24,7 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/daily-series", handleDailySeries)
 	http.HandleFunc("/api/trafficinsight/weekday-matrix", handleWeekdayMatrix)
 	http.HandleFunc("/api/trafficinsight/jam-points", handleJamPoints)
+	http.HandleFunc("/api/trafficinsight/incident-points", handleIncidentPoints)
 	http.HandleFunc("/api/trafficinsight/route-tti", handleRouteTTI)
 }
 
@@ -141,6 +142,41 @@ func handleJamPoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, jamPointsResponse{Date: date, Points: points})
+}
+
+type incidentPointsResponse struct {
+	Date   string          `json:"date"`
+	Points []IncidentPoint `json:"points"`
+}
+
+// GET /api/trafficinsight/incident-points?date=YYYY-MM-DD — every
+// coordinate-tagged incident logged on that Vietnam-local calendar day (the
+// map's "Sự cố GT" layer) — same required-date convention as /jam-points
+// above, so the frontend passes today's date for "hôm nay" and shares the
+// exact same filter the JF layer uses.
+func handleIncidentPoints(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		http.Error(w, "date is required (YYYY-MM-DD)", http.StatusBadRequest)
+		return
+	}
+	if _, err := time.ParseInLocation("2006-01-02", date, vnLocation); err != nil {
+		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	points, err := GetIncidentPointsForDate(date)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, incidentPointsResponse{Date: date, Points: points})
 }
 
 type routeTTIResponse struct {
