@@ -402,6 +402,32 @@
 <script src="app.js"></script>
 <script>
 // apiFetch, toast(), escHtml are all provided by app.js.
+//
+// ── Marker position convention (project-wide, applies to every page that
+// creates a vietmapgl.Marker: map.html, dashboard2.html, this file) ───────
+// A DOM Marker that visibly "drifts" or lags off its true point when
+// zooming has two known causes, in order of how often each shows up:
+//  1. Construction order: the element's className/style (which carry its
+//     width/height) must be set BEFORE `new vietmapgl.Marker({element:el,
+//     anchor:'center'})` — the library reads the element's size at that
+//     moment, and an unstyled 0×0 div bakes in a wrong offset that stays
+//     off by a FIXED SCREEN-PIXEL amount from then on (negligible zoomed
+//     in, large zoomed out — see map.html commit "Fix Traffic Event/AI
+//     Event markers appearing to drift..."). Always follow with a second,
+//     defensive `marker.setLngLat(...)` call right after `.addTo(map)`,
+//     once the element is actually attached with its final size.
+//  2. DOM markers are repositioned by JS on 'move'/'render' events on the
+//     main thread, while the basemap paints on the GPU — with many
+//     markers or a fast zoom gesture the two can visibly fall out of sync
+//     for a frame or two even with (1) done correctly. There is no JS fix
+//     for this from the page's side; a point set that's purely for
+//     display (no per-marker DOM/hover content) should be rendered as a
+//     native GL layer instead (circle/symbol — see `jams-dot` in
+//     dashboard2.html or `ti-points-dot` below), which the renderer paints
+//     in lockstep with the basemap every frame and categorically cannot
+//     drift. Reserve DOM Markers for points that need real per-marker DOM
+//     interactivity (click handlers, popups, rich hover) — incident
+//     markers here are that case because of the popup-on-click below.
 let _tiMap = null;
 let _tiMapInited = false;
 let _tiIncMarkers = {}; // incident id -> { marker, el, inc } — DOM markers, not a GL layer (see setIncidentPoints)
@@ -632,13 +658,25 @@ function setIncidentPoints(pts) {
     let entry = _tiIncMarkers[inc.id];
     if (!entry) {
       const el = document.createElement('div');
-      // className (carries size) must be set before constructing the
-      // Marker — same reasoning as map.html's .te-marker comment: anchor:
-      // 'center' reads the element's size at construction time.
+      // Ordering here must match map.html's .te-marker/.aie-marker fix
+      // (commit "Fix Traffic Event/AI Event markers appearing to drift
+      // from their true position when zoomed out") exactly, or incident
+      // icons visibly walk away from their real point as you zoom —
+      // correct at zoom 14, noticeably off at zoom 10. Two parts, both
+      // required: (1) className/style (which carry width/height) must be
+      // set BEFORE constructing the Marker — vietmapgl's anchor:'center'
+      // reads the element's size at that moment, and a bare unsized div
+      // bakes in a wrong offset; (2) re-run setLngLat() once more right
+      // after addTo(), once the element is actually attached with its
+      // final size, as a second line of defense. See "Marker position
+      // convention" note near the top of this file for the project-wide
+      // rule this is an instance of.
       el.className = 'ti-inc-marker ' + cls;
       el.style.background = bg;
       el.style.display = incOn ? 'flex' : 'none';
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]).addTo(_tiMap);
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]);
+      marker.addTo(_tiMap);
+      marker.setLngLat([inc.lng, inc.lat]);
       entry = _tiIncMarkers[inc.id] = { marker, el, inc };
       el.addEventListener('click', e => {
         e.stopPropagation();

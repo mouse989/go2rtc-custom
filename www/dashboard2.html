@@ -1383,6 +1383,19 @@ async function resetHeatmapCfg() {
 // after initD2Map's 'load' handler fires (it's the thing that calls it
 // the first time), so this guard exists purely for defense, not as a
 // pending-replay queue.
+//
+// Marker position convention (project-wide — see map.html's commit "Fix
+// Traffic Event/AI Event markers appearing to drift from their true
+// position when zoomed out", and the longer note in trafficinsight.html
+// near its own incident-marker code): el.style.cssText below already sets
+// the element's size BEFORE constructing the Marker, which is the main
+// fix — but always also re-run setLngLat() once more right after addTo(),
+// once the element is actually attached with its final size, as a second
+// line of defense. For a point set that's purely for display (no
+// per-marker DOM/hover content), prefer a native GL layer instead (see
+// `jams-dot` above) — it's painted in lockstep with the basemap every
+// frame and categorically cannot drift; DOM Markers are for points that
+// need real per-marker interactivity, like the click-to-popup below.
 let _d2IncMarkers = [];
 function updateD2MapIncidents(pts) {
   if (!_map || !_mapInited) return;
@@ -1404,7 +1417,10 @@ function updateD2MapIncidents(pts) {
           escH(i.content||'') + (i.unit ? `<br><i>${escH(i.unit)}</i>` : '') + `</div>`;
         new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat([i.lng, i.lat]).setHTML(html2).addTo(_map);
       });
-      return new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]).addTo(_map);
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]);
+      marker.addTo(_map);
+      marker.setLngLat([i.lng, i.lat]);
+      return marker;
     });
   } catch(_) {}
 }
