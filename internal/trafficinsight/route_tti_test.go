@@ -243,6 +243,152 @@ func TestGetRouteTTIForDateEmptyDayReturnsEmptySlice(t *testing.T) {
 	}
 }
 
+func TestGetRouteTTIForRangeAveragesSlotAcrossDays(t *testing.T) {
+	setupSources(t)
+	writeTravelTimeDay(t, "2027-09-01", []traveltime.LogEntry{
+		{Timestamp: tsVN(2027, 9, 1, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 2.0, DelaySec: 60},
+	})
+	writeTravelTimeDay(t, "2027-09-02", []traveltime.LogEntry{
+		{Timestamp: tsVN(2027, 9, 2, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 4.0, DelaySec: 180},
+	})
+
+	rows, err := GetRouteTTIForRange("2027-09-01", "2027-09-02", -1)
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 route, got %d: %+v", len(rows), rows)
+	}
+	r := rows[0]
+	// Both entries land in the same time-of-day slot (08:00) even though
+	// they're from different calendar days — the slot must average them
+	// together, not treat them as two separate single-day slots.
+	slot8 := 8 * 60 / RouteSlotMinutes()
+	if r.Slots[slot8] == nil {
+		t.Fatalf("expected slot %d to have data", slot8)
+	}
+	if want := (2.0 + 4.0) / 2.0; r.Slots[slot8].TTI != want {
+		t.Errorf("slot %d TTI = %v, want %v (averaged across both days)", slot8, r.Slots[slot8].TTI, want)
+	}
+	if r.Slots[slot8].Samples != 2 {
+		t.Errorf("slot %d Samples = %d, want 2", slot8, r.Slots[slot8].Samples)
+	}
+	// AvgTTI (the ranking key) must likewise cover both days' entries.
+	if want := (2.0 + 4.0) / 2.0; r.AvgTTI != want {
+		t.Errorf("AvgTTI = %v, want %v", r.AvgTTI, want)
+	}
+	if r.Samples != 2 {
+		t.Errorf("Samples = %d, want 2", r.Samples)
+	}
+	// LatestTTI reflects the most recent entry across the whole range, not
+	// just the first day.
+	if r.LatestTTI != 4.0 {
+		t.Errorf("LatestTTI = %v, want 4.0 (from the later day)", r.LatestTTI)
+	}
+}
+
+func TestGetRouteTTIForRangeHourFilterScopesAcrossDays(t *testing.T) {
+	setupSources(t)
+	writeTravelTimeDay(t, "2027-09-10", []traveltime.LogEntry{
+		{Timestamp: tsVN(2027, 9, 10, 7, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 2.0},
+		{Timestamp: tsVN(2027, 9, 10, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 9.0}, // hour=8, day 1 only
+	})
+	writeTravelTimeDay(t, "2027-09-11", []traveltime.LogEntry{
+		{Timestamp: tsVN(2027, 9, 11, 7, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 4.0},
+	})
+
+	rowsH7, err := GetRouteTTIForRange("2027-09-10", "2027-09-11", 7)
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange hour=7: %v", err)
+	}
+	if len(rowsH7) != 1 {
+		t.Fatalf("expected 1 route for hour=7, got %+v", rowsH7)
+	}
+	if want := (2.0 + 4.0) / 2.0; rowsH7[0].AvgTTI != want {
+		t.Errorf("hour=7 AvgTTI = %v, want %v (averaged across both days' 07:00 entries)", rowsH7[0].AvgTTI, want)
+	}
+	if rowsH7[0].Samples != 2 {
+		t.Errorf("hour=7 Samples = %d, want 2", rowsH7[0].Samples)
+	}
+
+	rowsH8, err := GetRouteTTIForRange("2027-09-10", "2027-09-11", 8)
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange hour=8: %v", err)
+	}
+	if len(rowsH8) != 1 || rowsH8[0].AvgTTI != 9.0 || rowsH8[0].Samples != 1 {
+		t.Errorf("hour=8 expected single day-1-only entry (AvgTTI 9.0, Samples 1), got %+v", rowsH8)
+	}
+}
+
+func TestGetRouteTTIForRangeInclusiveAndSwapsReversedBounds(t *testing.T) {
+	setupSources(t)
+	writeTravelTimeDay(t, "2027-09-20", []traveltime.LogEntry{{Timestamp: tsVN(2027, 9, 20, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 1.5}})
+	writeTravelTimeDay(t, "2027-09-21", []traveltime.LogEntry{{Timestamp: tsVN(2027, 9, 21, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 2.5}})
+
+	rows, err := GetRouteTTIForRange("2027-09-20", "2027-09-21", -1)
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Samples != 2 {
+		t.Fatalf("expected both days' entries included, got %+v", rows)
+	}
+
+	reversed, err := GetRouteTTIForRange("2027-09-21", "2027-09-20", -1) // from/to swapped
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange (reversed): %v", err)
+	}
+	if len(reversed) != 1 || reversed[0].Samples != 2 {
+		t.Fatalf("expected the same result regardless of from/to order, got %+v", reversed)
+	}
+}
+
+func TestGetRouteTTIForRangeClampsOverlongRangeKeepingRecentEnd(t *testing.T) {
+	setupSources(t)
+	writeTravelTimeDay(t, "2027-01-01", []traveltime.LogEntry{{Timestamp: tsVN(2027, 1, 1, 8, 0), RouteID: "early", RouteName: "Quá cũ", TTI: 3.0}})
+	writeTravelTimeDay(t, "2027-12-31", []traveltime.LogEntry{{Timestamp: tsVN(2027, 12, 31, 8, 0), RouteID: "late", RouteName: "Trong phạm vi", TTI: 3.0}})
+
+	rows, err := GetRouteTTIForRange("2027-01-01", "2027-12-31", -1) // 365-day span, over the 90-day cap
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange: %v", err)
+	}
+	var sawEarly, sawLate bool
+	for _, r := range rows {
+		if r.RouteID == "early" {
+			sawEarly = true
+		}
+		if r.RouteID == "late" {
+			sawLate = true
+		}
+	}
+	if sawEarly {
+		t.Error("expected the clamp to exclude the entry far outside the trailing 90-day window")
+	}
+	if !sawLate {
+		t.Error("expected the clamp to keep the entry at the requested 'to' end")
+	}
+}
+
+func TestGetRouteTTIForRangeInvalidDateReturnsError(t *testing.T) {
+	setupSources(t)
+	if _, err := GetRouteTTIForRange("not-a-date", "2027-09-01", -1); err == nil {
+		t.Error("expected an error for an invalid 'from' date, got nil")
+	}
+	if _, err := GetRouteTTIForRange("2027-09-01", "not-a-date", -1); err == nil {
+		t.Error("expected an error for an invalid 'to' date, got nil")
+	}
+}
+
+func TestGetRouteTTIForRangeEmptyRangeReturnsEmptySlice(t *testing.T) {
+	setupSources(t)
+	rows, err := GetRouteTTIForRange("2027-09-25", "2027-09-26", -1)
+	if err != nil {
+		t.Fatalf("GetRouteTTIForRange: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected no routes, got %+v", rows)
+	}
+}
+
 func TestSlotOfTimestampHandlesInvalidInput(t *testing.T) {
 	if got := slotOfTimestamp("not-a-timestamp", 15); got != -1 {
 		t.Errorf("slotOfTimestamp(invalid) = %d, want -1", got)

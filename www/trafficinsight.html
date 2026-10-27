@@ -376,11 +376,19 @@
           <select id="tiRouteMode">
             <option value="live">Hôm nay</option>
             <option value="date">Theo ngày</option>
+            <option value="range">Theo khoảng ngày</option>
           </select>
           <input type="date" id="tiRouteDate" style="display:none">
           <select id="tiRouteHour"></select>
         </div>
       </h3>
+      <div class="ti-filter-row" id="tiRouteRangeRow" style="display:none">
+        <select id="tiRouteRange"></select>
+        <label>Từ</label>
+        <input type="date" id="tiRouteFrom">
+        <label>Đến</label>
+        <input type="date" id="tiRouteTo">
+      </div>
       <div id="tiRouteBody"><div class="ti-empty">Đang tải…</div></div>
       <div class="ti-route-axis-wrap" id="tiRouteAxis"></div>
       <div class="ti-route-legend" id="tiRouteLegend"></div>
@@ -1169,20 +1177,23 @@ function renderRouteSlotBar(slots, hlHour) {
   }).join('');
 }
 
-function renderRouteChart(routes, hour) {
+function renderRouteChart(routes, hour, rangeDesc) {
   const body = document.getElementById('tiRouteBody');
   const axis = document.getElementById('tiRouteAxis');
+  const rangeSuffix = rangeDesc ? ` (${rangeDesc})` : '';
   if (!routes || !routes.length) {
-    body.innerHTML = '<div class="ti-empty">Chưa có dữ liệu tuyến đường cho ' + (hour != null && hour >= 0 ? `khung giờ ${String(hour).padStart(2, '0')}:00` : 'ngày này') + '</div>';
+    const scopeNoun = hour != null && hour >= 0 ? `khung giờ ${String(hour).padStart(2, '0')}:00` : (rangeDesc ? 'khoảng này' : 'ngày này');
+    body.innerHTML = '<div class="ti-empty">Chưa có dữ liệu tuyến đường cho ' + scopeNoun + rangeSuffix + '</div>';
     axis.innerHTML = '';
     document.getElementById('tiRouteLegend').innerHTML = '';
     return;
   }
-  const scopeLabel = hour != null && hour >= 0 ? `TTI trung bình khung giờ ${String(hour).padStart(2, '0')}:00` : 'TTI trung bình cả ngày';
+  const scopeLabel = (hour != null && hour >= 0 ? `TTI trung bình khung giờ ${String(hour).padStart(2, '0')}:00` : 'TTI trung bình cả ngày') + rangeSuffix;
+  const latestLabel = rangeDesc ? 'TTI đo gần nhất (toàn khoảng)' : 'TTI đo gần nhất (cả ngày)';
   body.innerHTML = routes.map(r => {
     const bar = renderRouteSlotBar(r.slots || [], hour);
     const val = r.avgTTI > 0
-      ? `<div class="ti-route-val" style="color:${tiTtiColor(r.avgTTI)}" title="${escHtml(scopeLabel)}: ${r.avgTTI.toFixed(2)} — ${tiTtiLabel(r.avgTTI)} (${r.samples} lần đo)\nTTI đo gần nhất (cả ngày): ${r.latestTTI > 0 ? r.latestTTI.toFixed(2) : '—'}">${r.avgTTI.toFixed(2)}</div>`
+      ? `<div class="ti-route-val" style="color:${tiTtiColor(r.avgTTI)}" title="${escHtml(scopeLabel)}: ${r.avgTTI.toFixed(2)} — ${tiTtiLabel(r.avgTTI)} (${r.samples} lần đo)\n${latestLabel}: ${r.latestTTI > 0 ? r.latestTTI.toFixed(2) : '—'}">${r.avgTTI.toFixed(2)}</div>`
       : `<div class="ti-route-val" style="color:var(--text-muted)">—</div>`;
     return `<div class="ti-route-row">
       <div class="ti-route-label"><span class="ti-route-rname" title="${escHtml(r.routeName)}">${escHtml(r.routeName)}</span></div>
@@ -1216,10 +1227,18 @@ async function loadRouteTTI() {
   const mode = document.getElementById('tiRouteMode').value;
   const body = document.getElementById('tiRouteBody');
   const params = new URLSearchParams();
+  let rangeDesc = '';
   if (mode === 'date') {
     const date = document.getElementById('tiRouteDate').value;
     if (!date) { body.innerHTML = '<div class="ti-empty">Chọn một ngày</div>'; return; }
     params.set('date', date);
+  } else if (mode === 'range') {
+    const from = document.getElementById('tiRouteFrom').value;
+    const to = document.getElementById('tiRouteTo').value;
+    if (!from || !to) { body.innerHTML = '<div class="ti-empty">Chọn khoảng Từ–Đến</div>'; return; }
+    params.set('from', from);
+    params.set('to', to);
+    rangeDesc = `${tiShortDate(from)} – ${tiShortDate(to)}`;
   }
   const hourSel = document.getElementById('tiRouteHour').value;
   const hour = hourSel === '' ? -1 : parseInt(hourSel, 10);
@@ -1228,7 +1247,7 @@ async function loadRouteTTI() {
   try {
     const res = await apiFetch('/api/trafficinsight/route-tti' + (qs ? '?' + qs : ''));
     if (res.slotMin > 0) TI_ROUTE_SLOT_MIN = res.slotMin;
-    renderRouteChart(res.routes || [], hour);
+    renderRouteChart(res.routes || [], hour, rangeDesc);
   } catch (e) {
     toast('Không tải được Top 10 tuyến đường: ' + e.message, 'error');
   }
@@ -1250,10 +1269,22 @@ document.getElementById('tiLayerIncident').addEventListener('change', applyTiLay
 document.getElementById('tiRouteMode').addEventListener('change', () => {
   const mode = document.getElementById('tiRouteMode').value;
   document.getElementById('tiRouteDate').style.display = mode === 'date' ? '' : 'none';
+  document.getElementById('tiRouteRangeRow').style.display = mode === 'range' ? '' : 'none';
   loadRouteTTI();
 });
 document.getElementById('tiRouteDate').addEventListener('change', loadRouteTTI);
 document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
+
+function initRouteRangeDefaults() {
+  const sel = document.getElementById('tiRouteRange');
+  const fromEl = document.getElementById('tiRouteFrom'), toEl = document.getElementById('tiRouteTo');
+  tiPopulateRangeSelect(sel);
+  sel.value = 'week_7d';
+  tiApplyRangePreset('week_7d', fromEl, toEl);
+  sel.addEventListener('change', () => { tiApplyRangePreset(sel.value, fromEl, toEl); loadRouteTTI(); });
+  fromEl.addEventListener('change', loadRouteTTI);
+  toEl.addEventListener('change', loadRouteTTI);
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────
 (async () => {
@@ -1275,6 +1306,7 @@ document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
   initTrendRangeDefaults();
   loadDailySeries();
   loadMatrix();
+  initRouteRangeDefaults();
   loadRouteTTI();
 
   initIncidentFilterDefaults();

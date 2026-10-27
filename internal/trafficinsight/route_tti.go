@@ -69,10 +69,10 @@ type RouteSlot struct {
 
 // RouteTTIRow is one route's TTI data for the comparison scope requested.
 type RouteTTIRow struct {
-	RouteID   string       `json:"routeId"`
-	RouteName string       `json:"routeName"`
-	LengthM   int          `json:"lengthM"`
-	LatestTTI float64      `json:"latestTTI"` // this day's last-measured TTI (0 if none) — context, not the ranking key
+	RouteID   string  `json:"routeId"`
+	RouteName string  `json:"routeName"`
+	LengthM   int     `json:"lengthM"`
+	LatestTTI float64 `json:"latestTTI"` // this day's last-measured TTI (0 if none) — context, not the ranking key
 	// AvgTTI/AvgDelaySec/Samples are the comparison-scope average this
 	// row was ranked by: the whole day's entries, or just the selected
 	// hour's when GetRouteTTIForDate's hour parameter is >= 0.
@@ -116,7 +116,60 @@ func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return buildRouteTTIRows(entries, hour), nil
+}
 
+// maxRouteTTIRangeDays bounds a ?from=&to= comparison window — each extra
+// day is another traveltime.GetLogsForDate file read, same reasoning as
+// maxDailySeriesDays/maxWeekdayMatrixWeeks.
+const maxRouteTTIRangeDays = 90
+
+// GetRouteTTIForRange is GetRouteTTIForDate's multi-day counterpart — the
+// comparison scope is every entry across the whole Vietnam-local calendar
+// range [from, to] (both inclusive), or just the chosen hour-of-day across
+// every day in that range when hour >= 0. A range longer than
+// maxRouteTTIRangeDays is clamped by moving `from` forward, same clamping
+// convention as GetDailySeriesRange.
+//
+// This reuses buildRouteTTIRows completely unchanged: slotOfTimestamp only
+// reads an entry's time-of-day, never its calendar date, so feeding it
+// entries from several days already averages each slot across every
+// contributing day correctly — a 08:00 entry from three different days
+// lands in the same slot bucket and gets averaged together exactly like
+// the AvgTTI ranking scope does.
+func GetRouteTTIForRange(from, to string, hour int) ([]RouteTTIRow, error) {
+	fromT, err := time.ParseInLocation("2006-01-02", from, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	toT, err := time.ParseInLocation("2006-01-02", to, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	if toT.Before(fromT) {
+		fromT, toT = toT, fromT
+	}
+	if days := int(toT.Sub(fromT).Hours()/24) + 1; days > maxRouteTTIRangeDays {
+		fromT = toT.AddDate(0, 0, -(maxRouteTTIRangeDays - 1))
+	}
+
+	var entries []traveltime.LogEntry
+	for d := fromT; !d.After(toT); d = d.AddDate(0, 0, 1) {
+		dayEntries, err := traveltime.GetLogsForDate(d.Format("2006-01-02"), 0)
+		if err != nil {
+			continue // a day with no log file yet is not an error — nothing collected that day
+		}
+		entries = append(entries, dayEntries...)
+	}
+	return buildRouteTTIRows(entries, hour), nil
+}
+
+// buildRouteTTIRows is the shared accumulation/ranking logic behind
+// GetRouteTTIForDate and GetRouteTTIForRange — see GetRouteTTIForRange's
+// doc comment for why feeding it multiple days' entries already produces
+// the correct per-slot and per-scope averages with no change to the
+// accumulation itself.
+func buildRouteTTIRows(entries []traveltime.LogEntry, hour int) []RouteTTIRow {
 	slotMin := RouteSlotMinutes()
 	totalSlots := routeTotalSlots(slotMin)
 
@@ -197,5 +250,5 @@ func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
 	if len(rows) > 10 {
 		rows = rows[:10]
 	}
-	return rows, nil
+	return rows
 }

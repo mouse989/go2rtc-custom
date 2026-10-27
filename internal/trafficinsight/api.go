@@ -200,18 +200,21 @@ func handleIncidentPoints(w http.ResponseWriter, r *http.Request) {
 }
 
 type routeTTIResponse struct {
-	Date    string        `json:"date"`
-	Hour    int           `json:"hour"`    // -1 when the comparison scope is the whole day
+	From    string        `json:"from"`
+	To      string        `json:"to"`      // == From for a single-day (?date=) query
+	Hour    int           `json:"hour"`    // -1 when the comparison scope is the whole day/range
 	SlotMin int           `json:"slotMin"` // width (minutes) of each Slots bucket — the travel-time module's configured collection interval
 	Routes  []RouteTTIRow `json:"routes"`
 }
 
 // GET /api/trafficinsight/route-tti?date=YYYY-MM-DD&hour=H (date default:
-// today; hour default: whole day) — the "Top 10 tuyến đường" panel's data,
-// for either today or a chosen historical day (the panel's "hôm nay" /
-// "theo ngày" toggle, same convention the map section above uses), ranked
-// either over the whole day or over just one chosen hour (0-23) when hour
-// is given.
+// today; hour default: whole day) — the "Top 10 tuyến đường" panel's data
+// for a single day (the panel's "hôm nay" / "theo ngày" toggle, same
+// convention the map section above uses). GET .../route-tti?from=YYYY-MM-DD
+// &to=YYYY-MM-DD&hour=H instead ranks routes over that whole date range
+// (the panel's "theo khoảng ngày" mode) — from/to take priority over date
+// when both forms are given. Either way, hour (0-23) scopes the ranking to
+// just that hour-of-day; omitted/absent means the whole day or range.
 func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
 	if !requireViewer(w, r) {
 		return
@@ -220,13 +223,7 @@ func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	date := r.URL.Query().Get("date")
-	if date == "" {
-		date = time.Now().In(vnLocation).Format("2006-01-02")
-	} else if _, err := time.ParseInLocation("2006-01-02", date, vnLocation); err != nil {
-		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
-		return
-	}
+
 	hour := -1
 	if hs := r.URL.Query().Get("hour"); hs != "" {
 		h, err := strconv.Atoi(hs)
@@ -236,12 +233,32 @@ func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
 		}
 		hour = h
 	}
+
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from != "" && to != "" {
+		routes, err := GetRouteTTIForRange(from, to, hour)
+		if err != nil {
+			http.Error(w, "invalid from/to: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, routeTTIResponse{From: from, To: to, Hour: hour, SlotMin: RouteSlotMinutes(), Routes: routes})
+		return
+	}
+
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().In(vnLocation).Format("2006-01-02")
+	} else if _, err := time.ParseInLocation("2006-01-02", date, vnLocation); err != nil {
+		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	routes, err := GetRouteTTIForDate(date, hour)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, routeTTIResponse{Date: date, Hour: hour, SlotMin: RouteSlotMinutes(), Routes: routes})
+	writeJSON(w, routeTTIResponse{From: date, To: date, Hour: hour, SlotMin: RouteSlotMinutes(), Routes: routes})
 }
 
 // GET /api/trafficinsight/weekday-matrix?weeks=N (default 6, capped at 12)
