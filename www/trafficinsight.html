@@ -835,6 +835,15 @@ function tiChartColors() {
   };
 }
 function tiShortDate(dateStr) { return dateStr.slice(8, 10) + '/' + dateStr.slice(5, 7); }
+// Vietnam-local weekday abbreviation for a "YYYY-MM-DD" string, regardless
+// of the viewer's own browser timezone — same Intl approach (not a
+// manual Date.getDay(), which would read the VIEWER's local calendar day)
+// already used elsewhere on this page for VN-anchored weekday labels.
+const TI_WD_EN_TO_VI = { Mon: 'T2', Tue: 'T3', Wed: 'T4', Thu: 'T5', Fri: 'T6', Sat: 'T7', Sun: 'CN' };
+function tiWeekdayAbbr(dateStr) {
+  const en = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'short' }).format(new Date(dateStr + 'T12:00:00+07:00'));
+  return TI_WD_EN_TO_VI[en] || '';
+}
 function tiShiftDateStr(dateStr, days) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(new Date(dateStr + 'T12:00:00+07:00').getTime() + days * 86400000));
 }
@@ -928,7 +937,7 @@ function renderIncDailyChart() {
   renderTiIncChart('tiAnDaily', {
     type: 'bar',
     data: {
-      labels: days.map(tiShortDate), datasets:
+      labels: days.map(d => tiShortDate(d) + ' ' + tiWeekdayAbbr(d)), datasets:
         Object.keys(TI_CAT_BAR_COLORS).map(k => ({ label: TI_CAT_BAR_LABELS[k], data: days.map(d => byDate[d][k]), backgroundColor: TI_CAT_BAR_COLORS[k], stack: 's', borderRadius: 2 })),
     },
     options: {
