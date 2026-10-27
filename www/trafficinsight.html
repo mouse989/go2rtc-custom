@@ -471,20 +471,28 @@ function deltaBadge(now, baseline) {
 // — TTI/delay mirror the comparison card's "today" row, the rest come only
 // from here: live persistent-point count, monitored route count and total
 // length, all from /today's TodaySnapshot.
+// TTI/trễ "hôm nay" anywhere on this page are averaged across every scan
+// from 00:00 to now, NOT just the latest reading per route like trang
+// Dashboard's own "TTI TB" (traveltime.LatestSnapshot) — "trung bình cả
+// ngày tới giờ" vs "ngay lúc quét gần nhất". The two can legitimately
+// differ; shared between loadStatStrip's tiles and loadKpis' "Hôm nay"
+// row so both say the same thing about why.
+const TI_TTI_TODAY_HINT = 'Trung bình tất cả các lượt quét TTI từ 00:00 đến hiện tại (không phải chỉ lượt quét gần nhất) — có thể khác số "TTI TB" ở trang Dashboard, vốn chỉ lấy lượt quét mới nhất của mỗi tuyến';
+
 async function loadStatStrip() {
   const el = document.getElementById('tiStatStrip');
   try {
     const snap = await apiFetch('/api/trafficinsight/today');
     const m = snap.metrics || {};
     const tiles = [
-      { lbl: 'TTI trung bình', val: m.hasTTIData ? fmtNum(m.ttiAvg, 2) : '—', color: '#38bdf8' },
-      { lbl: 'Trễ TB (phút)', val: m.hasTTIData ? fmtNum(m.ttiAvgDelayMin, 1) : '—', color: '#f59e0b' },
+      { lbl: 'TTI TB cả ngày', val: m.hasTTIData ? fmtNum(m.ttiAvg, 2) : '—', color: '#38bdf8', hint: TI_TTI_TODAY_HINT },
+      { lbl: 'Trễ TB cả ngày (phút)', val: m.hasTTIData ? fmtNum(m.ttiAvgDelayMin, 1) : '—', color: '#f59e0b', hint: TI_TTI_TODAY_HINT },
       { lbl: 'Điểm ùn tắc hiện tại', val: snap.livePersistentCount ?? 0, color: '#ef4444' },
       { lbl: 'Số tuyến giám sát', val: snap.routeCount ?? '—', color: '#60a5fa' },
       { lbl: 'Chiều dài (km)', val: snap.routeTotalLengthKm ? fmtNum(snap.routeTotalLengthKm, 1) : '—', color: '#818cf8' },
     ];
     el.innerHTML = tiles.map(x => `
-      <div class="ti-stat-tile" style="--ti-stat-c:${x.color}">
+      <div class="ti-stat-tile" style="--ti-stat-c:${x.color}"${x.hint ? ` title="${escHtml(x.hint)}"` : ''}>
         <div class="ti-stat-lbl">${x.lbl}</div>
         <div class="ti-stat-val">${x.val}</div>
       </div>`).join('');
@@ -529,8 +537,8 @@ async function loadKpis() {
       </div>
       <div class="ti-kpi-card ti-kpi-tti">
         <div class="ti-kpi-title"><span class="ti-kpi-icon">⏱</span> Chỉ số thời gian di chuyển (TTI)</div>
-        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label">Trễ trung bình</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasTTIData ? fmtNum(t.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label" title="${escHtml(TI_TTI_TODAY_HINT)}">Hôm nay (TB cả ngày)</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(TI_TTI_TODAY_HINT)}">Trễ trung bình cả ngày</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasTTIData ? fmtNum(t.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2)+' · trễ '+fmtNum(a7.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2)+' · trễ '+fmtNum(a30.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7Full.ttiDaysWithData ? fmtNum(a7Full.ttiAvg,2)+' · trễ '+fmtNum(a7Full.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
