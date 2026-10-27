@@ -196,6 +196,43 @@ func TestGetDailyMetricsCombinesAllThreeSources(t *testing.T) {
 	}
 }
 
+// TestGetDailyMetricsExcludesNonPositiveTTIFromAverage guards the fix for
+// the "TTI trung bình hôm nay" KPI (trafficinsight.html) reading noticeably
+// lower than dashboard.html's own "TTI TB" (traveltime.LatestSnapshot) for
+// no real-traffic reason: a TTI<=0 entry means the scan found no usable
+// route data that interval, not a real "free flow" reading — the same
+// convention route_tti.go and traveltime's export.go/forecast.go already
+// apply — so it must not be averaged in as if it were real data.
+func TestGetDailyMetricsExcludesNonPositiveTTIFromAverage(t *testing.T) {
+	date := "2027-04-01"
+	setupSources(t)
+
+	writeTravelTimeDay(t, date, []traveltime.LogEntry{
+		{Timestamp: date + "T09:00:00+07:00", RouteID: "r1", TTI: 2.0, DelaySec: 240},
+		{Timestamp: date + "T09:10:00+07:00", RouteID: "r1", TTI: 0, DelaySec: 0},     // no data that scan — must be excluded
+		{Timestamp: date + "T09:20:00+07:00", RouteID: "r2", TTI: -1, DelaySec: 0},    // invalid — must be excluded
+		{Timestamp: date + "T09:30:00+07:00", RouteID: "", TTI: 4.0, DelaySec: 300},   // missing route id — must be excluded
+		{Timestamp: date + "T09:40:00+07:00", RouteID: "r1", TTI: 4.0, DelaySec: 360},
+	})
+
+	m, err := GetDailyMetrics(date)
+	if err != nil {
+		t.Fatalf("GetDailyMetrics: %v", err)
+	}
+
+	if !m.HasTTIData || m.TTISampleCount != 2 {
+		t.Fatalf("expected only the 2 valid TTI samples counted, got hasData=%v count=%d", m.HasTTIData, m.TTISampleCount)
+	}
+	wantTTIAvg := (2.0 + 4.0) / 2.0
+	if diff := m.TTIAvg - wantTTIAvg; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("TTIAvg = %v, want %v (0/negative/no-route-id entries must not drag it down)", m.TTIAvg, wantTTIAvg)
+	}
+	wantDelayMin := (240.0 + 360.0) / 2.0 / 60.0
+	if diff := m.TTIAvgDelayMin - wantDelayMin; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("TTIAvgDelayMin = %v, want %v", m.TTIAvgDelayMin, wantDelayMin)
+	}
+}
+
 func TestWeekdayAbbrAgainstKnownCalendarDates(t *testing.T) {
 	cases := []struct {
 		date string

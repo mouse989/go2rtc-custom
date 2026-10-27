@@ -144,6 +144,19 @@ func computeDailyMetrics(date string, start, end time.Time) DailyMetrics {
 		var delaySecSum int
 		var n int
 		for _, e := range entries {
+			// TTI<=0 means the scan found no usable route data that
+			// interval (API failure, route not yet measured, etc.), not a
+			// real "zero congestion" reading — same convention this
+			// package's own route_tti.go and traveltime's
+			// export.go/forecast.go already use. Counting it here would
+			// silently drag the average down with non-data, which is
+			// exactly what made this KPI (the trafficinsight "TTI trung
+			// bình hôm nay" card) read lower than dashboard.html's "TTI
+			// TB" (traveltime.LatestSnapshot, which has always filtered
+			// this) for no real-traffic reason.
+			if e.RouteID == "" || e.TTI <= 0 {
+				continue
+			}
 			t, err := time.Parse(time.RFC3339, e.Timestamp)
 			if err != nil || t.Before(start) || t.After(end) {
 				continue
