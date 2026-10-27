@@ -46,7 +46,7 @@
 .ti-kpi-row { display:flex; align-items:center; justify-content:space-between; padding:.42rem 0; border-top:1px solid var(--border); gap:.5rem; }
 .ti-kpi-row:first-of-type { border-top:none; }
 .ti-kpi-row.ti-kpi-hero { padding-bottom:.6rem; }
-.ti-kpi-row .ti-kpi-label { font-size:.76rem; color:var(--text-muted); white-space:nowrap; }
+.ti-kpi-row .ti-kpi-label { font-size:.76rem; color:var(--text-muted); }
 .ti-kpi-row .ti-kpi-value { font-size:1.1rem; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .ti-kpi-hero .ti-kpi-value { font-size:1.9rem; font-variant-numeric:normal; line-height:1; }
 .ti-kpi-sub { font-size:.72rem; color:var(--text-muted); font-weight:500; margin-left:.3rem; }
@@ -466,6 +466,7 @@ async function loadKpis() {
   try {
     const data = await apiFetch('/api/trafficinsight/averages');
     const t = data.today || {}, a7 = data.avg7 || {}, a30 = data.avg30 || {};
+    const a7Full = data.avg7Full || {}, a30Full = data.avg30Full || {};
 
     // "Mức độ ùn tắc": primary comparison is now the NUMBER OF LOCATIONS
     // jammed (point count), each row accompanied by its JF severity level
@@ -473,33 +474,43 @@ async function loadKpis() {
     // — not just a bare jamFactor average, per feedback that only showing
     // the average hid how many places were actually affected.
     const jfSwatch = v => `<span class="ti-jf-swatch" style="background:${jfToColor(v)}"></span>`;
-    // TB 7/30 ngày qua now compare fairly against a still-in-progress
+    // "TB đến thời điểm này" compares fairly against a still-in-progress
     // "Hôm nay": each baseline day only counts its data up to the same
     // giờ:phút as right now (not the full 24h), and today itself is
     // excluded from the baseline (internal/trafficinsight's
     // GetRangeAverageUntil) — see that function's doc comment for why.
-    const tbHint = 'So cùng khung giờ đã trôi qua trong ngày (không tính cả ngày) để so sánh công bằng với "Hôm nay"';
+    // "TB cả ngày" is the same days' ordinary full-24h average
+    // (GetRangeAverage, unmodified) — not a fair comparison against today,
+    // just the overall picture of what a full day usually looks like.
+    const tbHint = 'Tính đến đúng giờ:phút hiện tại của mỗi ngày trong kỳ (không tính cả ngày), để so sánh công bằng với "Hôm nay"';
+    const fullHint = 'Trung bình trọn 24h mỗi ngày trong kỳ — bức tranh tổng thể, không phải để so sánh công bằng với "Hôm nay" (vốn chưa hết ngày)';
     grid.innerHTML = `
       <div class="ti-kpi-card ti-kpi-jam">
         <div class="ti-kpi-title"><span class="ti-kpi-icon">🚦</span> Mức độ ùn tắc — số điểm</div>
         <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasJamData ? t.jamPointCount : '—'}<span class="ti-kpi-sub">điểm</span>${deltaBadge(t.hasJamData?t.jamPointCount:null, a7.jamDaysWithData?a7.jamPointAvgPerDay:null)}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(t.hasJamData?t.jamAvgFactor:0)}JF trung bình hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasJamData ? fmtNum(t.jamAvgFactor) : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">${jfSwatch(a7.jamDaysWithData?a7.jamAvgFactor:0)}TB 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.jamDaysWithData ? fmtNum(a7.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7.jamAvgFactor) : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">${jfSwatch(a30.jamDaysWithData?a30.jamAvgFactor:0)}TB 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.jamDaysWithData ? fmtNum(a30.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a30.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">${jfSwatch(a7.jamDaysWithData?a7.jamAvgFactor:0)}TB đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.jamDaysWithData ? fmtNum(a7.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">${jfSwatch(a30.jamDaysWithData?a30.jamAvgFactor:0)}TB đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.jamDaysWithData ? fmtNum(a30.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a30.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">${jfSwatch(a7Full.jamDaysWithData?a7Full.jamAvgFactor:0)}TB cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7Full.jamDaysWithData ? fmtNum(a7Full.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7Full.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">${jfSwatch(a30Full.jamDaysWithData?a30Full.jamAvgFactor:0)}TB cả ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30Full.jamDaysWithData ? fmtNum(a30Full.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a30Full.jamAvgFactor) : '—'}</span></div>
       </div>
       <div class="ti-kpi-card ti-kpi-tti">
         <div class="ti-kpi-title"><span class="ti-kpi-icon">⏱</span> Chỉ số thời gian di chuyển (TTI)</div>
         <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label">Trễ trung bình</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasTTIData ? fmtNum(t.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2)+' · trễ '+fmtNum(a7.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2)+' · trễ '+fmtNum(a30.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2)+' · trễ '+fmtNum(a7.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2)+' · trễ '+fmtNum(a30.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7Full.ttiDaysWithData ? fmtNum(a7Full.ttiAvg,2)+' · trễ '+fmtNum(a7Full.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB cả ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30Full.ttiDaysWithData ? fmtNum(a30Full.ttiAvg,2)+' · trễ '+fmtNum(a30Full.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
       </div>
       <div class="ti-kpi-card ti-kpi-inc">
         <div class="ti-kpi-title"><span class="ti-kpi-icon">⚠</span> Sự cố giao thông</div>
         <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.incidentCount||0}${deltaBadge(t.incidentCount, a7.incidentAvgPerDay)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB/ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a7.incidentAvgPerDay,1)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB/ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a30.incidentAvgPerDay,1)}</span></div>
-        <div class="ti-kpi-row"><span class="ti-kpi-label" title="Tính trong cùng khung giờ đã trôi qua của 30 ngày trước hôm nay (không tính cả ngày) — xem chú thích ở các dòng TB phía trên">Tổng 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.incidentTotal||0}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB/ngày đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a7.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB/ngày đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a30.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB/ngày cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a7Full.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB/ngày cả ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a30Full.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="Tổng thật sự (trọn 24h mỗi ngày) trong 30 ngày trước hôm nay">Tổng 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30Full.incidentTotal||0}</span></div>
       </div>`;
   } catch (e) {
     grid.innerHTML = `<div class="ti-empty">Lỗi tải dữ liệu: ${escHtml(e.message)}</div>`;

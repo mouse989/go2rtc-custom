@@ -65,23 +65,33 @@ func handleToday(w http.ResponseWriter, r *http.Request) {
 
 type averagesResponse struct {
 	Today DailyMetrics     `json:"today"`
-	Avg7  AggregateMetrics `json:"avg7"`
-	Avg30 AggregateMetrics `json:"avg30"`
+	Avg7  AggregateMetrics `json:"avg7"`  // time-matched (cutoff = now) — fair vs. today-so-far
+	Avg30 AggregateMetrics `json:"avg30"` // time-matched (cutoff = now)
+	// Avg7Full/Avg30Full are the same two date ranges (today excluded)
+	// but NOT truncated — each day's own full 24h, for "what does the
+	// whole day usually look like" context alongside the time-matched
+	// figure above. See handleAverages' doc comment.
+	Avg7Full  AggregateMetrics `json:"avg7Full"`
+	Avg30Full AggregateMetrics `json:"avg30Full"`
 }
 
 // GET /api/trafficinsight/averages — today's own (naturally partial, up
-// to now) aggregate plus the trailing 7-day and 30-day baselines.
+// to now) aggregate plus the trailing 7-day and 30-day baselines, each in
+// two forms over the exact same date range (today-7..today-1 /
+// today-30..today-1, today itself always excluded — it's the subject
+// being compared, not part of what it's compared against):
 //
-// The baselines are "today-excluded, cutoff-truncated": each of the 7/30
-// full days strictly before today is itself truncated to today's current
-// wall-clock time (GetRangeAverageUntil) before being averaged, so
-// "today so far" is compared against "what the same time-of-day window
-// looked like on past days" rather than against those days' full 24h
-// totals — comparing a partial today against full historical days would
-// always make today look emptier/better than it really is, purely
-// because evening hours haven't happened yet. Today itself is excluded
-// from the baseline range (today-7..today-1, not today-6..today): it's
-// the subject being compared, not part of what it's compared against.
+//   - Avg7/Avg30: "time-matched" — each baseline day is itself truncated
+//     to today's current wall-clock time (GetRangeAverageUntil) before
+//     being averaged, so "today so far" is compared fairly against "what
+//     the same time-of-day window looked like on past days" — comparing a
+//     partial today against full historical days would always make today
+//     look emptier/better than it really is, purely because evening hours
+//     haven't happened yet.
+//   - Avg7Full/Avg30Full: the same days' ordinary full-24h average
+//     (GetRangeAverage, unmodified) — not a fair comparison against a
+//     still-in-progress today, but useful as "the whole picture" context
+//     (e.g. "today is already at 80% of a typical FULL day's incidents").
 func handleAverages(w http.ResponseWriter, r *http.Request) {
 	if !requireViewer(w, r) {
 		return
@@ -102,8 +112,10 @@ func handleAverages(w http.ResponseWriter, r *http.Request) {
 	yesterday := today.AddDate(0, 0, -1)
 	avg7, _ := GetRangeAverageUntil(today.AddDate(0, 0, -7), yesterday, now)
 	avg30, _ := GetRangeAverageUntil(today.AddDate(0, 0, -30), yesterday, now)
+	avg7Full, _ := GetRangeAverage(today.AddDate(0, 0, -7), yesterday)
+	avg30Full, _ := GetRangeAverage(today.AddDate(0, 0, -30), yesterday)
 
-	writeJSON(w, averagesResponse{Today: todayMetrics, Avg7: avg7, Avg30: avg30})
+	writeJSON(w, averagesResponse{Today: todayMetrics, Avg7: avg7, Avg30: avg30, Avg7Full: avg7Full, Avg30Full: avg30Full})
 }
 
 // GET /api/trafficinsight/daily-series?days=N (default 30, capped at 90) —
