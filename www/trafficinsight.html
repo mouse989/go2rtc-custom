@@ -75,23 +75,13 @@
 .ti-jf-legend-label { font-variant-numeric:tabular-nums; }
 .ti-layer-toggle { display:flex; align-items:center; gap:.3rem; font-size:.74rem; font-weight:600; color:var(--text); text-transform:none; letter-spacing:0; cursor:pointer; white-space:nowrap; }
 .ti-layer-toggle input { accent-color:#60a5fa; cursor:pointer; }
-/* ── Incident markers ────────────────────────────────────────────────────
-   Same mechanics/sizing as www/map.html's .te-marker — icon + background
-   color per category come from the admin-configured mapping (Admin → 🚨
-   Sự cố GT, internal/incidents/category_icons.go), fetched once via
-   loadTiCategoryIcons() and looked up by category in tiMarkerContentFor.
-   A category with no configured icon/color falls back to .ti-inc-marker-khac
-   (generic gray ❗), same fallback map.html itself uses. */
-.ti-inc-marker {
-  position:relative; width:30px; height:30px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  font-size:15px; line-height:1; cursor:pointer;
-  border:2px solid rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(0,0,0,.55);
-  transition:box-shadow .15s;
-}
-.ti-inc-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
-.ti-inc-marker-khac { background:#6b7280; }
-.ti-inc-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
+/* Incident (sự cố GT) points are a native GL layer (ti-incidents-bg +
+   ti-incidents-icon, added in initTiMap), not DOM markers — see the note
+   near setIncidentPoints below for why — so there is no CSS here for
+   them; icon + background color per category come from the admin-
+   configured mapping (Admin → 🚨 Sự cố GT,
+   internal/incidents/category_icons.go) and are expressed as GL paint
+   properties instead. */
 
 .ti-chart-box { height:260px; position:relative; }
 
@@ -417,20 +407,29 @@
 //     defensive `marker.setLngLat(...)` call right after `.addTo(map)`,
 //     once the element is actually attached with its final size.
 //  2. DOM markers are repositioned by JS on 'move'/'render' events on the
-//     main thread, while the basemap paints on the GPU — with many
-//     markers or a fast zoom gesture the two can visibly fall out of sync
-//     for a frame or two even with (1) done correctly. There is no JS fix
-//     for this from the page's side; a point set that's purely for
-//     display (no per-marker DOM/hover content) should be rendered as a
-//     native GL layer instead (circle/symbol — see `jams-dot` in
-//     dashboard2.html or `ti-points-dot` below), which the renderer paints
-//     in lockstep with the basemap every frame and categorically cannot
-//     drift. Reserve DOM Markers for points that need real per-marker DOM
-//     interactivity (click handlers, popups, rich hover) — incident
-//     markers here are that case because of the popup-on-click below.
+//     main thread, while the basemap paints on the GPU. (1) alone was
+//     verified exact in an isolated harness against the real VietMap GL
+//     bundle (0.00px error through fast/slow/instant zoom) — but incident
+//     icons on THIS page still visibly drifted in production while the
+//     ti-points-dot GL layer right next to them stayed perfectly pinned,
+//     pointing at exactly this: on a heavier page (many charts + polling
+//     intervals competing for the main thread), or with the real VietMap
+//     style's terrain enabled (DOM markers query elevation via
+//     map.transform.locationPoint, which a plain GL circle layer never
+//     needs to), JS-positioned DOM markers can fall out of sync with the
+//     GPU-painted canvas in a way a local test rig can't reproduce. There
+//     is no JS fix for this from the page's side. incident points here
+//     were converted to a GL layer (ti-incidents-bg + ti-incidents-icon,
+//     added in initTiMap) for exactly this reason — click-to-popup is
+//     NOT a reason to keep DOM Markers, a GL layer's 'click' event +
+//     queryRenderedFeatures does that just as well (see setIncidentPoints
+//     below). Reserve DOM Markers for points that genuinely need
+//     persistent per-marker DOM content (a draggable handle, an inline
+//     form, a live-updating label glued to the marker) — not just a
+//     click-to-open popup.
 let _tiMap = null;
 let _tiMapInited = false;
-let _tiIncMarkers = {}; // incident id -> { marker, el, inc } — DOM markers, not a GL layer (see setIncidentPoints)
+let _tiIncidentIconIds = new Set(); // category icon ids already map.addImage()'d — see loadTiIncidentCategoryImages
 let _tiTrendChart = null;
 let _tiDailySeries = [];
 let _tiMatrixResult = null;
@@ -579,11 +578,47 @@ async function initTiMap() {
       _tiMap.on('mouseenter', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
       _tiMap.on('mouseleave', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = '');
 
-      // "Sự cố GT" (incidents) layer is plain DOM markers (vietmapgl.Marker),
-      // not a GL source/layer — see setIncidentPoints/tiMarkerContentFor
-      // below — so each one can show its own admin-configured per-category
-      // icon/color exactly like www/map.html's Traffic Event layer does,
-      // instead of one flat dot color for every category.
+      // "Sự cố GT" (incidents) — a GL layer (circle background +
+      // icon/text overlay), not DOM markers; see the "Marker position
+      // convention" note near the top of this file for why, and
+      // setIncidentPoints below for how each one still shows its own
+      // admin-configured per-category icon/color exactly like
+      // www/map.html's Traffic Event layer does, instead of one flat dot
+      // color for every category.
+      _tiMap.addSource('ti-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _tiMap.addLayer({
+        id: 'ti-incidents-bg', type: 'circle', source: 'ti-incidents',
+        paint: {
+          'circle-radius': 14,
+          'circle-color': ['get', 'color'],
+          'circle-stroke-width': 2, 'circle-stroke-color': 'rgba(255,255,255,.92)',
+        },
+      });
+      // The fallback "❗" (categories with no admin-uploaded icon, same
+      // fallback map.html itself uses) is pre-rendered to a canvas and
+      // registered as an image, NOT a symbol-layer text-field — a
+      // text-field requires the map style to declare a "glyphs" URL, and
+      // failing that silently rejects the whole addLayer call (verified
+      // against the real vietmapgl bundle). Rendering it as an image too
+      // keeps this layer workable regardless of what the style provides.
+      _tiMap.addImage('ti-fallback-icon', tiRenderFallbackIcon());
+      _tiMap.addLayer({
+        id: 'ti-incidents-icon', type: 'symbol', source: 'ti-incidents',
+        layout: {
+          // hasIcon categories show their admin-uploaded image; everything
+          // else shows the pre-rendered fallback glyph above.
+          'icon-image': ['case', ['get', 'hasIcon'], ['get', 'iconId'], 'ti-fallback-icon'],
+          'icon-size': .6, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        },
+      });
+      _tiMap.on('click', 'ti-incidents-bg', e => {
+        const p = e.features[0].properties;
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '240px' })
+          .setLngLat(e.lngLat).setHTML(tiIncidentPopupHtml(p)).addTo(_tiMap);
+      });
+      _tiMap.on('mouseenter', 'ti-incidents-bg', () => _tiMap.getCanvas().style.cursor = 'pointer');
+      _tiMap.on('mouseleave', 'ti-incidents-bg', () => _tiMap.getCanvas().style.cursor = '');
+
       applyTiLayerVisibility();
       loadMapPoints();
     });
@@ -628,84 +663,100 @@ function tiCategoryIconSrc(category) {
   const ci = _tiCategoryIcons[category];
   return '/api/trafficinsight/incident-category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
-function tiMarkerContentFor(inc) {
-  const ci = _tiCategoryIcons[inc.category];
-  if (ci && ci.content_type) return { cls: '', bg: ci.color || '#6b7280', html: `<img class="ti-inc-marker-img" src="${tiCategoryIconSrc(inc.category)}" alt="">` };
-  if (ci && ci.color) return { cls: '', bg: ci.color, html: '❗' };
-  return { cls: 'ti-inc-marker-khac', bg: '', html: '❗' };
+// tiRenderFallbackIcon draws the generic "❗ on a gray circle" marker (same
+// look .ti-inc-marker-khac used to give DOM markers) onto an offscreen
+// canvas and returns it as ImageData — map.addImage accepts that directly,
+// so the fallback never needs a network round-trip or a style "glyphs" URL.
+function tiRenderFallbackIcon() {
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#6b7280';
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('!', size / 2, size / 2 + 1);
+  return ctx.getImageData(0, 0, size, size);
 }
-function tiIncidentPopupHtml(inc) {
+// tiCategoryIconId: the id a category's uploaded icon is registered under
+// via map.addImage (see loadTiIncidentCategoryImages) — referenced from
+// the ti-incidents-icon layer's data-driven 'icon-image' expression.
+function tiCategoryIconId(category) {
+  return 'ti-cat-icon:' + category;
+}
+// loadTiIncidentCategoryImages loads every category's admin-uploaded icon
+// (if any) into the map's image sprite once each, so the GL symbol layer
+// can reference it by id. Called after _tiCategoryIcons is (re)loaded and
+// the map is ready; re-loading is a cheap no-op per category thanks to
+// _tiIncidentIconIds, except right after an admin re-uploads an icon —
+// tiCategoryIconSrc's cache-bust query param changes updated_at, so this
+// drops the stale id first to force a fresh map.addImage.
+function loadTiIncidentCategoryImages() {
+  if (!_tiMapInited) return;
+  Object.values(_tiCategoryIcons).forEach(ci => {
+    if (!ci.content_type) return;
+    const id = tiCategoryIconId(ci.category);
+    const cacheKey = id + ':' + (ci.updated_at || '');
+    if (_tiIncidentIconIds.has(cacheKey)) return;
+    // loadImage is promise-based in this vietmapgl version (not the
+    // older mapbox-gl v1 callback form) — resolves to {data: image}.
+    _tiMap.loadImage(tiCategoryIconSrc(ci.category)).then(res => {
+      if (!res || !res.data) return;
+      if (_tiMap.hasImage(id)) _tiMap.removeImage(id);
+      _tiMap.addImage(id, res.data);
+      _tiIncidentIconIds.add(cacheKey);
+    }).catch(() => { /* category just falls back to the ❗ glyph */ });
+  });
+}
+// tiIncidentPopupHtml takes a GeoJSON feature's properties (category,
+// content, location, time — all plain strings, see setIncidentPoints),
+// not a raw incident-points API row.
+function tiIncidentPopupHtml(p) {
   return `<div style="font-family:sans-serif;line-height:1.5;min-width:140px;max-width:220px;color:#1a1a1a">` +
-    `<div style="font-size:.9rem;font-weight:700">${escHtml(inc.category || 'Sự cố')}</div>` +
-    (inc.time ? `<div style="color:#555;font-size:.72rem">${new Date(inc.time).toLocaleString('vi-VN')}</div>` : '') +
-    (inc.location ? `<div style="color:#111;font-size:.8rem;margin-top:.2rem">${escHtml(inc.location)}</div>` : '') +
-    (inc.content ? `<div style="color:#333;font-size:.75rem;margin-top:.15rem">${escHtml(inc.content)}</div>` : '') +
+    `<div style="font-size:.9rem;font-weight:700">${escHtml(p.category || 'Sự cố')}</div>` +
+    (p.time ? `<div style="color:#555;font-size:.72rem">${new Date(p.time).toLocaleString('vi-VN')}</div>` : '') +
+    (p.location ? `<div style="color:#111;font-size:.8rem;margin-top:.2rem">${escHtml(p.location)}</div>` : '') +
+    (p.content ? `<div style="color:#333;font-size:.75rem;margin-top:.15rem">${escHtml(p.content)}</div>` : '') +
     `</div>`;
 }
 
-// setIncidentPoints syncs _tiIncMarkers to match pts: updates markers still
-// present, creates new ones, and removes ones no longer in the list (same
-// id-keyed sync pattern map.html's loadActiveIncidents uses for its own
-// marker set, minus the overlap-avoidance nudging that only matters for a
-// live-polling layer).
+// setIncidentPoints replaces the ti-incidents source's data wholesale —
+// unlike the old DOM-marker version there's no per-id sync to do; the GL
+// layer just redraws from whatever GeoJSON is handed to it, same as
+// setMapPoints above.
 function setIncidentPoints(pts) {
   if (!_tiMapInited) return;
-  const incOn = document.getElementById('tiLayerIncident').checked;
-  const seen = new Set();
-  (pts || []).forEach(inc => {
-    seen.add(inc.id);
-    const { cls, bg, html } = tiMarkerContentFor(inc);
-    let entry = _tiIncMarkers[inc.id];
-    if (!entry) {
-      const el = document.createElement('div');
-      // Ordering here must match map.html's .te-marker/.aie-marker fix
-      // (commit "Fix Traffic Event/AI Event markers appearing to drift
-      // from their true position when zoomed out") exactly, or incident
-      // icons visibly walk away from their real point as you zoom —
-      // correct at zoom 14, noticeably off at zoom 10. Two parts, both
-      // required: (1) className/style (which carry width/height) must be
-      // set BEFORE constructing the Marker — vietmapgl's anchor:'center'
-      // reads the element's size at that moment, and a bare unsized div
-      // bakes in a wrong offset; (2) re-run setLngLat() once more right
-      // after addTo(), once the element is actually attached with its
-      // final size, as a second line of defense. See "Marker position
-      // convention" note near the top of this file for the project-wide
-      // rule this is an instance of.
-      el.className = 'ti-inc-marker ' + cls;
-      el.style.background = bg;
-      el.style.display = incOn ? 'flex' : 'none';
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]);
-      marker.addTo(_tiMap);
-      marker.setLngLat([inc.lng, inc.lat]);
-      entry = _tiIncMarkers[inc.id] = { marker, el, inc };
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        new vietmapgl.Popup({ closeButton: false, maxWidth: '240px' })
-          .setLngLat([entry.inc.lng, entry.inc.lat]).setHTML(tiIncidentPopupHtml(entry.inc)).addTo(_tiMap);
-      });
-    }
-    entry.inc = inc;
-    entry.el.className = 'ti-inc-marker ' + cls;
-    entry.el.style.background = bg;
-    entry.el.innerHTML = html;
-    entry.el.title = [inc.category, inc.location, inc.content].filter(Boolean).join('\n');
+  loadTiIncidentCategoryImages();
+  const features = (pts || []).map(inc => {
+    const ci = _tiCategoryIcons[inc.category];
+    const hasIcon = !!(ci && ci.content_type);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [inc.lng, inc.lat] },
+      properties: {
+        category: inc.category || '', content: inc.content || '', location: inc.location || '', time: inc.time || '',
+        color: (ci && ci.color) || '#6b7280', hasIcon, iconId: hasIcon ? tiCategoryIconId(inc.category) : '',
+      },
+    };
   });
-  Object.keys(_tiIncMarkers).forEach(id => {
-    if (!seen.has(id)) { _tiIncMarkers[id].marker.remove(); delete _tiIncMarkers[id]; }
-  });
+  _tiMap.getSource('ti-incidents')?.setData({ type: 'FeatureCollection', features });
 }
 
 // applyTiLayerVisibility reflects the two "ti-layer-toggle" checkboxes
-// (#tiLayerJF / #tiLayerIncident) onto the map — the JF layer is a GL
-// layer (setLayoutProperty), the incident layer is plain DOM markers
-// (toggle each marker element's display) — called on init and on every
-// checkbox change.
+// (#tiLayerJF / #tiLayerIncident) onto the map — both layers are GL
+// layers now, so both go through setLayoutProperty; called on init and on
+// every checkbox change.
 function applyTiLayerVisibility() {
   if (!_tiMapInited) return;
   const jfOn = document.getElementById('tiLayerJF').checked;
   const incOn = document.getElementById('tiLayerIncident').checked;
   _tiMap.setLayoutProperty('ti-points-dot', 'visibility', jfOn ? 'visible' : 'none');
-  Object.values(_tiIncMarkers).forEach(entry => { entry.el.style.display = incOn ? 'flex' : 'none'; });
+  _tiMap.setLayoutProperty('ti-incidents-bg', 'visibility', incOn ? 'visible' : 'none');
+  _tiMap.setLayoutProperty('ti-incidents-icon', 'visibility', incOn ? 'visible' : 'none');
 }
 
 // loadMapPoints dispatches on #tiMapMode: "live" uses /today's current
