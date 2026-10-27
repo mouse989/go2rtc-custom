@@ -122,8 +122,24 @@
 .ti-route-legend span { display:flex; align-items:center; gap:.3rem; }
 .ti-route-legend-dot { width:9px; height:9px; border-radius:2px; display:inline-block; flex-shrink:0; }
 
+/* ── Thống kê sự cố giao thông (ported from dashboard2.html) ───────────── */
+.ti-inc-filters { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; margin-bottom:.7rem; }
+.ti-inc-filters select, .ti-inc-filters input[type=date] {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:6px; padding:.3rem .5rem; font-size:.74rem; font-family:inherit;
+}
+.ti-inc-filters label { font-size:.72rem; color:var(--text-muted); }
+.ti-inc-tiles { display:flex; gap:.5rem; flex-wrap:wrap; }
+.ti-inc-tile { flex:1; min-width:110px; text-align:center; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:.6rem .4rem; }
+.ti-inc-tile .n { font-size:1.4rem; font-weight:800; line-height:1; }
+.ti-inc-tile .l { font-size:.68rem; color:var(--text-muted); margin-top:.3rem; }
+.ti-an-grid { display:grid; grid-template-columns:2fr 1fr; gap:1rem; }
+.ti-an-cbox { position:relative; height:260px; }
+.ti-an-cbox.tall { height:300px; }
+
 @media (max-width:900px) {
   .ti-kpi-grid { grid-template-columns:1fr; }
+  .ti-an-grid { grid-template-columns:1fr; }
 }
 </style>
 </head>
@@ -302,6 +318,45 @@
         <div class="ti-jf-legend-bar" style="background:linear-gradient(to right, #22c55e, #84cc16, #f59e0b, #ef4444)"></div>
         <span class="ti-jf-legend-label">Cao (so với chính hàng đó)</span>
       </div>
+    </div>
+
+    <!-- Thống kê sự cố giao thông (ported from dashboard2.html) -->
+    <div class="ti-section">
+      <h3><span>📊 Thống kê sự cố giao thông</span></h3>
+      <div class="ti-inc-filters">
+        <select id="tiIncRange"></select>
+        <label>Từ</label>
+        <input type="date" id="tiIncFrom">
+        <label>Đến</label>
+        <input type="date" id="tiIncTo">
+        <select id="tiIncCat">
+          <option value="">Tất cả loại</option>
+          <option value="dongxe">Ùn tắc/Đông xe</option>
+          <option value="vacham">Va chạm/TNGT</option>
+          <option value="ngapnuoc">Ngập nước</option>
+          <option value="khac">Sự cố khác</option>
+        </select>
+      </div>
+      <div class="ti-inc-tiles" id="tiIncTiles"><div class="ti-empty" style="flex:1">Đang tải…</div></div>
+    </div>
+
+    <div class="ti-an-grid">
+      <div class="ti-section">
+        <h3><span>Diễn biến sự cố theo ngày</span></h3>
+        <div class="ti-an-cbox tall"><canvas id="tiAnDaily"></canvas></div>
+      </div>
+      <div class="ti-section">
+        <h3><span>Theo khung giờ</span></h3>
+        <div class="ti-an-cbox tall"><canvas id="tiAnSlot"></canvas></div>
+      </div>
+    </div>
+
+    <div class="ti-section">
+      <h3>
+        <span>Phân bố theo giờ trong ngày</span>
+        <input type="date" id="tiAnHourDate">
+      </h3>
+      <div class="ti-an-cbox"><canvas id="tiAnHour"></canvas></div>
     </div>
 
     <!-- Top 10 tuyến đường -->
@@ -750,6 +805,267 @@ async function loadMatrix() {
   }
 }
 
+// ── Thống kê sự cố giao thông (ported from dashboard2.html's own Từ/Đến/
+// loại filter + Diễn biến sự cố theo ngày / Theo khung giờ / Phân bố theo
+// giờ trong ngày charts — see that page for the longer original comments
+// this is adapted from). Two differences from dashboard2's version: no
+// 7-day moving-average line on the daily chart (not asked for here), and
+// the "loại" filter genuinely scopes the tiles/charts below instead of
+// only affecting an incident map layer (dashboard2's own #d2Cat never
+// touched its own tiles/charts, only its separate incident map) — and
+// "Phân bố theo giờ trong ngày" gets its own one-day picker instead of
+// sharing the range filter, so it can drill into a single day on demand.
+let _tiIncidents = null; // null = fetch failed, [] = genuinely empty
+const _tiAnCharts = {};
+
+function tiIncidentBucket(cat) {
+  if (cat === 'Đông xe') return 'dongxe';
+  if (cat === 'Va chạm') return 'vacham';
+  if (cat === 'Ngập nước') return 'ngapnuoc';
+  return 'khac';
+}
+const TI_CAT_BAR_COLORS = { dongxe: '#ef4444', vacham: '#fb923c', ngapnuoc: '#38bdf8', khac: '#a78bfa' };
+const TI_CAT_BAR_LABELS = { dongxe: 'Ùn tắc/Đông xe', vacham: 'Va chạm/TNGT', ngapnuoc: 'Ngập nước', khac: 'Sự cố khác' };
+
+function tiChartColors() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  return {
+    tick: isDark ? '#9ca3af' : '#475569',
+    grid: isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)',
+  };
+}
+function tiShortDate(dateStr) { return dateStr.slice(8, 10) + '/' + dateStr.slice(5, 7); }
+function tiShiftDateStr(dateStr, days) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(new Date(dateStr + 'T12:00:00+07:00').getTime() + days * 86400000));
+}
+function tiDateRangeList(from, to) {
+  const out = [];
+  let d = from, guard = 0;
+  while (d <= to && guard++ < 400) { out.push(d); d = tiShiftDateStr(d, 1); }
+  return out;
+}
+
+// renderTiIncChart/showTiIncChartEmpty: same never-replace-the-canvas error
+// handling as the rest of this page's charts — a transient Chart.js load
+// hiccup must not permanently break the chart even after it becomes
+// available again — factored out since there are three of these.
+function renderTiIncChart(canvasId, config) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  let errEl = document.getElementById(canvasId + 'Msg');
+  try {
+    if (_tiAnCharts[canvasId]) _tiAnCharts[canvasId].destroy();
+    _tiAnCharts[canvasId] = new Chart(el, config);
+    el.style.display = '';
+    if (errEl) errEl.style.display = 'none';
+  } catch (e) {
+    el.style.display = 'none';
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.id = canvasId + 'Msg';
+      errEl.className = 'ti-empty';
+      el.insertAdjacentElement('afterend', errEl);
+    }
+    errEl.style.display = '';
+    errEl.textContent = '⚠️ Không vẽ được biểu đồ: ' + e.message;
+  }
+}
+function showTiIncChartEmpty(canvasId, text) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  if (_tiAnCharts[canvasId]) { _tiAnCharts[canvasId].destroy(); delete _tiAnCharts[canvasId]; }
+  el.style.display = 'none';
+  let msgEl = document.getElementById(canvasId + 'Msg');
+  if (!msgEl) {
+    msgEl = document.createElement('div');
+    msgEl.id = canvasId + 'Msg';
+    msgEl.className = 'ti-empty';
+    el.insertAdjacentElement('afterend', msgEl);
+  }
+  msgEl.style.display = '';
+  msgEl.textContent = text;
+}
+
+function tiIncFiltered() {
+  if (!_tiIncidents) return _tiIncidents; // null stays null
+  const cat = document.getElementById('tiIncCat').value;
+  return cat ? _tiIncidents.filter(i => tiIncidentBucket(i.category) === cat) : _tiIncidents;
+}
+
+function renderIncTiles() {
+  const wrap = document.getElementById('tiIncTiles');
+  if (_tiIncidents === null) {
+    wrap.innerHTML = '<div class="ti-empty" style="flex:1">⚠️ Không tải được dữ liệu sự cố</div>';
+    return;
+  }
+  const list = tiIncFiltered();
+  const counts = { dongxe: 0, vacham: 0, ngapnuoc: 0, khac: 0 };
+  list.forEach(i => { counts[tiIncidentBucket(i.category)]++; });
+  const tiles = [
+    ['Tổng', list.length, 'var(--text)'],
+    ['🔴 Ùn tắc/Đông xe', counts.dongxe, '#f87171'],
+    ['🟠 Va chạm/TNGT', counts.vacham, '#fb923c'],
+    ['🔵 Ngập nước', counts.ngapnuoc, '#38bdf8'],
+    ['⚪ Sự cố khác', counts.khac, '#a78bfa'],
+  ];
+  wrap.innerHTML = tiles.map(([l, n, c]) => `<div class="ti-inc-tile"><div class="n" style="color:${c}">${n}</div><div class="l">${escHtml(l)}</div></div>`).join('');
+}
+
+function renderIncDailyChart() {
+  if (_tiIncidents === null) { showTiIncChartEmpty('tiAnDaily', ''); return; }
+  const from = document.getElementById('tiIncFrom').value;
+  const to = document.getElementById('tiIncTo').value;
+  const days = (from && to && from <= to) ? tiDateRangeList(from, to) : [];
+  if (!days.length) { showTiIncChartEmpty('tiAnDaily', 'Chưa chọn khoảng Từ–Đến.'); return; }
+  const list = tiIncFiltered();
+  const byDate = {};
+  days.forEach(d => { byDate[d] = { dongxe: 0, vacham: 0, ngapnuoc: 0, khac: 0 }; });
+  list.forEach(i => {
+    const d = (i.time || '').slice(0, 10);
+    if (byDate[d]) byDate[d][tiIncidentBucket(i.category)]++;
+  });
+  const cc = tiChartColors();
+  renderTiIncChart('tiAnDaily', {
+    type: 'bar',
+    data: {
+      labels: days.map(tiShortDate), datasets:
+        Object.keys(TI_CAT_BAR_COLORS).map(k => ({ label: TI_CAT_BAR_LABELS[k], data: days.map(d => byDate[d][k]), backgroundColor: TI_CAT_BAR_COLORS[k], stack: 's', borderRadius: 2 })),
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { color: cc.tick, boxWidth: 9, font: { size: 9 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: cc.tick, maxRotation: 0, autoSkip: true } },
+        y: { stacked: true, beginAtZero: true, grid: { color: cc.grid }, ticks: { precision: 0, color: cc.tick } },
+      },
+    },
+  });
+}
+
+let _tiPeakWindowNames = [], _tiDefaultSlotLabel = 'Ngoài giờ cao điểm';
+async function loadTiTimeSlotLabels() {
+  try {
+    const r = await apiFetch('/api/trafficinsight/incident-time-slots');
+    _tiPeakWindowNames = (r && r.windows || []).map(w => w.name);
+    if (r && r.default_label) _tiDefaultSlotLabel = r.default_label;
+  } catch (_) { /* keep built-in default */ }
+}
+
+function renderIncSlotChart() {
+  if (_tiIncidents === null) { showTiIncChartEmpty('tiAnSlot', ''); return; }
+  const list = tiIncFiltered();
+  const slotPalette = ['#0ea5e9', '#f97316', '#a78bfa', '#f43f5e', '#10b981', '#eab308'];
+  const slotCounts = {};
+  list.forEach(i => { const s = i.timeSlot || _tiDefaultSlotLabel; slotCounts[s] = (slotCounts[s] || 0) + 1; });
+  const slotLabels = Object.keys(slotCounts).sort((a, b) => (a === _tiDefaultSlotLabel ? 1 : 0) - (b === _tiDefaultSlotLabel ? 1 : 0));
+  if (!slotLabels.length) { showTiIncChartEmpty('tiAnSlot', 'Chưa có sự cố nào trong kỳ.'); return; }
+  const cc = tiChartColors();
+  renderTiIncChart('tiAnSlot', {
+    type: 'doughnut',
+    data: {
+      labels: slotLabels, datasets: [{
+        data: slotLabels.map(s => slotCounts[s]),
+        backgroundColor: slotLabels.map((s, idx) => s === _tiDefaultSlotLabel ? '#64748b' : slotPalette[idx % slotPalette.length]),
+        borderWidth: 0,
+      }],
+    },
+    options: { maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { color: cc.tick, boxWidth: 9, font: { size: 9 } } } } },
+  });
+}
+
+function renderIncHourChart(list, date) {
+  if (!list) { showTiIncChartEmpty('tiAnHour', ''); return; }
+  if (!list.length) { showTiIncChartEmpty('tiAnHour', `Chưa có sự cố nào ngày ${date}.`); return; }
+  const inRiskHour = Array(24).fill(0), outRiskHour = Array(24).fill(0);
+  list.forEach(i => {
+    if (!i.time) return;
+    (i.congestionRiskPoint ? inRiskHour : outRiskHour)[new Date(i.time).getHours()]++;
+  });
+  const cc = tiChartColors();
+  renderTiIncChart('tiAnHour', {
+    type: 'bar',
+    data: {
+      labels: [...Array(24).keys()].map(h => h + 'h'), datasets: [
+        { label: 'Thuộc điểm nguy cơ', data: inRiskHour, backgroundColor: '#d97706', stack: 'h', borderRadius: 2 },
+        { label: 'Ngoài điểm nguy cơ', data: outRiskHour, backgroundColor: '#38bdf8', stack: 'h', borderRadius: 2 },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { color: cc.tick, boxWidth: 9, font: { size: 9 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: cc.tick, maxRotation: 0, autoSkip: true } },
+        y: { stacked: true, beginAtZero: true, grid: { color: cc.grid }, ticks: { precision: 0, color: cc.tick } },
+      },
+    },
+  });
+}
+
+async function loadTiIncidentStats() {
+  const from = document.getElementById('tiIncFrom').value;
+  const to = document.getElementById('tiIncTo').value;
+  if (!from || !to) { _tiIncidents = []; renderIncTiles(); renderIncDailyChart(); renderIncSlotChart(); return; }
+  try {
+    const res = await apiFetch('/api/trafficinsight/incident-stats?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    _tiIncidents = res.incidents || [];
+  } catch (e) {
+    _tiIncidents = null;
+  }
+  renderIncTiles();
+  renderIncDailyChart();
+  renderIncSlotChart();
+}
+
+async function loadIncHourChart() {
+  const date = document.getElementById('tiAnHourDate').value;
+  if (!date) { renderIncHourChart(null, ''); return; }
+  try {
+    const res = await apiFetch('/api/trafficinsight/incident-stats?from=' + encodeURIComponent(date) + '&to=' + encodeURIComponent(date));
+    renderIncHourChart(res.incidents || [], date);
+  } catch (e) {
+    showTiIncChartEmpty('tiAnHour', 'Lỗi tải dữ liệu: ' + e.message);
+  }
+}
+
+function tiApplyIncRangePreset(key) {
+  const ts = tiTodayVN();
+  let from = ts, to = ts;
+  const now = new Date();
+  if (key === 'week_7d') {
+    from = tiShiftDateStr(ts, -6);
+  } else if (key === 'd14') {
+    from = tiShiftDateStr(ts, -13);
+  } else if (key === 'd30') {
+    from = tiShiftDateStr(ts, -29);
+  } else if (key === 'week_this' || key === 'week_last') {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'short' }).format(now);
+    const map = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+    let offset = map[wd] ?? 0;
+    if (key === 'week_last') offset += 7;
+    from = tiShiftDateStr(ts, -offset);
+    to = tiShiftDateStr(ts, key === 'week_last' ? -(offset - 6) : 0);
+  } else if (key === 'month_this') {
+    from = ts.slice(0, 8) + '01';
+  }
+  document.getElementById('tiIncFrom').value = from;
+  document.getElementById('tiIncTo').value = to;
+}
+
+function initIncidentFilterDefaults() {
+  const sel = document.getElementById('tiIncRange');
+  [['week_7d', '7 ngày qua'], ['d14', '14 ngày qua'], ['d30', '30 ngày qua'], ['week_this', 'Tuần này'], ['week_last', 'Tuần trước'], ['month_this', 'Tháng này']].forEach(([v, l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
+  });
+  sel.value = 'week_7d';
+  tiApplyIncRangePreset('week_7d');
+  sel.addEventListener('change', () => { tiApplyIncRangePreset(sel.value); loadTiIncidentStats(); });
+  document.getElementById('tiIncFrom').addEventListener('change', loadTiIncidentStats);
+  document.getElementById('tiIncTo').addEventListener('change', loadTiIncidentStats);
+  document.getElementById('tiIncCat').addEventListener('change', () => { renderIncTiles(); renderIncDailyChart(); renderIncSlotChart(); });
+  document.getElementById('tiAnHourDate').value = tiTodayVN();
+  document.getElementById('tiAnHourDate').addEventListener('change', loadIncHourChart);
+}
+
 // ── Top 10 tuyến đường ────────────────────────────────────────────────────
 // Simplified, un-forecast version of dashboard2.html's own per-route TTI
 // panel: today's (or one chosen past day's) measured values only — no
@@ -919,6 +1235,11 @@ document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
   loadMatrix();
   loadRouteTTI();
 
+  initIncidentFilterDefaults();
+  await loadTiTimeSlotLabels();
+  loadTiIncidentStats();
+  loadIncHourChart();
+
   // Keep the live numbers and the map's live mode reasonably fresh without
   // being a hot poll — same ~60s cadence dashboard2.html's own summary
   // refresh uses. A historical "theo ngày" view doesn't change on its
@@ -933,7 +1254,12 @@ document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
   }, 60000);
 
   const themeBtn = document.getElementById('btnTheme');
-  if (themeBtn) themeBtn.addEventListener('click', renderTrendChart);
+  if (themeBtn) themeBtn.addEventListener('click', () => {
+    renderTrendChart();
+    renderIncDailyChart();
+    renderIncSlotChart();
+    loadIncHourChart();
+  });
 })();
 </script>
 </body>

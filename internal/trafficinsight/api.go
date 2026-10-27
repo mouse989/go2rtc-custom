@@ -27,6 +27,8 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/incident-points", handleIncidentPoints)
 	http.HandleFunc("/api/trafficinsight/incident-category-icons", handleIncidentCategoryIcons)
 	http.HandleFunc("/api/trafficinsight/incident-category-icons/image", handleIncidentCategoryIconImage)
+	http.HandleFunc("/api/trafficinsight/incident-stats", handleIncidentStats)
+	http.HandleFunc("/api/trafficinsight/incident-time-slots", handleIncidentTimeSlots)
 	http.HandleFunc("/api/trafficinsight/route-tti", handleRouteTTI)
 }
 
