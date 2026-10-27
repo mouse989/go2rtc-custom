@@ -75,7 +75,23 @@
 .ti-jf-legend-label { font-variant-numeric:tabular-nums; }
 .ti-layer-toggle { display:flex; align-items:center; gap:.3rem; font-size:.74rem; font-weight:600; color:var(--text); text-transform:none; letter-spacing:0; cursor:pointer; white-space:nowrap; }
 .ti-layer-toggle input { accent-color:#60a5fa; cursor:pointer; }
-.ti-legend-dot-incident { width:9px; height:9px; border-radius:50%; background:#a855f7; display:inline-block; flex-shrink:0; box-shadow:0 0 0 1.5px rgba(255,255,255,.6); }
+/* ── Incident markers ────────────────────────────────────────────────────
+   Same mechanics/sizing as www/map.html's .te-marker — icon + background
+   color per category come from the admin-configured mapping (Admin → 🚨
+   Sự cố GT, internal/incidents/category_icons.go), fetched once via
+   loadTiCategoryIcons() and looked up by category in tiMarkerContentFor.
+   A category with no configured icon/color falls back to .ti-inc-marker-khac
+   (generic gray ❗), same fallback map.html itself uses. */
+.ti-inc-marker {
+  position:relative; width:30px; height:30px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:15px; line-height:1; cursor:pointer;
+  border:2px solid rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(0,0,0,.55);
+  transition:box-shadow .15s;
+}
+.ti-inc-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
+.ti-inc-marker-khac { background:#6b7280; }
+.ti-inc-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
 
 .ti-chart-box { height:260px; position:relative; }
 
@@ -225,7 +241,7 @@
         <span>Bản đồ điểm ùn tắc</span>
         <div class="ti-matrix-controls">
           <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerJF" checked> <span class="ti-jf-swatch" style="background:#ef4444"></span>Điểm JF</label>
-          <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerIncident" checked> <span class="ti-legend-dot-incident"></span>Sự cố GT</label>
+          <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerIncident" checked> 🚨 Sự cố GT</label>
           <select id="tiMapMode">
             <option value="live">Hiện tại</option>
             <option value="date">Theo ngày</option>
@@ -316,6 +332,7 @@
 // apiFetch, toast(), escHtml are all provided by app.js.
 let _tiMap = null;
 let _tiMapInited = false;
+let _tiIncMarkers = {}; // incident id -> { marker, el, inc } — DOM markers, not a GL layer (see setIncidentPoints)
 let _tiTrendChart = null;
 let _tiDailySeries = [];
 let _tiMatrixResult = null;
@@ -414,7 +431,7 @@ async function loadKpis() {
 // ── Map: live ("hiện tại") or historical ("theo ngày") persistent points ──
 async function initTiMap() {
   try {
-    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops()]);
+    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops(), loadTiCategoryIcons()]);
     renderJfLegend();
     const apiKey = (settings || {}).vietmap_api_key || '';
     const el = document.getElementById('tiMap');
@@ -447,33 +464,11 @@ async function initTiMap() {
       _tiMap.on('mouseenter', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
       _tiMap.on('mouseleave', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = '');
 
-      // "Sự cố GT" (incidents) layer — fixed accent color (matches the
-      // "Sự cố giao thông" KPI card elsewhere on this page), distinct from
-      // the JF jam-point circles so the two never get mistaken for each
-      // other even with both layers on at once.
-      _tiMap.addSource('ti-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      _tiMap.addLayer({
-        id: 'ti-incidents-dot', type: 'circle', source: 'ti-incidents',
-        paint: {
-          'circle-radius': 6, 'circle-color': '#a855f7',
-          'circle-opacity': .9, 'circle-stroke-width': 1.5, 'circle-stroke-color': 'rgba(255,255,255,.85)',
-        },
-      });
-      _tiMap.on('click', 'ti-incidents-dot', e => {
-        const p = e.features[0].properties;
-        const html = `<div style="font-family:sans-serif;line-height:1.5;min-width:140px;max-width:220px;color:#1a1a1a">` +
-          `<div style="font-size:.9rem;font-weight:700;display:flex;align-items:center;gap:.35rem">` +
-          `<span style="width:10px;height:10px;border-radius:50%;background:#a855f7;display:inline-block"></span>` +
-          `${escHtml(p.category || 'Sự cố')}</div>` +
-          (p.time ? `<div style="color:#555;font-size:.72rem">${new Date(p.time).toLocaleString('vi-VN')}</div>` : '') +
-          (p.location ? `<div style="color:#111;font-size:.8rem;margin-top:.2rem">${escHtml(p.location)}</div>` : '') +
-          (p.content ? `<div style="color:#333;font-size:.75rem;margin-top:.15rem">${escHtml(p.content)}</div>` : '') +
-          `</div>`;
-        new vietmapgl.Popup({ closeButton: false, maxWidth: '240px' }).setLngLat(e.lngLat).setHTML(html).addTo(_tiMap);
-      });
-      _tiMap.on('mouseenter', 'ti-incidents-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
-      _tiMap.on('mouseleave', 'ti-incidents-dot', () => _tiMap.getCanvas().style.cursor = '');
-
+      // "Sự cố GT" (incidents) layer is plain DOM markers (vietmapgl.Marker),
+      // not a GL source/layer — see setIncidentPoints/tiMarkerContentFor
+      // below — so each one can show its own admin-configured per-category
+      // icon/color exactly like www/map.html's Traffic Event layer does,
+      // instead of one flat dot color for every category.
       applyTiLayerVisibility();
       loadMapPoints();
     });
@@ -495,21 +490,95 @@ function setMapPoints(pts) {
   _tiMap.getSource('ti-points')?.setData({ type: 'FeatureCollection', features });
 }
 
+// ── Incident markers: same per-category icon/color mechanism as
+// www/map.html's own "Sự cố GT" (Traffic Event) layer ───────────────────
+// _tiCategoryIcons caches GET .../incident-category-icons (category ->
+// {content_type,color,width,height,updated_at}) — loaded once in
+// initTiMap() alongside the JF color stops, same spirit as map.html's own
+// loadTeCategoryIcons. A category with no entry here, or an entry with no
+// content_type, falls back to the same generic marker regardless of what
+// that category's text actually is — nothing here hardcodes a specific
+// category string.
+let _tiCategoryIcons = {};
+async function loadTiCategoryIcons() {
+  try {
+    _tiCategoryIcons = {};
+    (await apiFetch('/api/trafficinsight/incident-category-icons') || []).forEach(ci => { _tiCategoryIcons[ci.category] = ci; });
+  } catch (_) { /* markers just fall back to the generic marker */ }
+}
+// &_= cache-bust: the image is served with Cache-Control: max-age=300, and
+// the URL is otherwise identical before/after an admin re-uploads a
+// category's icon — same reasoning as map.html's teCategoryIconSrc.
+function tiCategoryIconSrc(category) {
+  const ci = _tiCategoryIcons[category];
+  return '/api/trafficinsight/incident-category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
+}
+function tiMarkerContentFor(inc) {
+  const ci = _tiCategoryIcons[inc.category];
+  if (ci && ci.content_type) return { cls: '', bg: ci.color || '#6b7280', html: `<img class="ti-inc-marker-img" src="${tiCategoryIconSrc(inc.category)}" alt="">` };
+  if (ci && ci.color) return { cls: '', bg: ci.color, html: '❗' };
+  return { cls: 'ti-inc-marker-khac', bg: '', html: '❗' };
+}
+function tiIncidentPopupHtml(inc) {
+  return `<div style="font-family:sans-serif;line-height:1.5;min-width:140px;max-width:220px;color:#1a1a1a">` +
+    `<div style="font-size:.9rem;font-weight:700">${escHtml(inc.category || 'Sự cố')}</div>` +
+    (inc.time ? `<div style="color:#555;font-size:.72rem">${new Date(inc.time).toLocaleString('vi-VN')}</div>` : '') +
+    (inc.location ? `<div style="color:#111;font-size:.8rem;margin-top:.2rem">${escHtml(inc.location)}</div>` : '') +
+    (inc.content ? `<div style="color:#333;font-size:.75rem;margin-top:.15rem">${escHtml(inc.content)}</div>` : '') +
+    `</div>`;
+}
+
+// setIncidentPoints syncs _tiIncMarkers to match pts: updates markers still
+// present, creates new ones, and removes ones no longer in the list (same
+// id-keyed sync pattern map.html's loadActiveIncidents uses for its own
+// marker set, minus the overlap-avoidance nudging that only matters for a
+// live-polling layer).
 function setIncidentPoints(pts) {
   if (!_tiMapInited) return;
-  const features = (pts || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { category: p.category || '', content: p.content || '', location: p.location || '', time: p.time || '' } }));
-  _tiMap.getSource('ti-incidents')?.setData({ type: 'FeatureCollection', features });
+  const incOn = document.getElementById('tiLayerIncident').checked;
+  const seen = new Set();
+  (pts || []).forEach(inc => {
+    seen.add(inc.id);
+    const { cls, bg, html } = tiMarkerContentFor(inc);
+    let entry = _tiIncMarkers[inc.id];
+    if (!entry) {
+      const el = document.createElement('div');
+      // className (carries size) must be set before constructing the
+      // Marker — same reasoning as map.html's .te-marker comment: anchor:
+      // 'center' reads the element's size at construction time.
+      el.className = 'ti-inc-marker ' + cls;
+      el.style.background = bg;
+      el.style.display = incOn ? 'flex' : 'none';
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]).addTo(_tiMap);
+      entry = _tiIncMarkers[inc.id] = { marker, el, inc };
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '240px' })
+          .setLngLat([entry.inc.lng, entry.inc.lat]).setHTML(tiIncidentPopupHtml(entry.inc)).addTo(_tiMap);
+      });
+    }
+    entry.inc = inc;
+    entry.el.className = 'ti-inc-marker ' + cls;
+    entry.el.style.background = bg;
+    entry.el.innerHTML = html;
+    entry.el.title = [inc.category, inc.location, inc.content].filter(Boolean).join('\n');
+  });
+  Object.keys(_tiIncMarkers).forEach(id => {
+    if (!seen.has(id)) { _tiIncMarkers[id].marker.remove(); delete _tiIncMarkers[id]; }
+  });
 }
 
 // applyTiLayerVisibility reflects the two "ti-layer-toggle" checkboxes
-// (#tiLayerJF / #tiLayerIncident) onto the map's two GL layers — called on
-// init and on every checkbox change.
+// (#tiLayerJF / #tiLayerIncident) onto the map — the JF layer is a GL
+// layer (setLayoutProperty), the incident layer is plain DOM markers
+// (toggle each marker element's display) — called on init and on every
+// checkbox change.
 function applyTiLayerVisibility() {
   if (!_tiMapInited) return;
   const jfOn = document.getElementById('tiLayerJF').checked;
   const incOn = document.getElementById('tiLayerIncident').checked;
   _tiMap.setLayoutProperty('ti-points-dot', 'visibility', jfOn ? 'visible' : 'none');
-  _tiMap.setLayoutProperty('ti-incidents-dot', 'visibility', incOn ? 'visible' : 'none');
+  Object.values(_tiIncMarkers).forEach(entry => { entry.el.style.display = incOn ? 'flex' : 'none'; });
 }
 
 // loadMapPoints dispatches on #tiMapMode: "live" uses /today's current
