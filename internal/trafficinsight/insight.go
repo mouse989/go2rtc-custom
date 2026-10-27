@@ -300,6 +300,19 @@ type TodaySnapshot struct {
 	LivePersistentCount int     `json:"livePersistentCount"`
 	RouteCount          int     `json:"routeCount"`         // traveltime.LatestSnapshot()
 	RouteTotalLengthKm  float64 `json:"routeTotalLengthKm"` // traveltime.LatestSnapshot()
+	// CurrentTTIAvg/CurrentTTIAvgDelayMin are the average of each route's
+	// MOST RECENT scan only (traveltime.LatestSnapshot's own AvgTTI/
+	// AvgDelaySec) — the exact same "right now" metric dashboard.html's
+	// "TTI TB" shows, deliberately distinct from Metrics.TTIAvg above
+	// (averaged across every scan since 00:00). Both are shown on the
+	// page side by side now, per explicit request to match Dashboard's
+	// number here too. HasCurrentTTIData is true whenever at least one
+	// route's latest scan had a valid (>0) TTI — LatestSnapshot only ever
+	// sums TTI>0 readings, so AvgTTI can only read exactly 0 when there
+	// were none, never as a legitimate average.
+	CurrentTTIAvg         float64 `json:"currentTTIAvg"`
+	CurrentTTIAvgDelayMin float64 `json:"currentTTIAvgDelayMin"`
+	HasCurrentTTIData     bool    `json:"hasCurrentTTIData"`
 }
 
 // GetTodaySnapshot returns TodaySnapshot for the current Vietnam-local date.
@@ -312,13 +325,16 @@ func GetTodaySnapshot() (TodaySnapshot, error) {
 	live := traffic.LatestSnapshot()
 	tt := traveltime.LatestSnapshot()
 	return TodaySnapshot{
-		Date:                date,
-		Metrics:             m,
-		Points:              live.Points,
-		ScannedAt:           live.ScannedAt,
-		LivePersistentCount: len(live.Points),
-		RouteCount:          tt.RouteCount,
-		RouteTotalLengthKm:  tt.TotalLengthKm,
+		Date:                  date,
+		Metrics:               m,
+		Points:                live.Points,
+		ScannedAt:             live.ScannedAt,
+		LivePersistentCount:   len(live.Points),
+		RouteCount:            tt.RouteCount,
+		RouteTotalLengthKm:    tt.TotalLengthKm,
+		CurrentTTIAvg:         tt.AvgTTI,
+		CurrentTTIAvgDelayMin: tt.AvgDelaySec / 60.0,
+		HasCurrentTTIData:     tt.AvgTTI > 0,
 	}, nil
 }
 

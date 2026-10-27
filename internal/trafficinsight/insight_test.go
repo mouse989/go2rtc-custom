@@ -596,3 +596,37 @@ func TestGetTodaySnapshotUsesLiveScanPoints(t *testing.T) {
 		t.Errorf("expected Points to be an empty slice, not nil-with-length-mismatch")
 	}
 }
+
+// TestGetTodaySnapshotExposesCurrentTTIFromLatestSnapshot guards the "TTI
+// TB hiện tại"/"Trễ TB hiện tại" KPIs' wiring: CurrentTTIAvg/
+// CurrentTTIAvgDelayMin/HasCurrentTTIData must be exactly
+// traveltime.LatestSnapshot()'s own AvgTTI/AvgDelaySec (in minutes) —
+// the "latest scan per route" metric dashboard.html's "TTI TB" already
+// shows — not Metrics.TTIAvg (this package's own, separately-tested
+// full-day-average). Routes/"latest per route" selection is
+// traveltime.LatestSnapshot()'s own tested responsibility; this only
+// checks the pass-through, so no route or travel-log fixtures are needed
+// here — it compares against a second, independent call to the same
+// function LatestSnapshot() itself, whatever state the shared test
+// fixture directory happens to be in.
+func TestGetTodaySnapshotExposesCurrentTTIFromLatestSnapshot(t *testing.T) {
+	setupSources(t)
+
+	snap, err := GetTodaySnapshot()
+	if err != nil {
+		t.Fatalf("GetTodaySnapshot: %v", err)
+	}
+	want := traveltime.LatestSnapshot()
+
+	if snap.CurrentTTIAvg != want.AvgTTI {
+		t.Errorf("CurrentTTIAvg = %v, want %v (traveltime.LatestSnapshot().AvgTTI)", snap.CurrentTTIAvg, want.AvgTTI)
+	}
+	wantDelayMin := want.AvgDelaySec / 60.0
+	if snap.CurrentTTIAvgDelayMin != wantDelayMin {
+		t.Errorf("CurrentTTIAvgDelayMin = %v, want %v", snap.CurrentTTIAvgDelayMin, wantDelayMin)
+	}
+	wantHasData := want.AvgTTI > 0
+	if snap.HasCurrentTTIData != wantHasData {
+		t.Errorf("HasCurrentTTIData = %v, want %v", snap.HasCurrentTTIData, wantHasData)
+	}
+}

@@ -478,6 +478,13 @@ function deltaBadge(now, baseline) {
 // differ; shared between loadStatStrip's tiles and loadKpis' "Hôm nay"
 // row so both say the same thing about why.
 const TI_TTI_TODAY_HINT = 'Trung bình tất cả các lượt quét TTI từ 00:00 đến hiện tại (không phải chỉ lượt quét gần nhất) — có thể khác số "TTI TB" ở trang Dashboard, vốn chỉ lấy lượt quét mới nhất của mỗi tuyến';
+// TI_TTI_CURRENT_HINT is the opposite of TI_TTI_TODAY_HINT above: "TTI TB
+// hiện tại"/"Trễ TB hiện tại" use traveltime.LatestSnapshot() directly
+// (averagesResponse.currentTTIAvg/currentTTIAvgDelayMin), the average of
+// each route's single MOST RECENT scan — exactly trang Dashboard's own
+// "TTI TB" number, added here per explicit request so the two pages show
+// the same figure side by side with "Hôm nay (TB cả ngày)" above.
+const TI_TTI_CURRENT_HINT = 'Trung bình lượt quét TTI mới nhất của mỗi tuyến — giống hệt cách tính "TTI TB" ở trang Dashboard, không tính các lượt quét trước đó trong ngày';
 
 async function loadStatStrip() {
   const el = document.getElementById('tiStatStrip');
@@ -508,6 +515,7 @@ async function loadKpis() {
     const data = await apiFetch('/api/trafficinsight/averages');
     const t = data.today || {}, a7 = data.avg7 || {}, a30 = data.avg30 || {};
     const a7Full = data.avg7Full || {}, a30Full = data.avg30Full || {};
+    const curTTI = { hasData: data.hasCurrentTTIData, avg: data.currentTTIAvg, delayMin: data.currentTTIAvgDelayMin };
 
     // "Mức độ ùn tắc": primary comparison is now the NUMBER OF LOCATIONS
     // jammed (point count), each row accompanied by its JF severity level
@@ -539,6 +547,8 @@ async function loadKpis() {
         <div class="ti-kpi-title"><span class="ti-kpi-icon">⏱</span> Chỉ số thời gian di chuyển (TTI)</div>
         <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label" title="${escHtml(TI_TTI_TODAY_HINT)}">Hôm nay (TB cả ngày)</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(TI_TTI_TODAY_HINT)}">Trễ trung bình cả ngày</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasTTIData ? fmtNum(t.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(TI_TTI_CURRENT_HINT)}">TTI TB hiện tại</span><span class="ti-kpi-value" style="font-size:.95rem">${curTTI.hasData ? fmtNum(curTTI.avg,2) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(TI_TTI_CURRENT_HINT)}">Trễ TB hiện tại (phút)</span><span class="ti-kpi-value" style="font-size:.95rem">${curTTI.hasData ? fmtNum(curTTI.delayMin,1) : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2)+' · trễ '+fmtNum(a7.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2)+' · trễ '+fmtNum(a30.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
         <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7Full.ttiDaysWithData ? fmtNum(a7Full.ttiAvg,2)+' · trễ '+fmtNum(a7Full.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
