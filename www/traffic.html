@@ -536,6 +536,35 @@ function doGet() {
       </div>
     </div>
 
+    <!-- Duplicate Scan Check -->
+    <div class="tf-section">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        Kiểm tra quét trùng
+        <button class="btn btn-sm" id="btnCheckDupScans" style="font-size:.72rem">Kiểm tra</button>
+      </h3>
+      <p class="tf-status-label" style="margin:0 0 .65rem">
+        Khi dịch vụ bị khởi động lại (ví dụ nhiều lần trong ngày), lần quét đầu tiên
+        sau khi start có thể trùng khung giờ với lần quét trước đó, làm tăng ảo số
+        điểm/lượt quét. Việc tính toán ở Tổng quan giao thông đã tự động chỉ giữ lần
+        quét mới nhất trong mỗi khung giờ — công cụ này chỉ để xem lại những khung
+        giờ đã bị quét trùng, không thay đổi dữ liệu đã lưu.
+      </p>
+      <div class="tf-grid">
+        <div class="tf-field">
+          <label>Từ ngày</label>
+          <input type="date" id="dsFrom">
+        </div>
+        <div class="tf-field">
+          <label>Đến ngày</label>
+          <input type="date" id="dsTo">
+        </div>
+      </div>
+      <div id="dupScanSummary" class="tf-status-label" style="margin-top:.65rem"></div>
+      <div id="dupScanContainer" style="margin-top:.5rem">
+        <div class="tf-empty">Chọn khoảng ngày và bấm "Kiểm tra".</div>
+      </div>
+    </div>
+
     <!-- Persistent Points CSV Export -->
     <div class="tf-section">
       <h3>Xuất điểm Persistent (CSV)</h3>
@@ -1151,6 +1180,61 @@ async function downloadScan(name) {
 
 document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
 
+// ── Kiểm tra quét trùng (diagnostic only — never modifies stored files) ────
+// The read-path fix (internal/traffic/storage.go's dedupLatestPerSlot) is
+// already applied automatically wherever persistent-point metrics are
+// aggregated, keeping the latest scan in each cfg.IntervalMin-wide slot.
+// This panel just lets an admin see which slots were affected and when.
+function todayVNDateStr() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).formatToParts(new Date());
+  const get = t => parts.find(p => p.type === t).value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+async function checkDuplicateScans() {
+  const fromEl = document.getElementById('dsFrom');
+  const toEl = document.getElementById('dsTo');
+  const from = fromEl.value || todayVNDateStr();
+  const to = toEl.value || from;
+  const summaryEl = document.getElementById('dupScanSummary');
+  const container = document.getElementById('dupScanContainer');
+  summaryEl.textContent = '';
+  container.innerHTML = '<div class="tf-empty">Đang kiểm tra…</div>';
+  try {
+    const report = await apiFetch('/api/traffic/duplicate-scans?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    const groups = report.groups || [];
+    summaryEl.textContent = `${report.daysScanned || 0} ngày có dữ liệu · ${report.totalScans || 0} lượt quét · ` +
+      `${report.duplicateScans || 0} lượt quét trùng khung giờ (khung ${report.intervalMin || 15} phút)`;
+    if (groups.length === 0) {
+      container.innerHTML = '<div class="tf-empty">Không phát hiện khung giờ bị quét trùng trong khoảng đã chọn.</div>';
+      return;
+    }
+    container.innerHTML = `<div class="tf-history-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table class="tf-history-table">
+        <thead><tr>
+          <th>Ngày</th><th>Khung giờ</th><th>Thời điểm quét</th>
+          <th class="num">Raw</th><th class="num">Filtered</th><th class="num">Persistent</th><th>Khi tính toán</th>
+        </tr></thead>
+        <tbody>
+          ${groups.map(g => g.scans.map((s, i) => `
+            <tr>
+              <td>${i === 0 ? escHtml(g.date) : ''}</td>
+              <td>${i === 0 ? escHtml(g.slotLabel) : ''}</td>
+              <td>${escHtml(s.local)}</td>
+              <td class="num">${s.raw}</td>
+              <td class="num">${s.filtered}</td>
+              <td class="num">${s.persistent}</td>
+              <td>${s.kept
+                ? '<span style="color:var(--green,#4ade80)">✓ Giữ lại</span>'
+                : '<span style="color:var(--red,#f87171)">Bị loại (trùng)</span>'}</td>
+            </tr>`).join('')).join('')}
+        </tbody>
+      </table></div>`;
+  } catch(e) { container.innerHTML = `<div class="tf-empty">Lỗi: ${escHtml(e.message)}</div>`; }
+}
+
+document.getElementById('btnCheckDupScans').addEventListener('click', checkDuplicateScans);
+
 // ── Xuất điểm Persistent (CSV) ──────────────────────────────────────────────
 // datetime-local gives "YYYY-MM-DDTHH:mm:ss" with no timezone info; always
 // read it as Vietnam wall-clock time (not the browser's own zone) by
@@ -1242,6 +1326,9 @@ if (new URLSearchParams(location.search).get('embed') === '1') {
   }
   await loadConfig();
   await loadHistory();
+  const today = todayVNDateStr();
+  document.getElementById('dsFrom').value = today;
+  document.getElementById('dsTo').value = today;
   await poll();
   pollTimer = setInterval(poll, 5000);
   countdownInterval = setInterval(updateCountdown, 1000);

@@ -78,7 +78,7 @@ func PersistentPointsInRange(from, to time.Time) ([]PersistentExportRow, error) 
 		if json.Unmarshal(data, &rec) != nil {
 			continue
 		}
-		for _, scan := range rec.Scans {
+		for _, scan := range dedupLatestPerSlot(rec.Scans, IntervalMin()) {
 			t, err := time.Parse(time.RFC3339, scan.ScannedAt)
 			if err != nil {
 				continue
@@ -117,7 +117,7 @@ func PersistentPointsForDate(date string) ([]DashPoint, error) {
 		return nil, err
 	}
 	out := []DashPoint{}
-	for _, scan := range rec.Scans {
+	for _, scan := range dedupLatestPerSlot(rec.Scans, IntervalMin()) {
 		for _, p := range scan.Persistent {
 			out = append(out, DashPoint{
 				Lat: p.Lat, Lng: p.Lng, JamFactor: p.JamFactor,

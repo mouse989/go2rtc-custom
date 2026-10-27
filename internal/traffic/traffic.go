@@ -174,9 +174,51 @@ func stopWorker() {
 	}
 }
 
+// initialScanDelay decides whether runWorker's startup scan should run
+// immediately or wait. The worker always used to scan immediately on
+// start regardless, but every restart (manual, or the service simply
+// being restarted) re-ran that immediate scan even when the previous
+// process had scanned the same real-world time window moments earlier,
+// inflating point counts for that window. lastScanAt (monitor.go) can't
+// detect this itself — it's in-memory only and resets to zero on every
+// restart — so the stored daily file is checked instead. Returns 0 to
+// scan immediately; otherwise the duration to wait, measured from `now`,
+// before the first scan.
+func initialScanDelay(now time.Time, intervalMin int) time.Duration {
+	if intervalMin <= 0 {
+		intervalMin = 15
+	}
+	dur := time.Duration(intervalMin) * time.Minute
+	last, ok := lastStoredScanTime(now)
+	if !ok {
+		return 0
+	}
+	if elapsed := now.Sub(last); elapsed < dur {
+		return dur - elapsed
+	}
+	return 0
+}
+
 func runWorker(stop chan struct{}) {
-	// Run immediately on start
-	if err := runScan(); err != nil {
+	cfgMu.RLock()
+	startInterval := cfg.IntervalMin
+	cfgMu.RUnlock()
+
+	now := time.Now()
+	skipWait := initialScanDelay(now, startInterval)
+
+	if skipWait > 0 {
+		addLog("info", "skipping immediate scan on start: last stored scan was recent enough")
+		setScanNext(now.Add(skipWait))
+		select {
+		case <-stop:
+			return
+		case <-time.After(skipWait):
+			if err := runScan(); err != nil {
+				addLog("error", "scan failed: "+err.Error())
+			}
+		}
+	} else if err := runScan(); err != nil {
 		addLog("error", "scan failed: "+err.Error())
 	}
 

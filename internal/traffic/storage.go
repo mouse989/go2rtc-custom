@@ -227,6 +227,90 @@ func HistoryStats() (files int, bytes int64) {
 	return
 }
 
+// lastStoredScanTime returns the timestamp of the most recent scan stored
+// in today's daily file (today = now's Vietnam-local calendar day), if any.
+// Used by runWorker on start to decide whether the immediate "scan now"
+// step should be skipped: lastScanAt (monitor.go) is in-memory only and
+// always resets to zero on process restart, so it can never see a scan
+// from just before the restart — only the stored file can.
+func lastStoredScanTime(now time.Time) (time.Time, bool) {
+	day := now.In(vnLocation).Format("2006-01-02")
+	data, err := os.ReadFile(filepath.Join(dataDir(), day+".json"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var rec dailyRecord
+	if err := json.Unmarshal(data, &rec); err != nil || len(rec.Scans) == 0 {
+		return time.Time{}, false
+	}
+	// saveScanData always appends, never reorders, so the last entry is
+	// the most recent scan.
+	t, err := time.Parse(time.RFC3339, rec.Scans[len(rec.Scans)-1].ScannedAt)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// dedupLatestPerSlot collapses a day's stored scans so that when 2+ scans
+// land in the same cfg.IntervalMin-wide time slot — which happens whenever
+// the Traffic Monitor service restarts shortly after its previous scan,
+// since the worker always re-scans immediately on start (see runWorker) —
+// only the latest scan in that slot is kept. It never modifies the stored
+// daily file: callers pass in rec.Scans and use the returned slice only
+// for their own in-memory aggregation (point counts, averages, etc.),
+// exactly the "fix the computation, don't touch the original file"
+// approach already used for time-matched vs full-day metrics in
+// internal/trafficinsight/insight.go. The slot-bucketing itself mirrors
+// internal/trafficinsight/route_tti.go's slotOfTimestamp: minute-of-day
+// floor-divided by the interval, calendar date ignored — safe here because
+// scans is always one day's worth already (one dailyRecord).
+func dedupLatestPerSlot(scans []sheetsPayload, intervalMin int) []sheetsPayload {
+	if intervalMin <= 0 {
+		intervalMin = 15
+	}
+	if len(scans) <= 1 {
+		return scans
+	}
+
+	type latestInSlot struct {
+		at  time.Time
+		idx int
+	}
+	bestBySlot := map[int]latestInSlot{}
+	keep := make([]bool, len(scans))
+	for i := range keep {
+		keep[i] = true
+	}
+
+	for i, s := range scans {
+		t, err := time.Parse(time.RFC3339, s.ScannedAt)
+		if err != nil {
+			continue // unparseable timestamp: never dedup, always keep
+		}
+		local := t.In(vnLocation)
+		slot := (local.Hour()*60 + local.Minute()) / intervalMin
+		if cur, ok := bestBySlot[slot]; ok {
+			if t.After(cur.at) {
+				keep[cur.idx] = false
+				bestBySlot[slot] = latestInSlot{at: t, idx: i}
+			} else {
+				keep[i] = false
+			}
+		} else {
+			bestBySlot[slot] = latestInSlot{at: t, idx: i}
+		}
+	}
+
+	out := make([]sheetsPayload, 0, len(scans))
+	for i, s := range scans {
+		if keep[i] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // readScanFile returns the raw JSON of one stored daily file.
 // The name is validated to prevent path traversal.
 func readScanFile(name string) ([]byte, error) {
