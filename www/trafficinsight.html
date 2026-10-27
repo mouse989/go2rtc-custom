@@ -430,6 +430,14 @@
 let _tiMap = null;
 let _tiMapInited = false;
 let _tiIncidentIconIds = new Set(); // category icon ids already map.addImage()'d — see loadTiIncidentCategoryImages
+// TI_INC_CIRCLE_PX matches the ti-incidents-bg circle layer's diameter
+// (circle-radius 14 → 28px); TI_INC_ICON_PX is the icon target size that
+// sits centered inside it, same 20-in-30 proportions map.html/
+// dashboard2.html's own .te-marker-img/.ti-inc-marker-img CSS always
+// enforced for DOM markers (width:20px;height:20px inside a ~30px circle).
+// See tiRenderFallbackIcon/tiResizeIconToCanvas for why both need this.
+const TI_INC_CIRCLE_PX = 28;
+const TI_INC_ICON_PX = 20;
 let _tiTrendChart = null;
 let _tiDailySeries = [];
 let _tiMatrixResult = null;
@@ -589,7 +597,7 @@ async function initTiMap() {
       _tiMap.addLayer({
         id: 'ti-incidents-bg', type: 'circle', source: 'ti-incidents',
         paint: {
-          'circle-radius': 14,
+          'circle-radius': TI_INC_CIRCLE_PX / 2,
           'circle-color': ['get', 'color'],
           'circle-stroke-width': 2, 'circle-stroke-color': 'rgba(255,255,255,.92)',
         },
@@ -601,14 +609,26 @@ async function initTiMap() {
       // failing that silently rejects the whole addLayer call (verified
       // against the real vietmapgl bundle). Rendering it as an image too
       // keeps this layer workable regardless of what the style provides.
-      _tiMap.addImage('ti-fallback-icon', tiRenderFallbackIcon());
+      // Both this and every admin-uploaded category icon (see
+      // loadTiIncidentCategoryImages) are baked onto a canvas at a FIXED
+      // target CSS size before being registered — icon-image's size in a
+      // symbol layer otherwise scales off the source image's own native
+      // pixel dimensions, which admins upload at whatever resolution they
+      // have on hand (see internal/incidents/category_icons.go's
+      // Width/Height), so without this every category rendered at a
+      // different, often much larger, size instead of the small uniform
+      // circle map.html/dashboard2.html's own 20px-in-a-circle CSS always
+      // enforced. icon-size stays 1 everywhere — the baked pixel size
+      // (together with the pixelRatio passed to addImage) IS the target.
+      const dpr = window.devicePixelRatio || 1;
+      _tiMap.addImage('ti-fallback-icon', tiRenderFallbackIcon(TI_INC_CIRCLE_PX, dpr), { pixelRatio: dpr });
       _tiMap.addLayer({
         id: 'ti-incidents-icon', type: 'symbol', source: 'ti-incidents',
         layout: {
           // hasIcon categories show their admin-uploaded image; everything
           // else shows the pre-rendered fallback glyph above.
           'icon-image': ['case', ['get', 'hasIcon'], ['get', 'iconId'], 'ti-fallback-icon'],
-          'icon-size': .6, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+          'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
         },
       });
       _tiMap.on('click', 'ti-incidents-bg', e => {
@@ -664,24 +684,43 @@ function tiCategoryIconSrc(category) {
   return '/api/trafficinsight/incident-category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
 // tiRenderFallbackIcon draws the generic "❗ on a gray circle" marker (same
-// look .ti-inc-marker-khac used to give DOM markers) onto an offscreen
-// canvas and returns it as ImageData — map.addImage accepts that directly,
-// so the fallback never needs a network round-trip or a style "glyphs" URL.
-function tiRenderFallbackIcon() {
-  const size = 32;
+// look map.html's own fallback gives DOM markers) onto an offscreen
+// canvas at sizePx*dpr resolution and returns it as ImageData —
+// map.addImage accepts that directly (with {pixelRatio:dpr}), so the
+// fallback never needs a network round-trip or a style "glyphs" URL.
+function tiRenderFallbackIcon(sizePx, dpr) {
+  const px = sizePx * dpr;
   const canvas = document.createElement('canvas');
-  canvas.width = size; canvas.height = size;
+  canvas.width = px; canvas.height = px;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#6b7280';
   ctx.beginPath();
-  ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+  ctx.arc(px / 2, px / 2, px / 2 - dpr, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 18px sans-serif';
+  ctx.font = `bold ${16 * dpr}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('!', size / 2, size / 2 + 1);
-  return ctx.getImageData(0, 0, size, size);
+  ctx.fillText('!', px / 2, px / 2 + dpr);
+  return ctx.getImageData(0, 0, px, px);
+}
+// tiResizeIconToCanvas fits an admin-uploaded category icon — uploaded at
+// whatever resolution the admin had on hand, see category_icons.go's
+// Width/Height — onto a sizePx*dpr canvas, "object-fit:contain" style
+// (scaled to fit within the target box, centered, aspect ratio kept,
+// never cropped), so every category renders at the exact same on-map
+// size regardless of its source image's native dimensions.
+function tiResizeIconToCanvas(image, sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  const iw = image.width || image.naturalWidth || px;
+  const ih = image.height || image.naturalHeight || px;
+  const scale = Math.min(px / iw, px / ih);
+  const dw = iw * scale, dh = ih * scale;
+  ctx.drawImage(image, (px - dw) / 2, (px - dh) / 2, dw, dh);
+  return ctx.getImageData(0, 0, px, px);
 }
 // tiCategoryIconId: the id a category's uploaded icon is registered under
 // via map.addImage (see loadTiIncidentCategoryImages) — referenced from
@@ -705,10 +744,11 @@ function loadTiIncidentCategoryImages() {
     if (_tiIncidentIconIds.has(cacheKey)) return;
     // loadImage is promise-based in this vietmapgl version (not the
     // older mapbox-gl v1 callback form) — resolves to {data: image}.
+    const dpr = window.devicePixelRatio || 1;
     _tiMap.loadImage(tiCategoryIconSrc(ci.category)).then(res => {
       if (!res || !res.data) return;
       if (_tiMap.hasImage(id)) _tiMap.removeImage(id);
-      _tiMap.addImage(id, res.data);
+      _tiMap.addImage(id, tiResizeIconToCanvas(res.data, TI_INC_ICON_PX, dpr), { pixelRatio: dpr });
       _tiIncidentIconIds.add(cacheKey);
     }).catch(() => { /* category just falls back to the ❗ glyph */ });
   });
