@@ -315,6 +315,60 @@ func TestGetDailySeriesReturnsOneEntryPerDayOldestFirst(t *testing.T) {
 	}
 }
 
+func TestGetDailySeriesRangeReturnsInclusiveOldestFirst(t *testing.T) {
+	setupSources(t)
+	series, err := GetDailySeriesRange("2027-04-01", "2027-04-05")
+	if err != nil {
+		t.Fatalf("GetDailySeriesRange: %v", err)
+	}
+	if len(series) != 5 {
+		t.Fatalf("expected 5 entries (inclusive both ends), got %d: %+v", len(series), series)
+	}
+	if series[0].Date != "2027-04-01" || series[len(series)-1].Date != "2027-04-05" {
+		t.Errorf("unexpected bounds: first=%q last=%q", series[0].Date, series[len(series)-1].Date)
+	}
+	for i := 1; i < len(series); i++ {
+		if series[i].Date <= series[i-1].Date {
+			t.Fatalf("series not strictly increasing by date at index %d: %q then %q", i, series[i-1].Date, series[i].Date)
+		}
+	}
+}
+
+func TestGetDailySeriesRangeSwapsReversedBounds(t *testing.T) {
+	setupSources(t)
+	series, err := GetDailySeriesRange("2027-04-05", "2027-04-01") // from/to reversed
+	if err != nil {
+		t.Fatalf("GetDailySeriesRange: %v", err)
+	}
+	if len(series) != 5 || series[0].Date != "2027-04-01" || series[len(series)-1].Date != "2027-04-05" {
+		t.Fatalf("expected the same 5-day range regardless of argument order, got %+v", series)
+	}
+}
+
+func TestGetDailySeriesRangeClampsOverlongRangeKeepingRecentEnd(t *testing.T) {
+	setupSources(t)
+	series, err := GetDailySeriesRange("2027-01-01", "2027-06-01") // ~152 days, over the 90-day cap
+	if err != nil {
+		t.Fatalf("GetDailySeriesRange: %v", err)
+	}
+	if len(series) != maxDailySeriesDays {
+		t.Fatalf("expected the range clamped to %d days, got %d", maxDailySeriesDays, len(series))
+	}
+	if series[len(series)-1].Date != "2027-06-01" {
+		t.Errorf("expected the clamp to keep the requested 'to' end, last date = %q", series[len(series)-1].Date)
+	}
+}
+
+func TestGetDailySeriesRangeInvalidDateReturnsError(t *testing.T) {
+	setupSources(t)
+	if _, err := GetDailySeriesRange("not-a-date", "2027-04-01"); err == nil {
+		t.Error("expected an error for an invalid 'from' date, got nil")
+	}
+	if _, err := GetDailySeriesRange("2027-04-01", "not-a-date"); err == nil {
+		t.Error("expected an error for an invalid 'to' date, got nil")
+	}
+}
+
 // TestGetWeekdayMatrixPerMetricHasDataFlags guards against a cell showing
 // "0.0" for a metric that was never actually measured that day (e.g. jam
 // data exists but no TTI samples were collected) — HasJamData/HasTTIData

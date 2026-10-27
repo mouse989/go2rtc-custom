@@ -95,13 +95,29 @@ func handleAverages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, averagesResponse{Today: todayMetrics, Avg7: avg7, Avg30: avg30})
 }
 
-// GET /api/trafficinsight/daily-series?days=N (default 30, capped at 90)
+// GET /api/trafficinsight/daily-series?days=N (default 30, capped at 90) —
+// trailing N days from today. GET .../daily-series?from=YYYY-MM-DD&to=YYYY-MM-DD
+// instead returns that explicit range (also capped at 90 days, trimmed
+// from the `from` side) — the trend chart's "Từ/Đến" mode. `from`/`to`
+// take priority over `days` when both forms are given.
 func handleDailySeries(w http.ResponseWriter, r *http.Request) {
 	if !requireViewer(w, r) {
 		return
 	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from != "" && to != "" {
+		series, err := GetDailySeriesRange(from, to)
+		if err != nil {
+			http.Error(w, "invalid from/to: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, series)
 		return
 	}
 

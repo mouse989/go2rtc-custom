@@ -271,6 +271,38 @@ func GetDailySeries(days int) []DailyMetrics {
 	return out
 }
 
+// GetDailySeriesRange returns one DailyMetrics per Vietnam-local calendar
+// day, oldest first, for the explicit [from, to] range (both inclusive,
+// YYYY-MM-DD) — the trend chart's "Từ/Đến" mode, as opposed to
+// GetDailySeries' "trailing N days from today". A range longer than
+// maxDailySeriesDays is clamped by moving `from` forward (keeping the most
+// recent end of the range, same spirit as GetDailySeries silently capping
+// an overlong `days`) rather than erroring.
+func GetDailySeriesRange(from, to string) ([]DailyMetrics, error) {
+	fromT, err := time.ParseInLocation("2006-01-02", from, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	toT, err := time.ParseInLocation("2006-01-02", to, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	if toT.Before(fromT) {
+		fromT, toT = toT, fromT
+	}
+	if days := int(toT.Sub(fromT).Hours()/24) + 1; days > maxDailySeriesDays {
+		fromT = toT.AddDate(0, 0, -(maxDailySeriesDays - 1))
+	}
+
+	out := make([]DailyMetrics, 0, maxDailySeriesDays)
+	for d := fromT; !d.After(toT); d = d.AddDate(0, 0, 1) {
+		if m, err := GetDailyMetrics(d.Format("2006-01-02")); err == nil {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 // WeekdayMatrixCell is one day's metrics placed at a (weekday, week)
 // position in the comparison grid.
 type WeekdayMatrixCell struct {

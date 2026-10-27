@@ -122,13 +122,15 @@
 .ti-route-legend span { display:flex; align-items:center; gap:.3rem; }
 .ti-route-legend-dot { width:9px; height:9px; border-radius:2px; display:inline-block; flex-shrink:0; }
 
-/* ── Thống kê sự cố giao thông (ported from dashboard2.html) ───────────── */
-.ti-inc-filters { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; margin-bottom:.7rem; }
-.ti-inc-filters select, .ti-inc-filters input[type=date] {
+/* ── Shared "Từ/Đến + quick preset" filter row — used by the daily trend
+   chart and the "Thống kê sự cố giao thông" module (ported from
+   dashboard2.html) below it ─────────────────────────────────────────── */
+.ti-filter-row { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; margin-bottom:.7rem; }
+.ti-filter-row select, .ti-filter-row input[type=date] {
   background:var(--surface2); border:1px solid var(--border); color:var(--text);
   border-radius:6px; padding:.3rem .5rem; font-size:.74rem; font-family:inherit;
 }
-.ti-inc-filters label { font-size:.72rem; color:var(--text-muted); }
+.ti-filter-row label { font-size:.72rem; color:var(--text-muted); }
 .ti-inc-tiles { display:flex; gap:.5rem; flex-wrap:wrap; }
 .ti-inc-tile { flex:1; min-width:110px; text-align:center; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:.6rem .4rem; }
 .ti-inc-tile .n { font-size:1.4rem; font-weight:800; line-height:1; }
@@ -277,7 +279,7 @@
     <!-- Daily trend chart -->
     <div class="ti-section">
       <h3>
-        <span>Xu hướng theo ngày (30 ngày qua)</span>
+        <span>Xu hướng theo ngày</span>
         <div class="ti-matrix-controls">
           <select id="tiTrendMetric">
             <option value="jam">Ùn tắc (jamFactor TB)</option>
@@ -287,6 +289,13 @@
           </select>
         </div>
       </h3>
+      <div class="ti-filter-row">
+        <select id="tiTrendRange"></select>
+        <label>Từ</label>
+        <input type="date" id="tiTrendFrom">
+        <label>Đến</label>
+        <input type="date" id="tiTrendTo">
+      </div>
       <div class="ti-chart-box"><canvas id="tiTrendChart"></canvas></div>
     </div>
 
@@ -323,7 +332,7 @@
     <!-- Thống kê sự cố giao thông (ported from dashboard2.html) -->
     <div class="ti-section">
       <h3><span>📊 Thống kê sự cố giao thông</span></h3>
-      <div class="ti-inc-filters">
+      <div class="ti-filter-row">
         <select id="tiIncRange"></select>
         <label>Từ</label>
         <input type="date" id="tiIncFrom">
@@ -715,8 +724,11 @@ function renderTrendChart() {
 }
 
 async function loadDailySeries() {
+  const from = document.getElementById('tiTrendFrom').value;
+  const to = document.getElementById('tiTrendTo').value;
+  if (!from || !to) return; // initTrendRangeDefaults() always fills these before the first call
   try {
-    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?days=30');
+    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
     renderTrendChart();
   } catch (e) {
     toast('Không tải được xu hướng theo ngày: ' + e.message, 'error');
@@ -1036,7 +1048,17 @@ async function loadIncHourChart() {
   }
 }
 
-function tiApplyIncRangePreset(key) {
+// ── Shared "Từ/Đến + quick preset" range picker — used by the daily trend
+// chart and the "Thống kê sự cố giao thông" module below it, so both get
+// the exact same quick-pick options and Từ/Đến math instead of two
+// separately-maintained copies.
+const TI_RANGE_PRESETS = [['week_7d', '7 ngày qua'], ['d14', '14 ngày qua'], ['d30', '30 ngày qua'], ['week_this', 'Tuần này'], ['week_last', 'Tuần trước'], ['month_this', 'Tháng này']];
+function tiPopulateRangeSelect(sel) {
+  TI_RANGE_PRESETS.forEach(([v, l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
+  });
+}
+function tiApplyRangePreset(key, fromEl, toEl) {
   const ts = tiTodayVN();
   let from = ts, to = ts;
   const now = new Date();
@@ -1056,20 +1078,30 @@ function tiApplyIncRangePreset(key) {
   } else if (key === 'month_this') {
     from = ts.slice(0, 8) + '01';
   }
-  document.getElementById('tiIncFrom').value = from;
-  document.getElementById('tiIncTo').value = to;
+  fromEl.value = from;
+  toEl.value = to;
+}
+
+function initTrendRangeDefaults() {
+  const sel = document.getElementById('tiTrendRange');
+  const fromEl = document.getElementById('tiTrendFrom'), toEl = document.getElementById('tiTrendTo');
+  tiPopulateRangeSelect(sel);
+  sel.value = 'd30'; // same default span the chart used before this picker existed
+  tiApplyRangePreset('d30', fromEl, toEl);
+  sel.addEventListener('change', () => { tiApplyRangePreset(sel.value, fromEl, toEl); loadDailySeries(); });
+  fromEl.addEventListener('change', loadDailySeries);
+  toEl.addEventListener('change', loadDailySeries);
 }
 
 function initIncidentFilterDefaults() {
   const sel = document.getElementById('tiIncRange');
-  [['week_7d', '7 ngày qua'], ['d14', '14 ngày qua'], ['d30', '30 ngày qua'], ['week_this', 'Tuần này'], ['week_last', 'Tuần trước'], ['month_this', 'Tháng này']].forEach(([v, l]) => {
-    const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
-  });
+  const fromEl = document.getElementById('tiIncFrom'), toEl = document.getElementById('tiIncTo');
+  tiPopulateRangeSelect(sel);
   sel.value = 'week_7d';
-  tiApplyIncRangePreset('week_7d');
-  sel.addEventListener('change', () => { tiApplyIncRangePreset(sel.value); loadTiIncidentStats(); });
-  document.getElementById('tiIncFrom').addEventListener('change', loadTiIncidentStats);
-  document.getElementById('tiIncTo').addEventListener('change', loadTiIncidentStats);
+  tiApplyRangePreset('week_7d', fromEl, toEl);
+  sel.addEventListener('change', () => { tiApplyRangePreset(sel.value, fromEl, toEl); loadTiIncidentStats(); });
+  fromEl.addEventListener('change', loadTiIncidentStats);
+  toEl.addEventListener('change', loadTiIncidentStats);
   document.getElementById('tiIncCat').addEventListener('change', () => { renderIncTiles(); renderIncDailyChart(); renderIncSlotChart(); });
   document.getElementById('tiAnHourDate').value = tiTodayVN();
   document.getElementById('tiAnHourDate').addEventListener('change', loadIncHourChart);
@@ -1240,6 +1272,7 @@ document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
   loadStatStrip();
   loadKpis();
   initTiMap();
+  initTrendRangeDefaults();
   loadDailySeries();
   loadMatrix();
   loadRouteTTI();
