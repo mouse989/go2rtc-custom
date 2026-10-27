@@ -69,9 +69,19 @@ type averagesResponse struct {
 	Avg30 AggregateMetrics `json:"avg30"`
 }
 
-// GET /api/trafficinsight/averages — today's own aggregate plus the
-// trailing 7-day and 30-day averages (today inclusive, so "today" also
-// anchors both baselines).
+// GET /api/trafficinsight/averages — today's own (naturally partial, up
+// to now) aggregate plus the trailing 7-day and 30-day baselines.
+//
+// The baselines are "today-excluded, cutoff-truncated": each of the 7/30
+// full days strictly before today is itself truncated to today's current
+// wall-clock time (GetRangeAverageUntil) before being averaged, so
+// "today so far" is compared against "what the same time-of-day window
+// looked like on past days" rather than against those days' full 24h
+// totals — comparing a partial today against full historical days would
+// always make today look emptier/better than it really is, purely
+// because evening hours haven't happened yet. Today itself is excluded
+// from the baseline range (today-7..today-1, not today-6..today): it's
+// the subject being compared, not part of what it's compared against.
 func handleAverages(w http.ResponseWriter, r *http.Request) {
 	if !requireViewer(w, r) {
 		return
@@ -89,8 +99,9 @@ func handleAverages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	avg7, _ := GetRangeAverage(today.AddDate(0, 0, -6), today)
-	avg30, _ := GetRangeAverage(today.AddDate(0, 0, -29), today)
+	yesterday := today.AddDate(0, 0, -1)
+	avg7, _ := GetRangeAverageUntil(today.AddDate(0, 0, -7), yesterday, now)
+	avg30, _ := GetRangeAverageUntil(today.AddDate(0, 0, -30), yesterday, now)
 
 	writeJSON(w, averagesResponse{Today: todayMetrics, Avg7: avg7, Avg30: avg30})
 }

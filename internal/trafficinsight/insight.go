@@ -82,12 +82,44 @@ func dayBounds(date string) (start, end time.Time, err error) {
 	return start, end, nil
 }
 
-// GetDailyMetrics computes the aggregate for one Vietnam-local calendar day.
+// GetDailyMetrics computes the aggregate for one full Vietnam-local
+// calendar day.
 func GetDailyMetrics(date string) (DailyMetrics, error) {
 	start, end, err := dayBounds(date)
 	if err != nil {
 		return DailyMetrics{}, err
 	}
+	return computeDailyMetrics(date, start, end), nil
+}
+
+// GetDailyMetricsUntil computes one day's aggregate truncated to the same
+// Vietnam-local wall-clock time as `cutoff` — only cutoff's hour/minute/
+// second are used, its own calendar date is ignored and replaced by
+// `date`. This exists for comparing a still-in-progress "today" (which
+// naturally only has data up to now) against historical baseline days:
+// comparing it against those days' FULL 24h aggregates would be biased,
+// since a full day always includes hours today hasn't reached yet — e.g.
+// comparing a 14:00 "today" snapshot against full-day history would make
+// every evening-rush-hour contribution to the baseline look like it
+// never happened today, when really it just hasn't happened yet.
+// GetDailySeries/GetWeekdayMatrix deliberately keep using full days
+// (GetDailyMetrics) — this truncated variant is only for the "so sánh:
+// hôm nay — TB 7 ngày — TB 30 ngày" comparison, see GetRangeAverageUntil.
+func GetDailyMetricsUntil(date string, cutoff time.Time) (DailyMetrics, error) {
+	start, _, err := dayBounds(date)
+	if err != nil {
+		return DailyMetrics{}, err
+	}
+	cutoffLocal := cutoff.In(vnLocation)
+	end := time.Date(start.Year(), start.Month(), start.Day(), cutoffLocal.Hour(), cutoffLocal.Minute(), cutoffLocal.Second(), 0, vnLocation)
+	return computeDailyMetrics(date, start, end), nil
+}
+
+// computeDailyMetrics is the shared aggregation behind GetDailyMetrics and
+// GetDailyMetricsUntil — [start, end] bounds every source's query, so a
+// truncated `end` (anything short of the full day) naturally yields a
+// partial-day aggregate with no other change to the logic.
+func computeDailyMetrics(date string, start, end time.Time) DailyMetrics {
 	m := DailyMetrics{Date: date, Weekday: weekdayAbbr(start)}
 
 	if rows, err := traffic.PersistentPointsInRange(start, end); err == nil && len(rows) > 0 {
@@ -103,17 +135,29 @@ func GetDailyMetrics(date string) (DailyMetrics, error) {
 		m.HasJamData = true
 	}
 
-	if entries, err := traveltime.GetLogsForDate(date, 0); err == nil && len(entries) > 0 {
+	// traveltime.GetLogsForDate has no range parameter of its own (it
+	// always returns the whole day), so [start, end] is applied here by
+	// filtering its result instead — cheap, since the entries are already
+	// loaded into memory either way.
+	if entries, err := traveltime.GetLogsForDate(date, 0); err == nil {
 		var ttiSum float64
 		var delaySecSum int
+		var n int
 		for _, e := range entries {
+			t, err := time.Parse(time.RFC3339, e.Timestamp)
+			if err != nil || t.Before(start) || t.After(end) {
+				continue
+			}
 			ttiSum += e.TTI
 			delaySecSum += e.DelaySec
+			n++
 		}
-		m.TTISampleCount = len(entries)
-		m.TTIAvg = ttiSum / float64(len(entries))
-		m.TTIAvgDelayMin = float64(delaySecSum) / float64(len(entries)) / 60.0
-		m.HasTTIData = true
+		if n > 0 {
+			m.TTISampleCount = n
+			m.TTIAvg = ttiSum / float64(n)
+			m.TTIAvgDelayMin = float64(delaySecSum) / float64(n) / 60.0
+			m.HasTTIData = true
+		}
 	}
 
 	if list, err := incidents.List(incidents.ListFilter{Year: start.Year(), From: start, To: end}); err == nil {
@@ -130,7 +174,7 @@ func GetDailyMetrics(date string) (DailyMetrics, error) {
 		}
 	}
 
-	return m, nil
+	return m
 }
 
 // AggregateMetrics summarizes DailyMetrics across a range of days — used
@@ -156,9 +200,32 @@ type AggregateMetrics struct {
 	IncidentTotal     int     `json:"incidentTotal"`
 }
 
-// GetRangeAverage averages each metric over every Vietnam-local calendar
-// day from "from" to "to" inclusive.
+// GetRangeAverage averages each metric over every full Vietnam-local
+// calendar day from "from" to "to" inclusive.
 func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
+	return computeRangeAverage(from, to, GetDailyMetrics)
+}
+
+// GetRangeAverageUntil is GetRangeAverage's time-truncated counterpart —
+// each day in [from, to] is computed via GetDailyMetricsUntil(date,
+// cutoff) instead of the full day, so the resulting average is directly
+// comparable to a still-in-progress "today" (which naturally only has
+// data up to cutoff/now) without the bias of a full-day baseline. Callers
+// building the "so sánh: hôm nay — TB 7 ngày — TB 30 ngày" comparison
+// should also exclude today itself from [from, to] — comparing today
+// against a baseline that includes today (even truncated) would be
+// comparing it partly against itself.
+func GetRangeAverageUntil(from, to, cutoff time.Time) (AggregateMetrics, error) {
+	return computeRangeAverage(from, to, func(date string) (DailyMetrics, error) {
+		return GetDailyMetricsUntil(date, cutoff)
+	})
+}
+
+// computeRangeAverage is the shared accumulation loop behind
+// GetRangeAverage and GetRangeAverageUntil — perDay supplies each day's
+// metrics (full-day or cutoff-truncated); everything else about how the
+// range gets averaged is identical either way.
+func computeRangeAverage(from, to time.Time, perDay func(date string) (DailyMetrics, error)) (AggregateMetrics, error) {
 	fromLocal := from.In(vnLocation)
 	toLocal := to.In(vnLocation)
 	out := AggregateMetrics{
@@ -172,7 +239,7 @@ func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
 	day := time.Date(fromLocal.Year(), fromLocal.Month(), fromLocal.Day(), 0, 0, 0, 0, vnLocation)
 	last := time.Date(toLocal.Year(), toLocal.Month(), toLocal.Day(), 0, 0, 0, 0, vnLocation)
 	for !day.After(last) {
-		m, err := GetDailyMetrics(day.Format("2006-01-02"))
+		m, err := perDay(day.Format("2006-01-02"))
 		if err == nil {
 			out.DayCount++
 			if m.HasJamData {

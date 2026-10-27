@@ -298,6 +298,99 @@ func TestGetRangeAverageIgnoresDaysWithoutData(t *testing.T) {
 	}
 }
 
+// TestGetDailyMetricsUntilTruncatesByWallClockTime is the core guard for
+// the "so sánh: hôm nay — TB 7 ngày — TB 30 ngày" fairness fix: comparing
+// a still-in-progress "today" against historical FULL days is biased, so
+// each historical day must be truncated to the same wall-clock cutoff.
+func TestGetDailyMetricsUntilTruncatesByWallClockTime(t *testing.T) {
+	setupSources(t)
+	date := "2027-03-16"
+
+	writeTrafficDay(t, date, []fixtureScan{
+		scanAtVN(2027, 3, 16, 8, 0, []fixturePersistentPoint{
+			{Lat: 10.1, Lng: 106.1, JamFactor: 6},
+			{Lat: 10.2, Lng: 106.2, JamFactor: 8},
+		}),
+		scanAtVN(2027, 3, 16, 14, 0, []fixturePersistentPoint{ // after cutoff — excluded
+			{Lat: 10.1, Lng: 106.1, JamFactor: 2},
+		}),
+	})
+	writeTravelTimeDay(t, date, []traveltime.LogEntry{
+		{Timestamp: date + "T09:00:00+07:00", RouteID: "r1", TTI: 1.5, DelaySec: 180},
+		{Timestamp: date + "T15:00:00+07:00", RouteID: "r1", TTI: 9.0, DelaySec: 600}, // after cutoff — excluded
+	})
+	createIncident(t, time.Date(2027, 3, 16, 10, 0, 0, 0, vnLocation), "Va chạm")
+	createIncident(t, time.Date(2027, 3, 16, 11, 0, 0, 0, vnLocation), "Va chạm")
+	createIncident(t, time.Date(2027, 3, 16, 20, 0, 0, 0, vnLocation), "Đông xe") // after cutoff — excluded
+
+	// Cutoff's own calendar date (1999-01-01, nowhere near `date`) must be
+	// ignored — only its 12:00:00 wall-clock time matters, applied to `date`.
+	cutoff := time.Date(1999, 1, 1, 12, 0, 0, 0, vnLocation)
+
+	m, err := GetDailyMetricsUntil(date, cutoff)
+	if err != nil {
+		t.Fatalf("GetDailyMetricsUntil: %v", err)
+	}
+
+	if !m.HasJamData || m.JamPointCount != 2 {
+		t.Fatalf("expected only the pre-cutoff scan's 2 points, got hasData=%v count=%d", m.HasJamData, m.JamPointCount)
+	}
+	if diff := m.JamAvgFactor - 7.0; diff > 1e-9 || diff < -1e-9 { // (6+8)/2, the 14:00 scan's JF 2 excluded
+		t.Errorf("JamAvgFactor = %v, want 7.0 (14:00 scan must be excluded)", m.JamAvgFactor)
+	}
+	if !m.HasTTIData || m.TTISampleCount != 1 || m.TTIAvg != 1.5 {
+		t.Errorf("expected only the 09:00 TTI entry (avg 1.5), got hasData=%v count=%d avg=%v", m.HasTTIData, m.TTISampleCount, m.TTIAvg)
+	}
+	if m.IncidentCount != 2 {
+		t.Errorf("IncidentCount = %d, want 2 (20:00 incident must be excluded)", m.IncidentCount)
+	}
+}
+
+func TestGetDailyMetricsUntilEmptyBeforeCutoffHasNoData(t *testing.T) {
+	setupSources(t)
+	date := "2027-03-17"
+	// Everything happens AFTER the cutoff — nothing should count.
+	writeTrafficDay(t, date, []fixtureScan{
+		scanAtVN(2027, 3, 17, 14, 0, []fixturePersistentPoint{{Lat: 1, Lng: 1, JamFactor: 5}}),
+	})
+	cutoff := time.Date(2027, 3, 17, 6, 0, 0, 0, vnLocation)
+
+	m, err := GetDailyMetricsUntil(date, cutoff)
+	if err != nil {
+		t.Fatalf("GetDailyMetricsUntil: %v", err)
+	}
+	if m.HasJamData {
+		t.Errorf("expected no jam data before a 06:00 cutoff when the only scan is at 14:00, got %+v", m)
+	}
+}
+
+func TestGetRangeAverageUntilUsesOnlyPreCutoffDataPerDay(t *testing.T) {
+	setupSources(t)
+	writeTrafficDay(t, "2027-05-01", []fixtureScan{
+		scanAtVN(2027, 5, 1, 8, 0, []fixturePersistentPoint{{Lat: 1, Lng: 1, JamFactor: 4}}),
+		scanAtVN(2027, 5, 1, 18, 0, []fixturePersistentPoint{{Lat: 1, Lng: 1, JamFactor: 10}}), // after cutoff
+	})
+	writeTrafficDay(t, "2027-05-02", []fixtureScan{
+		scanAtVN(2027, 5, 2, 8, 0, []fixturePersistentPoint{{Lat: 1, Lng: 1, JamFactor: 6}}),
+		scanAtVN(2027, 5, 2, 18, 0, []fixturePersistentPoint{{Lat: 1, Lng: 1, JamFactor: 10}}), // after cutoff
+	})
+
+	from := time.Date(2027, 5, 1, 0, 0, 0, 0, vnLocation)
+	to := time.Date(2027, 5, 2, 0, 0, 0, 0, vnLocation)
+	cutoff := time.Date(2027, 5, 2, 12, 0, 0, 0, vnLocation) // noon — excludes both days' 18:00 scans
+	agg, err := GetRangeAverageUntil(from, to, cutoff)
+	if err != nil {
+		t.Fatalf("GetRangeAverageUntil: %v", err)
+	}
+	if agg.JamDaysWithData != 2 {
+		t.Fatalf("JamDaysWithData = %d, want 2", agg.JamDaysWithData)
+	}
+	wantAvg := (4.0 + 6.0) / 2.0 // the 18:00 (JF 10) scans must not pull this up
+	if diff := agg.JamAvgFactor - wantAvg; diff > 1e-9 || diff < -1e-9 {
+		t.Errorf("JamAvgFactor = %v, want %v (post-cutoff scans must be excluded)", agg.JamAvgFactor, wantAvg)
+	}
+}
+
 func TestGetDailySeriesReturnsOneEntryPerDayOldestFirst(t *testing.T) {
 	setupSources(t)
 	series := GetDailySeries(5)
