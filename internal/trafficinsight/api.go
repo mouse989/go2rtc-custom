@@ -16,7 +16,6 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
-	"github.com/AlexxIT/go2rtc/internal/traveltime"
 )
 
 func Init() {
@@ -74,15 +73,6 @@ type averagesResponse struct {
 	// figure above. See handleAverages' doc comment.
 	Avg7Full  AggregateMetrics `json:"avg7Full"`
 	Avg30Full AggregateMetrics `json:"avg30Full"`
-	// CurrentTTIAvg/CurrentTTIAvgDelayMin/HasCurrentTTIData are the
-	// average of each route's single MOST RECENT scan (traveltime.
-	// LatestSnapshot's own AvgTTI/AvgDelaySec) — the same "right now"
-	// metric dashboard.html's "TTI TB" shows — deliberately distinct from
-	// Today.TTIAvg above (averaged across every scan since 00:00). See
-	// TodaySnapshot's own doc comment in insight.go for the same fields.
-	CurrentTTIAvg         float64 `json:"currentTTIAvg"`
-	CurrentTTIAvgDelayMin float64 `json:"currentTTIAvgDelayMin"`
-	HasCurrentTTIData     bool    `json:"hasCurrentTTIData"`
 }
 
 // GET /api/trafficinsight/averages — today's own (naturally partial, up
@@ -124,12 +114,8 @@ func handleAverages(w http.ResponseWriter, r *http.Request) {
 	avg30, _ := GetRangeAverageUntil(today.AddDate(0, 0, -30), yesterday, now)
 	avg7Full, _ := GetRangeAverage(today.AddDate(0, 0, -7), yesterday)
 	avg30Full, _ := GetRangeAverage(today.AddDate(0, 0, -30), yesterday)
-	current := traveltime.LatestSnapshot()
 
-	writeJSON(w, averagesResponse{
-		Today: todayMetrics, Avg7: avg7, Avg30: avg30, Avg7Full: avg7Full, Avg30Full: avg30Full,
-		CurrentTTIAvg: current.AvgTTI, CurrentTTIAvgDelayMin: current.AvgDelaySec / 60.0, HasCurrentTTIData: current.AvgTTI > 0,
-	})
+	writeJSON(w, averagesResponse{Today: todayMetrics, Avg7: avg7, Avg30: avg30, Avg7Full: avg7Full, Avg30Full: avg30Full})
 }
 
 // GET /api/trafficinsight/daily-series?days=N (default 30, capped at 90) —
