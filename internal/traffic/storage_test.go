@@ -115,3 +115,81 @@ func TestSaveScanDataAccumulatesSameDayCounts(t *testing.T) {
 		t.Fatalf("expected 2 scans / 3 raw points accumulated same-day, got %+v", files[0])
 	}
 }
+
+func TestDedupLatestPerSlotKeepsLatestOfTwoScansInSameSlot(t *testing.T) {
+	older := buildSheetsPayload(time.Date(2026, 4, 1, 10, 1, 0, 0, vnLocation), nil, nil, []Point{{Lat: 1}})
+	newer := buildSheetsPayload(time.Date(2026, 4, 1, 10, 9, 0, 0, vnLocation), nil, nil, []Point{{Lat: 2}})
+
+	out := dedupLatestPerSlot([]sheetsPayload{older, newer}, 15)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 scan kept (both in the 10:00-10:15 slot), got %d: %+v", len(out), out)
+	}
+	if out[0].ScannedAt != newer.ScannedAt {
+		t.Fatalf("expected the LATEST scan to be kept, got %+v", out[0])
+	}
+}
+
+func TestDedupLatestPerSlotKeepsScansInDifferentSlots(t *testing.T) {
+	a := buildSheetsPayload(time.Date(2026, 4, 1, 10, 1, 0, 0, vnLocation), nil, nil, nil)
+	b := buildSheetsPayload(time.Date(2026, 4, 1, 10, 16, 0, 0, vnLocation), nil, nil, nil)
+
+	out := dedupLatestPerSlot([]sheetsPayload{a, b}, 15)
+	if len(out) != 2 {
+		t.Fatalf("expected both scans kept (different 15-min slots), got %d: %+v", len(out), out)
+	}
+}
+
+func TestDedupLatestPerSlotPreservesChronologicalOrder(t *testing.T) {
+	s1 := buildSheetsPayload(time.Date(2026, 4, 1, 8, 0, 0, 0, vnLocation), nil, nil, nil)
+	s2dup1 := buildSheetsPayload(time.Date(2026, 4, 1, 9, 1, 0, 0, vnLocation), nil, nil, nil)
+	s2dup2 := buildSheetsPayload(time.Date(2026, 4, 1, 9, 4, 0, 0, vnLocation), nil, nil, nil)
+	s3 := buildSheetsPayload(time.Date(2026, 4, 1, 10, 0, 0, 0, vnLocation), nil, nil, nil)
+
+	out := dedupLatestPerSlot([]sheetsPayload{s1, s2dup1, s2dup2, s3}, 15)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 scans after dedup, got %d: %+v", len(out), out)
+	}
+	if out[0].ScannedAt != s1.ScannedAt || out[1].ScannedAt != s2dup2.ScannedAt || out[2].ScannedAt != s3.ScannedAt {
+		t.Fatalf("expected chronological order [s1, s2dup2(kept), s3], got %+v", out)
+	}
+}
+
+func TestDedupLatestPerSlotUnparseableTimestampAlwaysKept(t *testing.T) {
+	bad := sheetsPayload{ScannedAt: "not-a-timestamp"}
+	good := buildSheetsPayload(time.Date(2026, 4, 1, 10, 1, 0, 0, vnLocation), nil, nil, nil)
+
+	out := dedupLatestPerSlot([]sheetsPayload{bad, good}, 15)
+	if len(out) != 2 {
+		t.Fatalf("expected the unparseable scan to never be dropped, got %d: %+v", len(out), out)
+	}
+}
+
+func TestLastStoredScanTimeReturnsMostRecentScan(t *testing.T) {
+	resetStorageState(t)
+	c := Config{Storage: StorageConfig{Enabled: true}}
+
+	first := time.Date(2026, 5, 1, 9, 0, 0, 0, vnLocation)
+	second := time.Date(2026, 5, 1, 9, 15, 0, 0, vnLocation)
+	if err := saveScanData(c, first, nil, nil, nil); err != nil {
+		t.Fatalf("saveScanData #1: %v", err)
+	}
+	if err := saveScanData(c, second, nil, nil, nil); err != nil {
+		t.Fatalf("saveScanData #2: %v", err)
+	}
+
+	got, ok := lastStoredScanTime(second.Add(time.Minute))
+	if !ok {
+		t.Fatal("expected ok=true, got false")
+	}
+	if !got.Equal(second.UTC()) {
+		t.Fatalf("expected last stored scan to be %v, got %v", second.UTC(), got)
+	}
+}
+
+func TestLastStoredScanTimeNoFileReturnsFalse(t *testing.T) {
+	resetStorageState(t)
+	_, ok := lastStoredScanTime(time.Date(2026, 5, 1, 9, 0, 0, 0, vnLocation))
+	if ok {
+		t.Fatal("expected ok=false when no daily file exists yet")
+	}
+}

@@ -253,6 +253,11 @@ var tabExtraPaths = map[string][]string{
 	TabConfig:     {"/api/config", "/api/restart"},
 	TabCounting:   {"/api/counting"},
 	TabIncidents:  {"/api/incidents"},
+	// /api/traveltime/appearance here too: the "Top 10 tuyến đường" panel
+	// colors its TTI bars by the same admin-configured tiers Dashboard/
+	// Dashboard 02 use, and this is a read of a shared display config
+	// (handler itself is "any logged-in user"), not Dashboard-specific data.
+	TabTrafficInsight: {"/api/trafficinsight", "/api/traveltime/appearance"},
 	// requireSubAdmin (api_subadmin.go) does the real per-action gating
 	// (SubAdminCan* flags + SubAdminManagedUsers membership) — this entry
 	// only gets a sub admin account past the outer path check, same as

@@ -141,3 +141,52 @@ func TestPersistentPointsInRangeExcludesRawAndFilteredOnly(t *testing.T) {
 		t.Fatalf("expected only the persistent point, got %+v", rows)
 	}
 }
+
+func TestPersistentPointsInRangeDedupsScansInSameSlot(t *testing.T) {
+	resetStorageState(t)
+	c := Config{Storage: StorageConfig{Enabled: true}}
+
+	// Simulates a service restart: 2 scans a few minutes apart, both
+	// landing in the same (default 15-min) slot.
+	scan1 := time.Date(2026, 10, 27, 10, 1, 0, 0, vnLocation)
+	scan2 := time.Date(2026, 10, 27, 10, 9, 0, 0, vnLocation)
+	if err := saveScanData(c, scan1, nil, nil, []Point{{Lat: 1, Lng: 1, JamFactor: 5}}); err != nil {
+		t.Fatalf("saveScanData #1: %v", err)
+	}
+	if err := saveScanData(c, scan2, nil, nil, []Point{{Lat: 2, Lng: 2, JamFactor: 6}}); err != nil {
+		t.Fatalf("saveScanData #2: %v", err)
+	}
+
+	rows, err := PersistentPointsInRange(scan1.Add(-time.Hour), scan2.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("PersistentPointsInRange: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row (both scans deduped to the same slot), got %d: %+v", len(rows), rows)
+	}
+	if rows[0].Lat != 2 {
+		t.Fatalf("expected the LATER scan's point to be kept, got %+v", rows[0])
+	}
+}
+
+func TestPersistentPointsForDateDedupsScansInSameSlot(t *testing.T) {
+	resetStorageState(t)
+	c := Config{Storage: StorageConfig{Enabled: true}}
+
+	scan1 := time.Date(2026, 10, 27, 10, 1, 0, 0, vnLocation)
+	scan2 := time.Date(2026, 10, 27, 10, 9, 0, 0, vnLocation)
+	if err := saveScanData(c, scan1, nil, nil, []Point{{Lat: 1, Lng: 1, JamFactor: 5}}); err != nil {
+		t.Fatalf("saveScanData #1: %v", err)
+	}
+	if err := saveScanData(c, scan2, nil, nil, []Point{{Lat: 2, Lng: 2, JamFactor: 6}}); err != nil {
+		t.Fatalf("saveScanData #2: %v", err)
+	}
+
+	pts, err := PersistentPointsForDate("2026-10-27")
+	if err != nil {
+		t.Fatalf("PersistentPointsForDate: %v", err)
+	}
+	if len(pts) != 1 || pts[0].Lat != 2 {
+		t.Fatalf("expected 1 deduped point (the later scan), got %+v", pts)
+	}
+}

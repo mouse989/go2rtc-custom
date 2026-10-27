@@ -1,0 +1,471 @@
+// Package trafficinsight aggregates three already-existing data sources —
+// internal/traffic's persistent jam points, internal/traveltime's TTI logs,
+// and internal/incidents' incident log — into day-level metrics for trend
+// visualization: today vs. the last 7 days' average vs. the last 30 days'
+// average, and a weekday-by-week comparison matrix (e.g. "is this Monday
+// worse than the last few Mondays"), so an operator can see that without
+// manually cross-referencing three separate pages.
+//
+// This package owns no storage of its own — everything is computed on
+// demand from each source's already-exported query functions
+// (traffic.PersistentPointsInRange, traveltime.GetLogsForDate,
+// incidents.List). It's read-only and safe to call from any authenticated
+// request; there is nothing here for an admin to configure.
+package trafficinsight
+
+import (
+	"time"
+
+	"github.com/AlexxIT/go2rtc/internal/incidents"
+	"github.com/AlexxIT/go2rtc/internal/traffic"
+	"github.com/AlexxIT/go2rtc/internal/traveltime"
+)
+
+// vnLocation anchors every "calendar day" in this package to Vietnam
+// wall-clock time, regardless of the server process/OS timezone — same
+// pattern internal/traffic/storage.go and internal/incidents/timeslots.go
+// each already use independently.
+var vnLocation = loadVNLocation()
+
+func loadVNLocation() *time.Location {
+	if loc, err := time.LoadLocation("Asia/Ho_Chi_Minh"); err == nil {
+		return loc
+	}
+	return time.FixedZone("ICT", 7*3600)
+}
+
+// DailyMetrics holds every source's aggregate for one Vietnam-local
+// calendar day ("YYYY-MM-DD"). Each source is independent and best-effort:
+// a source with nothing recorded that day (Traffic Monitor wasn't running,
+// no incidents logged) just leaves its Has*Data flag false rather than
+// failing the whole call.
+type DailyMetrics struct {
+	Date    string `json:"date"`
+	Weekday string `json:"weekday"` // "T2".."T7","CN" — Vietnam-local day of week, for chart/matrix labels
+
+	JamAvgFactor  float64 `json:"jamAvgFactor"`
+	JamPointCount int     `json:"jamPointCount"` // persistent-point readings summed across the day's scans
+	JamScanCount  int     `json:"jamScanCount"`  // distinct scan timestamps that day
+	HasJamData    bool    `json:"hasJamData"`
+
+	TTIAvg float64 `json:"ttiAvg"`
+	// TTIAvgDelayMin is the average delay in minutes (traveltime.LogEntry's
+	// DelaySec/60) behind the dimensionless TTIAvg ratio — TTI alone
+	// ("1.4") doesn't say whether that's 2 minutes or 20; this is what lets
+	// the page show "TTI 1.4 (trễ ~6 phút)" instead of just the ratio.
+	TTIAvgDelayMin float64 `json:"ttiAvgDelayMin"`
+	TTISampleCount int     `json:"ttiSampleCount"`
+	HasTTIData     bool    `json:"hasTTIData"`
+
+	IncidentCount       int            `json:"incidentCount"`
+	IncidentsByCategory map[string]int `json:"incidentsByCategory,omitempty"`
+}
+
+// shortVietnameseWeekdays indexes Monday=0 .. Sunday=6 — compact labels for
+// chart ticks and matrix cells (vietnameseWeekdays below spells them out).
+var shortVietnameseWeekdays = []string{"T2", "T3", "T4", "T5", "T6", "T7", "CN"}
+
+// weekdayAbbr returns t's short Vietnamese weekday label, Monday-anchored.
+func weekdayAbbr(t time.Time) string {
+	return shortVietnameseWeekdays[(int(t.Weekday())+6)%7]
+}
+
+// dayBounds returns the [start, end] instants of the Vietnam-local calendar
+// day "date" (YYYY-MM-DD), end inclusive — same convention
+// internal/incidents/api.go's parseListFilter uses for its own date filter.
+func dayBounds(date string) (start, end time.Time, err error) {
+	start, err = time.ParseInLocation("2006-01-02", date, vnLocation)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	end = start.Add(24*time.Hour - time.Second)
+	return start, end, nil
+}
+
+// GetDailyMetrics computes the aggregate for one full Vietnam-local
+// calendar day.
+func GetDailyMetrics(date string) (DailyMetrics, error) {
+	start, end, err := dayBounds(date)
+	if err != nil {
+		return DailyMetrics{}, err
+	}
+	return computeDailyMetrics(date, start, end), nil
+}
+
+// GetDailyMetricsUntil computes one day's aggregate truncated to the same
+// Vietnam-local wall-clock time as `cutoff` — only cutoff's hour/minute/
+// second are used, its own calendar date is ignored and replaced by
+// `date`. This exists for comparing a still-in-progress "today" (which
+// naturally only has data up to now) against historical baseline days:
+// comparing it against those days' FULL 24h aggregates would be biased,
+// since a full day always includes hours today hasn't reached yet — e.g.
+// comparing a 14:00 "today" snapshot against full-day history would make
+// every evening-rush-hour contribution to the baseline look like it
+// never happened today, when really it just hasn't happened yet.
+// GetDailySeries/GetWeekdayMatrix deliberately keep using full days
+// (GetDailyMetrics) — this truncated variant is only for the "so sánh:
+// hôm nay — TB 7 ngày — TB 30 ngày" comparison, see GetRangeAverageUntil.
+func GetDailyMetricsUntil(date string, cutoff time.Time) (DailyMetrics, error) {
+	start, _, err := dayBounds(date)
+	if err != nil {
+		return DailyMetrics{}, err
+	}
+	cutoffLocal := cutoff.In(vnLocation)
+	end := time.Date(start.Year(), start.Month(), start.Day(), cutoffLocal.Hour(), cutoffLocal.Minute(), cutoffLocal.Second(), 0, vnLocation)
+	return computeDailyMetrics(date, start, end), nil
+}
+
+// computeDailyMetrics is the shared aggregation behind GetDailyMetrics and
+// GetDailyMetricsUntil — [start, end] bounds every source's query, so a
+// truncated `end` (anything short of the full day) naturally yields a
+// partial-day aggregate with no other change to the logic.
+func computeDailyMetrics(date string, start, end time.Time) DailyMetrics {
+	m := DailyMetrics{Date: date, Weekday: weekdayAbbr(start)}
+
+	if rows, err := traffic.PersistentPointsInRange(start, end); err == nil && len(rows) > 0 {
+		var sum float64
+		scans := map[string]bool{}
+		for _, row := range rows {
+			sum += row.JamFactor
+			scans[row.Timestamp] = true
+		}
+		m.JamPointCount = len(rows)
+		m.JamAvgFactor = sum / float64(len(rows))
+		m.JamScanCount = len(scans)
+		m.HasJamData = true
+	}
+
+	// traveltime.GetLogsForDate has no range parameter of its own (it
+	// always returns the whole day), so [start, end] is applied here by
+	// filtering its result instead — cheap, since the entries are already
+	// loaded into memory either way.
+	if entries, err := traveltime.GetLogsForDate(date, 0); err == nil {
+		var ttiSum float64
+		var delaySecSum int
+		var n int
+		for _, e := range entries {
+			// TTI<=0 means the scan found no usable route data that
+			// interval (API failure, route not yet measured, etc.), not a
+			// real "zero congestion" reading — same convention this
+			// package's own route_tti.go and traveltime's
+			// export.go/forecast.go already use. Counting it here would
+			// silently drag the average down with non-data, which is
+			// exactly what made this KPI (the trafficinsight "TTI trung
+			// bình hôm nay" card) read lower than dashboard.html's "TTI
+			// TB" (traveltime.LatestSnapshot, which has always filtered
+			// this) for no real-traffic reason.
+			if e.RouteID == "" || e.TTI <= 0 {
+				continue
+			}
+			t, err := time.Parse(time.RFC3339, e.Timestamp)
+			if err != nil || t.Before(start) || t.After(end) {
+				continue
+			}
+			ttiSum += e.TTI
+			delaySecSum += e.DelaySec
+			n++
+		}
+		if n > 0 {
+			m.TTISampleCount = n
+			m.TTIAvg = ttiSum / float64(n)
+			m.TTIAvgDelayMin = float64(delaySecSum) / float64(n) / 60.0
+			m.HasTTIData = true
+		}
+	}
+
+	if list, err := incidents.List(incidents.ListFilter{Year: start.Year(), From: start, To: end}); err == nil {
+		m.IncidentCount = len(list)
+		if len(list) > 0 {
+			m.IncidentsByCategory = map[string]int{}
+			for _, in := range list {
+				cat := in.Category
+				if cat == "" {
+					cat = "Khác"
+				}
+				m.IncidentsByCategory[cat]++
+			}
+		}
+	}
+
+	return m
+}
+
+// AggregateMetrics summarizes DailyMetrics across a range of days — used
+// for the 7-day and 30-day baselines. Each metric's average is a simple
+// mean of only the days that actually had data for that metric (not
+// weighted by sample count and not diluted by data-less days), so a day the
+// Traffic Monitor happened to be off doesn't drag the jam average toward
+// zero.
+type AggregateMetrics struct {
+	FromDate string `json:"fromDate"`
+	ToDate   string `json:"toDate"`
+	DayCount int    `json:"dayCount"`
+
+	JamAvgFactor      float64 `json:"jamAvgFactor"`
+	JamDaysWithData   int     `json:"jamDaysWithData"`
+	JamPointAvgPerDay float64 `json:"jamPointAvgPerDay"`
+
+	TTIAvg          float64 `json:"ttiAvg"`
+	TTIAvgDelayMin  float64 `json:"ttiAvgDelayMin"`
+	TTIDaysWithData int     `json:"ttiDaysWithData"`
+
+	IncidentAvgPerDay float64 `json:"incidentAvgPerDay"`
+	IncidentTotal     int     `json:"incidentTotal"`
+}
+
+// GetRangeAverage averages each metric over every full Vietnam-local
+// calendar day from "from" to "to" inclusive.
+func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
+	return computeRangeAverage(from, to, GetDailyMetrics)
+}
+
+// GetRangeAverageUntil is GetRangeAverage's time-truncated counterpart —
+// each day in [from, to] is computed via GetDailyMetricsUntil(date,
+// cutoff) instead of the full day, so the resulting average is directly
+// comparable to a still-in-progress "today" (which naturally only has
+// data up to cutoff/now) without the bias of a full-day baseline. Callers
+// building the "so sánh: hôm nay — TB 7 ngày — TB 30 ngày" comparison
+// should also exclude today itself from [from, to] — comparing today
+// against a baseline that includes today (even truncated) would be
+// comparing it partly against itself.
+func GetRangeAverageUntil(from, to, cutoff time.Time) (AggregateMetrics, error) {
+	return computeRangeAverage(from, to, func(date string) (DailyMetrics, error) {
+		return GetDailyMetricsUntil(date, cutoff)
+	})
+}
+
+// computeRangeAverage is the shared accumulation loop behind
+// GetRangeAverage and GetRangeAverageUntil — perDay supplies each day's
+// metrics (full-day or cutoff-truncated); everything else about how the
+// range gets averaged is identical either way.
+func computeRangeAverage(from, to time.Time, perDay func(date string) (DailyMetrics, error)) (AggregateMetrics, error) {
+	fromLocal := from.In(vnLocation)
+	toLocal := to.In(vnLocation)
+	out := AggregateMetrics{
+		FromDate: fromLocal.Format("2006-01-02"),
+		ToDate:   toLocal.Format("2006-01-02"),
+	}
+
+	var jamSum, ttiSum, ttiDelaySum float64
+	var jamPointSum int
+
+	day := time.Date(fromLocal.Year(), fromLocal.Month(), fromLocal.Day(), 0, 0, 0, 0, vnLocation)
+	last := time.Date(toLocal.Year(), toLocal.Month(), toLocal.Day(), 0, 0, 0, 0, vnLocation)
+	for !day.After(last) {
+		m, err := perDay(day.Format("2006-01-02"))
+		if err == nil {
+			out.DayCount++
+			if m.HasJamData {
+				jamSum += m.JamAvgFactor
+				jamPointSum += m.JamPointCount
+				out.JamDaysWithData++
+			}
+			if m.HasTTIData {
+				ttiSum += m.TTIAvg
+				ttiDelaySum += m.TTIAvgDelayMin
+				out.TTIDaysWithData++
+			}
+			out.IncidentTotal += m.IncidentCount
+		}
+		day = day.AddDate(0, 0, 1)
+	}
+
+	if out.JamDaysWithData > 0 {
+		out.JamAvgFactor = jamSum / float64(out.JamDaysWithData)
+		out.JamPointAvgPerDay = float64(jamPointSum) / float64(out.JamDaysWithData)
+	}
+	if out.TTIDaysWithData > 0 {
+		out.TTIAvg = ttiSum / float64(out.TTIDaysWithData)
+		out.TTIAvgDelayMin = ttiDelaySum / float64(out.TTIDaysWithData)
+	}
+	if out.DayCount > 0 {
+		out.IncidentAvgPerDay = float64(out.IncidentTotal) / float64(out.DayCount)
+	}
+	return out, nil
+}
+
+// TodaySnapshot is the page's "right now" section: today's day-level
+// aggregate plus the LIVE current-moment map points (traffic.LatestSnapshot
+// — the in-memory result of the most recent scan), not the day's full
+// accumulated history, so the map reflects what's happening right now
+// rather than a blur of every scan since midnight.
+type TodaySnapshot struct {
+	Date      string              `json:"date"`
+	Metrics   DailyMetrics        `json:"metrics"`
+	Points    []traffic.DashPoint `json:"points"`
+	ScannedAt string              `json:"scannedAt,omitempty"`
+	// LivePersistentCount is the CURRENT (not day-aggregated) number of
+	// persistent jam points — len(Points), named explicitly so the "Chỉ số
+	// giao thông hôm nay" strip doesn't have to infer it from array length.
+	LivePersistentCount int     `json:"livePersistentCount"`
+	RouteCount          int     `json:"routeCount"`         // traveltime.LatestSnapshot()
+	RouteTotalLengthKm  float64 `json:"routeTotalLengthKm"` // traveltime.LatestSnapshot()
+}
+
+// GetTodaySnapshot returns TodaySnapshot for the current Vietnam-local date.
+func GetTodaySnapshot() (TodaySnapshot, error) {
+	date := time.Now().In(vnLocation).Format("2006-01-02")
+	m, err := GetDailyMetrics(date)
+	if err != nil {
+		return TodaySnapshot{}, err
+	}
+	live := traffic.LatestSnapshot()
+	tt := traveltime.LatestSnapshot()
+	return TodaySnapshot{
+		Date:                date,
+		Metrics:             m,
+		Points:              live.Points,
+		ScannedAt:           live.ScannedAt,
+		LivePersistentCount: len(live.Points),
+		RouteCount:          tt.RouteCount,
+		RouteTotalLengthKm:  tt.TotalLengthKm,
+	}, nil
+}
+
+// maxDailySeriesDays bounds the ?days= query param on the trend-chart
+// endpoint for the same reason maxWeekdayMatrixWeeks bounds ?weeks=: each
+// extra day is another GetDailyMetrics call (3 source reads).
+const maxDailySeriesDays = 90
+
+// GetDailySeries returns one DailyMetrics per Vietnam-local calendar day,
+// oldest first, for the trailing `days` days (today inclusive) — the data
+// behind the page's day-by-day trend chart.
+func GetDailySeries(days int) []DailyMetrics {
+	if days <= 0 {
+		days = 30
+	}
+	if days > maxDailySeriesDays {
+		days = maxDailySeriesDays
+	}
+
+	now := time.Now().In(vnLocation)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, vnLocation)
+
+	out := make([]DailyMetrics, 0, days)
+	for i := days - 1; i >= 0; i-- {
+		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		if m, err := GetDailyMetrics(date); err == nil {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// GetDailySeriesRange returns one DailyMetrics per Vietnam-local calendar
+// day, oldest first, for the explicit [from, to] range (both inclusive,
+// YYYY-MM-DD) — the trend chart's "Từ/Đến" mode, as opposed to
+// GetDailySeries' "trailing N days from today". A range longer than
+// maxDailySeriesDays is clamped by moving `from` forward (keeping the most
+// recent end of the range, same spirit as GetDailySeries silently capping
+// an overlong `days`) rather than erroring.
+func GetDailySeriesRange(from, to string) ([]DailyMetrics, error) {
+	fromT, err := time.ParseInLocation("2006-01-02", from, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	toT, err := time.ParseInLocation("2006-01-02", to, vnLocation)
+	if err != nil {
+		return nil, err
+	}
+	if toT.Before(fromT) {
+		fromT, toT = toT, fromT
+	}
+	if days := int(toT.Sub(fromT).Hours()/24) + 1; days > maxDailySeriesDays {
+		fromT = toT.AddDate(0, 0, -(maxDailySeriesDays - 1))
+	}
+
+	out := make([]DailyMetrics, 0, maxDailySeriesDays)
+	for d := fromT; !d.After(toT); d = d.AddDate(0, 0, 1) {
+		if m, err := GetDailyMetrics(d.Format("2006-01-02")); err == nil {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// WeekdayMatrixCell is one day's metrics placed at a (weekday, week)
+// position in the comparison grid.
+type WeekdayMatrixCell struct {
+	Date           string  `json:"date"`
+	JamAvgFactor   float64 `json:"jamAvgFactor"`
+	HasJamData     bool    `json:"hasJamData"`
+	TTIAvg         float64 `json:"ttiAvg"`
+	TTIAvgDelayMin float64 `json:"ttiAvgDelayMin"`
+	HasTTIData     bool    `json:"hasTTIData"`
+	IncidentCount  int     `json:"incidentCount"`
+	HasData        bool    `json:"hasData"` // any source had data this day — used to grey out a cell entirely
+	Future         bool    `json:"future"`  // day hasn't happened yet (current week's remaining days)
+}
+
+// WeekInfo labels one column (one week) of the matrix.
+type WeekInfo struct {
+	WeekStart string `json:"weekStart"` // Monday's date, YYYY-MM-DD
+	Label     string `json:"label"`     // e.g. "20/10 - 26/10"
+}
+
+// WeekdayMatrixResult is a weeks (oldest→newest) × 7-weekdays (Mon→Sun)
+// grid: Cells[weekdayIndex][weekIndex].
+type WeekdayMatrixResult struct {
+	Weeks    []WeekInfo            `json:"weeks"`
+	Weekdays []string              `json:"weekdays"`
+	Cells    [][]WeekdayMatrixCell `json:"cells"`
+}
+
+var vietnameseWeekdays = []string{"Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"}
+
+// maxWeekdayMatrixWeeks bounds the ?weeks= query param: each extra week is
+// 7 more GetDailyMetrics calls (each reading a traffic day-file, a
+// travel-time day-file, and the incidents year already held in memory), so
+// an unbounded value could be used to force a lot of disk I/O per request.
+const maxWeekdayMatrixWeeks = 12
+
+// GetWeekdayMatrix returns the last `weeks` ISO weeks (Monday-start,
+// Vietnam local), oldest first, ending with the current — possibly
+// partial — week. A day that hasn't happened yet is marked Future instead
+// of being queried.
+func GetWeekdayMatrix(weeks int) WeekdayMatrixResult {
+	if weeks <= 0 {
+		weeks = 6
+	}
+	if weeks > maxWeekdayMatrixWeeks {
+		weeks = maxWeekdayMatrixWeeks
+	}
+
+	now := time.Now().In(vnLocation)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, vnLocation)
+	// ISO weekday with Monday=0 .. Sunday=6.
+	offset := (int(today.Weekday()) + 6) % 7
+	curMonday := today.AddDate(0, 0, -offset)
+
+	result := WeekdayMatrixResult{Weekdays: vietnameseWeekdays}
+	result.Cells = make([][]WeekdayMatrixCell, 7)
+	for i := range result.Cells {
+		result.Cells[i] = make([]WeekdayMatrixCell, weeks)
+	}
+
+	for w := 0; w < weeks; w++ {
+		weekStart := curMonday.AddDate(0, 0, -7*(weeks-1-w))
+		weekEnd := weekStart.AddDate(0, 0, 6)
+		result.Weeks = append(result.Weeks, WeekInfo{
+			WeekStart: weekStart.Format("2006-01-02"),
+			Label:     weekStart.Format("02/01") + " - " + weekEnd.Format("02/01"),
+		})
+		for d := 0; d < 7; d++ {
+			day := weekStart.AddDate(0, 0, d)
+			cell := WeekdayMatrixCell{Date: day.Format("2006-01-02")}
+			if day.After(today) {
+				cell.Future = true
+			} else if m, err := GetDailyMetrics(cell.Date); err == nil {
+				cell.JamAvgFactor = m.JamAvgFactor
+				cell.HasJamData = m.HasJamData
+				cell.TTIAvg = m.TTIAvg
+				cell.TTIAvgDelayMin = m.TTIAvgDelayMin
+				cell.HasTTIData = m.HasTTIData
+				cell.IncidentCount = m.IncidentCount
+				cell.HasData = m.HasJamData || m.HasTTIData || m.IncidentCount > 0
+			}
+			result.Cells[d][w] = cell
+		}
+	}
+	return result
+}

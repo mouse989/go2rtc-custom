@@ -172,6 +172,10 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
       Sự cố GT
     </a>
+    <a href="/trafficinsight.html" class="nav-item" data-tab-require="trafficinsight" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
+      Tổng quan giao thông
+    </a>
     <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
       Sub Admin
@@ -983,7 +987,7 @@ async function initD2Map() {
   // CDN, …) — the config it edits is independent of the map rendering.
   document.getElementById('d2HeatCfgBtn').style.display = '';
   try {
-    const settings = await apiFetch('/api/settings');
+    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops()]);
     const apiKey = (settings||{}).vietmap_api_key || '';
     const el = document.getElementById('d2Map');
     if (!el) return;
@@ -1034,14 +1038,15 @@ function addJamLayers() {
     id:'jams-dot', type:'circle', source:'jams', minzoom:13,
     paint:{
       'circle-radius': ['interpolate',['linear'],['get','jf'], 0,2, 10,7],
-      'circle-color': ['case',['>=',['get','jf'],8],'#f87171',['>=',['get','jf'],5],'#fbbf24','#94a3b8'],
+      'circle-color': jfColorExpression(),
       'circle-opacity': .85, 'circle-stroke-width':1, 'circle-stroke-color':'rgba(255,255,255,.45)',
     },
   });
   _map.on('click','jams-dot', e => {
     const p = e.features[0].properties;
-    const jf = (+p.jf).toFixed(1);
-    const jfColor = +p.jf >= 8 ? '#dc2626' : +p.jf >= 5 ? '#d97706' : '#475569';
+    const jfNum = +p.jf;
+    const jf = jfNum.toFixed(1);
+    const jfColor = jfToColor(jfNum);
     // Explicit dark colors, NOT var(--text) — vietmapgl's Popup box is
     // always plain white regardless of the app's theme, so inherited
     // dark-theme light text is unreadable here (same bug/fix as commit
@@ -1378,6 +1383,19 @@ async function resetHeatmapCfg() {
 // after initD2Map's 'load' handler fires (it's the thing that calls it
 // the first time), so this guard exists purely for defense, not as a
 // pending-replay queue.
+//
+// Marker position convention (project-wide — see map.html's commit "Fix
+// Traffic Event/AI Event markers appearing to drift from their true
+// position when zoomed out", and the longer note in trafficinsight.html
+// near its own incident-marker code): el.style.cssText below already sets
+// the element's size BEFORE constructing the Marker, which is the main
+// fix — but always also re-run setLngLat() once more right after addTo(),
+// once the element is actually attached with its final size, as a second
+// line of defense. For a point set that's purely for display (no
+// per-marker DOM/hover content), prefer a native GL layer instead (see
+// `jams-dot` above) — it's painted in lockstep with the basemap every
+// frame and categorically cannot drift; DOM Markers are for points that
+// need real per-marker interactivity, like the click-to-popup below.
 let _d2IncMarkers = [];
 function updateD2MapIncidents(pts) {
   if (!_map || !_mapInited) return;
@@ -1399,7 +1417,10 @@ function updateD2MapIncidents(pts) {
           escH(i.content||'') + (i.unit ? `<br><i>${escH(i.unit)}</i>` : '') + `</div>`;
         new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat([i.lng, i.lat]).setHTML(html2).addTo(_map);
       });
-      return new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]).addTo(_map);
+      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]);
+      marker.addTo(_map);
+      marker.setLngLat([i.lng, i.lat]);
+      return marker;
     });
   } catch(_) {}
 }

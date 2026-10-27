@@ -78,7 +78,7 @@ func PersistentPointsInRange(from, to time.Time) ([]PersistentExportRow, error) 
 		if json.Unmarshal(data, &rec) != nil {
 			continue
 		}
-		for _, scan := range rec.Scans {
+		for _, scan := range dedupLatestPerSlot(rec.Scans, IntervalMin()) {
 			t, err := time.Parse(time.RFC3339, scan.ScannedAt)
 			if err != nil {
 				continue
@@ -92,6 +92,37 @@ func PersistentPointsInRange(from, to time.Time) ([]PersistentExportRow, error) 
 					Timestamp: ts, Lat: p.Lat, Lng: p.Lng, JamFactor: p.JamFactor,
 				})
 			}
+		}
+	}
+	return out, nil
+}
+
+// PersistentPointsForDate returns every persistent-jam point recorded on
+// one Vietnam-local calendar day ("YYYY-MM-DD"), across every scan that
+// day, in the DashPoint shape (keeping Label/Area/Region) a map popup
+// wants — unlike PersistentPointsInRange above, whose PersistentExportRow
+// is deliberately narrowed to the external CSV tool's 4 columns. Used by
+// internal/trafficinsight's "xem theo ngày" map mode (as opposed to
+// LatestSnapshot's live "hiện tại" points).
+func PersistentPointsForDate(date string) ([]DashPoint, error) {
+	data, err := os.ReadFile(filepath.Join(dataDir(), date+".json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []DashPoint{}, nil
+		}
+		return nil, err
+	}
+	var rec dailyRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil, err
+	}
+	out := []DashPoint{}
+	for _, scan := range dedupLatestPerSlot(rec.Scans, IntervalMin()) {
+		for _, p := range scan.Persistent {
+			out = append(out, DashPoint{
+				Lat: p.Lat, Lng: p.Lng, JamFactor: p.JamFactor,
+				Label: p.Label, Area: p.Area, Region: p.Region,
+			})
 		}
 	}
 	return out, nil

@@ -8,6 +8,7 @@ import (
 func registerSettingsHandler() {
 	http.HandleFunc("/api/settings", settingsHandler)
 	http.HandleFunc("/api/heatmap-cfg", heatmapCfgHandler)
+	http.HandleFunc("/api/jam-color-cfg", jamColorCfgHandler)
 }
 
 func settingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +127,73 @@ func heatmapCfgHandler(w http.ResponseWriter, r *http.Request) {
 		s.HeatmapCfg = nil
 		_ = UpdateSettings(s)
 		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+type jamColorCfgOut struct {
+	Stops     []JamColorStop `json:"stops"`
+	IsDefault bool           `json:"isDefault"`
+}
+
+// jamColorCfgHandler GET/PUT/DELETE /api/jam-color-cfg — the shared
+// JamFactor color-scale config every map page (map.html, dashboard2.html,
+// trafficinsight.html, …) reads. GET: any authenticated user, and always
+// resolves to a non-empty, ready-to-use stop list (custom or built-in
+// default — see jam_color.go) so no page needs its own fallback copy.
+// PUT/DELETE: admin only.
+func jamColorCfgHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s := GetSettings()
+		w.Header().Set("Content-Type", "application/json")
+		if len(s.JamColorStops) > 0 {
+			json.NewEncoder(w).Encode(jamColorCfgOut{Stops: s.JamColorStops, IsDefault: false})
+			return
+		}
+		json.NewEncoder(w).Encode(jamColorCfgOut{Stops: jamColorDefaultStops, IsDefault: true})
+
+	case http.MethodPost, http.MethodPut:
+		if user.Role != RoleAdmin {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		var stops []JamColorStop
+		if err := json.NewDecoder(r.Body).Decode(&stops); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stops = sortJamColorStops(stops)
+		if err := validateJamColorStops(stops); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		s := GetSettings()
+		s.JamColorStops = stops
+		if err := UpdateSettings(s); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(jamColorCfgOut{Stops: stops, IsDefault: false})
+
+	case http.MethodDelete:
+		if user.Role != RoleAdmin {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		s := GetSettings()
+		s.JamColorStops = nil
+		_ = UpdateSettings(s)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(jamColorCfgOut{Stops: jamColorDefaultStops, IsDefault: true})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

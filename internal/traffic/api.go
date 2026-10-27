@@ -17,6 +17,7 @@ func registerAPIHandlers() {
 	http.HandleFunc("/api/traffic/logs", handleLogs)
 	http.HandleFunc("/api/traffic/data", handleData)
 	http.HandleFunc("/api/traffic/persistent-export", handlePersistentExport)
+	http.HandleFunc("/api/traffic/duplicate-scans", handleDuplicateScans)
 }
 
 func requireTrafficAccess(w http.ResponseWriter, r *http.Request) bool {
@@ -273,4 +274,36 @@ func handlePersistentExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, rows)
+}
+
+// handleDuplicateScans  GET /api/traffic/duplicate-scans?from=YYYY-MM-DD&to=YYYY-MM-DD
+// (admin only — same gate as every other Traffic Monitor tool).
+// Defaults to=from when only "from" is given, and both=today when neither
+// is given. See duplicate_scans.go for what counts as a duplicate.
+func handleDuplicateScans(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficAccess(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from == "" && to == "" {
+		today := time.Now().In(vnLocation).Format("2006-01-02")
+		from, to = today, today
+	} else if to == "" {
+		to = from
+	} else if from == "" {
+		from = to
+	}
+
+	report, err := DetectDuplicateScans(from, to)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, report)
 }

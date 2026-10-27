@@ -352,6 +352,107 @@ function copyText(text, btn) {
   } else { fail(); }
 }
 
+// ──────────────── JamFactor (JF) color scale ────────────────
+// Shared across every map that renders JF-colored points (map.html,
+// dashboard2.html, trafficinsight.html, …) so a given JF value reads the
+// same color everywhere, and an admin customizing the scale (Admin
+// Config → 🎨 Thang màu JamFactor) changes it everywhere at once instead
+// of each page carrying its own hardcoded thresholds.
+//
+// JF_COLOR_FALLBACK mirrors internal/auth/jam_color.go's
+// jamColorDefaultStops — used only until loadJamColorStops() resolves (or
+// if that fetch fails), so a page's first paint isn't blocked on it.
+const JF_COLOR_FALLBACK = [
+  { value: 0.0, color: '#2ecc71' },
+  { value: 3.0, color: '#a3e635' },
+  { value: 5.0, color: '#facc15' },
+  { value: 6.5, color: '#fb923c' },
+  { value: 7.5, color: '#f87171' },
+  { value: 8.0, color: '#ef4444' },
+  { value: 8.2, color: '#e03e3e' },
+  { value: 8.4, color: '#dc2626' },
+  { value: 8.6, color: '#c81e1e' },
+  { value: 8.8, color: '#b91c1c' },
+  { value: 9.0, color: '#a51c1c' },
+  { value: 9.2, color: '#941818' },
+  { value: 9.4, color: '#841414' },
+  { value: 9.6, color: '#711111' },
+  { value: 9.8, color: '#5e0d0d' },
+  { value: 10.0, color: '#450a0a' },
+];
+
+let _jfColorStops = null; // null = not loaded yet; falls back to JF_COLOR_FALLBACK
+
+// loadJamColorStops fetches the admin-configured (or default) JF color
+// scale once. Call it before building a map layer or rendering a legend
+// that uses jfColorExpression()/jfToColor() — both work off
+// JF_COLOR_FALLBACK until this resolves, so calling it isn't strictly
+// required, just needed to reflect an admin's customization.
+async function loadJamColorStops() {
+  try {
+    const data = await apiFetch('/api/jam-color-cfg');
+    if (data && Array.isArray(data.stops) && data.stops.length >= 2) {
+      _jfColorStops = data.stops;
+    }
+  } catch (_) { /* keep the fallback */ }
+  return _jfColorStops || JF_COLOR_FALLBACK;
+}
+
+function jfColorStops() {
+  return (_jfColorStops && _jfColorStops.length >= 2) ? _jfColorStops : JF_COLOR_FALLBACK;
+}
+
+// jfGradientCssString builds a CSS linear-gradient() string spanning the
+// stops' own 0–10 value range, for a plain <div> legend bar — the visual
+// counterpart to jfColorExpression()'s GL paint expression, so the legend
+// always matches what the map itself is drawing.
+function jfGradientCssString() {
+  const stops = jfColorStops();
+  const min = stops[0].value, max = stops[stops.length - 1].value;
+  const span = max - min || 1;
+  const parts = stops.map(s => `${s.color} ${((s.value - min) / span * 100).toFixed(1)}%`);
+  return `linear-gradient(to right, ${parts.join(', ')})`;
+}
+
+// jfColorExpression returns a MapLibre/VietMapGL `interpolate` paint
+// expression reading the feature's "jf" property — drop this straight
+// into a layer's `circle-color` (or similar) paint property so the color
+// blends continuously between stops instead of snapping at a threshold.
+function jfColorExpression() {
+  const stops = jfColorStops();
+  const expr = ['interpolate', ['linear'], ['get', 'jf']];
+  stops.forEach(s => { expr.push(s.value, s.color); });
+  return expr;
+}
+
+function _hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function _lerpHexColor(c1, c2, t) {
+  const [r1, g1, b1] = _hexToRgb(c1), [r2, g2, b2] = _hexToRgb(c2);
+  const r = Math.round(r1 + (r2 - r1) * t), g = Math.round(g1 + (g2 - g1) * t), b = Math.round(b1 + (b2 - b1) * t);
+  return '#' + [r, g, b].map(x => Math.max(0, Math.min(255, x)).toString(16).padStart(2, '0')).join('');
+}
+
+// jfToColor computes the same gradient's color for a plain JS number
+// (popups, legends, anywhere outside a GL paint expression) by linearly
+// interpolating between the two stops bracketing v.
+function jfToColor(v) {
+  const stops = jfColorStops();
+  if (v === null || v === undefined || Number.isNaN(v)) return stops[0].color;
+  if (v <= stops[0].value) return stops[0].color;
+  if (v >= stops[stops.length - 1].value) return stops[stops.length - 1].color;
+  for (let i = 1; i < stops.length; i++) {
+    if (v <= stops[i].value) {
+      const a = stops[i - 1], b = stops[i];
+      const t = (v - a.value) / (b.value - a.value);
+      return _lerpHexColor(a.color, b.color, t);
+    }
+  }
+  return stops[stops.length - 1].color;
+}
+
 // Returns the first page the user is permitted to access.
 function firstPermittedPage(u) {
   if (!u || u.role === 'admin') return '/map.html';

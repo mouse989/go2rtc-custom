@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tổng quan giao thông – UTMC Platform</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+.ti-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:1.25rem 1.4rem; margin-bottom:1rem;
+}
+.ti-section h3 {
+  font-size:.85rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin:0 0 1rem;
+  display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+}
+.ti-kpi-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
+.ti-kpi-card {
+  position:relative; background:var(--surface2); border:1px solid var(--border);
+  border-radius:12px; padding:1.1rem 1.2rem 1.2rem; overflow:hidden;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.ti-kpi-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:4px;
+  background:var(--ti-accent, #60a5fa);
+}
+.ti-kpi-card.ti-kpi-jam  { --ti-accent: linear-gradient(90deg,#fbbf24,#ef4444); }
+.ti-kpi-card.ti-kpi-jam::before { background:var(--ti-accent); }
+.ti-kpi-card.ti-kpi-tti  { --ti-accent: linear-gradient(90deg,#38bdf8,#6366f1); }
+.ti-kpi-card.ti-kpi-tti::before { background:var(--ti-accent); }
+.ti-kpi-card.ti-kpi-inc  { --ti-accent: linear-gradient(90deg,#f472b6,#a855f7); }
+.ti-kpi-card.ti-kpi-inc::before { background:var(--ti-accent); }
+.ti-kpi-card .ti-kpi-title {
+  font-size:.82rem; font-weight:700; color:var(--text); margin-bottom:.9rem;
+  display:flex; align-items:center; gap:.5rem;
+}
+.ti-kpi-icon {
+  width:28px; height:28px; border-radius:8px; display:inline-flex; align-items:center;
+  justify-content:center; font-size:.9rem; flex-shrink:0;
+}
+.ti-kpi-jam .ti-kpi-icon  { background:#f9731622; }
+.ti-kpi-tti .ti-kpi-icon  { background:#6366f122; }
+.ti-kpi-inc .ti-kpi-icon  { background:#a855f722; }
+.ti-kpi-row { display:flex; align-items:center; justify-content:space-between; padding:.42rem 0; border-top:1px solid var(--border); gap:.5rem; }
+.ti-kpi-row:first-of-type { border-top:none; }
+.ti-kpi-row.ti-kpi-hero { padding-bottom:.6rem; }
+.ti-kpi-row .ti-kpi-label { font-size:.76rem; color:var(--text-muted); }
+.ti-kpi-row .ti-kpi-value { font-size:1.1rem; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.ti-kpi-hero .ti-kpi-value { font-size:1.9rem; font-variant-numeric:normal; line-height:1; }
+.ti-kpi-sub { font-size:.72rem; color:var(--text-muted); font-weight:500; margin-left:.3rem; }
+.ti-jf-swatch { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; margin-right:.3rem; box-shadow:0 0 0 2px var(--surface2); }
+.ti-delta { display:inline-flex; align-items:center; gap:.15rem; font-size:.7rem; font-weight:700; border-radius:5px; padding:.1rem .45rem; margin-left:.4rem; }
+.ti-delta.up { background:#dc262622; color:#f87171; }
+.ti-delta.down { background:#16a34a22; color:#4ade80; }
+.ti-delta.flat { background:#4b556322; color:#9ca3af; }
+.ti-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
+
+.ti-stat-strip { display:flex; gap:.7rem; flex-wrap:wrap; }
+.ti-stat-tile {
+  --ti-stat-c: var(--text-muted); flex:1; min-width:140px;
+  background:linear-gradient(135deg, color-mix(in srgb, var(--ti-stat-c) 12%, var(--surface2)), var(--surface2) 65%);
+  border:1px solid var(--border); border-left:3px solid var(--ti-stat-c);
+  border-radius:10px; padding:.65rem .8rem;
+}
+.ti-stat-tile .ti-stat-lbl { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ti-stat-tile .ti-stat-val { font-size:1.55rem; font-weight:800; line-height:1.15; color:var(--ti-stat-c); margin-top:.2rem; }
+.ti-stat-tile .ti-stat-sub { font-size:.7rem; color:var(--text-muted); margin-top:.2rem; }
+@media (max-width:900px) { .ti-stat-tile { min-width:46%; } }
+
+#tiMap { height:360px; border-radius:10px; overflow:hidden; background:var(--surface2); }
+.ti-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.72rem; color:var(--text-muted); flex-wrap:wrap; }
+.ti-jf-legend-bar { flex:1; min-width:120px; height:10px; border-radius:5px; }
+.ti-jf-legend-label { font-variant-numeric:tabular-nums; }
+.ti-layer-toggle { display:flex; align-items:center; gap:.3rem; font-size:.74rem; font-weight:600; color:var(--text); text-transform:none; letter-spacing:0; cursor:pointer; white-space:nowrap; }
+.ti-layer-toggle input { accent-color:#60a5fa; cursor:pointer; }
+/* Incident (sự cố GT) points are a native GL layer (ti-incidents-bg +
+   ti-incidents-icon, added in initTiMap), not DOM markers — see the note
+   near setIncidentPoints below for why — so there is no CSS here for
+   them; icon + background color per category come from the admin-
+   configured mapping (Admin → 🚨 Sự cố GT,
+   internal/incidents/category_icons.go) and are expressed as GL paint
+   properties instead. */
+
+.ti-chart-box { height:260px; position:relative; }
+
+.ti-matrix-controls { display:flex; gap:.4rem; align-items:center; }
+.ti-matrix-controls select, .ti-matrix-controls input[type=date] {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:6px; padding:.3rem .5rem; font-size:.78rem;
+}
+.ti-matrix-wrap { overflow-x:auto; }
+.ti-matrix-table { border-collapse:collapse; font-size:.76rem; width:100%; min-width:520px; }
+.ti-matrix-table th { text-align:center; padding:.4rem .5rem; color:var(--text-muted); font-weight:700; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
+.ti-matrix-table td { text-align:center; padding:.5rem; border:1px solid var(--border); font-weight:700; font-variant-numeric:tabular-nums; min-width:68px; }
+.ti-matrix-table td.ti-rowlabel { text-align:left; font-weight:700; color:var(--text); background:none; border:none; font-size:.74rem; white-space:nowrap; padding-right:.8rem; }
+.ti-matrix-table td.ti-future { color:var(--text-muted); font-weight:400; background:none !important; }
+.ti-matrix-table td.ti-nodata { color:var(--text-muted); font-weight:400; }
+
+.ti-route-row { display:flex; align-items:flex-start; gap:.4rem; margin-bottom:.25rem; }
+.ti-route-label { width:130px; flex-shrink:0; padding-top:1px; }
+.ti-route-rname { font-size:.7rem; font-weight:600; color:var(--text); line-height:1.25; word-break:break-word; }
+.ti-route-bars { flex:1; min-width:0; }
+.ti-route-val { width:38px; flex-shrink:0; text-align:right; font-size:.74rem; font-weight:800; line-height:17px; font-variant-numeric:tabular-nums; }
+.ti-route-bar { display:flex; width:100%; height:17px; overflow:hidden; border-radius:3px; }
+.ti-route-slot { flex:1; height:100%; }
+.ti-route-slot-hl { box-shadow: inset 0 0 0 1.5px #fff; }
+.ti-route-axis-wrap { position:relative; height:16px; margin-left:calc(130px + .4rem); margin-top:.2rem; flex-shrink:0; }
+.ti-route-axis-lbl { position:absolute; font-size:.62rem; color:var(--text-muted); transform:translateX(-50%); white-space:nowrap; }
+.ti-route-legend { display:flex; gap:.6rem; margin-top:.6rem; font-size:.7rem; color:var(--text-muted); flex-wrap:wrap; align-items:center; }
+.ti-route-legend span { display:flex; align-items:center; gap:.3rem; }
+.ti-route-legend-dot { width:9px; height:9px; border-radius:2px; display:inline-block; flex-shrink:0; }
+
+/* ── Shared "Từ/Đến + quick preset" filter row — used by the daily trend
+   chart and the "Thống kê sự cố giao thông" module (ported from
+   dashboard2.html) below it ─────────────────────────────────────────── */
+.ti-filter-row { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; margin-bottom:.7rem; }
+.ti-filter-row select, .ti-filter-row input[type=date] {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:6px; padding:.3rem .5rem; font-size:.74rem; font-family:inherit;
+}
+.ti-filter-row label { font-size:.72rem; color:var(--text-muted); }
+.ti-inc-tiles { display:flex; gap:.5rem; flex-wrap:wrap; }
+.ti-inc-tile { flex:1; min-width:110px; text-align:center; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:.6rem .4rem; }
+.ti-inc-tile .n { font-size:1.4rem; font-weight:800; line-height:1; }
+.ti-inc-tile .l { font-size:.68rem; color:var(--text-muted); margin-top:.3rem; }
+.ti-an-grid { display:grid; grid-template-columns:2fr 1fr; gap:1rem; }
+.ti-an-cbox { position:relative; height:260px; }
+.ti-an-cbox.tall { height:300px; }
+
+@media (max-width:900px) {
+  .ti-kpi-grid { grid-template-columns:1fr; }
+  .ti-an-grid { grid-template-columns:1fr; }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Platform</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/dashboard2.html" class="nav-item" data-tab-require="dashboard2" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 02
+    </a>
+    <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/annotate.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm-1 4h1v2H4V9zm1 4H4v2h1v-2z" clip-rule="evenodd"/></svg>
+      Annotate
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/incidents.html" class="nav-item" data-tab-require="incidents" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      Sự cố GT
+    </a>
+    <a href="/trafficinsight.html" class="nav-item active" data-tab-require="trafficinsight" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
+      Tổng quan giao thông
+    </a>
+    <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Admin Config
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Tổng quan giao thông</h2>
+  </header>
+
+  <div class="content">
+
+    <!-- Live stat strip -->
+    <div class="ti-section">
+      <h3>📊 Chỉ số giao thông hôm nay</h3>
+      <div class="ti-stat-strip" id="tiStatStrip">
+        <div class="ti-empty">Đang tải…</div>
+      </div>
+    </div>
+
+    <!-- KPI comparison: hôm nay / 7 ngày / 30 ngày -->
+    <div class="ti-section">
+      <h3>
+        So sánh: hôm nay — trung bình 7 ngày — trung bình 30 ngày
+        <button class="btn btn-sm" id="btnRefreshKpi" style="font-size:.72rem">Làm mới</button>
+      </h3>
+      <div class="ti-kpi-grid" id="tiKpiGrid">
+        <div class="ti-empty">Đang tải…</div>
+      </div>
+    </div>
+
+    <!-- Map: persistent jam points + incidents, live or by date -->
+    <div class="ti-section">
+      <h3>
+        <span>Bản đồ điểm ùn tắc</span>
+        <div class="ti-matrix-controls">
+          <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerJF" checked> <span class="ti-jf-swatch" style="background:#ef4444"></span>Điểm JF</label>
+          <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerIncident" checked> 🚨 Sự cố GT</label>
+          <select id="tiMapMode">
+            <option value="live">Hiện tại</option>
+            <option value="date">Theo ngày</option>
+          </select>
+          <input type="date" id="tiMapDate" style="display:none">
+          <span id="tiMapScannedAt" style="font-size:.72rem;font-weight:400;color:var(--text-muted);text-transform:none;letter-spacing:0"></span>
+        </div>
+      </h3>
+      <div id="tiMap"></div>
+      <div class="ti-jf-legend">
+        <span class="ti-jf-legend-label">0</span>
+        <div class="ti-jf-legend-bar" id="tiJfLegendBar"></div>
+        <span class="ti-jf-legend-label">10</span>
+      </div>
+    </div>
+
+    <!-- Daily trend chart -->
+    <div class="ti-section">
+      <h3>
+        <span>Xu hướng theo ngày</span>
+        <div class="ti-matrix-controls">
+          <select id="tiTrendMetric">
+            <option value="jam">Ùn tắc (jamFactor TB)</option>
+            <option value="tti">TTI trung bình</option>
+            <option value="delay" selected>Thời gian trễ (phút)</option>
+            <option value="incident">Số sự cố</option>
+          </select>
+        </div>
+      </h3>
+      <div class="ti-filter-row">
+        <select id="tiTrendRange"></select>
+        <label>Từ</label>
+        <input type="date" id="tiTrendFrom">
+        <label>Đến</label>
+        <input type="date" id="tiTrendTo">
+      </div>
+      <div class="ti-chart-box"><canvas id="tiTrendChart"></canvas></div>
+    </div>
+
+    <!-- Weekday x week comparison matrix -->
+    <div class="ti-section">
+      <h3>
+        <span>So sánh theo thứ giữa các tuần</span>
+        <div class="ti-matrix-controls">
+          <select id="tiMatrixMetric">
+            <option value="jam">Ùn tắc (jamFactor TB)</option>
+            <option value="tti">TTI trung bình</option>
+            <option value="delay" selected>Thời gian trễ (phút)</option>
+            <option value="incident">Số sự cố</option>
+          </select>
+          <select id="tiMatrixWeeks">
+            <option value="4">4 tuần</option>
+            <option value="6" selected>6 tuần</option>
+            <option value="8">8 tuần</option>
+            <option value="12">12 tuần</option>
+          </select>
+        </div>
+      </h3>
+      <div style="font-size:.7rem;color:var(--text-muted);margin:-.6rem 0 .7rem">Màu theo thang riêng từng hàng — so sánh mỗi thứ với chính nó qua các tuần, không so giữa các thứ khác nhau.</div>
+      <div class="ti-matrix-wrap">
+        <table class="ti-matrix-table" id="tiMatrixTable"></table>
+      </div>
+      <div class="ti-jf-legend" style="margin-top:.6rem">
+        <span class="ti-jf-legend-label">Thấp</span>
+        <div class="ti-jf-legend-bar" style="background:linear-gradient(to right, #22c55e, #84cc16, #f59e0b, #ef4444)"></div>
+        <span class="ti-jf-legend-label">Cao (so với chính hàng đó)</span>
+      </div>
+    </div>
+
+    <!-- Thống kê sự cố giao thông (ported from dashboard2.html) -->
+    <div class="ti-section">
+      <h3><span>📊 Thống kê sự cố giao thông</span></h3>
+      <div class="ti-filter-row">
+        <select id="tiIncRange"></select>
+        <label>Từ</label>
+        <input type="date" id="tiIncFrom">
+        <label>Đến</label>
+        <input type="date" id="tiIncTo">
+        <select id="tiIncCat">
+          <option value="">Tất cả loại</option>
+          <option value="dongxe">Ùn tắc/Đông xe</option>
+          <option value="vacham">Va chạm/TNGT</option>
+          <option value="ngapnuoc">Ngập nước</option>
+          <option value="khac">Sự cố khác</option>
+        </select>
+      </div>
+      <div class="ti-inc-tiles" id="tiIncTiles"><div class="ti-empty" style="flex:1">Đang tải…</div></div>
+    </div>
+
+    <div class="ti-an-grid">
+      <div class="ti-section">
+        <h3><span>Diễn biến sự cố theo ngày</span></h3>
+        <div class="ti-an-cbox tall"><canvas id="tiAnDaily"></canvas></div>
+      </div>
+      <div class="ti-section">
+        <h3><span>Theo khung giờ</span></h3>
+        <div class="ti-an-cbox tall"><canvas id="tiAnSlot"></canvas></div>
+      </div>
+    </div>
+
+    <div class="ti-section">
+      <h3>
+        <span>Phân bố theo giờ trong ngày</span>
+        <input type="date" id="tiAnHourDate">
+      </h3>
+      <div class="ti-an-cbox"><canvas id="tiAnHour"></canvas></div>
+    </div>
+
+    <!-- Top 10 tuyến đường -->
+    <div class="ti-section">
+      <h3>
+        <span>📊 Top 10 tuyến đường</span>
+        <div class="ti-matrix-controls">
+          <select id="tiRouteMode">
+            <option value="live">Hôm nay</option>
+            <option value="date">Theo ngày</option>
+            <option value="range">Theo khoảng ngày</option>
+          </select>
+          <input type="date" id="tiRouteDate" style="display:none">
+          <select id="tiRouteHour"></select>
+        </div>
+      </h3>
+      <div class="ti-filter-row" id="tiRouteRangeRow" style="display:none">
+        <select id="tiRouteRange"></select>
+        <label>Từ</label>
+        <input type="date" id="tiRouteFrom">
+        <label>Đến</label>
+        <input type="date" id="tiRouteTo">
+      </div>
+      <div id="tiRouteBody"><div class="ti-empty">Đang tải…</div></div>
+      <div class="ti-route-axis-wrap" id="tiRouteAxis"></div>
+      <div class="ti-route-legend" id="tiRouteLegend"></div>
+    </div>
+
+  </div><!-- content -->
+</main>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+<script>
+// apiFetch, toast(), escHtml are all provided by app.js.
+//
+// ── Marker position convention (project-wide, applies to every page that
+// creates a vietmapgl.Marker: map.html, dashboard2.html, this file) ───────
+// A DOM Marker that visibly "drifts" or lags off its true point when
+// zooming has two known causes, in order of how often each shows up:
+//  1. Construction order: the element's className/style (which carry its
+//     width/height) must be set BEFORE `new vietmapgl.Marker({element:el,
+//     anchor:'center'})` — the library reads the element's size at that
+//     moment, and an unstyled 0×0 div bakes in a wrong offset that stays
+//     off by a FIXED SCREEN-PIXEL amount from then on (negligible zoomed
+//     in, large zoomed out — see map.html commit "Fix Traffic Event/AI
+//     Event markers appearing to drift..."). Always follow with a second,
+//     defensive `marker.setLngLat(...)` call right after `.addTo(map)`,
+//     once the element is actually attached with its final size.
+//  2. DOM markers are repositioned by JS on 'move'/'render' events on the
+//     main thread, while the basemap paints on the GPU. (1) alone was
+//     verified exact in an isolated harness against the real VietMap GL
+//     bundle (0.00px error through fast/slow/instant zoom) — but incident
+//     icons on THIS page still visibly drifted in production while the
+//     ti-points-dot GL layer right next to them stayed perfectly pinned,
+//     pointing at exactly this: on a heavier page (many charts + polling
+//     intervals competing for the main thread), or with the real VietMap
+//     style's terrain enabled (DOM markers query elevation via
+//     map.transform.locationPoint, which a plain GL circle layer never
+//     needs to), JS-positioned DOM markers can fall out of sync with the
+//     GPU-painted canvas in a way a local test rig can't reproduce. There
+//     is no JS fix for this from the page's side. incident points here
+//     were converted to a GL layer (ti-incidents-bg + ti-incidents-icon,
+//     added in initTiMap) for exactly this reason — click-to-popup is
+//     NOT a reason to keep DOM Markers, a GL layer's 'click' event +
+//     queryRenderedFeatures does that just as well (see setIncidentPoints
+//     below). Reserve DOM Markers for points that genuinely need
+//     persistent per-marker DOM content (a draggable handle, an inline
+//     form, a live-updating label glued to the marker) — not just a
+//     click-to-open popup.
+let _tiMap = null;
+let _tiMapInited = false;
+let _tiIncidentIconIds = new Set(); // category icon ids already map.addImage()'d — see loadTiIncidentCategoryImages
+// TI_INC_CIRCLE_PX matches the ti-incidents-bg circle layer's diameter
+// (circle-radius 14 → 28px); TI_INC_ICON_PX is the icon target size that
+// sits centered inside it, same 20-in-30 proportions map.html/
+// dashboard2.html's own .te-marker-img/.ti-inc-marker-img CSS always
+// enforced for DOM markers (width:20px;height:20px inside a ~30px circle).
+// See tiRenderFallbackIcon/tiResizeIconToCanvas for why both need this.
+const TI_INC_CIRCLE_PX = 28;
+const TI_INC_ICON_PX = 20;
+let _tiTrendChart = null;
+let _tiDailySeries = [];
+let _tiMatrixResult = null;
+
+function fmtNum(v, digits) {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—';
+  return Number(v).toFixed(digits === undefined ? 1 : digits);
+}
+
+// tiTodayVN: today's date as Vietnam-local "YYYY-MM-DD" — not the viewer's
+// own browser timezone. Shared by every date-picker default on this page
+// and by loadMapPoints' "live" mode, which has no separate "current
+// incidents" endpoint and instead just asks for today's date like "theo
+// ngày" mode would.
+function tiTodayVN() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+}
+
+function deltaBadge(now, baseline) {
+  if (baseline === null || baseline === undefined || baseline === 0 || now === null || now === undefined) {
+    return '';
+  }
+  const pct = ((now - baseline) / baseline) * 100;
+  if (Math.abs(pct) < 3) return `<span class="ti-delta flat">≈ ${pct>=0?'+':''}${pct.toFixed(0)}%</span>`;
+  const cls = pct > 0 ? 'up' : 'down';
+  return `<span class="ti-delta ${cls}">${pct>=0?'+':''}${pct.toFixed(0)}%</span>`;
+}
+
+// ── Live stat strip ───────────────────────────────────────────────────────
+// Right-now numbers (not the Hôm nay/TB7/TB30 historical comparison below)
+// — TTI/delay mirror the comparison card's "today" row, the rest come only
+// from here: live persistent-point count, monitored route count and total
+// length, all from /today's TodaySnapshot.
+// TTI/trễ "hôm nay" anywhere on this page are averaged across every scan
+// from 00:00 to now, NOT just the latest reading per route like trang
+// Dashboard's own "TTI TB" (traveltime.LatestSnapshot) — "trung bình cả
+// ngày tới giờ" vs "ngay lúc quét gần nhất". The two can legitimately
+// differ; shared between loadStatStrip's tiles and loadKpis' "Hôm nay"
+// row so both say the same thing about why.
+const TI_TTI_TODAY_HINT = 'Trung bình tất cả các lượt quét TTI từ 00:00 đến hiện tại (không phải chỉ lượt quét gần nhất) — có thể khác số "TTI TB" ở trang Dashboard, vốn chỉ lấy lượt quét mới nhất của mỗi tuyến';
+
+async function loadStatStrip() {
+  const el = document.getElementById('tiStatStrip');
+  try {
+    const snap = await apiFetch('/api/trafficinsight/today');
+    const m = snap.metrics || {};
+    const tiles = [
+      { lbl: 'TTI TB cả ngày', val: m.hasTTIData ? fmtNum(m.ttiAvg, 2) : '—', color: '#38bdf8', hint: TI_TTI_TODAY_HINT },
+      { lbl: 'Trễ TB cả ngày (phút)', val: m.hasTTIData ? fmtNum(m.ttiAvgDelayMin, 1) : '—', color: '#f59e0b', hint: TI_TTI_TODAY_HINT },
+      { lbl: 'Điểm ùn tắc hiện tại', val: snap.livePersistentCount ?? 0, color: '#ef4444' },
+      { lbl: 'Số tuyến giám sát', val: snap.routeCount ?? '—', color: '#60a5fa' },
+      { lbl: 'Chiều dài (km)', val: snap.routeTotalLengthKm ? fmtNum(snap.routeTotalLengthKm, 1) : '—', color: '#818cf8' },
+    ];
+    el.innerHTML = tiles.map(x => `
+      <div class="ti-stat-tile" style="--ti-stat-c:${x.color}"${x.hint ? ` title="${escHtml(x.hint)}"` : ''}>
+        <div class="ti-stat-lbl">${x.lbl}</div>
+        <div class="ti-stat-val">${x.val}</div>
+      </div>`).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="ti-empty">Lỗi tải dữ liệu: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── KPI grid ────────────────────────────────────────────────────────────
+async function loadKpis() {
+  const grid = document.getElementById('tiKpiGrid');
+  try {
+    const data = await apiFetch('/api/trafficinsight/averages');
+    const t = data.today || {}, a7 = data.avg7 || {}, a30 = data.avg30 || {};
+    const a7Full = data.avg7Full || {}, a30Full = data.avg30Full || {};
+
+    // "Mức độ ùn tắc": primary comparison is now the NUMBER OF LOCATIONS
+    // jammed (point count), each row accompanied by its JF severity level
+    // (swatch colored the same way the maps color a point, via jfToColor)
+    // — not just a bare jamFactor average, per feedback that only showing
+    // the average hid how many places were actually affected.
+    const jfSwatch = v => `<span class="ti-jf-swatch" style="background:${jfToColor(v)}"></span>`;
+    // "TB đến thời điểm này" compares fairly against a still-in-progress
+    // "Hôm nay": each baseline day only counts its data up to the same
+    // giờ:phút as right now (not the full 24h), and today itself is
+    // excluded from the baseline (internal/trafficinsight's
+    // GetRangeAverageUntil) — see that function's doc comment for why.
+    // "TB cả ngày" is the same days' ordinary full-24h average
+    // (GetRangeAverage, unmodified) — not a fair comparison against today,
+    // just the overall picture of what a full day usually looks like.
+    const tbHint = 'Tính đến đúng giờ:phút hiện tại của mỗi ngày trong kỳ (không tính cả ngày), để so sánh công bằng với "Hôm nay"';
+    const fullHint = 'Trung bình trọn 24h mỗi ngày trong kỳ — bức tranh tổng thể, không phải để so sánh công bằng với "Hôm nay" (vốn chưa hết ngày)';
+    grid.innerHTML = `
+      <div class="ti-kpi-card ti-kpi-jam">
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">🚦</span> Mức độ ùn tắc — số điểm</div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.hasJamData ? t.jamPointCount : '—'}<span class="ti-kpi-sub">điểm</span>${deltaBadge(t.hasJamData?t.jamPointCount:null, a7.jamDaysWithData?a7.jamPointAvgPerDay:null)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label">${jfSwatch(t.hasJamData?t.jamAvgFactor:0)}JF trung bình hôm nay</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasJamData ? fmtNum(t.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">${jfSwatch(a7.jamDaysWithData?a7.jamAvgFactor:0)}TB đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.jamDaysWithData ? fmtNum(a7.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">${jfSwatch(a30.jamDaysWithData?a30.jamAvgFactor:0)}TB đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.jamDaysWithData ? fmtNum(a30.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a30.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">${jfSwatch(a7Full.jamDaysWithData?a7Full.jamAvgFactor:0)}TB cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7Full.jamDaysWithData ? fmtNum(a7Full.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a7Full.jamAvgFactor) : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">${jfSwatch(a30Full.jamDaysWithData?a30Full.jamAvgFactor:0)}TB cả ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30Full.jamDaysWithData ? fmtNum(a30Full.jamPointAvgPerDay,1)+' điểm/ngày · JF '+fmtNum(a30Full.jamAvgFactor) : '—'}</span></div>
+      </div>
+      <div class="ti-kpi-card ti-kpi-tti">
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">⏱</span> Chỉ số thời gian di chuyển (TTI)</div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label" title="${escHtml(TI_TTI_TODAY_HINT)}">Hôm nay (TB cả ngày)</span><span class="ti-kpi-value">${t.hasTTIData ? fmtNum(t.ttiAvg,2) : '—'}${deltaBadge(t.hasTTIData?t.ttiAvg:null, a7.ttiDaysWithData?a7.ttiAvg:null)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(TI_TTI_TODAY_HINT)}">Trễ trung bình cả ngày</span><span class="ti-kpi-value" style="font-size:.95rem">${t.hasTTIData ? fmtNum(t.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7.ttiDaysWithData ? fmtNum(a7.ttiAvg,2)+' · trễ '+fmtNum(a7.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30.ttiDaysWithData ? fmtNum(a30.ttiAvg,2)+' · trễ '+fmtNum(a30.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a7Full.ttiDaysWithData ? fmtNum(a7Full.ttiAvg,2)+' · trễ '+fmtNum(a7Full.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB cả ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30Full.ttiDaysWithData ? fmtNum(a30Full.ttiAvg,2)+' · trễ '+fmtNum(a30Full.ttiAvgDelayMin,1)+' phút' : '—'}</span></div>
+      </div>
+      <div class="ti-kpi-card ti-kpi-inc">
+        <div class="ti-kpi-title"><span class="ti-kpi-icon">⚠</span> Sự cố giao thông</div>
+        <div class="ti-kpi-row ti-kpi-hero"><span class="ti-kpi-label">Hôm nay</span><span class="ti-kpi-value">${t.incidentCount||0}${deltaBadge(t.incidentCount, a7.incidentAvgPerDay)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB/ngày đến thời điểm này — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a7.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(tbHint)}">TB/ngày đến thời điểm này — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a30.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB/ngày cả ngày — 7 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a7Full.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="${escHtml(fullHint)}">TB/ngày cả ngày — 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${fmtNum(a30Full.incidentAvgPerDay,1)}</span></div>
+        <div class="ti-kpi-row"><span class="ti-kpi-label" title="Tổng thật sự (trọn 24h mỗi ngày) trong 30 ngày trước hôm nay">Tổng 30 ngày qua</span><span class="ti-kpi-value" style="font-size:.95rem">${a30Full.incidentTotal||0}</span></div>
+      </div>`;
+  } catch (e) {
+    grid.innerHTML = `<div class="ti-empty">Lỗi tải dữ liệu: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Map: live ("hiện tại") or historical ("theo ngày") persistent points ──
+async function initTiMap() {
+  try {
+    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops(), loadTiCategoryIcons()]);
+    renderJfLegend();
+    const apiKey = (settings || {}).vietmap_api_key || '';
+    const el = document.getElementById('tiMap');
+    if (!apiKey) { el.innerHTML = '<div class="ti-empty">Chưa cấu hình VietMap API Key</div>'; return; }
+    _tiMap = new vietmapgl.Map({ container: 'tiMap', style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apiKey}`, center: [106.700, 10.776], zoom: 10.5 });
+    _tiMap.addControl(new vietmapgl.NavigationControl({ showCompass: false }), 'top-right');
+    _tiMap.on('load', () => {
+      _tiMapInited = true;
+      _tiMap.addSource('ti-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _tiMap.addLayer({
+        id: 'ti-points-dot', type: 'circle', source: 'ti-points',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['get', 'jf'], 0, 4, 10, 10],
+          'circle-color': jfColorExpression(),
+          'circle-opacity': .85, 'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,.5)',
+        },
+      });
+      _tiMap.on('click', 'ti-points-dot', e => {
+        const p = e.features[0].properties;
+        const jf = +p.jf;
+        const html = `<div style="font-family:sans-serif;line-height:1.5;min-width:110px;color:#1a1a1a">` +
+          `<div style="font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:.35rem">` +
+          `<span style="width:10px;height:10px;border-radius:50%;background:${jfToColor(jf)};display:inline-block"></span>` +
+          `JF ${Number.isNaN(jf) ? '—' : jf.toFixed(1)}</div>` +
+          (p.area ? `<div style="color:#111;font-size:.82rem">${escHtml(p.area)}</div>` : '') +
+          (p.label ? `<div style="color:#333;font-size:.75rem">${escHtml(p.label)}</div>` : '') +
+          `</div>`;
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '200px' }).setLngLat(e.lngLat).setHTML(html).addTo(_tiMap);
+      });
+      _tiMap.on('mouseenter', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = 'pointer');
+      _tiMap.on('mouseleave', 'ti-points-dot', () => _tiMap.getCanvas().style.cursor = '');
+
+      // "Sự cố GT" (incidents) — a GL layer (circle background +
+      // icon/text overlay), not DOM markers; see the "Marker position
+      // convention" note near the top of this file for why, and
+      // setIncidentPoints below for how each one still shows its own
+      // admin-configured per-category icon/color exactly like
+      // www/map.html's Traffic Event layer does, instead of one flat dot
+      // color for every category.
+      _tiMap.addSource('ti-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _tiMap.addLayer({
+        id: 'ti-incidents-bg', type: 'circle', source: 'ti-incidents',
+        paint: {
+          'circle-radius': TI_INC_CIRCLE_PX / 2,
+          'circle-color': ['get', 'color'],
+          'circle-stroke-width': 2, 'circle-stroke-color': 'rgba(255,255,255,.92)',
+        },
+      });
+      // The fallback "❗" (categories with no admin-uploaded icon, same
+      // fallback map.html itself uses) is pre-rendered to a canvas and
+      // registered as an image, NOT a symbol-layer text-field — a
+      // text-field requires the map style to declare a "glyphs" URL, and
+      // failing that silently rejects the whole addLayer call (verified
+      // against the real vietmapgl bundle). Rendering it as an image too
+      // keeps this layer workable regardless of what the style provides.
+      // Both this and every admin-uploaded category icon (see
+      // loadTiIncidentCategoryImages) are baked onto a canvas at a FIXED
+      // target CSS size before being registered — icon-image's size in a
+      // symbol layer otherwise scales off the source image's own native
+      // pixel dimensions, which admins upload at whatever resolution they
+      // have on hand (see internal/incidents/category_icons.go's
+      // Width/Height), so without this every category rendered at a
+      // different, often much larger, size instead of the small uniform
+      // circle map.html/dashboard2.html's own 20px-in-a-circle CSS always
+      // enforced. icon-size stays 1 everywhere — the baked pixel size
+      // (together with the pixelRatio passed to addImage) IS the target.
+      const dpr = window.devicePixelRatio || 1;
+      _tiMap.addImage('ti-fallback-icon', tiRenderFallbackIcon(TI_INC_CIRCLE_PX, dpr), { pixelRatio: dpr });
+      _tiMap.addLayer({
+        id: 'ti-incidents-icon', type: 'symbol', source: 'ti-incidents',
+        layout: {
+          // hasIcon categories show their admin-uploaded image; everything
+          // else shows the pre-rendered fallback glyph above.
+          'icon-image': ['case', ['get', 'hasIcon'], ['get', 'iconId'], 'ti-fallback-icon'],
+          'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        },
+      });
+      _tiMap.on('click', 'ti-incidents-bg', e => {
+        const p = e.features[0].properties;
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '240px' })
+          .setLngLat(e.lngLat).setHTML(tiIncidentPopupHtml(p)).addTo(_tiMap);
+      });
+      _tiMap.on('mouseenter', 'ti-incidents-bg', () => _tiMap.getCanvas().style.cursor = 'pointer');
+      _tiMap.on('mouseleave', 'ti-incidents-bg', () => _tiMap.getCanvas().style.cursor = '');
+
+      applyTiLayerVisibility();
+      loadMapPoints();
+    });
+  } catch (e) {
+    document.getElementById('tiMap').innerHTML = `<div class="ti-empty">Lỗi bản đồ: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderJfLegend() {
+  const bar = document.getElementById('tiJfLegendBar');
+  if (bar) bar.style.background = jfGradientCssString();
+}
+
+function setMapPoints(pts) {
+  if (!_tiMapInited) return;
+  // traffic.DashPoint marshals JamFactor as "jf" (not "jamFactor") — both
+  // /today and /jam-points return that shape, so read p.jf here too.
+  const features = (pts || []).map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { jf: p.jf, label: p.label || '', area: p.area || '' } }));
+  _tiMap.getSource('ti-points')?.setData({ type: 'FeatureCollection', features });
+}
+
+// ── Incident markers: same per-category icon/color mechanism as
+// www/map.html's own "Sự cố GT" (Traffic Event) layer ───────────────────
+// _tiCategoryIcons caches GET .../incident-category-icons (category ->
+// {content_type,color,width,height,updated_at}) — loaded once in
+// initTiMap() alongside the JF color stops, same spirit as map.html's own
+// loadTeCategoryIcons. A category with no entry here, or an entry with no
+// content_type, falls back to the same generic marker regardless of what
+// that category's text actually is — nothing here hardcodes a specific
+// category string.
+let _tiCategoryIcons = {};
+async function loadTiCategoryIcons() {
+  try {
+    _tiCategoryIcons = {};
+    (await apiFetch('/api/trafficinsight/incident-category-icons') || []).forEach(ci => { _tiCategoryIcons[ci.category] = ci; });
+  } catch (_) { /* markers just fall back to the generic marker */ }
+}
+// &_= cache-bust: the image is served with Cache-Control: max-age=300, and
+// the URL is otherwise identical before/after an admin re-uploads a
+// category's icon — same reasoning as map.html's teCategoryIconSrc.
+function tiCategoryIconSrc(category) {
+  const ci = _tiCategoryIcons[category];
+  return '/api/trafficinsight/incident-category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
+}
+// tiRenderFallbackIcon draws the generic "❗ on a gray circle" marker (same
+// look map.html's own fallback gives DOM markers) onto an offscreen
+// canvas at sizePx*dpr resolution and returns it as ImageData —
+// map.addImage accepts that directly (with {pixelRatio:dpr}), so the
+// fallback never needs a network round-trip or a style "glyphs" URL.
+function tiRenderFallbackIcon(sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#6b7280';
+  ctx.beginPath();
+  ctx.arc(px / 2, px / 2, px / 2 - dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${16 * dpr}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('!', px / 2, px / 2 + dpr);
+  return ctx.getImageData(0, 0, px, px);
+}
+// tiResizeIconToCanvas fits an admin-uploaded category icon — uploaded at
+// whatever resolution the admin had on hand, see category_icons.go's
+// Width/Height — onto a sizePx*dpr canvas, "object-fit:contain" style
+// (scaled to fit within the target box, centered, aspect ratio kept,
+// never cropped), so every category renders at the exact same on-map
+// size regardless of its source image's native dimensions.
+function tiResizeIconToCanvas(image, sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  const iw = image.width || image.naturalWidth || px;
+  const ih = image.height || image.naturalHeight || px;
+  const scale = Math.min(px / iw, px / ih);
+  const dw = iw * scale, dh = ih * scale;
+  ctx.drawImage(image, (px - dw) / 2, (px - dh) / 2, dw, dh);
+  return ctx.getImageData(0, 0, px, px);
+}
+// tiCategoryIconId: the id a category's uploaded icon is registered under
+// via map.addImage (see loadTiIncidentCategoryImages) — referenced from
+// the ti-incidents-icon layer's data-driven 'icon-image' expression.
+function tiCategoryIconId(category) {
+  return 'ti-cat-icon:' + category;
+}
+// loadTiIncidentCategoryImages loads every category's admin-uploaded icon
+// (if any) into the map's image sprite once each, so the GL symbol layer
+// can reference it by id. Called after _tiCategoryIcons is (re)loaded and
+// the map is ready; re-loading is a cheap no-op per category thanks to
+// _tiIncidentIconIds, except right after an admin re-uploads an icon —
+// tiCategoryIconSrc's cache-bust query param changes updated_at, so this
+// drops the stale id first to force a fresh map.addImage.
+function loadTiIncidentCategoryImages() {
+  if (!_tiMapInited) return;
+  Object.values(_tiCategoryIcons).forEach(ci => {
+    if (!ci.content_type) return;
+    const id = tiCategoryIconId(ci.category);
+    const cacheKey = id + ':' + (ci.updated_at || '');
+    if (_tiIncidentIconIds.has(cacheKey)) return;
+    // loadImage is promise-based in this vietmapgl version (not the
+    // older mapbox-gl v1 callback form) — resolves to {data: image}.
+    const dpr = window.devicePixelRatio || 1;
+    _tiMap.loadImage(tiCategoryIconSrc(ci.category)).then(res => {
+      if (!res || !res.data) return;
+      if (_tiMap.hasImage(id)) _tiMap.removeImage(id);
+      _tiMap.addImage(id, tiResizeIconToCanvas(res.data, TI_INC_ICON_PX, dpr), { pixelRatio: dpr });
+      _tiIncidentIconIds.add(cacheKey);
+    }).catch(() => { /* category just falls back to the ❗ glyph */ });
+  });
+}
+// tiIncidentPopupHtml takes a GeoJSON feature's properties (category,
+// content, location, time — all plain strings, see setIncidentPoints),
+// not a raw incident-points API row.
+function tiIncidentPopupHtml(p) {
+  return `<div style="font-family:sans-serif;line-height:1.5;min-width:140px;max-width:220px;color:#1a1a1a">` +
+    `<div style="font-size:.9rem;font-weight:700">${escHtml(p.category || 'Sự cố')}</div>` +
+    (p.time ? `<div style="color:#555;font-size:.72rem">${new Date(p.time).toLocaleString('vi-VN')}</div>` : '') +
+    (p.location ? `<div style="color:#111;font-size:.8rem;margin-top:.2rem">${escHtml(p.location)}</div>` : '') +
+    (p.content ? `<div style="color:#333;font-size:.75rem;margin-top:.15rem">${escHtml(p.content)}</div>` : '') +
+    `</div>`;
+}
+
+// setIncidentPoints replaces the ti-incidents source's data wholesale —
+// unlike the old DOM-marker version there's no per-id sync to do; the GL
+// layer just redraws from whatever GeoJSON is handed to it, same as
+// setMapPoints above.
+function setIncidentPoints(pts) {
+  if (!_tiMapInited) return;
+  loadTiIncidentCategoryImages();
+  const features = (pts || []).map(inc => {
+    const ci = _tiCategoryIcons[inc.category];
+    const hasIcon = !!(ci && ci.content_type);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [inc.lng, inc.lat] },
+      properties: {
+        category: inc.category || '', content: inc.content || '', location: inc.location || '', time: inc.time || '',
+        color: (ci && ci.color) || '#6b7280', hasIcon, iconId: hasIcon ? tiCategoryIconId(inc.category) : '',
+      },
+    };
+  });
+  _tiMap.getSource('ti-incidents')?.setData({ type: 'FeatureCollection', features });
+}
+
+// applyTiLayerVisibility reflects the two "ti-layer-toggle" checkboxes
+// (#tiLayerJF / #tiLayerIncident) onto the map — both layers are GL
+// layers now, so both go through setLayoutProperty; called on init and on
+// every checkbox change.
+function applyTiLayerVisibility() {
+  if (!_tiMapInited) return;
+  const jfOn = document.getElementById('tiLayerJF').checked;
+  const incOn = document.getElementById('tiLayerIncident').checked;
+  _tiMap.setLayoutProperty('ti-points-dot', 'visibility', jfOn ? 'visible' : 'none');
+  _tiMap.setLayoutProperty('ti-incidents-bg', 'visibility', incOn ? 'visible' : 'none');
+  _tiMap.setLayoutProperty('ti-incidents-icon', 'visibility', incOn ? 'visible' : 'none');
+}
+
+// loadMapPoints dispatches on #tiMapMode: "live" uses /today's current
+// in-memory scan snapshot for the JF layer (what toggling the map to "Hiện
+// tại" means) alongside today's incidents (there's no separate "live"
+// incident snapshot, so it just asks for today's date like "theo ngày"
+// mode would); "date" uses /jam-points + /incident-points for the date
+// picked — both layers always share this exact same date, per their one
+// shared #tiMapMode/#tiMapDate filter above the map.
+async function loadMapPoints() {
+  const mode = document.getElementById('tiMapMode').value;
+  const label = document.getElementById('tiMapScannedAt');
+  try {
+    if (mode === 'date') {
+      const date = document.getElementById('tiMapDate').value;
+      if (!date) { label.textContent = ''; setMapPoints([]); setIncidentPoints([]); return; }
+      const [jamRes, incRes] = await Promise.all([
+        apiFetch('/api/trafficinsight/jam-points?date=' + encodeURIComponent(date)),
+        apiFetch('/api/trafficinsight/incident-points?date=' + encodeURIComponent(date)),
+      ]);
+      const pts = jamRes.points || [];
+      label.textContent = `Ngày ${date} — ${pts.length} điểm ùn tắc, ${(incRes.points || []).length} sự cố`;
+      setMapPoints(pts);
+      setIncidentPoints(incRes.points || []);
+    } else {
+      const today = tiTodayVN();
+      const [snap, incRes] = await Promise.all([
+        apiFetch('/api/trafficinsight/today'),
+        apiFetch('/api/trafficinsight/incident-points?date=' + encodeURIComponent(today)),
+      ]);
+      const pts = snap.points || [];
+      label.textContent = snap.scannedAt
+        ? 'Lần quét gần nhất: ' + new Date(snap.scannedAt).toLocaleString('vi-VN')
+        : '';
+      setMapPoints(pts);
+      setIncidentPoints(incRes.points || []);
+    }
+  } catch (e) {
+    toast('Không tải được điểm ùn tắc: ' + e.message, 'error');
+  }
+}
+
+// ── Daily trend chart ─────────────────────────────────────────────────────
+function trendSeriesFor(metric) {
+  return _tiDailySeries.map(d => {
+    if (metric === 'jam') return d.hasJamData ? d.jamAvgFactor : null;
+    if (metric === 'tti') return d.hasTTIData ? d.ttiAvg : null;
+    if (metric === 'delay') return d.hasTTIData ? d.ttiAvgDelayMin : null;
+    return d.incidentCount;
+  });
+}
+const TREND_LABELS = { jam: 'jamFactor trung bình', tti: 'TTI trung bình', delay: 'Thời gian trễ trung bình (phút)', incident: 'Số sự cố' };
+
+function renderTrendChart() {
+  const el = document.getElementById('tiTrendChart');
+  if (!el || !_tiDailySeries.length) return;
+  const metric = document.getElementById('tiTrendMetric').value;
+  // "ngày/thứ" — e.g. "20/10 T3" — so a spike is traceable to a day of
+  // the week at a glance, not just a bare date.
+  const labels = _tiDailySeries.map(d => d.date.slice(5).replace('-', '/') + ' ' + (d.weekday || ''));
+  const data = trendSeriesFor(metric);
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)';
+  const textColor = isDark ? '#9ca3af' : '#475569';
+
+  if (_tiTrendChart) { _tiTrendChart.destroy(); }
+  _tiTrendChart = new Chart(el, {
+    type: 'line',
+    data: { labels, datasets: [{ label: TREND_LABELS[metric], data, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,.15)', fill: true, tension: .3, spanGaps: true, pointRadius: 2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: textColor, maxRotation: 0, autoSkip: true }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+async function loadDailySeries() {
+  const from = document.getElementById('tiTrendFrom').value;
+  const to = document.getElementById('tiTrendTo').value;
+  if (!from || !to) return; // initTrendRangeDefaults() always fills these before the first call
+  try {
+    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    renderTrendChart();
+  } catch (e) {
+    toast('Không tải được xu hướng theo ngày: ' + e.message, 'error');
+  }
+}
+
+// ── Weekday x week matrix ──────────────────────────────────────────────────
+function matrixCellValue(cell, metric) {
+  if (metric === 'jam') return cell.jamAvgFactor;
+  if (metric === 'tti') return cell.ttiAvg;
+  if (metric === 'delay') return cell.ttiAvgDelayMin;
+  return cell.incidentCount;
+}
+// Row-relative heatmap scale: each weekday row (Thứ 2, Thứ 3, …) is colored
+// against its OWN min/max across the weeks shown, not a single scale for
+// the whole table — a Monday's typical rush-hour numbers aren't comparable
+// to a Sunday's naturally lower ones, so painting both against one shared
+// scale would make every Sunday read as "fine" and every Monday as "bad"
+// regardless of whether this particular week was actually unusual. Reuses
+// the same green→amber→red severity ramp the TTI tiers elsewhere on this
+// page already use, so "bad" reads the same color everywhere.
+const TI_MATRIX_HEAT_STOPS = ['#22c55e', '#84cc16', '#f59e0b', '#ef4444'];
+function tiHeatColorAt(t) {
+  if (t <= 0) return TI_MATRIX_HEAT_STOPS[0];
+  if (t >= 1) return TI_MATRIX_HEAT_STOPS[TI_MATRIX_HEAT_STOPS.length - 1];
+  const n = TI_MATRIX_HEAT_STOPS.length - 1, seg = t * n, i = Math.min(Math.floor(seg), n - 1);
+  return _lerpHexColor(TI_MATRIX_HEAT_STOPS[i], TI_MATRIX_HEAT_STOPS[i + 1], seg - i);
+}
+// A solid-ish fill needs its own text color, not the theme's default —
+// var(--text) can be near-white in dark mode, which would vanish against a
+// light-green cell. Picking black/white off the fill's own luminance keeps
+// every cell readable regardless of page theme.
+function tiHeatTextColor(hex) {
+  const [r, g, b] = _hexToRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.6 ? '#fff' : '#1a1a1a';
+}
+
+function renderMatrix() {
+  const table = document.getElementById('tiMatrixTable');
+  if (!table || !_tiMatrixResult) return;
+  const metric = document.getElementById('tiMatrixMetric').value;
+  const { weeks, weekdays, cells } = _tiMatrixResult;
+
+  // Each metric needs its own "was this actually measured" flag — a day
+  // can have jam data but no TTI samples (or vice versa), and showing
+  // "0.0" there would misread as "perfectly clear" or "no delay" rather
+  // than "not measured". Incident count has no such ambiguity: 0 incidents
+  // is itself a real, meaningful value.
+  const hasDataFor = cell => metric === 'jam' ? cell.hasJamData
+    : (metric === 'tti' || metric === 'delay') ? cell.hasTTIData
+    : true;
+
+  let thead = '<tr><th></th>' + weeks.map(w => `<th>${w.label}</th>`).join('') + '</tr>';
+  let rows = weekdays.map((label, d) => {
+    const rowValues = cells[d].filter(cell => !cell.future && hasDataFor(cell)).map(cell => matrixCellValue(cell, metric));
+    const rowMin = rowValues.length ? Math.min(...rowValues) : 0;
+    const rowSpan = rowValues.length ? Math.max(...rowValues) - rowMin : 0;
+
+    const tds = cells[d].map(cell => {
+      if (cell.future) return '<td class="ti-future">—</td>';
+      if (!hasDataFor(cell)) return '<td class="ti-nodata">—</td>';
+      const v = matrixCellValue(cell, metric);
+      const text = metric === 'incident' ? String(v) : fmtNum(v, metric === 'tti' ? 2 : 1);
+      // A single measured week (or every week tied) has no spread to
+      // compare against — paint it neutral instead of implying it's the
+      // row's worst value just because it's the only one.
+      if (rowValues.length < 2 || rowSpan < 1e-9) {
+        return `<td title="${cell.date}">${text}</td>`;
+      }
+      const bg = tiHeatColorAt((v - rowMin) / rowSpan);
+      return `<td style="background:${bg};color:${tiHeatTextColor(bg)}" title="${cell.date}">${text}</td>`;
+    }).join('');
+    return `<tr><td class="ti-rowlabel">${label}</td>${tds}</tr>`;
+  }).join('');
+
+  table.innerHTML = thead + rows;
+}
+
+async function loadMatrix() {
+  const weeks = document.getElementById('tiMatrixWeeks').value;
+  try {
+    _tiMatrixResult = await apiFetch('/api/trafficinsight/weekday-matrix?weeks=' + encodeURIComponent(weeks));
+    renderMatrix();
+  } catch (e) {
+    toast('Không tải được bảng so sánh theo tuần: ' + e.message, 'error');
+  }
+}
+
+// ── Thống kê sự cố giao thông (ported from dashboard2.html's own Từ/Đến/
+// loại filter + Diễn biến sự cố theo ngày / Theo khung giờ / Phân bố theo
+// giờ trong ngày charts — see that page for the longer original comments
+// this is adapted from). Two differences from dashboard2's version: no
+// 7-day moving-average line on the daily chart (not asked for here), and
+// the "loại" filter genuinely scopes the tiles/charts below instead of
+// only affecting an incident map layer (dashboard2's own #d2Cat never
+// touched its own tiles/charts, only its separate incident map) — and
+// "Phân bố theo giờ trong ngày" gets its own one-day picker instead of
+// sharing the range filter, so it can drill into a single day on demand.
+let _tiIncidents = null; // null = fetch failed, [] = genuinely empty
+const _tiAnCharts = {};
+
+function tiIncidentBucket(cat) {
+  if (cat === 'Đông xe') return 'dongxe';
+  if (cat === 'Va chạm') return 'vacham';
+  if (cat === 'Ngập nước') return 'ngapnuoc';
+  return 'khac';
+}
+const TI_CAT_BAR_COLORS = { dongxe: '#ef4444', vacham: '#fb923c', ngapnuoc: '#38bdf8', khac: '#a78bfa' };
+const TI_CAT_BAR_LABELS = { dongxe: 'Ùn tắc/Đông xe', vacham: 'Va chạm/TNGT', ngapnuoc: 'Ngập nước', khac: 'Sự cố khác' };
+
+function tiChartColors() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  return {
+    tick: isDark ? '#9ca3af' : '#475569',
+    grid: isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)',
+  };
+}
+function tiShortDate(dateStr) { return dateStr.slice(8, 10) + '/' + dateStr.slice(5, 7); }
+// Vietnam-local weekday abbreviation for a "YYYY-MM-DD" string, regardless
+// of the viewer's own browser timezone — same Intl approach (not a
+// manual Date.getDay(), which would read the VIEWER's local calendar day)
+// already used elsewhere on this page for VN-anchored weekday labels.
+const TI_WD_EN_TO_VI = { Mon: 'T2', Tue: 'T3', Wed: 'T4', Thu: 'T5', Fri: 'T6', Sat: 'T7', Sun: 'CN' };
+function tiWeekdayAbbr(dateStr) {
+  const en = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'short' }).format(new Date(dateStr + 'T12:00:00+07:00'));
+  return TI_WD_EN_TO_VI[en] || '';
+}
+function tiShiftDateStr(dateStr, days) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(new Date(dateStr + 'T12:00:00+07:00').getTime() + days * 86400000));
+}
+function tiDateRangeList(from, to) {
+  const out = [];
+  let d = from, guard = 0;
+  while (d <= to && guard++ < 400) { out.push(d); d = tiShiftDateStr(d, 1); }
+  return out;
+}
+
+// renderTiIncChart/showTiIncChartEmpty: same never-replace-the-canvas error
+// handling as the rest of this page's charts — a transient Chart.js load
+// hiccup must not permanently break the chart even after it becomes
+// available again — factored out since there are three of these.
+function renderTiIncChart(canvasId, config) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  let errEl = document.getElementById(canvasId + 'Msg');
+  try {
+    if (_tiAnCharts[canvasId]) _tiAnCharts[canvasId].destroy();
+    _tiAnCharts[canvasId] = new Chart(el, config);
+    el.style.display = '';
+    if (errEl) errEl.style.display = 'none';
+  } catch (e) {
+    el.style.display = 'none';
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.id = canvasId + 'Msg';
+      errEl.className = 'ti-empty';
+      el.insertAdjacentElement('afterend', errEl);
+    }
+    errEl.style.display = '';
+    errEl.textContent = '⚠️ Không vẽ được biểu đồ: ' + e.message;
+  }
+}
+function showTiIncChartEmpty(canvasId, text) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  if (_tiAnCharts[canvasId]) { _tiAnCharts[canvasId].destroy(); delete _tiAnCharts[canvasId]; }
+  el.style.display = 'none';
+  let msgEl = document.getElementById(canvasId + 'Msg');
+  if (!msgEl) {
+    msgEl = document.createElement('div');
+    msgEl.id = canvasId + 'Msg';
+    msgEl.className = 'ti-empty';
+    el.insertAdjacentElement('afterend', msgEl);
+  }
+  msgEl.style.display = '';
+  msgEl.textContent = text;
+}
+
+function tiIncFiltered() {
+  if (!_tiIncidents) return _tiIncidents; // null stays null
+  const cat = document.getElementById('tiIncCat').value;
+  return cat ? _tiIncidents.filter(i => tiIncidentBucket(i.category) === cat) : _tiIncidents;
+}
+
+function renderIncTiles() {
+  const wrap = document.getElementById('tiIncTiles');
+  if (_tiIncidents === null) {
+    wrap.innerHTML = '<div class="ti-empty" style="flex:1">⚠️ Không tải được dữ liệu sự cố</div>';
+    return;
+  }
+  const list = tiIncFiltered();
+  const counts = { dongxe: 0, vacham: 0, ngapnuoc: 0, khac: 0 };
+  list.forEach(i => { counts[tiIncidentBucket(i.category)]++; });
+  const tiles = [
+    ['Tổng', list.length, 'var(--text)'],
+    ['🔴 Ùn tắc/Đông xe', counts.dongxe, '#f87171'],
+    ['🟠 Va chạm/TNGT', counts.vacham, '#fb923c'],
+    ['🔵 Ngập nước', counts.ngapnuoc, '#38bdf8'],
+    ['⚪ Sự cố khác', counts.khac, '#a78bfa'],
+  ];
+  wrap.innerHTML = tiles.map(([l, n, c]) => `<div class="ti-inc-tile"><div class="n" style="color:${c}">${n}</div><div class="l">${escHtml(l)}</div></div>`).join('');
+}
+
+function renderIncDailyChart() {
+  if (_tiIncidents === null) { showTiIncChartEmpty('tiAnDaily', ''); return; }
+  const from = document.getElementById('tiIncFrom').value;
+  const to = document.getElementById('tiIncTo').value;
+  const days = (from && to && from <= to) ? tiDateRangeList(from, to) : [];
+  if (!days.length) { showTiIncChartEmpty('tiAnDaily', 'Chưa chọn khoảng Từ–Đến.'); return; }
+  const list = tiIncFiltered();
+  const byDate = {};
+  days.forEach(d => { byDate[d] = { dongxe: 0, vacham: 0, ngapnuoc: 0, khac: 0 }; });
+  list.forEach(i => {
+    const d = (i.time || '').slice(0, 10);
+    if (byDate[d]) byDate[d][tiIncidentBucket(i.category)]++;
+  });
+  const cc = tiChartColors();
+  renderTiIncChart('tiAnDaily', {
+    type: 'bar',
+    data: {
+      labels: days.map(d => tiShortDate(d) + ' ' + tiWeekdayAbbr(d)), datasets:
+        Object.keys(TI_CAT_BAR_COLORS).map(k => ({ label: TI_CAT_BAR_LABELS[k], data: days.map(d => byDate[d][k]), backgroundColor: TI_CAT_BAR_COLORS[k], stack: 's', borderRadius: 2 })),
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { color: cc.tick, boxWidth: 9, font: { size: 9 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: cc.tick, maxRotation: 0, autoSkip: true } },
+        y: { stacked: true, beginAtZero: true, grid: { color: cc.grid }, ticks: { precision: 0, color: cc.tick } },
+      },
+    },
+  });
+}
+
+let _tiPeakWindowNames = [], _tiDefaultSlotLabel = 'Ngoài giờ cao điểm';
+async function loadTiTimeSlotLabels() {
+  try {
+    const r = await apiFetch('/api/trafficinsight/incident-time-slots');
+    _tiPeakWindowNames = (r && r.windows || []).map(w => w.name);
+    if (r && r.default_label) _tiDefaultSlotLabel = r.default_label;
+  } catch (_) { /* keep built-in default */ }
+}
+
+function renderIncSlotChart() {
+  if (_tiIncidents === null) { showTiIncChartEmpty('tiAnSlot', ''); return; }
+  const list = tiIncFiltered();
+  const slotPalette = ['#0ea5e9', '#f97316', '#a78bfa', '#f43f5e', '#10b981', '#eab308'];
+  const slotCounts = {};
+  list.forEach(i => { const s = i.timeSlot || _tiDefaultSlotLabel; slotCounts[s] = (slotCounts[s] || 0) + 1; });
+  const slotLabels = Object.keys(slotCounts).sort((a, b) => (a === _tiDefaultSlotLabel ? 1 : 0) - (b === _tiDefaultSlotLabel ? 1 : 0));
+  if (!slotLabels.length) { showTiIncChartEmpty('tiAnSlot', 'Chưa có sự cố nào trong kỳ.'); return; }
+  const cc = tiChartColors();
+  renderTiIncChart('tiAnSlot', {
+    type: 'doughnut',
+    data: {
+      labels: slotLabels, datasets: [{
+        data: slotLabels.map(s => slotCounts[s]),
+        backgroundColor: slotLabels.map((s, idx) => s === _tiDefaultSlotLabel ? '#64748b' : slotPalette[idx % slotPalette.length]),
+        borderWidth: 0,
+      }],
+    },
+    options: { maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'bottom', labels: { color: cc.tick, boxWidth: 9, font: { size: 9 } } } } },
+  });
+}
+
+function renderIncHourChart(list, date) {
+  if (!list) { showTiIncChartEmpty('tiAnHour', ''); return; }
+  if (!list.length) { showTiIncChartEmpty('tiAnHour', `Chưa có sự cố nào ngày ${date}.`); return; }
+  const inRiskHour = Array(24).fill(0), outRiskHour = Array(24).fill(0);
+  list.forEach(i => {
+    if (!i.time) return;
+    (i.congestionRiskPoint ? inRiskHour : outRiskHour)[new Date(i.time).getHours()]++;
+  });
+  const cc = tiChartColors();
+  renderTiIncChart('tiAnHour', {
+    type: 'bar',
+    data: {
+      labels: [...Array(24).keys()].map(h => h + 'h'), datasets: [
+        { label: 'Thuộc điểm nguy cơ', data: inRiskHour, backgroundColor: '#d97706', stack: 'h', borderRadius: 2 },
+        { label: 'Ngoài điểm nguy cơ', data: outRiskHour, backgroundColor: '#38bdf8', stack: 'h', borderRadius: 2 },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { color: cc.tick, boxWidth: 9, font: { size: 9 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: cc.tick, maxRotation: 0, autoSkip: true } },
+        y: { stacked: true, beginAtZero: true, grid: { color: cc.grid }, ticks: { precision: 0, color: cc.tick } },
+      },
+    },
+  });
+}
+
+async function loadTiIncidentStats() {
+  const from = document.getElementById('tiIncFrom').value;
+  const to = document.getElementById('tiIncTo').value;
+  if (!from || !to) { _tiIncidents = []; renderIncTiles(); renderIncDailyChart(); renderIncSlotChart(); return; }
+  try {
+    const res = await apiFetch('/api/trafficinsight/incident-stats?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    _tiIncidents = res.incidents || [];
+  } catch (e) {
+    _tiIncidents = null;
+  }
+  renderIncTiles();
+  renderIncDailyChart();
+  renderIncSlotChart();
+}
+
+async function loadIncHourChart() {
+  const date = document.getElementById('tiAnHourDate').value;
+  if (!date) { renderIncHourChart(null, ''); return; }
+  try {
+    const res = await apiFetch('/api/trafficinsight/incident-stats?from=' + encodeURIComponent(date) + '&to=' + encodeURIComponent(date));
+    renderIncHourChart(res.incidents || [], date);
+  } catch (e) {
+    showTiIncChartEmpty('tiAnHour', 'Lỗi tải dữ liệu: ' + e.message);
+  }
+}
+
+// ── Shared "Từ/Đến + quick preset" range picker — used by the daily trend
+// chart and the "Thống kê sự cố giao thông" module below it, so both get
+// the exact same quick-pick options and Từ/Đến math instead of two
+// separately-maintained copies.
+const TI_RANGE_PRESETS = [['week_7d', '7 ngày qua'], ['d14', '14 ngày qua'], ['d30', '30 ngày qua'], ['week_this', 'Tuần này'], ['week_last', 'Tuần trước'], ['month_this', 'Tháng này']];
+function tiPopulateRangeSelect(sel) {
+  TI_RANGE_PRESETS.forEach(([v, l]) => {
+    const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
+  });
+}
+function tiApplyRangePreset(key, fromEl, toEl) {
+  const ts = tiTodayVN();
+  let from = ts, to = ts;
+  const now = new Date();
+  if (key === 'week_7d') {
+    from = tiShiftDateStr(ts, -6);
+  } else if (key === 'd14') {
+    from = tiShiftDateStr(ts, -13);
+  } else if (key === 'd30') {
+    from = tiShiftDateStr(ts, -29);
+  } else if (key === 'week_this' || key === 'week_last') {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'short' }).format(now);
+    const map = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+    let offset = map[wd] ?? 0;
+    if (key === 'week_last') offset += 7;
+    from = tiShiftDateStr(ts, -offset);
+    to = tiShiftDateStr(ts, key === 'week_last' ? -(offset - 6) : 0);
+  } else if (key === 'month_this') {
+    from = ts.slice(0, 8) + '01';
+  }
+  fromEl.value = from;
+  toEl.value = to;
+}
+
+function initTrendRangeDefaults() {
+  const sel = document.getElementById('tiTrendRange');
+  const fromEl = document.getElementById('tiTrendFrom'), toEl = document.getElementById('tiTrendTo');
+  tiPopulateRangeSelect(sel);
+  sel.value = 'd30'; // same default span the chart used before this picker existed
+  tiApplyRangePreset('d30', fromEl, toEl);
+  sel.addEventListener('change', () => { tiApplyRangePreset(sel.value, fromEl, toEl); loadDailySeries(); });
+  fromEl.addEventListener('change', loadDailySeries);
+  toEl.addEventListener('change', loadDailySeries);
+}
+
+function initIncidentFilterDefaults() {
+  const sel = document.getElementById('tiIncRange');
+  const fromEl = document.getElementById('tiIncFrom'), toEl = document.getElementById('tiIncTo');
+  tiPopulateRangeSelect(sel);
+  sel.value = 'week_7d';
+  tiApplyRangePreset('week_7d', fromEl, toEl);
+  sel.addEventListener('change', () => { tiApplyRangePreset(sel.value, fromEl, toEl); loadTiIncidentStats(); });
+  fromEl.addEventListener('change', loadTiIncidentStats);
+  toEl.addEventListener('change', loadTiIncidentStats);
+  document.getElementById('tiIncCat').addEventListener('change', () => { renderIncTiles(); renderIncDailyChart(); renderIncSlotChart(); });
+  document.getElementById('tiAnHourDate').value = tiTodayVN();
+  document.getElementById('tiAnHourDate').addEventListener('change', loadIncHourChart);
+}
+
+// ── Top 10 tuyến đường ────────────────────────────────────────────────────
+// Simplified, un-forecast version of dashboard2.html's own per-route TTI
+// panel: today's (or one chosen past day's) measured values only — no
+// trend arrows, no abnormal-route detection, no +10'/+60' forecast.
+// Slot width (minutes) for the route bar/axis — set from the API response's
+// slotMin on each load, which mirrors the travel-time module's actual
+// configured collection interval (Config → Travel Time), not a hardcoded
+// guess. Falls back to 15 only until the first response arrives.
+let TI_ROUTE_SLOT_MIN = 15;
+let _tiTtiAppearance = null;
+const TI_TTI_DEFAULT_APPEARANCE = {
+  tiers: [
+    { maxTTI: 1.2, color: '#22c55e', label: 'Thông thoáng' },
+    { maxTTI: 1.35, color: '#84cc16', label: 'Bình thường' },
+    { maxTTI: 1.5, color: '#f59e0b', label: 'Chậm' },
+    { maxTTI: 0, color: '#ef4444', label: 'Tắc nghẽn' },
+  ],
+  noDataColor: '#334155',
+};
+function tiTtiTiers() { return (_tiTtiAppearance || TI_TTI_DEFAULT_APPEARANCE).tiers || []; }
+function tiTtiTier(v) {
+  if (!v || v <= 0) return null;
+  const tiers = tiTtiTiers();
+  for (let i = 0; i < tiers.length - 1; i++) if (v < tiers[i].maxTTI) return tiers[i];
+  return tiers[tiers.length - 1] || null;
+}
+function tiTtiColor(v) { const t = tiTtiTier(v); return t ? t.color : ''; }
+function tiTtiLabel(v) { const t = tiTtiTier(v); return t ? t.label : 'Không có dữ liệu'; }
+async function loadTiTtiAppearance() {
+  try {
+    const a = await apiFetch('/api/traveltime/appearance');
+    if (a && Array.isArray(a.tiers) && a.tiers.length) _tiTtiAppearance = a;
+  } catch (_) { /* keep built-in default */ }
+}
+
+function tiSlotLabel(idx) {
+  const s = idx * TI_ROUTE_SLOT_MIN, e = Math.min(s + TI_ROUTE_SLOT_MIN, 1440);
+  const p = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  return p(s) + '–' + p(e);
+}
+function tiFmtMinSec(sec) {
+  if (sec === null || sec === undefined || Number.isNaN(sec)) return '—';
+  const m = sec / 60;
+  return (Math.abs(m) >= 10 ? Math.round(m) : m.toFixed(1)).toString().replace('.', ',') + ' phút';
+}
+
+function renderRouteSlotBar(slots, hlHour) {
+  const hasHl = hlHour != null && hlHour >= 0;
+  // Slot width need not divide 60 evenly (e.g. a 7-min interval), so the
+  // highlighted range is computed from minutes, not a fixed "4 slots/hour".
+  const hlStart = hasHl ? Math.floor(hlHour * 60 / TI_ROUTE_SLOT_MIN) : -1;
+  const hlEnd = hasHl ? Math.floor((hlHour * 60 + 59) / TI_ROUTE_SLOT_MIN) : -1;
+  return slots.map((s, i) => {
+    const hl = hasHl && i >= hlStart && i <= hlEnd;
+    const cls = 'ti-route-slot' + (hl ? ' ti-route-slot-hl' : '');
+    if (!s) return `<div class="${cls}" style="background:var(--surface2)"></div>`;
+    const bg = tiTtiColor(s.tti) || 'var(--surface2)';
+    const tip = `${tiSlotLabel(i)}\nTTI: ${s.tti.toFixed(2)} — ${tiTtiLabel(s.tti)}\nTrễ TB: ${tiFmtMinSec(s.delaySec)}\n${s.samples} lần đo`;
+    return `<div class="${cls}" style="background:${bg}" title="${escHtml(tip)}"></div>`;
+  }).join('');
+}
+
+function renderRouteChart(routes, hour, rangeDesc) {
+  const body = document.getElementById('tiRouteBody');
+  const axis = document.getElementById('tiRouteAxis');
+  const rangeSuffix = rangeDesc ? ` (${rangeDesc})` : '';
+  if (!routes || !routes.length) {
+    const scopeNoun = hour != null && hour >= 0 ? `khung giờ ${String(hour).padStart(2, '0')}:00` : (rangeDesc ? 'khoảng này' : 'ngày này');
+    body.innerHTML = '<div class="ti-empty">Chưa có dữ liệu tuyến đường cho ' + scopeNoun + rangeSuffix + '</div>';
+    axis.innerHTML = '';
+    document.getElementById('tiRouteLegend').innerHTML = '';
+    return;
+  }
+  const scopeLabel = (hour != null && hour >= 0 ? `TTI trung bình khung giờ ${String(hour).padStart(2, '0')}:00` : 'TTI trung bình cả ngày') + rangeSuffix;
+  const latestLabel = rangeDesc ? 'TTI đo gần nhất (toàn khoảng)' : 'TTI đo gần nhất (cả ngày)';
+  body.innerHTML = routes.map(r => {
+    const bar = renderRouteSlotBar(r.slots || [], hour);
+    const val = r.avgTTI > 0
+      ? `<div class="ti-route-val" style="color:${tiTtiColor(r.avgTTI)}" title="${escHtml(scopeLabel)}: ${r.avgTTI.toFixed(2)} — ${tiTtiLabel(r.avgTTI)} (${r.samples} lần đo)\n${latestLabel}: ${r.latestTTI > 0 ? r.latestTTI.toFixed(2) : '—'}">${r.avgTTI.toFixed(2)}</div>`
+      : `<div class="ti-route-val" style="color:var(--text-muted)">—</div>`;
+    return `<div class="ti-route-row">
+      <div class="ti-route-label"><span class="ti-route-rname" title="${escHtml(r.routeName)}">${escHtml(r.routeName)}</span></div>
+      <div class="ti-route-bars"><div class="ti-route-bar">${bar}</div></div>
+      ${val}
+    </div>`;
+  }).join('');
+
+  const marks = [0, 3, 6, 9, 12, 15, 18, 21].map(h => `<span class="ti-route-axis-lbl" style="left:${(h / 24 * 100).toFixed(2)}%">${String(h).padStart(2, '0')}:00</span>`).join('');
+  axis.innerHTML = marks;
+
+  const legendEl = document.getElementById('tiRouteLegend');
+  const tiers = tiTtiTiers();
+  const nd = (_tiTtiAppearance || TI_TTI_DEFAULT_APPEARANCE).noDataColor || '#334155';
+  let html = '';
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    const prevMax = i > 0 ? tiers[i - 1].maxTTI : null;
+    const curMax = t.maxTTI;
+    let range = '';
+    if (curMax === 0 || i === tiers.length - 1) range = prevMax != null ? `≥${prevMax} ` : '';
+    else if (prevMax == null) range = `< ${curMax} `;
+    else range = `${prevMax}–${curMax} `;
+    html += `<span><span class="ti-route-legend-dot" style="background:${t.color}"></span>${escHtml(range)}${escHtml(t.label)}</span>`;
+  }
+  html += `<span><span class="ti-route-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
+  legendEl.innerHTML = html;
+}
+
+async function loadRouteTTI() {
+  const mode = document.getElementById('tiRouteMode').value;
+  const body = document.getElementById('tiRouteBody');
+  const params = new URLSearchParams();
+  let rangeDesc = '';
+  if (mode === 'date') {
+    const date = document.getElementById('tiRouteDate').value;
+    if (!date) { body.innerHTML = '<div class="ti-empty">Chọn một ngày</div>'; return; }
+    params.set('date', date);
+  } else if (mode === 'range') {
+    const from = document.getElementById('tiRouteFrom').value;
+    const to = document.getElementById('tiRouteTo').value;
+    if (!from || !to) { body.innerHTML = '<div class="ti-empty">Chọn khoảng Từ–Đến</div>'; return; }
+    params.set('from', from);
+    params.set('to', to);
+    rangeDesc = `${tiShortDate(from)} – ${tiShortDate(to)}`;
+  }
+  const hourSel = document.getElementById('tiRouteHour').value;
+  const hour = hourSel === '' ? -1 : parseInt(hourSel, 10);
+  if (hour >= 0) params.set('hour', String(hour));
+  const qs = params.toString();
+  try {
+    const res = await apiFetch('/api/trafficinsight/route-tti' + (qs ? '?' + qs : ''));
+    if (res.slotMin > 0) TI_ROUTE_SLOT_MIN = res.slotMin;
+    renderRouteChart(res.routes || [], hour, rangeDesc);
+  } catch (e) {
+    toast('Không tải được Top 10 tuyến đường: ' + e.message, 'error');
+  }
+}
+
+// ── Wiring ──────────────────────────────────────────────────────────────
+document.getElementById('btnRefreshKpi').addEventListener('click', loadKpis);
+document.getElementById('tiTrendMetric').addEventListener('change', renderTrendChart);
+document.getElementById('tiMatrixMetric').addEventListener('change', renderMatrix);
+document.getElementById('tiMatrixWeeks').addEventListener('change', loadMatrix);
+document.getElementById('tiMapMode').addEventListener('change', () => {
+  const mode = document.getElementById('tiMapMode').value;
+  document.getElementById('tiMapDate').style.display = mode === 'date' ? '' : 'none';
+  loadMapPoints();
+});
+document.getElementById('tiMapDate').addEventListener('change', loadMapPoints);
+document.getElementById('tiLayerJF').addEventListener('change', applyTiLayerVisibility);
+document.getElementById('tiLayerIncident').addEventListener('change', applyTiLayerVisibility);
+document.getElementById('tiRouteMode').addEventListener('change', () => {
+  const mode = document.getElementById('tiRouteMode').value;
+  document.getElementById('tiRouteDate').style.display = mode === 'date' ? '' : 'none';
+  document.getElementById('tiRouteRangeRow').style.display = mode === 'range' ? '' : 'none';
+  loadRouteTTI();
+});
+document.getElementById('tiRouteDate').addEventListener('change', loadRouteTTI);
+document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
+
+function initRouteRangeDefaults() {
+  const sel = document.getElementById('tiRouteRange');
+  const fromEl = document.getElementById('tiRouteFrom'), toEl = document.getElementById('tiRouteTo');
+  tiPopulateRangeSelect(sel);
+  sel.value = 'week_7d';
+  tiApplyRangePreset('week_7d', fromEl, toEl);
+  sel.addEventListener('change', () => { tiApplyRangePreset(sel.value, fromEl, toEl); loadRouteTTI(); });
+  fromEl.addEventListener('change', loadRouteTTI);
+  toEl.addEventListener('change', loadRouteTTI);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────
+(async () => {
+  await initApp('trafficinsight');
+  // Date pickers default to today (Vietnam-local, not the viewer's own
+  // browser timezone) so switching to "Theo ngày" shows something
+  // immediately instead of an empty map/chart.
+  const todayVN = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+  document.getElementById('tiMapDate').value = todayVN;
+  document.getElementById('tiRouteDate').value = todayVN;
+  const routeHourSel = document.getElementById('tiRouteHour');
+  routeHourSel.innerHTML = '<option value="">Cả ngày</option>' +
+    Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+
+  await loadTiTtiAppearance();
+  loadStatStrip();
+  loadKpis();
+  initTiMap();
+  initTrendRangeDefaults();
+  loadDailySeries();
+  loadMatrix();
+  initRouteRangeDefaults();
+  loadRouteTTI();
+
+  initIncidentFilterDefaults();
+  await loadTiTimeSlotLabels();
+  loadTiIncidentStats();
+  loadIncHourChart();
+
+  // Keep the live numbers and the map's live mode reasonably fresh without
+  // being a hot poll — same ~60s cadence dashboard2.html's own summary
+  // refresh uses. A historical "theo ngày" view doesn't change on its
+  // own, so the map and route panel only re-poll while still showing live/today.
+  setInterval(loadStatStrip, 60000);
+  setInterval(loadKpis, 60000);
+  setInterval(() => {
+    if (document.getElementById('tiMapMode').value === 'live') loadMapPoints();
+  }, 60000);
+  setInterval(() => {
+    if (document.getElementById('tiRouteMode').value === 'live') loadRouteTTI();
+  }, 60000);
+
+  const themeBtn = document.getElementById('btnTheme');
+  if (themeBtn) themeBtn.addEventListener('click', () => {
+    renderTrendChart();
+    renderIncDailyChart();
+    renderIncSlotChart();
+    loadIncHourChart();
+  });
+})();
+</script>
+</body>
+</html>

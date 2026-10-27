@@ -25,6 +25,18 @@ type HeatmapConfig struct {
 	Crt int    `json:"crt"` // dot circle-radius at JF=10
 }
 
+// JamColorStop is one color stop in the JamFactor (JF, 0–10) severity
+// color scale — shared across every map that renders JF-colored points
+// (map.html, dashboard2.html, trafficinsight.html, …). Turned into a
+// MapLibre/VietMapGL `interpolate` paint expression client-side (app.js's
+// jfColorExpression), so the color between two stops blends continuously
+// rather than snapping at hard thresholds — see jam_color.go for the
+// built-in default stops.
+type JamColorStop struct {
+	Value float64 `json:"value"` // 0–10
+	Color string  `json:"color"` // "#rrggbb"
+}
+
 // AppSettings holds persisted application-level settings.
 type AppSettings struct {
 	VietmapAPIKey       string `json:"vietmap_api_key"`
@@ -128,6 +140,12 @@ type AppSettings struct {
 	// never deletes anything). Admin-configurable per explicit request —
 	// this used to be a hardcoded Go constant.
 	TrafficFlowRetentionDays int `json:"traffic_flow_retention_days"`
+
+	// JamColorStops: admin-customized JF color scale (see JamColorStop
+	// above). Empty/nil → every page falls back to jamColorDefaultStops
+	// (jam_color.go) — GET /api/jam-color-cfg always resolves this for the
+	// caller, so no page needs to hold its own copy of the default.
+	JamColorStops []JamColorStop `json:"jam_color_stops,omitempty"`
 }
 
 var (
