@@ -64,7 +64,7 @@
   border:1px solid var(--border); border-left:3px solid var(--ti-stat-c);
   border-radius:10px; padding:.65rem .8rem;
 }
-.ti-stat-tile .ti-stat-lbl { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ti-stat-tile .ti-stat-lbl { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
 .ti-stat-tile .ti-stat-val { font-size:1.55rem; font-weight:800; line-height:1.15; color:var(--ti-stat-c); margin-top:.2rem; }
 .ti-stat-tile .ti-stat-sub { font-size:.7rem; color:var(--text-muted); margin-top:.2rem; }
 @media (max-width:900px) { .ti-stat-tile { min-width:46%; } }
@@ -251,7 +251,7 @@
           <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerJF" checked> <span class="ti-jf-swatch" style="background:#ef4444"></span>Điểm JF</label>
           <label class="ti-layer-toggle"><input type="checkbox" id="tiLayerIncident" checked> 🚨 Sự cố GT</label>
           <select id="tiMapMode">
-            <option value="live">Hiện tại</option>
+            <option value="live">Hôm nay</option>
             <option value="date">Theo ngày</option>
           </select>
           <input type="date" id="tiMapDate" style="display:none">
@@ -287,6 +287,26 @@
         <input type="date" id="tiTrendTo">
       </div>
       <div class="ti-chart-box"><canvas id="tiTrendChart"></canvas></div>
+    </div>
+
+    <!-- Hourly trend chart -->
+    <div class="ti-section">
+      <h3>
+        <span>Xu hướng theo giờ</span>
+        <div class="ti-matrix-controls">
+          <select id="tiHourTrendMetric">
+            <option value="jam">Ùn tắc (jamFactor TB)</option>
+            <option value="tti">TTI trung bình</option>
+            <option value="delay" selected>Thời gian trễ (phút)</option>
+            <option value="incident">Số sự cố</option>
+          </select>
+        </div>
+      </h3>
+      <div class="ti-filter-row">
+        <label>Ngày</label>
+        <input type="date" id="tiHourTrendDate">
+      </div>
+      <div class="ti-chart-box"><canvas id="tiHourTrendChart"></canvas></div>
     </div>
 
     <!-- Weekday x week comparison matrix -->
@@ -478,6 +498,13 @@ function deltaBadge(now, baseline) {
 // differ; shared between loadStatStrip's tiles and loadKpis' "Hôm nay"
 // row so both say the same thing about why.
 const TI_TTI_TODAY_HINT = 'Trung bình tất cả các lượt quét TTI từ 00:00 đến hiện tại (không phải chỉ lượt quét gần nhất) — có thể khác số "TTI TB" ở trang Dashboard, vốn chỉ lấy lượt quét mới nhất của mỗi tuyến';
+// TI_TTI_CURRENT_HINT is the opposite of TI_TTI_TODAY_HINT above: "TTI TB
+// hiện tại"/"Trễ TB hiện tại" use traveltime.LatestSnapshot() directly
+// (averagesResponse.currentTTIAvg/currentTTIAvgDelayMin), the average of
+// each route's single MOST RECENT scan — exactly trang Dashboard's own
+// "TTI TB" number, added here per explicit request so the two pages show
+// the same figure side by side with "Hôm nay (TB cả ngày)" above.
+const TI_TTI_CURRENT_HINT = 'Trung bình lượt quét TTI mới nhất của mỗi tuyến — giống hệt cách tính "TTI TB" ở trang Dashboard, không tính các lượt quét trước đó trong ngày';
 
 async function loadStatStrip() {
   const el = document.getElementById('tiStatStrip');
@@ -486,7 +513,9 @@ async function loadStatStrip() {
     const m = snap.metrics || {};
     const tiles = [
       { lbl: 'TTI TB cả ngày', val: m.hasTTIData ? fmtNum(m.ttiAvg, 2) : '—', color: '#38bdf8', hint: TI_TTI_TODAY_HINT },
+      { lbl: 'TTI TB hiện tại', val: snap.hasCurrentTTIData ? fmtNum(snap.currentTTIAvg, 2) : '—', color: '#38bdf8', hint: TI_TTI_CURRENT_HINT },
       { lbl: 'Trễ TB cả ngày (phút)', val: m.hasTTIData ? fmtNum(m.ttiAvgDelayMin, 1) : '—', color: '#f59e0b', hint: TI_TTI_TODAY_HINT },
+      { lbl: 'Trễ TB hiện tại (phút)', val: snap.hasCurrentTTIData ? fmtNum(snap.currentTTIAvgDelayMin, 1) : '—', color: '#f59e0b', hint: TI_TTI_CURRENT_HINT },
       { lbl: 'Điểm ùn tắc hiện tại', val: snap.livePersistentCount ?? 0, color: '#ef4444' },
       { lbl: 'Số tuyến giám sát', val: snap.routeCount ?? '—', color: '#60a5fa' },
       { lbl: 'Chiều dài (km)', val: snap.routeTotalLengthKm ? fmtNum(snap.routeTotalLengthKm, 1) : '—', color: '#818cf8' },
@@ -895,6 +924,64 @@ async function loadDailySeries() {
   } catch (e) {
     toast('Không tải được xu hướng theo ngày: ' + e.message, 'error');
   }
+}
+
+// ── Hourly trend chart ───────────────────────────────────────────────────
+// Same jam/TTI/delay/incident metrics as the daily trend chart above, just
+// sliced into one day's 24 hour-of-day buckets instead of across multiple
+// days — defaults to today (Vietnam-local), any other day pickable.
+let _tiHourlySeries = [];
+let _tiHourTrendChart = null;
+
+function hourlyTrendSeriesFor(metric) {
+  return _tiHourlySeries.map(d => {
+    if (metric === 'jam') return d.hasJamData ? d.jamAvgFactor : null;
+    if (metric === 'tti') return d.hasTTIData ? d.ttiAvg : null;
+    if (metric === 'delay') return d.hasTTIData ? d.ttiAvgDelayMin : null;
+    return d.incidentCount;
+  });
+}
+
+function renderHourlyTrendChart() {
+  const el = document.getElementById('tiHourTrendChart');
+  if (!el || !_tiHourlySeries.length) return;
+  const metric = document.getElementById('tiHourTrendMetric').value;
+  const labels = _tiHourlySeries.map(d => String(d.hour).padStart(2, '0') + ':00');
+  const data = hourlyTrendSeriesFor(metric);
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridColor = isDark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.08)';
+  const textColor = isDark ? '#9ca3af' : '#475569';
+
+  if (_tiHourTrendChart) { _tiHourTrendChart.destroy(); }
+  _tiHourTrendChart = new Chart(el, {
+    type: 'line',
+    data: { labels, datasets: [{ label: TREND_LABELS[metric], data, borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,.15)', fill: true, tension: .3, spanGaps: true, pointRadius: 2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: textColor, maxRotation: 0, autoSkip: true }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor }, grid: { color: gridColor }, beginAtZero: true },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+async function loadHourlySeries() {
+  const date = document.getElementById('tiHourTrendDate').value;
+  if (!date) return; // initHourTrendDefaults() always fills this before the first call
+  try {
+    _tiHourlySeries = await apiFetch('/api/trafficinsight/hourly-series?date=' + encodeURIComponent(date));
+    renderHourlyTrendChart();
+  } catch (e) {
+    toast('Không tải được xu hướng theo giờ: ' + e.message, 'error');
+  }
+}
+
+function initHourTrendDefaults() {
+  const dateEl = document.getElementById('tiHourTrendDate');
+  dateEl.value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+  dateEl.addEventListener('change', loadHourlySeries);
 }
 
 // ── Weekday x week matrix ──────────────────────────────────────────────────
@@ -1410,6 +1497,7 @@ async function loadRouteTTI() {
 // ── Wiring ──────────────────────────────────────────────────────────────
 document.getElementById('btnRefreshKpi').addEventListener('click', loadKpis);
 document.getElementById('tiTrendMetric').addEventListener('change', renderTrendChart);
+document.getElementById('tiHourTrendMetric').addEventListener('change', renderHourlyTrendChart);
 document.getElementById('tiMatrixMetric').addEventListener('change', renderMatrix);
 document.getElementById('tiMatrixWeeks').addEventListener('change', loadMatrix);
 document.getElementById('tiMapMode').addEventListener('change', () => {
@@ -1459,6 +1547,8 @@ function initRouteRangeDefaults() {
   initTiMap();
   initTrendRangeDefaults();
   loadDailySeries();
+  initHourTrendDefaults();
+  loadHourlySeries();
   loadMatrix();
   initRouteRangeDefaults();
   loadRouteTTI();
@@ -1484,6 +1574,7 @@ function initRouteRangeDefaults() {
   const themeBtn = document.getElementById('btnTheme');
   if (themeBtn) themeBtn.addEventListener('click', () => {
     renderTrendChart();
+    renderHourlyTrendChart();
     renderIncDailyChart();
     renderIncSlotChart();
     loadIncHourChart();
