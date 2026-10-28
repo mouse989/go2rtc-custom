@@ -22,6 +22,7 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/today", handleToday)
 	http.HandleFunc("/api/trafficinsight/averages", handleAverages)
 	http.HandleFunc("/api/trafficinsight/daily-series", handleDailySeries)
+	http.HandleFunc("/api/trafficinsight/hourly-series", handleHourlySeries)
 	http.HandleFunc("/api/trafficinsight/weekday-matrix", handleWeekdayMatrix)
 	http.HandleFunc("/api/trafficinsight/jam-points", handleJamPoints)
 	http.HandleFunc("/api/trafficinsight/incident-points", handleIncidentPoints)
@@ -151,6 +152,30 @@ func handleDailySeries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, GetDailySeries(days))
+}
+
+// GET /api/trafficinsight/hourly-series?date=YYYY-MM-DD — the "Xu hướng
+// theo giờ" chart's data: one Vietnam-local calendar day sliced into its
+// 24 hour-of-day buckets (defaults to today when date is omitted).
+func handleHourlySeries(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().In(vnLocation).Format("2006-01-02")
+	}
+	series, err := GetHourlySeries(date)
+	if err != nil {
+		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, series)
 }
 
 type jamPointsResponse struct {
