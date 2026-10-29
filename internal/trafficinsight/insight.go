@@ -83,13 +83,15 @@ func dayBounds(date string) (start, end time.Time, err error) {
 }
 
 // GetDailyMetrics computes the aggregate for one full Vietnam-local
-// calendar day.
-func GetDailyMetrics(date string) (DailyMetrics, error) {
+// calendar day. filter narrows the TTI/delay portion to routes matching
+// it (RouteFilter{} = every route, unaffected); jam/incident are never
+// filtered — see route_filter.go's doc comment for why.
+func GetDailyMetrics(date string, filter RouteFilter) (DailyMetrics, error) {
 	start, end, err := dayBounds(date)
 	if err != nil {
 		return DailyMetrics{}, err
 	}
-	return computeDailyMetrics(date, start, end), nil
+	return computeDailyMetrics(date, start, end, filter), nil
 }
 
 // GetDailyMetricsUntil computes one day's aggregate truncated to the same
@@ -105,21 +107,21 @@ func GetDailyMetrics(date string) (DailyMetrics, error) {
 // GetDailySeries/GetWeekdayMatrix deliberately keep using full days
 // (GetDailyMetrics) — this truncated variant is only for the "so sánh:
 // hôm nay — TB 7 ngày — TB 30 ngày" comparison, see GetRangeAverageUntil.
-func GetDailyMetricsUntil(date string, cutoff time.Time) (DailyMetrics, error) {
+func GetDailyMetricsUntil(date string, cutoff time.Time, filter RouteFilter) (DailyMetrics, error) {
 	start, _, err := dayBounds(date)
 	if err != nil {
 		return DailyMetrics{}, err
 	}
 	cutoffLocal := cutoff.In(vnLocation)
 	end := time.Date(start.Year(), start.Month(), start.Day(), cutoffLocal.Hour(), cutoffLocal.Minute(), cutoffLocal.Second(), 0, vnLocation)
-	return computeDailyMetrics(date, start, end), nil
+	return computeDailyMetrics(date, start, end, filter), nil
 }
 
 // computeDailyMetrics is the shared aggregation behind GetDailyMetrics and
 // GetDailyMetricsUntil — [start, end] bounds every source's query, so a
 // truncated `end` (anything short of the full day) naturally yields a
 // partial-day aggregate with no other change to the logic.
-func computeDailyMetrics(date string, start, end time.Time) DailyMetrics {
+func computeDailyMetrics(date string, start, end time.Time, filter RouteFilter) DailyMetrics {
 	m := DailyMetrics{Date: date, Weekday: weekdayAbbr(start)}
 
 	if rows, err := traffic.PersistentPointsInRange(start, end); err == nil && len(rows) > 0 {
@@ -140,6 +142,10 @@ func computeDailyMetrics(date string, start, end time.Time) DailyMetrics {
 	// filtering its result instead — cheap, since the entries are already
 	// loaded into memory either way.
 	if entries, err := traveltime.GetLogsForDate(date, 0); err == nil {
+		var lookup routeTagLookup
+		if !filter.Empty() {
+			lookup = buildRouteTagLookup()
+		}
 		var ttiSum float64
 		var delaySecSum int
 		var n int
@@ -155,6 +161,9 @@ func computeDailyMetrics(date string, start, end time.Time) DailyMetrics {
 			// TB" (traveltime.LatestSnapshot, which has always filtered
 			// this) for no real-traffic reason.
 			if e.RouteID == "" || e.TTI <= 0 {
+				continue
+			}
+			if !filter.matches(e.RouteID, lookup) {
 				continue
 			}
 			t, err := time.Parse(time.RFC3339, e.Timestamp)
@@ -215,8 +224,10 @@ type AggregateMetrics struct {
 
 // GetRangeAverage averages each metric over every full Vietnam-local
 // calendar day from "from" to "to" inclusive.
-func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
-	return computeRangeAverage(from, to, GetDailyMetrics)
+func GetRangeAverage(from, to time.Time, filter RouteFilter) (AggregateMetrics, error) {
+	return computeRangeAverage(from, to, func(date string) (DailyMetrics, error) {
+		return GetDailyMetrics(date, filter)
+	})
 }
 
 // GetRangeAverageUntil is GetRangeAverage's time-truncated counterpart —
@@ -228,9 +239,9 @@ func GetRangeAverage(from, to time.Time) (AggregateMetrics, error) {
 // should also exclude today itself from [from, to] — comparing today
 // against a baseline that includes today (even truncated) would be
 // comparing it partly against itself.
-func GetRangeAverageUntil(from, to, cutoff time.Time) (AggregateMetrics, error) {
+func GetRangeAverageUntil(from, to, cutoff time.Time, filter RouteFilter) (AggregateMetrics, error) {
 	return computeRangeAverage(from, to, func(date string) (DailyMetrics, error) {
-		return GetDailyMetricsUntil(date, cutoff)
+		return GetDailyMetricsUntil(date, cutoff, filter)
 	})
 }
 
@@ -318,7 +329,7 @@ type TodaySnapshot struct {
 // GetTodaySnapshot returns TodaySnapshot for the current Vietnam-local date.
 func GetTodaySnapshot() (TodaySnapshot, error) {
 	date := time.Now().In(vnLocation).Format("2006-01-02")
-	m, err := GetDailyMetrics(date)
+	m, err := GetDailyMetrics(date, RouteFilter{})
 	if err != nil {
 		return TodaySnapshot{}, err
 	}
@@ -346,7 +357,7 @@ const maxDailySeriesDays = 90
 // GetDailySeries returns one DailyMetrics per Vietnam-local calendar day,
 // oldest first, for the trailing `days` days (today inclusive) — the data
 // behind the page's day-by-day trend chart.
-func GetDailySeries(days int) []DailyMetrics {
+func GetDailySeries(days int, filter RouteFilter) []DailyMetrics {
 	if days <= 0 {
 		days = 30
 	}
@@ -360,7 +371,7 @@ func GetDailySeries(days int) []DailyMetrics {
 	out := make([]DailyMetrics, 0, days)
 	for i := days - 1; i >= 0; i-- {
 		date := today.AddDate(0, 0, -i).Format("2006-01-02")
-		if m, err := GetDailyMetrics(date); err == nil {
+		if m, err := GetDailyMetrics(date, filter); err == nil {
 			out = append(out, m)
 		}
 	}
@@ -374,7 +385,7 @@ func GetDailySeries(days int) []DailyMetrics {
 // maxDailySeriesDays is clamped by moving `from` forward (keeping the most
 // recent end of the range, same spirit as GetDailySeries silently capping
 // an overlong `days`) rather than erroring.
-func GetDailySeriesRange(from, to string) ([]DailyMetrics, error) {
+func GetDailySeriesRange(from, to string, filter RouteFilter) ([]DailyMetrics, error) {
 	fromT, err := time.ParseInLocation("2006-01-02", from, vnLocation)
 	if err != nil {
 		return nil, err
@@ -392,7 +403,7 @@ func GetDailySeriesRange(from, to string) ([]DailyMetrics, error) {
 
 	out := make([]DailyMetrics, 0, maxDailySeriesDays)
 	for d := fromT; !d.After(toT); d = d.AddDate(0, 0, 1) {
-		if m, err := GetDailyMetrics(d.Format("2006-01-02")); err == nil {
+		if m, err := GetDailyMetrics(d.Format("2006-01-02"), filter); err == nil {
 			out = append(out, m)
 		}
 	}
@@ -439,7 +450,7 @@ const maxWeekdayMatrixWeeks = 12
 // Vietnam local), oldest first, ending with the current — possibly
 // partial — week. A day that hasn't happened yet is marked Future instead
 // of being queried.
-func GetWeekdayMatrix(weeks int) WeekdayMatrixResult {
+func GetWeekdayMatrix(weeks int, filter RouteFilter) WeekdayMatrixResult {
 	if weeks <= 0 {
 		weeks = 6
 	}
@@ -471,7 +482,7 @@ func GetWeekdayMatrix(weeks int) WeekdayMatrixResult {
 			cell := WeekdayMatrixCell{Date: day.Format("2006-01-02")}
 			if day.After(today) {
 				cell.Future = true
-			} else if m, err := GetDailyMetrics(cell.Date); err == nil {
+			} else if m, err := GetDailyMetrics(cell.Date, filter); err == nil {
 				cell.JamAvgFactor = m.JamAvgFactor
 				cell.HasJamData = m.HasJamData
 				cell.TTIAvg = m.TTIAvg

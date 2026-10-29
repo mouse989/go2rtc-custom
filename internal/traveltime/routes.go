@@ -16,6 +16,14 @@ type Route struct {
 	Origin      string `json:"origin"`              // "lat,lng"
 	Destination string `json:"destination"`         // "lat,lng"
 	Waypoints   string `json:"waypoints,omitempty"` // "lat,lng|lat,lng|..."
+	// Region/RoadType are optional classification tags — "" means chưa
+	// phân loại, same as every route created before these fields existed.
+	// Region must be one of ListRegions() (see regions.go), RoadType one
+	// of RoadTypes — validated in the HTTP handler (api.go), not here, so
+	// createRoute/updateRoute themselves stay agnostic to what's "valid"
+	// the same way they already are about every other field.
+	Region   string `json:"region,omitempty"`
+	RoadType string `json:"roadType,omitempty"`
 }
 
 type routeStore struct {
@@ -45,6 +53,26 @@ func listRoutes() []*Route {
 		out[i] = &cp
 	}
 	return out
+}
+
+// ListRoutes is listRoutes' exported form — for other packages
+// (internal/trafficinsight) that need each route's Region/RoadType to
+// filter/group the city-wide TTI trend by it, called directly rather than
+// through this package's own (admin-only) HTTP endpoint, same principle
+// trafficinsight already follows for traffic.PersistentPointsInRange/
+// incidents.List.
+func ListRoutes() []*Route {
+	return listRoutes()
+}
+
+// CreateRoute is createRoute's exported form — currently only used by
+// internal/trafficinsight's own tests, which need routes with known
+// IDs/Region/RoadType actually present in this package's store to verify
+// the Region/RoadType filter end-to-end against ListRoutes() above
+// (writeTravelTimeDay there writes raw log fixtures directly and has no
+// other way to seed a matching route).
+func CreateRoute(r *Route) (*Route, error) {
+	return createRoute(r)
 }
 
 func createRoute(r *Route) (*Route, error) {

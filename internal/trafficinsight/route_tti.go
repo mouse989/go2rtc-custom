@@ -111,12 +111,12 @@ func hourOfTimestamp(ts string) int {
 // average TTI descending (most congested first) and capped at the top 10.
 // A route with no measurement anywhere in the scope is dropped entirely:
 // there is nothing to compare it on.
-func GetRouteTTIForDate(date string, hour int) ([]RouteTTIRow, error) {
+func GetRouteTTIForDate(date string, hour int, filter RouteFilter) ([]RouteTTIRow, error) {
 	entries, err := traveltime.GetLogsForDate(date, 0)
 	if err != nil {
 		return nil, err
 	}
-	return buildRouteTTIRows(entries, hour), nil
+	return buildRouteTTIRows(entries, hour, filter), nil
 }
 
 // maxRouteTTIRangeDays bounds a ?from=&to= comparison window — each extra
@@ -137,7 +137,7 @@ const maxRouteTTIRangeDays = 90
 // contributing day correctly — a 08:00 entry from three different days
 // lands in the same slot bucket and gets averaged together exactly like
 // the AvgTTI ranking scope does.
-func GetRouteTTIForRange(from, to string, hour int) ([]RouteTTIRow, error) {
+func GetRouteTTIForRange(from, to string, hour int, filter RouteFilter) ([]RouteTTIRow, error) {
 	fromT, err := time.ParseInLocation("2006-01-02", from, vnLocation)
 	if err != nil {
 		return nil, err
@@ -161,17 +161,23 @@ func GetRouteTTIForRange(from, to string, hour int) ([]RouteTTIRow, error) {
 		}
 		entries = append(entries, dayEntries...)
 	}
-	return buildRouteTTIRows(entries, hour), nil
+	return buildRouteTTIRows(entries, hour, filter), nil
 }
 
 // buildRouteTTIRows is the shared accumulation/ranking logic behind
 // GetRouteTTIForDate and GetRouteTTIForRange — see GetRouteTTIForRange's
 // doc comment for why feeding it multiple days' entries already produces
 // the correct per-slot and per-scope averages with no change to the
-// accumulation itself.
-func buildRouteTTIRows(entries []traveltime.LogEntry, hour int) []RouteTTIRow {
+// accumulation itself. filter drops entries for routes that don't match
+// before any accumulation happens, same as computeDailyMetrics/
+// GetHourlySeries.
+func buildRouteTTIRows(entries []traveltime.LogEntry, hour int, filter RouteFilter) []RouteTTIRow {
 	slotMin := RouteSlotMinutes()
 	totalSlots := routeTotalSlots(slotMin)
+	var lookup routeTagLookup
+	if !filter.Empty() {
+		lookup = buildRouteTagLookup()
+	}
 
 	type slotAcc struct {
 		ttiSum   float64
@@ -196,6 +202,9 @@ func buildRouteTTIRows(entries []traveltime.LogEntry, hour int) []RouteTTIRow {
 
 	for _, e := range entries {
 		if e.RouteID == "" || e.TTI <= 0 {
+			continue
+		}
+		if !filter.matches(e.RouteID, lookup) {
 			continue
 		}
 		a, ok := byID[e.RouteID]

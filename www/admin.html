@@ -1052,11 +1052,11 @@ rtsp:
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>#</th><th>Tên tuyến đường</th><th>Điểm đầu</th><th>Điểm cuối</th><th>Điểm giữa</th>
+                <th>#</th><th>Tên tuyến đường</th><th>Khu vực</th><th>Loại đường</th><th>Điểm đầu</th><th>Điểm cuối</th><th>Điểm giữa</th>
                 <th style="text-align:right">Thao tác</th>
               </tr></thead>
               <tbody id="ttRoutesBody">
-                <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Đang tải…</td></tr>
+                <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:1.5rem">Đang tải…</td></tr>
               </tbody>
             </table>
           </div>
@@ -1666,6 +1666,19 @@ rtsp:
               placeholder="VD: Võ Văn Kiệt → Điện Biên Phủ" style="font-size:.83rem">
           </div>
 
+          <div class="form-group" style="margin:0">
+            <label style="font-size:.8rem">Khu vực</label>
+            <div style="display:flex;gap:.3rem">
+              <select id="tt-route-region" class="input" style="flex:1;font-size:.83rem"></select>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="openTTRegionDlg()"
+                title="Quản lý danh sách khu vực" style="padding:.3rem .55rem">⚙</button>
+            </div>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label style="font-size:.8rem">Loại đường</label>
+            <select id="tt-route-roadtype" class="input" style="font-size:.83rem"></select>
+          </div>
+
           <!-- Point display (read-only, filled by map) -->
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.6rem .75rem;font-size:.75rem;line-height:1.9">
             <div><span style="color:#4ade80;font-weight:700">🟢 Đầu:</span>
@@ -1694,6 +1707,26 @@ rtsp:
           </div>
         </form>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ Route Regions ("Khu vực") Dialog ═══════════════════ -->
+<div class="dlg-backdrop" id="ttRegionDlg">
+  <div class="dlg" style="min-height:unset;width:420px;max-width:92vw">
+    <h2 style="margin:0 0 .75rem;font-size:1rem">Quản lý khu vực tuyến đường</h2>
+    <p style="font-size:.76rem;color:var(--text-muted);margin:0 0 .75rem">
+      Danh sách khu vực (VD: Quận 1, TP. Thủ Đức) để gán cho từng tuyến đường — dùng để lọc/so sánh xu hướng TTI theo khu vực ở trang Tổng quan giao thông.
+    </p>
+    <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+      <input type="text" id="ttRegionNewName" class="input" placeholder="Tên khu vực mới (VD: Quận 1)"
+        style="flex:1;font-size:.85rem" autocomplete="off"
+        onkeypress="if(event.key==='Enter'){event.preventDefault();ttAddRegion();}">
+      <button type="button" class="btn btn-primary btn-sm" onclick="ttAddRegion()">+ Thêm</button>
+    </div>
+    <div id="ttRegionList" style="display:flex;flex-direction:column;gap:.4rem;max-height:320px;overflow-y:auto"></div>
+    <div class="btn-row" style="margin-top:1rem">
+      <button type="button" class="btn btn-secondary" onclick="closeTTRegionDlg()" style="flex:1">Đóng</button>
     </div>
   </div>
 </div>
@@ -5846,10 +5879,16 @@ async function loadTrafficTab() {
 // ──────────────────────────────────────────────────────────────────
 let _ttRoutes = [];
 let _ttLogs   = [];
+let _ttRegions = []; // admin-managed "khu vực" list a route's tt-route-region select offers — see loadTTRegions
 
 async function loadTTPane() {
-  await Promise.all([loadTTConfig(), loadTTStatus(), loadTTRoutes(), refreshTTLogDates()]);
+  await Promise.all([loadTTConfig(), loadTTStatus(), loadTTRoutes(), loadTTRegions(), refreshTTLogDates()]);
 }
+
+// TT_ROAD_TYPES mirrors internal/traveltime/regions.go's RoadTypes exactly
+// — fixed, not admin-configurable (unlike _ttRegions above), so it's just
+// inlined here rather than fetched.
+const TT_ROAD_TYPES = ['Đường đô thị', 'Đường trục chính', 'Đường vành đai', 'Quốc lộ', 'Cao tốc'];
 
 // ── Config ───────────────────────────────────────────────────────
 
@@ -5986,12 +6025,15 @@ function renderTTRoutes() {
   document.getElementById('ttRouteCount').textContent = _ttRoutes.length + ' tuyến';
   const tbody = document.getElementById('ttRoutesBody');
   if (!_ttRoutes.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chưa có tuyến nào — nhấn "+ Thêm tuyến"</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chưa có tuyến nào — nhấn "+ Thêm tuyến"</td></tr>';
     return;
   }
+  const tagOrDash = v => v ? esc(v) : '<em style="opacity:.5">—</em>';
   tbody.innerHTML = _ttRoutes.map((r, i) => `<tr onmouseenter="ttOverviewSetHover('${esc(r.id)}')" onmouseleave="ttOverviewSetHover(null)">
     <td style="color:var(--text-muted)">${i+1}</td>
     <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${ttOverviewColor(i)};margin-right:.45rem;vertical-align:middle"></span><strong>${esc(r.name)}</strong></td>
+    <td style="font-size:.77rem;color:var(--text-muted)">${tagOrDash(r.region)}</td>
+    <td style="font-size:.77rem;color:var(--text-muted)">${tagOrDash(r.roadType)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.origin)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.destination)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${r.waypoints ? esc(r.waypoints) : '<em style="opacity:.5">—</em>'}</td>
@@ -6010,6 +6052,87 @@ async function deleteTTRoute(id) {
     await loadTTRoutes();
     toast('Đã xóa tuyến', 'success');
   } catch (e) { toast(e.message || 'Lỗi', 'error'); }
+}
+
+// ── Khu vực (route regions) ─────────────────────────────────────────
+// Admin-managed list a route's "Khu vực" select offers (internal/
+// traveltime/regions.go) — lets Tổng quan giao thông later split/filter
+// the city-wide TTI trend by district instead of always blending every
+// monitored route into one number. Edited as a whole list (PUT replaces
+// it), same convention as this codebase's other small admin lists.
+async function loadTTRegions() {
+  try { _ttRegions = await apiFetch('/api/traveltime/route-regions') || []; }
+  catch (_) { _ttRegions = []; }
+  renderRouteRegionOptions();
+}
+
+function openTTRegionDlg() {
+  document.getElementById('ttRegionDlg').classList.add('open');
+  renderTTRegionList();
+}
+function closeTTRegionDlg() {
+  document.getElementById('ttRegionDlg').classList.remove('open');
+}
+
+function renderTTRegionList() {
+  const el = document.getElementById('ttRegionList');
+  if (!_ttRegions.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:.8rem;text-align:center;padding:.5rem">Chưa có khu vực nào</div>';
+    return;
+  }
+  el.innerHTML = _ttRegions.map(name => `
+    <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;background:var(--surface2);border-radius:6px">
+      <span style="flex:1;font-size:.85rem">${esc(name)}</span>
+      <button type="button" onclick="ttRemoveRegion('${esc(name)}')" title="Xóa khu vực"
+        style="background:none;border:none;color:var(--red);cursor:pointer;font-size:.85rem;padding:0 .2rem">✕</button>
+    </div>`).join('');
+}
+
+async function ttSaveRegions(next) {
+  _ttRegions = await apiFetch('/api/traveltime/route-regions', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next),
+  });
+  renderTTRegionList();
+  renderRouteRegionOptions();
+}
+
+async function ttAddRegion() {
+  const input = document.getElementById('ttRegionNewName');
+  const name = input.value.trim();
+  if (!name) return;
+  if (_ttRegions.includes(name)) { toast('Khu vực đã tồn tại', 'error'); return; }
+  try {
+    await ttSaveRegions([..._ttRegions, name]);
+    input.value = '';
+    input.focus();
+  } catch (e) { toast(e.message || 'Lỗi', 'error'); }
+}
+
+async function ttRemoveRegion(name) {
+  try { await ttSaveRegions(_ttRegions.filter(r => r !== name)); }
+  catch (e) { toast(e.message || 'Lỗi', 'error'); }
+}
+
+// renderRouteRegionOptions/renderRouteRoadTypeOptions populate the route
+// editor dialog's two classification selects — called on every
+// loadTTRegions() (so a region added/removed via ttAddRegion/ttRemoveRegion
+// is reflected immediately) and once from openTTRoute() when the dialog
+// opens. Both keep whatever value was already selected, if still valid.
+function renderRouteRegionOptions() {
+  const sel = document.getElementById('tt-route-region');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Chưa phân loại —</option>' +
+    _ttRegions.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  sel.value = cur;
+}
+function renderRouteRoadTypeOptions() {
+  const sel = document.getElementById('tt-route-roadtype');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Chưa phân loại —</option>' +
+    TT_ROAD_TYPES.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  sel.value = cur;
 }
 
 // ── Logs ─────────────────────────────────────────────────────────
@@ -6254,6 +6377,10 @@ function openTTRoute(id) {
   document.getElementById('ttRouteDlg-title').textContent = r ? 'Sửa tuyến đường' : 'Thêm tuyến đường';
   document.getElementById('tt-route-id').value   = r ? r.id   : '';
   document.getElementById('tt-route-name').value = r ? r.name : '';
+  renderRouteRegionOptions();
+  renderRouteRoadTypeOptions();
+  document.getElementById('tt-route-region').value   = r ? (r.region   || '') : '';
+  document.getElementById('tt-route-roadtype').value = r ? (r.roadType || '') : '';
   document.getElementById('ttRouteDlg-btn').textContent = r ? 'Cập nhật' : 'Lưu';
   document.getElementById('ttRouteDlg').classList.add('open');
 
@@ -6286,6 +6413,8 @@ async function submitTTRoute(e) {
     origin,
     destination: dest,
     waypoints:   document.getElementById('tt-route-wp').value.trim(),
+    region:      document.getElementById('tt-route-region').value,
+    roadType:    document.getElementById('tt-route-roadtype').value,
   };
   if (!body.name) { toast('Vui lòng nhập tên tuyến đường', 'error'); return; }
   try {

@@ -266,6 +266,22 @@
       </div>
     </div>
 
+    <!-- Route filter: Khu vực/Loại đường — applies to the 4 TTI-based
+         modules below (Xu hướng theo ngày/giờ, So sánh theo thứ giữa các
+         tuần, Top 10 tuyến đường). Never touches Ùn tắc (jamFactor)/Sự cố,
+         which have no route concept — see RouteFilter in
+         internal/trafficinsight for why. -->
+    <div class="ti-section">
+      <h3><span>🔍 Lọc theo tuyến đường</span></h3>
+      <div class="ti-filter-row">
+        <label>Khu vực</label>
+        <select id="tiRouteFilterRegion"><option value="">Tất cả khu vực</option></select>
+        <label>Loại đường</label>
+        <select id="tiRouteFilterRoadType"><option value="">Tất cả loại đường</option></select>
+      </div>
+      <div style="font-size:.7rem;color:var(--text-muted);margin-top:.5rem">Áp dụng cho Xu hướng theo ngày/giờ, So sánh theo thứ giữa các tuần và Top 10 tuyến đường bên dưới — chỉ ảnh hưởng chỉ số TTI/Trễ, không ảnh hưởng Ùn tắc (jamFactor)/Sự cố vì 2 chỉ số đó không gắn với tuyến đường cụ thể.</div>
+    </div>
+
     <!-- Daily trend chart -->
     <div class="ti-section">
       <h3>
@@ -461,6 +477,35 @@ const TI_INC_ICON_PX = 20;
 let _tiTrendChart = null;
 let _tiDailySeries = [];
 let _tiMatrixResult = null;
+
+// ── Route filter (Khu vực/Loại đường) ──────────────────────────────────────
+// Shared by the 4 TTI-based modules (Xu hướng theo ngày/giờ, So sánh theo
+// thứ, Top 10 tuyến đường) — see the "🔍 Lọc theo tuyến đường" section's own
+// comment above for why it stops there and never touches jam/incident data.
+async function loadTiRouteFilters() {
+  try {
+    const data = await apiFetch('/api/trafficinsight/route-filters');
+    const regionSel = document.getElementById('tiRouteFilterRegion');
+    const roadTypeSel = document.getElementById('tiRouteFilterRoadType');
+    (data.regions || []).forEach(r => regionSel.insertAdjacentHTML('beforeend', `<option value="${escHtml(r)}">${escHtml(r)}</option>`));
+    (data.roadTypes || []).forEach(rt => roadTypeSel.insertAdjacentHTML('beforeend', `<option value="${escHtml(rt)}">${escHtml(rt)}</option>`));
+  } catch (e) {
+    toast('Không tải được danh sách khu vực/loại đường: ' + e.message, 'error');
+  }
+}
+
+// tiRouteFilterQS: the current Khu vực/Loại đường selection as a query
+// string fragment (e.g. "&region=Qu%E1%BA%ADn+1"), empty when both are
+// "Tất cả" — appended to each of the 4 filtered modules' own fetch URLs.
+function tiRouteFilterQS() {
+  const p = new URLSearchParams();
+  const region = document.getElementById('tiRouteFilterRegion').value;
+  const roadType = document.getElementById('tiRouteFilterRoadType').value;
+  if (region) p.set('region', region);
+  if (roadType) p.set('roadType', roadType);
+  const qs = p.toString();
+  return qs ? '&' + qs : '';
+}
 
 function fmtNum(v, digits) {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
@@ -919,7 +964,7 @@ async function loadDailySeries() {
   const to = document.getElementById('tiTrendTo').value;
   if (!from || !to) return; // initTrendRangeDefaults() always fills these before the first call
   try {
-    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + tiRouteFilterQS());
     renderTrendChart();
   } catch (e) {
     toast('Không tải được xu hướng theo ngày: ' + e.message, 'error');
@@ -971,7 +1016,7 @@ async function loadHourlySeries() {
   const date = document.getElementById('tiHourTrendDate').value;
   if (!date) return; // initHourTrendDefaults() always fills this before the first call
   try {
-    _tiHourlySeries = await apiFetch('/api/trafficinsight/hourly-series?date=' + encodeURIComponent(date));
+    _tiHourlySeries = await apiFetch('/api/trafficinsight/hourly-series?date=' + encodeURIComponent(date) + tiRouteFilterQS());
     renderHourlyTrendChart();
   } catch (e) {
     toast('Không tải được xu hướng theo giờ: ' + e.message, 'error');
@@ -1059,7 +1104,7 @@ function renderMatrix() {
 async function loadMatrix() {
   const weeks = document.getElementById('tiMatrixWeeks').value;
   try {
-    _tiMatrixResult = await apiFetch('/api/trafficinsight/weekday-matrix?weeks=' + encodeURIComponent(weeks));
+    _tiMatrixResult = await apiFetch('/api/trafficinsight/weekday-matrix?weeks=' + encodeURIComponent(weeks) + tiRouteFilterQS());
     renderMatrix();
   } catch (e) {
     toast('Không tải được bảng so sánh theo tuần: ' + e.message, 'error');
@@ -1484,6 +1529,10 @@ async function loadRouteTTI() {
   const hourSel = document.getElementById('tiRouteHour').value;
   const hour = hourSel === '' ? -1 : parseInt(hourSel, 10);
   if (hour >= 0) params.set('hour', String(hour));
+  const region = document.getElementById('tiRouteFilterRegion').value;
+  const roadType = document.getElementById('tiRouteFilterRoadType').value;
+  if (region) params.set('region', region);
+  if (roadType) params.set('roadType', roadType);
   const qs = params.toString();
   try {
     const res = await apiFetch('/api/trafficinsight/route-tti' + (qs ? '?' + qs : ''));
@@ -1516,6 +1565,8 @@ document.getElementById('tiRouteMode').addEventListener('change', () => {
 });
 document.getElementById('tiRouteDate').addEventListener('change', loadRouteTTI);
 document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
+document.getElementById('tiRouteFilterRegion').addEventListener('change', () => { loadDailySeries(); loadHourlySeries(); loadMatrix(); loadRouteTTI(); });
+document.getElementById('tiRouteFilterRoadType').addEventListener('change', () => { loadDailySeries(); loadHourlySeries(); loadMatrix(); loadRouteTTI(); });
 
 function initRouteRangeDefaults() {
   const sel = document.getElementById('tiRouteRange');
@@ -1542,6 +1593,7 @@ function initRouteRangeDefaults() {
     Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
 
   await loadTiTtiAppearance();
+  await loadTiRouteFilters();
   loadStatStrip();
   loadKpis();
   initTiMap();

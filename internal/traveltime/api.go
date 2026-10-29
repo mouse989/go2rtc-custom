@@ -2,6 +2,7 @@ package traveltime
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/traveltime/appearance", handleAppearance)
 	http.HandleFunc("/api/traveltime/routes", handleRoutes)
 	http.HandleFunc("/api/traveltime/routes/order", handleRoutesOrder)
+	http.HandleFunc("/api/traveltime/route-regions", handleRouteRegions)
 	http.HandleFunc("/api/traveltime/status", handleStatus)
 	http.HandleFunc("/api/traveltime/scheduler/start", handleSchedulerStart)
 	http.HandleFunc("/api/traveltime/scheduler/stop", handleSchedulerStop)
@@ -153,6 +155,19 @@ func handleAppearance(w http.ResponseWriter, r *http.Request) {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
+// validateRouteTags rejects a Region/RoadType that isn't "" and isn't
+// currently in ListRegions()/RoadTypes — e.g. a client sending a region
+// name that was since removed from the list, or a typo'd road type.
+func validateRouteTags(rt *Route) error {
+	if !IsValidRegion(rt.Region) {
+		return fmt.Errorf("unknown region: %q", rt.Region)
+	}
+	if !IsValidRoadType(rt.RoadType) {
+		return fmt.Errorf("unknown road type: %q", rt.RoadType)
+	}
+	return nil
+}
+
 func handleRoutes(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -173,6 +188,10 @@ func handleRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		if rt.Name == "" || rt.Origin == "" || rt.Destination == "" {
 			http.Error(w, "name, origin and destination are required", http.StatusBadRequest)
+			return
+		}
+		if err := validateRouteTags(&rt); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		created, err := createRoute(&rt)
@@ -196,6 +215,10 @@ func handleRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		if rt.Name == "" || rt.Origin == "" || rt.Destination == "" {
 			http.Error(w, "name, origin and destination are required", http.StatusBadRequest)
+			return
+		}
+		if err := validateRouteTags(&rt); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if err := updateRoute(&rt); err != nil {
@@ -240,6 +263,36 @@ func handleRoutesOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GET/PUT /api/traveltime/route-regions — the admin-managed "khu vực" list
+// routes can be tagged with (see regions.go). GET returns the current
+// list; PUT replaces it wholesale (same convention as most of this
+// codebase's other small admin lists — the client sends the full edited
+// array, not individual add/remove calls).
+func handleRouteRegions(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, ListRegions())
+
+	case http.MethodPut:
+		var names []string
+		if err := json.NewDecoder(r.Body).Decode(&names); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := SetRegions(names); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, ListRegions())
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // ── Scheduler ────────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ func TestGetRouteTTIForDateAggregatesIntoSlots(t *testing.T) {
 		{Timestamp: tsVN(2027, 6, 10, 9, 0), RouteID: "r1", RouteName: "Tuyến 1", LengthM: 5000, TTI: 2.0, DelaySec: 400},
 	})
 
-	rows, err := GetRouteTTIForDate(date, -1)
+	rows, err := GetRouteTTIForDate(date, -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestGetRouteTTIForDateIgnoresZeroTTIAndMissingRouteID(t *testing.T) {
 		{Timestamp: tsVN(2027, 6, 11, 8, 0), RouteID: "r3", RouteName: "valid", TTI: 1.2},
 	})
 
-	rows, err := GetRouteTTIForDate(date, -1)
+	rows, err := GetRouteTTIForDate(date, -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestGetRouteTTIForDateSortsByAvgTTINotLatest(t *testing.T) {
 		{Timestamp: tsVN(2027, 6, 12, 10, 0), RouteID: "b", RouteName: "mostly clear", TTI: 9.0}, // latest reading
 	})
 
-	rows, err := GetRouteTTIForDate(date, -1)
+	rows, err := GetRouteTTIForDate(date, -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestGetRouteTTIForDateCapsAtTen(t *testing.T) {
 	}
 	writeTravelTimeDay(t, date, entries)
 
-	rows, err := GetRouteTTIForDate(date, -1)
+	rows, err := GetRouteTTIForDate(date, -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestGetRouteTTIForDateHourFilterScopesAverageAndExcludesRoutesOutsideIt(t *
 		{Timestamp: tsVN(2027, 6, 15, 7, 20), RouteID: "r2", RouteName: "R2", TTI: 5.0},
 	})
 
-	rows, err := GetRouteTTIForDate(date, 7)
+	rows, err := GetRouteTTIForDate(date, 7, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate hour=7: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestGetRouteTTIForDateHourFilterScopesAverageAndExcludesRoutesOutsideIt(t *
 
 	// Now filter to hour 8: only r1 has data there, r2 must be dropped
 	// entirely (nothing to compare it on).
-	rowsH8, err := GetRouteTTIForDate(date, 8)
+	rowsH8, err := GetRouteTTIForDate(date, 8, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate hour=8: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestGetRouteTTIForDateHourFilterScopesAverageAndExcludesRoutesOutsideIt(t *
 
 func TestGetRouteTTIForDateEmptyDayReturnsEmptySlice(t *testing.T) {
 	setupSources(t)
-	rows, err := GetRouteTTIForDate("2027-06-13", -1)
+	rows, err := GetRouteTTIForDate("2027-06-13", -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForDate: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestGetRouteTTIForRangeAveragesSlotAcrossDays(t *testing.T) {
 		{Timestamp: tsVN(2027, 9, 2, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 4.0, DelaySec: 180},
 	})
 
-	rows, err := GetRouteTTIForRange("2027-09-01", "2027-09-02", -1)
+	rows, err := GetRouteTTIForRange("2027-09-01", "2027-09-02", -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestGetRouteTTIForRangeHourFilterScopesAcrossDays(t *testing.T) {
 		{Timestamp: tsVN(2027, 9, 11, 7, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 4.0},
 	})
 
-	rowsH7, err := GetRouteTTIForRange("2027-09-10", "2027-09-11", 7)
+	rowsH7, err := GetRouteTTIForRange("2027-09-10", "2027-09-11", 7, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange hour=7: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestGetRouteTTIForRangeHourFilterScopesAcrossDays(t *testing.T) {
 		t.Errorf("hour=7 Samples = %d, want 2", rowsH7[0].Samples)
 	}
 
-	rowsH8, err := GetRouteTTIForRange("2027-09-10", "2027-09-11", 8)
+	rowsH8, err := GetRouteTTIForRange("2027-09-10", "2027-09-11", 8, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange hour=8: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestGetRouteTTIForRangeInclusiveAndSwapsReversedBounds(t *testing.T) {
 	writeTravelTimeDay(t, "2027-09-20", []traveltime.LogEntry{{Timestamp: tsVN(2027, 9, 20, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 1.5}})
 	writeTravelTimeDay(t, "2027-09-21", []traveltime.LogEntry{{Timestamp: tsVN(2027, 9, 21, 8, 0), RouteID: "r1", RouteName: "Tuyến 1", TTI: 2.5}})
 
-	rows, err := GetRouteTTIForRange("2027-09-20", "2027-09-21", -1)
+	rows, err := GetRouteTTIForRange("2027-09-20", "2027-09-21", -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestGetRouteTTIForRangeInclusiveAndSwapsReversedBounds(t *testing.T) {
 		t.Fatalf("expected both days' entries included, got %+v", rows)
 	}
 
-	reversed, err := GetRouteTTIForRange("2027-09-21", "2027-09-20", -1) // from/to swapped
+	reversed, err := GetRouteTTIForRange("2027-09-21", "2027-09-20", -1, RouteFilter{}) // from/to swapped
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange (reversed): %v", err)
 	}
@@ -347,7 +347,7 @@ func TestGetRouteTTIForRangeClampsOverlongRangeKeepingRecentEnd(t *testing.T) {
 	writeTravelTimeDay(t, "2027-01-01", []traveltime.LogEntry{{Timestamp: tsVN(2027, 1, 1, 8, 0), RouteID: "early", RouteName: "Quá cũ", TTI: 3.0}})
 	writeTravelTimeDay(t, "2027-12-31", []traveltime.LogEntry{{Timestamp: tsVN(2027, 12, 31, 8, 0), RouteID: "late", RouteName: "Trong phạm vi", TTI: 3.0}})
 
-	rows, err := GetRouteTTIForRange("2027-01-01", "2027-12-31", -1) // 365-day span, over the 90-day cap
+	rows, err := GetRouteTTIForRange("2027-01-01", "2027-12-31", -1, RouteFilter{}) // 365-day span, over the 90-day cap
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange: %v", err)
 	}
@@ -370,17 +370,17 @@ func TestGetRouteTTIForRangeClampsOverlongRangeKeepingRecentEnd(t *testing.T) {
 
 func TestGetRouteTTIForRangeInvalidDateReturnsError(t *testing.T) {
 	setupSources(t)
-	if _, err := GetRouteTTIForRange("not-a-date", "2027-09-01", -1); err == nil {
+	if _, err := GetRouteTTIForRange("not-a-date", "2027-09-01", -1, RouteFilter{}); err == nil {
 		t.Error("expected an error for an invalid 'from' date, got nil")
 	}
-	if _, err := GetRouteTTIForRange("2027-09-01", "not-a-date", -1); err == nil {
+	if _, err := GetRouteTTIForRange("2027-09-01", "not-a-date", -1, RouteFilter{}); err == nil {
 		t.Error("expected an error for an invalid 'to' date, got nil")
 	}
 }
 
 func TestGetRouteTTIForRangeEmptyRangeReturnsEmptySlice(t *testing.T) {
 	setupSources(t)
-	rows, err := GetRouteTTIForRange("2027-09-25", "2027-09-26", -1)
+	rows, err := GetRouteTTIForRange("2027-09-25", "2027-09-26", -1, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRouteTTIForRange: %v", err)
 	}
