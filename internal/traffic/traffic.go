@@ -64,14 +64,18 @@ type Config struct {
 	Sheets        SheetsConfig   `json:"sheets"`
 	Storage       StorageConfig  `json:"storage"`
 	Running       bool           `json:"running"`
-	// FlowCaptureEnabled, off by default, persists the FULL
-	// traffic.genfast.vn/api/traffic/flow response (every field, not just
-	// what extractPoints needs for the jam-point map) into
-	// traffic_data/flow_capture.db for research/analysis — see
-	// flow_capture_parse.go/flow_capture_db.go. An explicit opt-in since a
-	// single region's response can run ~100KB and this stores every scan
-	// verbatim.
-	FlowCaptureEnabled bool `json:"flowCaptureEnabled"`
+	// FlowCaptureRetentionDays controls how long flow_capture.db keeps
+	// captured traffic/flow API detail (every scan, every enabled region,
+	// every field — including the raw JSON verbatim — see
+	// flow_capture_parse.go/flow_capture_db.go). Capture itself always
+	// runs (no on/off switch — www/flowcapture.html's map depends on it
+	// having current data, so it's no longer an opt-in debug toggle), but
+	// unlike Storage above this defaults to 0 = keep forever: the whole
+	// point of this store is being able to go back and compare against
+	// older captures later, so nothing is deleted unless an admin
+	// deliberately sets a limit here (same "0 = forever" convention
+	// StorageConfig.RetentionDays already uses).
+	FlowCaptureRetentionDays int `json:"flowCaptureRetentionDays"`
 }
 
 var (

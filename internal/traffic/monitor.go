@@ -659,17 +659,18 @@ func runScan() error {
 		addLog("info", fmt.Sprintf("region %s: fetched %d KB in %s",
 			r.Name, len(data)/1024, time.Since(regionStart).Round(time.Millisecond)))
 
-		// Flow capture (research/analysis) is a separate path from the
-		// jam-point pipeline below — see flow_capture_parse.go's own doc
-		// comment for why. Gated by FlowCaptureEnabled (off by default) and
-		// skipped on any parse/save error without affecting the scan.
-		if c.FlowCaptureEnabled {
-			if results, sourceUpdated, perr := parseFlowResults(data); perr != nil {
-				addLog("warn", fmt.Sprintf("region %s: flow capture parse error: %v", r.Name, perr))
-			} else if len(results) > 0 {
-				if serr := recordFlowScan(r.Name, regionStart, sourceUpdated, len(data), data, results); serr != nil {
-					addLog("warn", fmt.Sprintf("region %s: flow capture save error: %v", r.Name, serr))
-				}
+		// Flow capture (internal/traffic/flow_capture_db.go) is a separate
+		// path from the jam-point pipeline below — see
+		// flow_capture_parse.go's own doc comment for why — and always
+		// runs, unconditionally, for every enabled region: www/flowcapture.html's
+		// map depends on it having current data, so this is no longer an
+		// opt-in debug toggle. A parse/save failure here is logged and
+		// skipped, never affecting the scan itself.
+		if results, sourceUpdated, perr := parseFlowResults(data); perr != nil {
+			addLog("warn", fmt.Sprintf("region %s: flow capture parse error: %v", r.Name, perr))
+		} else if len(results) > 0 {
+			if serr := recordFlowScan(r.Name, regionStart, sourceUpdated, len(data), data, results); serr != nil {
+				addLog("warn", fmt.Sprintf("region %s: flow capture save error: %v", r.Name, serr))
 			}
 		}
 
@@ -688,6 +689,16 @@ func runScan() error {
 		}
 		pts := extractPoints(segs, r, c.MinJam)
 		allRaw = append(allRaw, pts...)
+	}
+
+	// Flow capture retention cleanup: once per scan cycle (not per region)
+	// — a no-op when FlowCaptureRetentionDays is 0 (keep forever, the
+	// default), same "0 = forever" convention saveScanData's own
+	// RetentionDays cleanup uses for traffic_data/.
+	if c.FlowCaptureRetentionDays > 0 {
+		if err := cleanupFlowCaptureOlderThan(c.FlowCaptureRetentionDays); err != nil {
+			addLog("warn", fmt.Sprintf("flow capture retention cleanup error: %v", err))
+		}
 	}
 
 	filtered := clusterPoints(allRaw, c.ClusterRadius)

@@ -524,18 +524,24 @@ function doGet() {
         </div>
       </div>
 
-      <!-- Flow Capture: research/debug-only, captures the FULL
-           traffic/flow API response (every field, not just what the
-           jam-point map needs) into its own file for analysis. -->
-      <h4>Flow Capture (nghiên cứu / debug)</h4>
-      <label class="tf-toggle-row" style="margin-bottom:.4rem">
-        <input type="checkbox" id="cfgFlowCapture"> Lưu toàn bộ response traffic/flow API để phân tích
-      </label>
-      <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.75rem;line-height:1.5">
-        Lưu mọi trường API trả về (tốc độ, freeFlow, subSegments, functionalClass...) vào file riêng
-        <code>traffic_data/flow_capture.db</code> mỗi lần quét — không ảnh hưởng tính năng bản đồ ùn tắc hiện tại.
-        Dung lượng có thể tăng nhanh (một vùng có thể ~100KB/lần quét) — chỉ nên bật tạm thời khi cần lấy dữ liệu
-        thật để phân tích, tắt lại sau khi đủ dữ liệu.
+      <!-- Flow Capture: always on (feeds www/flowcapture.html's map), captures
+           the FULL traffic/flow API response (every field, not just what the
+           jam-point map needs) into its own file for analysis/comparison. -->
+      <h4>Flow Capture</h4>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.6rem;line-height:1.5">
+        Luôn ghi mọi trường API trả về (tốc độ, freeFlow, subSegments, functionalClass...) vào file riêng
+        <code>traffic_data/flow_capture.db</code> mỗi lần quét, phục vụ trang Flow Capture + phân tích/so sánh
+        sau này — không ảnh hưởng tính năng bản đồ ùn tắc hiện tại.
+      </div>
+      <div class="tf-grid">
+        <div class="tf-field">
+          <label>Giữ lại (ngày, 0 = giữ mãi mãi)</label>
+          <input type="number" id="cfgFlowCaptureRetention" min="0" max="3650" value="0">
+        </div>
+      </div>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-top:.4rem;line-height:1.5">
+        Mặc định giữ mãi mãi (0) để có thể so sánh với dữ liệu cũ sau này. Một vùng có thể ~100KB/lần quét — nếu
+        dung lượng là vấn đề, đặt số ngày ở đây để tự động xoá bớt dữ liệu cũ hơn.
       </div>
 
       <div style="margin-top:1.1rem;display:flex;gap:.5rem;justify-content:flex-end">
@@ -554,7 +560,7 @@ function doGet() {
       </div>
     </div>
 
-    <!-- Flow Capture — dữ liệu đã lưu khi bật tuỳ chọn ở mục cấu hình trên -->
+    <!-- Flow Capture — dữ liệu đã lưu (luôn ghi mỗi lần quét, xem mục cấu hình trên) -->
     <div class="tf-section">
       <h3 style="display:flex;justify-content:space-between;align-items:center">
         Flow Capture — Dữ liệu đã lưu
@@ -565,7 +571,7 @@ function doGet() {
         này để đọc/phân tích.
       </p>
       <div id="flowCaptureContainer">
-        <div class="tf-empty">Chưa có dữ liệu. Bật "Flow Capture" ở mục cấu hình trên rồi bấm Refresh sau khi có lượt quét mới.</div>
+        <div class="tf-empty">Chưa có dữ liệu — đợi lượt quét tiếp theo rồi bấm Refresh.</div>
       </div>
       <div id="flowCaptureDetail" style="margin-top:.75rem"></div>
     </div>
@@ -726,7 +732,7 @@ async function loadConfig() {
     document.getElementById('stEnabled').checked   = !!st.enabled;
     document.getElementById('stRetention').value   = st.retentionDays ?? 30;
 
-    document.getElementById('cfgFlowCapture').checked = !!cfg.flowCaptureEnabled;
+    document.getElementById('cfgFlowCaptureRetention').value = cfg.flowCaptureRetentionDays ?? 0;
   } catch(e) {
     console.error('loadConfig error', e);
   }
@@ -765,7 +771,7 @@ async function saveConfig() {
       enabled:       document.getElementById('stEnabled').checked,
       retentionDays: parseInt(document.getElementById('stRetention').value) || 0,
     },
-    flowCaptureEnabled: document.getElementById('cfgFlowCapture').checked,
+    flowCaptureRetentionDays: parseInt(document.getElementById('cfgFlowCaptureRetention').value) || 0,
     running: document.getElementById('btnStartStop').dataset.running === 'true',
   };
 
@@ -1230,7 +1236,7 @@ async function loadFlowCaptureScans() {
   try {
     const scans = await apiFetch('/api/traffic/flow-capture/scans?limit=50');
     if (!Array.isArray(scans) || scans.length === 0) {
-      container.innerHTML = '<div class="tf-empty">Chưa có dữ liệu. Bật "Flow Capture" ở mục cấu hình trên rồi bấm Refresh sau khi có lượt quét mới.</div>';
+      container.innerHTML = '<div class="tf-empty">Chưa có dữ liệu — đợi lượt quét tiếp theo rồi bấm Refresh.</div>';
       return;
     }
     container.innerHTML = `<div class="tf-history-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
