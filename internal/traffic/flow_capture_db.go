@@ -263,6 +263,39 @@ func listFlowSegments(scanID int64) ([]FlowSegmentRow, error) {
 	return out, rows.Err()
 }
 
+// latestFlowScanPerRegion returns the single most recent scan for each
+// distinct region_name ever captured — one row per region, newest first.
+// Used by the Flow Capture map's "always show the latest data, combined
+// across every scanned region" view: regions are purely a bbox-scanning
+// control (how the admin splits the area VietMap is queried for), not a
+// meaningful way to split what the map displays, so the map always shows
+// every region's own latest capture together rather than making the
+// viewer pick one.
+func latestFlowScanPerRegion() ([]FlowScanSummary, error) {
+	if flowCaptureDB == nil {
+		return nil, nil
+	}
+	rows, err := flowCaptureDB.Query(`
+		SELECT s.id, s.region_name, s.scanned_at, s.source_updated, s.raw_bytes, s.result_count
+		FROM flow_scans s
+		INNER JOIN (SELECT region_name, MAX(id) AS max_id FROM flow_scans GROUP BY region_name) latest
+			ON latest.region_name = s.region_name AND latest.max_id = s.id
+		ORDER BY s.scanned_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FlowScanSummary{}
+	for rows.Next() {
+		var s FlowScanSummary
+		if err := rows.Scan(&s.ID, &s.RegionName, &s.ScannedAt, &s.SourceUpdated, &s.RawBytes, &s.ResultCount); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // getFlowScan returns one scan's own metadata row.
 func getFlowScan(id int64) (*FlowScanSummary, error) {
 	if flowCaptureDB == nil {

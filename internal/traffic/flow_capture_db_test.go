@@ -108,6 +108,52 @@ func TestRecordAndListFlowScan(t *testing.T) {
 	}
 }
 
+func TestLatestFlowScanPerRegion(t *testing.T) {
+	resetFlowCaptureDB(t)
+
+	results, sourceUpdated, err := parseFlowResults([]byte(realSampleJSON))
+	if err != nil {
+		t.Fatalf("parseFlowResults: %v", err)
+	}
+	// Region A: two scans, 15 minutes apart — only the later one should win.
+	older := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 10, 30, 12, 15, 0, 0, time.UTC)
+	if err := recordFlowScan("Region A", older, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan (A older): %v", err)
+	}
+	if err := recordFlowScan("Region A", newer, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan (A newer): %v", err)
+	}
+	// Region B: a single scan — must still appear (never scanned twice,
+	// not just "most recently scanned overall").
+	bTime := time.Date(2026, 10, 30, 11, 0, 0, 0, time.UTC)
+	if err := recordFlowScan("Region B", bTime, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan (B): %v", err)
+	}
+
+	latest, err := latestFlowScanPerRegion()
+	if err != nil {
+		t.Fatalf("latestFlowScanPerRegion: %v", err)
+	}
+	if len(latest) != 2 {
+		t.Fatalf("got %d regions, want 2 (one row per distinct region, not 3 for 3 scans)", len(latest))
+	}
+	byRegion := map[string]FlowScanSummary{}
+	for _, s := range latest {
+		byRegion[s.RegionName] = s
+	}
+	a, ok := byRegion["Region A"]
+	if !ok {
+		t.Fatal("Region A missing from latestFlowScanPerRegion")
+	}
+	if a.ScannedAt != newer.UTC().Format(time.RFC3339) {
+		t.Errorf("Region A ScannedAt = %q, want the NEWER scan %q (not the older one)", a.ScannedAt, newer.UTC().Format(time.RFC3339))
+	}
+	if _, ok := byRegion["Region B"]; !ok {
+		t.Error("Region B missing — a region scanned only once must still appear, not just whichever region scanned most recently overall")
+	}
+}
+
 func TestListFlowScansEmptyWhenNothingRecorded(t *testing.T) {
 	resetFlowCaptureDB(t)
 	scans, err := listFlowScans(10)

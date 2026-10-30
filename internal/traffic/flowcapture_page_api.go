@@ -20,6 +20,7 @@ import (
 func registerFlowCapturePageHandlers() {
 	http.HandleFunc("/api/flowcapture/scans", handleFlowCapturePageScans)
 	http.HandleFunc("/api/flowcapture/geometry", handleFlowCapturePageGeometry)
+	http.HandleFunc("/api/flowcapture/latest", handleFlowCapturePageLatest)
 }
 
 // requireFlowCaptureViewer only checks the caller is authenticated — the
@@ -103,6 +104,33 @@ type flowGeometryResponse struct {
 	Results       []flowGeometryResult `json:"results"`
 }
 
+// resultsToGeometry converts parsed flowResults (flow_capture_parse.go) to
+// the km/h-converted shape the map actually renders, shared by
+// handleFlowCapturePageGeometry and handleFlowCapturePageLatest.
+func resultsToGeometry(parsed []flowResult) []flowGeometryResult {
+	out := make([]flowGeometryResult, 0, len(parsed))
+	for _, fr := range parsed {
+		gr := flowGeometryResult{
+			Description: fr.Description, LengthM: fr.LengthM,
+			SpeedKmh: fr.SpeedMps * 3.6, FreeFlowKmh: fr.FreeFlowMps * 3.6,
+			JamFactor: fr.JamFactor, HasJamTendency: fr.HasJamTendency, JamTendency: fr.JamTendency,
+			Confidence: fr.Confidence, Traversability: fr.Traversability,
+		}
+		for _, lk := range fr.Links {
+			gr.Links = append(gr.Links, flowGeometryLink{Points: lk.Points, LengthM: lk.LengthM, FunctionalClass: lk.FunctionalClass})
+		}
+		for _, ss := range fr.SubSegments {
+			gr.SubSegments = append(gr.SubSegments, flowGeometrySubSegment{
+				LengthM: ss.LengthM, SpeedKmh: ss.SpeedMps * 3.6, FreeFlowKmh: ss.FreeFlowMps * 3.6,
+				JamFactor: ss.JamFactor, HasJamTendency: ss.HasJamTendency, JamTendency: ss.JamTendency,
+				Confidence: ss.Confidence, Traversability: ss.Traversability,
+			})
+		}
+		out = append(out, gr)
+	}
+	return out
+}
+
 // handleFlowCapturePageGeometry  GET /api/flowcapture/geometry?scanId=N
 // Re-parses one scan's raw_json (flow_capture_db.go stores it verbatim) and
 // returns the FULL geometry every result/link/subSegment carries — not
@@ -138,27 +166,64 @@ func handleFlowCapturePageGeometry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := flowGeometryResponse{
+	writeJSON(w, flowGeometryResponse{
 		ScanID: scanID, RegionName: meta.RegionName, ScannedAt: meta.ScannedAt, SourceUpdated: meta.SourceUpdated,
+		Results: resultsToGeometry(parsed),
+	})
+}
+
+// flowLatestRegion is one region's own latest captured scan, in the
+// combined /api/flowcapture/latest response.
+type flowLatestRegion struct {
+	ScanID        int64  `json:"scanId"`
+	RegionName    string `json:"regionName"`
+	ScannedAt     string `json:"scannedAt"`
+	SourceUpdated string `json:"sourceUpdated"`
+}
+
+type flowLatestResponse struct {
+	Regions []flowLatestRegion   `json:"regions"` // metadata per region, for the "as of" status line
+	Results []flowGeometryResult `json:"results"` // every region's own latest results, concatenated
+}
+
+// handleFlowCapturePageLatest  GET /api/flowcapture/latest
+// Combines every scanned region's own most recent capture into one
+// response — regions are purely a bbox-scanning control (how the admin
+// splits the area queried), not a meaningful way to split what the map
+// shows, so the map always displays the latest data from every region
+// together rather than making the viewer pick a region or a specific past
+// scan. Call again (the page polls this) to pick up newly captured scans;
+// each call reflects whatever is newest at that moment, replacing what was
+// shown before — there is no history browsing here, see
+// handleFlowCapturePageGeometry for that.
+func handleFlowCapturePageLatest(w http.ResponseWriter, r *http.Request) {
+	if !requireFlowCaptureViewer(w, r) {
+		return
 	}
-	for _, fr := range parsed {
-		gr := flowGeometryResult{
-			Description: fr.Description, LengthM: fr.LengthM,
-			SpeedKmh: fr.SpeedMps * 3.6, FreeFlowKmh: fr.FreeFlowMps * 3.6,
-			JamFactor: fr.JamFactor, HasJamTendency: fr.HasJamTendency, JamTendency: fr.JamTendency,
-			Confidence: fr.Confidence, Traversability: fr.Traversability,
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	scans, err := latestFlowScanPerRegion()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	resp := flowLatestResponse{Regions: []flowLatestRegion{}, Results: []flowGeometryResult{}}
+	for _, s := range scans {
+		resp.Regions = append(resp.Regions, flowLatestRegion{
+			ScanID: s.ID, RegionName: s.RegionName, ScannedAt: s.ScannedAt, SourceUpdated: s.SourceUpdated,
+		})
+		raw, err := rawFlowScanJSON(s.ID)
+		if err != nil {
+			continue // a region whose stored row can't be read is skipped, not fatal to the others
 		}
-		for _, lk := range fr.Links {
-			gr.Links = append(gr.Links, flowGeometryLink{Points: lk.Points, LengthM: lk.LengthM, FunctionalClass: lk.FunctionalClass})
+		parsed, _, err := parseFlowResults([]byte(raw))
+		if err != nil {
+			continue
 		}
-		for _, ss := range fr.SubSegments {
-			gr.SubSegments = append(gr.SubSegments, flowGeometrySubSegment{
-				LengthM: ss.LengthM, SpeedKmh: ss.SpeedMps * 3.6, FreeFlowKmh: ss.FreeFlowMps * 3.6,
-				JamFactor: ss.JamFactor, HasJamTendency: ss.HasJamTendency, JamTendency: ss.JamTendency,
-				Confidence: ss.Confidence, Traversability: ss.Traversability,
-			})
-		}
-		resp.Results = append(resp.Results, gr)
+		resp.Results = append(resp.Results, resultsToGeometry(parsed)...)
 	}
 	writeJSON(w, resp)
 }

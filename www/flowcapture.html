@@ -135,16 +135,13 @@
 
     <div class="fc-section">
       <h3>
-        <span>🗺 Bản đồ dữ liệu traffic/flow API</span>
+        <span>🗺 Bản đồ dữ liệu traffic/flow API — luôn hiện dữ liệu mới nhất</span>
         <div class="fc-controls">
-          <label>Khu vực</label>
-          <select id="fcRegion"><option value="">—</option></select>
-          <label>Lượt quét</label>
-          <select id="fcScan"><option value="">—</option></select>
-          <button id="btnFcRefresh">Refresh</button>
+          <span id="fcAsOf" style="color:var(--text-muted)">—</span>
+          <button id="btnFcRefresh">Làm mới</button>
         </div>
       </h3>
-      <div class="fc-stat-strip" id="fcStatStrip"><div class="fc-empty">Chọn khu vực và lượt quét để xem.</div></div>
+      <div class="fc-stat-strip" id="fcStatStrip"><div class="fc-empty">Đang tải...</div></div>
       <div id="fcMap" style="margin-top:.8rem"></div>
       <div class="fc-jf-legend">
         <span>0</span>
@@ -152,10 +149,12 @@
         <span>10</span>
       </div>
       <div class="fc-hint">
-        Mỗi đường trên bản đồ là 1 "result" (hoặc 1 "subSegment" khi result đó được API tự chia nhỏ) từ dữ liệu
-        đã lưu ở Flow Capture (Traffic Monitor) — màu theo đúng thang jamFactor 0–10 đã cấu hình ở Settings
-        (giống bản đồ điểm ùn tắc). Bấm vào 1 đường để xem chi tiết (tên đường, chiều dài, tốc độ km/h, tốc độ
-        thông thoáng, độ tin cậy, loại đường).
+        Mỗi đường trên bản đồ là 1 "result" (hoặc 1 "subSegment" khi result đó được API tự chia nhỏ) — màu theo
+        đúng thang jamFactor 0–10 đã cấu hình ở Settings (giống bản đồ điểm ùn tắc). Trang này luôn hiện dữ liệu
+        <b>mới nhất của từng khu vực đang quét, gộp chung lại</b> — khu vực chỉ là cách chia vùng quét trên bbox,
+        không dùng để lọc hiển thị ở đây; có lượt quét mới thì dữ liệu cũ tự động được thay thế (không cần chọn
+        lại). Bấm vào 1 đường để xem chi tiết (chiều dài, tốc độ km/h, tốc độ thông thoáng, độ tin cậy, loại
+        đường) — không hiện tên đường vì tên tra ngược từ toạ độ có thể không chính xác.
       </div>
     </div>
 
@@ -170,8 +169,6 @@
 
 let _fcMap = null;
 let _fcMapInited = false;
-let _fcScans = []; // every captured scan, newest first (from /api/flowcapture/scans)
-
 function fmtFcTime(iso) {
   try { return new Date(iso).toLocaleString('vi-VN', { hour12: false }); } catch (_) { return iso || '—'; }
 }
@@ -181,60 +178,42 @@ function renderFcLegend() {
   if (bar) bar.style.background = jfGradientCssString();
 }
 
-// ── Scan picker: Khu vực → Lượt quét (newest first per region) ───────────
-async function loadFcScans() {
-  try {
-    _fcScans = await apiFetch('/api/flowcapture/scans?limit=200');
-  } catch (e) {
-    toast('Không tải được danh sách lượt quét: ' + e.message, 'error');
-    _fcScans = [];
-  }
-  const regions = [...new Set(_fcScans.map(s => s.regionName))];
-  const regionSel = document.getElementById('fcRegion');
-  const prevRegion = regionSel.value;
-  regionSel.innerHTML = regions.length
-    ? regions.map(r => `<option value="${escHtml(r)}">${escHtml(r)}</option>`).join('')
-    : '<option value="">(chưa có dữ liệu)</option>';
-  if (regions.includes(prevRegion)) regionSel.value = prevRegion;
-  renderFcScanOptions();
-}
-
-function renderFcScanOptions() {
-  const region = document.getElementById('fcRegion').value;
-  const scanSel = document.getElementById('fcScan');
-  const scans = _fcScans.filter(s => s.regionName === region);
-  if (!scans.length) {
-    scanSel.innerHTML = '<option value="">(chưa có lượt quét)</option>';
-    renderFcStats(null);
-    clearFcMap();
+// ── Live view: every region's own latest capture, combined ───────────────
+// No region/scan picker — regions are purely a bbox-scanning control (how
+// the admin splits the area VietMap is queried for), not something
+// meaningful to filter this map by. loadFcLatest() always shows whatever
+// is newest right now; calling it again (poll or "Làm mới") simply
+// replaces the map/stats with whatever is newest at that moment.
+function renderFcStats(latest) {
+  const el = document.getElementById('fcStatStrip');
+  const asOf = document.getElementById('fcAsOf');
+  const regions = (latest && latest.regions) || [];
+  if (!regions.length) {
+    el.innerHTML = '<div class="fc-empty">Chưa có dữ liệu — bật "Flow Capture" ở Traffic Monitor rồi đợi lượt quét tiếp theo.</div>';
+    asOf.textContent = '—';
     return;
   }
-  const prevScan = scanSel.value;
-  scanSel.innerHTML = scans.map(s =>
-    `<option value="${s.id}">${escHtml(fmtFcTime(s.scannedAt))} (${s.resultCount} tuyến)</option>`).join('');
-  const stillThere = scans.some(s => String(s.id) === prevScan);
-  scanSel.value = stillThere ? prevScan : String(scans[0].id); // newest first
-  loadFcGeometry(scanSel.value);
-}
-
-function renderFcStats(geo) {
-  const el = document.getElementById('fcStatStrip');
-  if (!geo) { el.innerHTML = '<div class="fc-empty">Chọn khu vực và lượt quét để xem.</div>'; return; }
-  const results = geo.results || [];
+  const results = latest.results || [];
   const subCount = results.reduce((n, r) => n + (r.subSegments ? r.subSegments.length : 0), 0);
   const avgJf = results.length ? (results.reduce((s, r) => s + r.jamFactor, 0) / results.length) : 0;
+  const newest = regions.reduce((a, b) => (a.scannedAt > b.scannedAt ? a : b));
+  asOf.textContent = 'Cập nhật lúc ' + fmtFcTime(newest.scannedAt);
+
   const tiles = [
-    { lbl: 'Khu vực', val: geo.regionName || '—', color: '#60a5fa' },
-    { lbl: 'Thời điểm quét', val: fmtFcTime(geo.scannedAt), color: '#818cf8' },
+    { lbl: 'Số khu vực có dữ liệu', val: regions.length, color: '#60a5fa' },
+    { lbl: 'Lượt quét gần nhất', val: fmtFcTime(newest.scannedAt), color: '#818cf8' },
     { lbl: 'Số tuyến (results)', val: results.length, color: '#38bdf8' },
     { lbl: 'Số đoạn con (subSegments)', val: subCount, color: '#a78bfa' },
     { lbl: 'JamFactor TB', val: avgJf.toFixed(1), color: jfToColor(avgJf) },
   ];
+  const regionList = regions.map(r =>
+    `<span style="margin-right:1rem">${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}</span>`).join('');
   el.innerHTML = tiles.map(x => `
     <div class="fc-stat-tile" style="--fc-stat-c:${x.color}">
       <div class="fc-stat-lbl">${x.lbl}</div>
       <div class="fc-stat-val">${x.val}</div>
-    </div>`).join('');
+    </div>`).join('') +
+    `<div style="flex-basis:100%;font-size:.72rem;color:var(--text-muted);margin-top:.3rem">${regionList}</div>`;
 }
 
 // ── Geometry → GeoJSON lines (split at subSegment boundaries) ────────────
@@ -297,7 +276,7 @@ function buildFcGeoJSON(geo) {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: pts.map(p => [p.lng, p.lat]) },
         properties: {
-          jf: r.jamFactor, description: r.description || '', subLabel: 'cả tuyến',
+          jf: r.jamFactor, subLabel: 'cả tuyến',
           lengthM: r.lengthM, speedKmh: r.speedKmh, freeFlowKmh: r.freeFlowKmh,
           confidence: r.confidence, functionalClass, resultIndex: ri,
         },
@@ -314,7 +293,7 @@ function buildFcGeoJSON(geo) {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: coords.map(([lat, lng]) => [lng, lat]) },
         properties: {
-          jf: ss.jamFactor, description: r.description || '', subLabel: 'đoạn ' + (si + 1),
+          jf: ss.jamFactor, subLabel: 'đoạn ' + (si + 1),
           lengthM: ss.lengthM, speedKmh: ss.speedKmh, freeFlowKmh: ss.freeFlowKmh,
           confidence: ss.confidence, functionalClass, resultIndex: ri,
         },
@@ -324,16 +303,14 @@ function buildFcGeoJSON(geo) {
   return { type: 'FeatureCollection', features };
 }
 
-function clearFcMap() {
-  if (_fcMapInited && _fcMap.getSource('fc-lines')) {
-    _fcMap.getSource('fc-lines').setData({ type: 'FeatureCollection', features: [] });
-  }
-}
-
+// No street name shown here — it's reverse-geocoded from coordinates on
+// the API's own side and can be wrong, per explicit feedback; "đoạn" (sub-
+// segment number) + length is enough to tell pieces of the same road apart
+// without claiming an unreliable name is correct.
 function fcLinePopupHtml(p) {
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:170px;color:#1a1a1a">
-    <div style="font-size:.92rem;font-weight:700">${escHtml(p.description || '(không tên)')}</div>
-    <div style="color:#333;font-size:.78rem">${escHtml(p.subLabel)} · ${p.lengthM.toFixed(0)} m</div>
+    <div style="font-size:.92rem;font-weight:700">${escHtml(p.subLabel)}</div>
+    <div style="color:#333;font-size:.78rem">${p.lengthM.toFixed(0)} m</div>
     <div style="margin-top:.3rem;font-size:.8rem">
       <b>JamFactor:</b> ${p.jf.toFixed(1)}<br>
       <b>Tốc độ:</b> ${p.speedKmh.toFixed(1)} km/h<br>
@@ -344,15 +321,15 @@ function fcLinePopupHtml(p) {
   </div>`;
 }
 
-async function loadFcGeometry(scanId) {
-  if (!scanId) { renderFcStats(null); clearFcMap(); return; }
+async function loadFcLatest() {
   try {
-    const geo = await apiFetch('/api/flowcapture/geometry?scanId=' + scanId);
-    renderFcStats(geo);
-    const data = buildFcGeoJSON(geo);
+    const latest = await apiFetch('/api/flowcapture/latest');
+    renderFcStats(latest);
+    const data = buildFcGeoJSON(latest);
     if (_fcMapInited && _fcMap.getSource('fc-lines')) {
+      const firstLoad = !_fcHasFitOnce;
       _fcMap.getSource('fc-lines').setData(data);
-      fitFcBounds(data);
+      if (firstLoad) { fitFcBounds(data); _fcHasFitOnce = true; }
     } else {
       _pendingFcData = data;
     }
@@ -360,6 +337,7 @@ async function loadFcGeometry(scanId) {
     toast('Không tải được dữ liệu bản đồ: ' + e.message, 'error');
   }
 }
+let _fcHasFitOnce = false;
 
 let _pendingFcData = null;
 
@@ -406,14 +384,18 @@ async function initFcMap() {
   }
 }
 
-document.getElementById('fcRegion').addEventListener('change', renderFcScanOptions);
-document.getElementById('fcScan').addEventListener('change', () => loadFcGeometry(document.getElementById('fcScan').value));
-document.getElementById('btnFcRefresh').addEventListener('click', loadFcScans);
+document.getElementById('btnFcRefresh').addEventListener('click', loadFcLatest);
 
 (async () => {
   await initApp('flowcapture');
   initFcMap();
-  await loadFcScans();
+  await loadFcLatest();
+  // Keeps the map current without the viewer having to remember to refresh
+  // — same ~60s cadence other live pages in this app poll at. Each tick
+  // just replaces the map/stats with whatever is newest at that moment
+  // (see loadFcLatest); the viewport itself isn't re-fit after the first
+  // load, so panning/zooming while watching isn't disrupted.
+  setInterval(loadFcLatest, 60000);
 
   const themeBtn = document.getElementById('btnTheme');
   if (themeBtn) themeBtn.addEventListener('click', renderFcLegend);
