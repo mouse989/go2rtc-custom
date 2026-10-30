@@ -137,6 +137,9 @@
       <h3>
         <span>🗺 Bản đồ dữ liệu traffic/flow API — luôn hiện dữ liệu mới nhất</span>
         <div class="fc-controls">
+          <label style="display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">
+            <input type="checkbox" id="fcLayerRoutes" checked> Tuyến TTI đang theo dõi
+          </label>
           <span id="fcAsOf" style="color:var(--text-muted)">—</span>
           <button id="btnFcRefresh">Làm mới</button>
         </div>
@@ -149,12 +152,16 @@
         <span>10</span>
       </div>
       <div class="fc-hint">
-        Mỗi đường trên bản đồ là 1 "result" (hoặc 1 "subSegment" khi result đó được API tự chia nhỏ) — màu theo
-        đúng thang jamFactor 0–10 đã cấu hình ở Settings (giống bản đồ điểm ùn tắc). Trang này luôn hiện dữ liệu
-        <b>mới nhất của từng khu vực đang quét, gộp chung lại</b> — khu vực chỉ là cách chia vùng quét trên bbox,
-        không dùng để lọc hiển thị ở đây; có lượt quét mới thì dữ liệu cũ tự động được thay thế (không cần chọn
-        lại). Bấm vào 1 đường để xem chi tiết (chiều dài, tốc độ km/h, tốc độ thông thoáng, độ tin cậy, loại
-        đường) — không hiện tên đường vì tên tra ngược từ toạ độ có thể không chính xác.
+        Mỗi đường mảnh trên bản đồ là 1 "result" (hoặc 1 "subSegment" khi result đó được API tự chia nhỏ) từ dữ
+        liệu traffic/flow — màu theo đúng thang jamFactor 0–10 đã cấu hình ở Settings (giống bản đồ điểm ùn tắc).
+        Trang này luôn hiện dữ liệu <b>mới nhất của từng khu vực đang quét, gộp chung lại</b> — khu vực chỉ là
+        cách chia vùng quét trên bbox, không dùng để lọc hiển thị ở đây; có lượt quét mới thì dữ liệu cũ tự động
+        được thay thế. Bấm vào 1 đường để xem chi tiết — không hiện tên đường vì tên tra ngược từ toạ độ có thể
+        không chính xác.<br>
+        Đường <b>viền đậm, tô theo cùng thang màu</b> là từng đoạn của các tuyến TTI bạn đang theo dõi (Travel
+        Time) — mỗi đoạn là khoảng cách giữa 2 điểm liên tiếp (gốc/điểm giữa/đích) đã đặt khi cấu hình tuyến;
+        thêm điểm giữa cho 1 tuyến để tách nó ra nhiều đoạn chi tiết hơn. Màu suy ra từ TTI của đoạn đó (TTI 1.0
+        → xanh, TTI ≥2.0 → đỏ đậm) để dùng chung ngôn ngữ màu với dữ liệu traffic/flow, không phải jamFactor thật.
       </div>
     </div>
 
@@ -184,7 +191,7 @@ function renderFcLegend() {
 // meaningful to filter this map by. loadFcLatest() always shows whatever
 // is newest right now; calling it again (poll or "Làm mới") simply
 // replaces the map/stats with whatever is newest at that moment.
-function renderFcStats(latest) {
+function renderFcStats(latest, routes) {
   const el = document.getElementById('fcStatStrip');
   const asOf = document.getElementById('fcAsOf');
   const regions = (latest && latest.regions) || [];
@@ -199,12 +206,14 @@ function renderFcStats(latest) {
   const newest = regions.reduce((a, b) => (a.scannedAt > b.scannedAt ? a : b));
   asOf.textContent = 'Cập nhật lúc ' + fmtFcTime(newest.scannedAt);
 
+  const routeLegCount = (routes || []).reduce((n, rt) => n + (rt.segments ? rt.segments.length : 0), 0);
   const tiles = [
     { lbl: 'Số khu vực có dữ liệu', val: regions.length, color: '#60a5fa' },
     { lbl: 'Lượt quét gần nhất', val: fmtFcTime(newest.scannedAt), color: '#818cf8' },
     { lbl: 'Số tuyến (results)', val: results.length, color: '#38bdf8' },
     { lbl: 'Số đoạn con (subSegments)', val: subCount, color: '#a78bfa' },
     { lbl: 'JamFactor TB', val: avgJf.toFixed(1), color: jfToColor(avgJf) },
+    { lbl: 'Tuyến TTI đang theo dõi', val: (routes || []).length + ' tuyến · ' + routeLegCount + ' đoạn', color: '#34d399' },
   ];
   const regionList = regions.map(r =>
     `<span style="margin-right:1rem">${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}</span>`).join('');
@@ -321,17 +330,69 @@ function fcLinePopupHtml(p) {
   </div>`;
 }
 
+// ── Route-segment TTI layer ("Phương án B") → GeoJSON ─────────────────────
+// Each leg is a straight line between 2 consecutive points (gốc/điểm giữa/
+// đích) already fetched for the route's own TTI collection — no new API
+// calls, see internal/traveltime/collector.go's RouteLegStat. TTI has no
+// native 0–10 scale like jamFactor, so it's linearly mapped onto that same
+// range purely so this layer can reuse jfColorExpression()/jfToColor(); the
+// popup always shows the real TTI, never presenting the derived number as
+// an actual jamFactor.
+const TTI_JF_REFERENCE_MAX = 2.0;
+function ttiToJfEquivalent(tti) {
+  if (tti == null || tti <= 1) return 0;
+  return Math.max(0, Math.min(10, (tti - 1) / (TTI_JF_REFERENCE_MAX - 1) * 10));
+}
+
+function buildRouteSegmentsGeoJSON(routes) {
+  const features = [];
+  (routes || []).forEach(rt => {
+    (rt.segments || []).forEach(seg => {
+      features.push({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: [[seg.fromLng, seg.fromLat], [seg.toLng, seg.toLat]] },
+        properties: {
+          jf: ttiToJfEquivalent(seg.tti), routeName: rt.routeName, legIndex: seg.legIndex,
+          lengthM: seg.lengthM, tti: seg.tti, durationSec: seg.durationSec,
+          baseSec: seg.baseSec, delaySec: seg.delaySec,
+        },
+      });
+    });
+  });
+  return { type: 'FeatureCollection', features };
+}
+
+function fcRoutePopupHtml(p) {
+  const speedKmh = p.durationSec > 0 ? (p.lengthM / 1000) / (p.durationSec / 3600) : 0;
+  return `<div style="font-family:sans-serif;line-height:1.6;min-width:180px;color:#1a1a1a">
+    <div style="font-size:.92rem;font-weight:700">${escHtml(p.routeName)}</div>
+    <div style="color:#333;font-size:.78rem">Đoạn ${p.legIndex + 1} · ${p.lengthM.toFixed(0)} m</div>
+    <div style="margin-top:.3rem;font-size:.8rem">
+      <b>TTI:</b> ${p.tti.toFixed(2)}<br>
+      <b>Tốc độ:</b> ${speedKmh.toFixed(1)} km/h<br>
+      <b>Thời gian đi:</b> ${p.durationSec}s (nền: ${p.baseSec}s)<br>
+      <b>Trễ do kẹt xe:</b> ${p.delaySec}s
+    </div>
+  </div>`;
+}
+
 async function loadFcLatest() {
   try {
-    const latest = await apiFetch('/api/flowcapture/latest');
-    renderFcStats(latest);
+    const [latest, routes] = await Promise.all([
+      apiFetch('/api/flowcapture/latest'),
+      apiFetch('/api/flowcapture/routes').catch(() => []),
+    ]);
+    renderFcStats(latest, routes);
     const data = buildFcGeoJSON(latest);
+    const routeData = buildRouteSegmentsGeoJSON(routes);
     if (_fcMapInited && _fcMap.getSource('fc-lines')) {
       const firstLoad = !_fcHasFitOnce;
       _fcMap.getSource('fc-lines').setData(data);
-      if (firstLoad) { fitFcBounds(data); _fcHasFitOnce = true; }
+      _fcMap.getSource('fc-routes').setData(routeData);
+      if (firstLoad) { fitFcBounds(data, routeData); _fcHasFitOnce = true; }
     } else {
       _pendingFcData = data;
+      _pendingFcRouteData = routeData;
     }
   } catch (e) {
     toast('Không tải được dữ liệu bản đồ: ' + e.message, 'error');
@@ -340,11 +401,14 @@ async function loadFcLatest() {
 let _fcHasFitOnce = false;
 
 let _pendingFcData = null;
+let _pendingFcRouteData = null;
 
-function fitFcBounds(data) {
-  if (!_fcMapInited || !data.features.length) return;
+function fitFcBounds(data, routeData) {
+  if (!_fcMapInited) return;
+  const allFeatures = (data.features || []).concat((routeData && routeData.features) || []);
+  if (!allFeatures.length) return;
   let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
-  data.features.forEach(f => f.geometry.coordinates.forEach(([lng, lat]) => {
+  allFeatures.forEach(f => f.geometry.coordinates.forEach(([lng, lat]) => {
     if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
     if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   }));
@@ -377,7 +441,32 @@ async function initFcMap() {
       });
       _fcMap.on('mouseenter', 'fc-lines-line', () => _fcMap.getCanvas().style.cursor = 'pointer');
       _fcMap.on('mouseleave', 'fc-lines-line', () => _fcMap.getCanvas().style.cursor = '');
-      if (_pendingFcData) { fitFcBounds(_pendingFcData); _pendingFcData = null; }
+
+      const routesVisible = document.getElementById('fcLayerRoutes').checked ? 'visible' : 'none';
+      _fcMap.addSource('fc-routes', { type: 'geojson', data: _pendingFcRouteData || { type: 'FeatureCollection', features: [] } });
+      _fcMap.addLayer({
+        id: 'fc-routes-casing', type: 'line', source: 'fc-routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
+        paint: { 'line-color': '#0f172a', 'line-width': 9, 'line-opacity': .9 },
+      });
+      _fcMap.addLayer({
+        id: 'fc-routes-line', type: 'line', source: 'fc-routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
+        paint: { 'line-color': jfColorExpression(), 'line-width': 5, 'line-opacity': 1 },
+      });
+      _fcMap.on('click', 'fc-routes-line', e => {
+        const p = e.features[0].properties;
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '260px' })
+          .setLngLat(e.lngLat).setHTML(fcRoutePopupHtml(p)).addTo(_fcMap);
+      });
+      _fcMap.on('mouseenter', 'fc-routes-line', () => _fcMap.getCanvas().style.cursor = 'pointer');
+      _fcMap.on('mouseleave', 'fc-routes-line', () => _fcMap.getCanvas().style.cursor = '');
+
+      if (_pendingFcData || _pendingFcRouteData) {
+        fitFcBounds(_pendingFcData || { type: 'FeatureCollection', features: [] }, _pendingFcRouteData);
+        _pendingFcData = null;
+        _pendingFcRouteData = null;
+      }
     });
   } catch (e) {
     document.getElementById('fcMap').innerHTML = `<div class="fc-empty">Lỗi bản đồ: ${escHtml(e.message)}</div>`;
@@ -385,6 +474,12 @@ async function initFcMap() {
 }
 
 document.getElementById('btnFcRefresh').addEventListener('click', loadFcLatest);
+document.getElementById('fcLayerRoutes').addEventListener('change', e => {
+  if (!_fcMapInited) return;
+  const vis = e.target.checked ? 'visible' : 'none';
+  _fcMap.setLayoutProperty('fc-routes-casing', 'visibility', vis);
+  _fcMap.setLayoutProperty('fc-routes-line', 'visibility', vis);
+});
 
 (async () => {
   await initApp('flowcapture');
