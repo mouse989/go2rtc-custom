@@ -550,6 +550,22 @@ function doGet() {
       </div>
     </div>
 
+    <!-- Flow Capture — dữ liệu đã lưu khi bật tuỳ chọn ở mục cấu hình trên -->
+    <div class="tf-section">
+      <h3 style="display:flex;justify-content:space-between;align-items:center">
+        Flow Capture — Dữ liệu đã lưu
+        <button class="btn btn-sm" id="btnRefreshFlowCapture" style="font-size:.72rem">Refresh</button>
+      </h3>
+      <p class="tf-status-label" style="margin:0 0 .65rem">
+        Bấm "👁 Xem" để xem chi tiết từng đoạn ngay tại đây, hoặc "⬇ JSON" để tải file gốc về máy — có thể gửi file
+        này để đọc/phân tích.
+      </p>
+      <div id="flowCaptureContainer">
+        <div class="tf-empty">Chưa có dữ liệu. Bật "Flow Capture" ở mục cấu hình trên rồi bấm Refresh sau khi có lượt quét mới.</div>
+      </div>
+      <div id="flowCaptureDetail" style="margin-top:.75rem"></div>
+    </div>
+
     <!-- Duplicate Scan Check -->
     <div class="tf-section">
       <h3 style="display:flex;justify-content:space-between;align-items:center">
@@ -1059,7 +1075,7 @@ async function loadStatus() {
 
     // Reload saved-scan list when a new scan finishes
     const prevScanAt = document.getElementById('lastScanTime').textContent;
-    if (s.lastScanAt && s.lastScanAt !== prevScanAt) loadHistory();
+    if (s.lastScanAt && s.lastScanAt !== prevScanAt) { loadHistory(); loadFlowCaptureScans(); }
 
     document.getElementById('lastScanTime').textContent = s.lastScanAt || '—';
     document.getElementById('statRaw').textContent       = s.raw        || 0;
@@ -1196,6 +1212,103 @@ async function downloadScan(name) {
 }
 
 document.getElementById('btnRefreshHistory').addEventListener('click', loadHistory);
+
+// ── Flow Capture viewer — read the research data back without needing to
+// call the API by hand: list captured scans, view one's segments inline
+// (flattened table, km/h already converted), or download its raw JSON —
+// same download-as-file pattern as downloadScan() above. ──────────────────
+function fmtFlowTime(iso) {
+  try { return new Date(iso).toLocaleString('vi-VN', { hour12: false }); } catch(_) { return iso || '—'; }
+}
+
+async function loadFlowCaptureScans() {
+  const container = document.getElementById('flowCaptureContainer');
+  try {
+    const scans = await apiFetch('/api/traffic/flow-capture/scans?limit=50');
+    if (!Array.isArray(scans) || scans.length === 0) {
+      container.innerHTML = '<div class="tf-empty">Chưa có dữ liệu. Bật "Flow Capture" ở mục cấu hình trên rồi bấm Refresh sau khi có lượt quét mới.</div>';
+      return;
+    }
+    container.innerHTML = `<div class="tf-history-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <table class="tf-history-table">
+        <thead><tr>
+          <th>Thời điểm quét</th><th>Khu vực</th><th class="num">Số tuyến</th><th class="num">Dung lượng</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${scans.map(s => `
+            <tr>
+              <td>${escHtml(fmtFlowTime(s.scannedAt))}</td>
+              <td>${escHtml(s.regionName)}</td>
+              <td class="num">${s.resultCount}</td>
+              <td class="num">${fmtSize(s.rawBytes)}</td>
+              <td style="text-align:right;white-space:nowrap">
+                <button class="tf-history-dl" onclick="viewFlowCaptureScan(${s.id})">👁 Xem</button>
+                <button class="tf-history-dl" onclick="downloadFlowCaptureJSON(${s.id})">⬇ JSON</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  } catch(e) {
+    container.innerHTML = `<div class="tf-empty">Lỗi tải dữ liệu: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function viewFlowCaptureScan(scanId) {
+  const detail = document.getElementById('flowCaptureDetail');
+  detail.innerHTML = '<div class="tf-empty">Đang tải...</div>';
+  try {
+    const segs = await apiFetch('/api/traffic/flow-capture/segments?scanId=' + scanId);
+    if (!Array.isArray(segs) || segs.length === 0) {
+      detail.innerHTML = '<div class="tf-empty">Lượt quét này không có đoạn nào.</div>';
+      return;
+    }
+    detail.innerHTML = `<div style="font-weight:600;margin-bottom:.4rem">Chi tiết lượt quét #${scanId} (${segs.length} dòng — các dòng mờ là đoạn con/subSegment của dòng "cả tuyến" phía trên nó)</div>
+      <div class="tf-history-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-height:420px;overflow-y:auto">
+      <table class="tf-history-table">
+        <thead><tr>
+          <th>Tên đường</th><th>Đoạn</th><th class="num">Dài (m)</th>
+          <th class="num">Tốc độ (km/h)</th><th class="num">Thông thoáng (km/h)</th>
+          <th class="num">JamFactor</th><th class="num">Độ tin cậy</th><th class="num">Loại đường</th>
+        </tr></thead>
+        <tbody>
+          ${segs.map(s => `
+            <tr${s.subIndex >= 0 ? ' style="color:var(--text-muted)"' : ''}>
+              <td>${escHtml(s.description || '(không tên)')}</td>
+              <td>${s.subIndex === -1 ? 'cả tuyến' : 'đoạn ' + (s.subIndex + 1)}</td>
+              <td class="num">${s.lengthM.toFixed(0)}</td>
+              <td class="num">${s.speedKmh.toFixed(1)}</td>
+              <td class="num">${s.freeFlowKmh.toFixed(1)}</td>
+              <td class="num">${s.jamFactor.toFixed(1)}</td>
+              <td class="num">${(s.confidence * 100).toFixed(0)}%</td>
+              <td class="num">${s.functionalClass ?? '—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>
+      <div style="margin-top:.5rem;text-align:right">
+        <button class="tf-history-dl" onclick="downloadFlowCaptureJSON(${scanId})">⬇ Tải JSON gốc</button>
+      </div>`;
+  } catch(e) {
+    detail.innerHTML = `<div class="tf-empty">Lỗi tải chi tiết: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function downloadFlowCaptureJSON(scanId) {
+  try {
+    const token = getToken();
+    const res = await fetch('/api/traffic/flow-capture/raw?scanId=' + scanId, {
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'flow-scan-' + scanId + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) { showToast('Tải JSON thất bại: ' + e.message, true); }
+}
+
+document.getElementById('btnRefreshFlowCapture').addEventListener('click', loadFlowCaptureScans);
 
 // ── Kiểm tra quét trùng (diagnostic only — never modifies stored files) ────
 // The read-path fix (internal/traffic/storage.go's dedupLatestPerSlot) is
@@ -1343,6 +1456,7 @@ if (new URLSearchParams(location.search).get('embed') === '1') {
   }
   await loadConfig();
   await loadHistory();
+  await loadFlowCaptureScans();
   const today = todayVNDateStr();
   document.getElementById('dsFrom').value = today;
   document.getElementById('dsTo').value = today;
