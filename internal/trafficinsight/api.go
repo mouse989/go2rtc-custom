@@ -33,6 +33,7 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/incident-time-slots", handleIncidentTimeSlots)
 	http.HandleFunc("/api/trafficinsight/route-tti", handleRouteTTI)
 	http.HandleFunc("/api/trafficinsight/route-filters", handleRouteFilters)
+	http.HandleFunc("/api/trafficinsight/network-status", handleNetworkStatus)
 }
 
 // parseRouteFilter reads ?region=&roadType= into a RouteFilter — either
@@ -68,6 +69,24 @@ func handleRouteFilters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, routeFiltersResponse{Regions: traveltime.ListRegions(), RoadTypes: traveltime.RoadTypes})
+}
+
+// GET /api/trafficinsight/network-status — "Trạng thái mạng lưới" (tier
+// counts + AI-forecast pills, see network_status.go) for the Chỉ số giao
+// thông hôm nay strip. A thin passthrough onto
+// traveltime.GetAppearance()/LatestSnapshot()/Forecast(), same reasoning as
+// handleRouteFilters above: traveltime's own /forecast endpoint is gated to
+// TabDashboard/TabDashboard2 only (see auth/middleware.go's
+// tabExtraPaths), which would 403 a TabTrafficInsight-only viewer.
+func handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, GetNetworkStatus())
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

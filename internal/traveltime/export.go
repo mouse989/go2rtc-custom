@@ -81,6 +81,16 @@ func LatestSnapshot() TravelTimeSnapshot {
 	return snap
 }
 
+// GetAppearance returns the current TTI chart colour/tier configuration —
+// the same data handleAppearance's GET returns, exported so other packages
+// (e.g. trafficinsight's network-status summary) can classify a TTI value
+// into its tier in-process, without going through the HTTP layer.
+func GetAppearance() TTIAppearance {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
+	return cfg.Appearance
+}
+
 // IntervalMin returns the configured collection interval in minutes, so the
 // dashboard can size its time slots to match the data resolution.
 func IntervalMin() int {
