@@ -263,6 +263,21 @@ func listFlowSegments(scanID int64) ([]FlowSegmentRow, error) {
 	return out, rows.Err()
 }
 
+// getFlowScan returns one scan's own metadata row.
+func getFlowScan(id int64) (*FlowScanSummary, error) {
+	if flowCaptureDB == nil {
+		return nil, sql.ErrNoRows
+	}
+	var s FlowScanSummary
+	err := flowCaptureDB.QueryRow(
+		`SELECT id, region_name, scanned_at, source_updated, raw_bytes, result_count FROM flow_scans WHERE id = ?`, id,
+	).Scan(&s.ID, &s.RegionName, &s.ScannedAt, &s.SourceUpdated, &s.RawBytes, &s.ResultCount)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
 // rawFlowScanJSON returns one scan's raw API response, verbatim.
 func rawFlowScanJSON(scanID int64) (string, error) {
 	if flowCaptureDB == nil {

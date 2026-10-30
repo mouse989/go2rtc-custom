@@ -27,6 +27,14 @@ const (
 	// without also getting raw access to Traffic Monitor config/Incidents
 	// entry or vice versa.
 	TabTrafficInsight = "trafficinsight"
+	// TabFlowCapture gates /flowcapture.html — the map view of
+	// internal/traffic's Flow Capture research data (traffic/flow API
+	// detail: subSegments, free-flow speed, functionalClass...). Its own
+	// grant, separate from TabMonitor/the Traffic Monitor admin tool itself
+	// (which also toggles whether capture runs at all, admin-only): a
+	// viewer may be allowed to browse already-captured data without also
+	// getting Traffic Monitor's config/start/stop controls.
+	TabFlowCapture = "flowcapture"
 	// TabSubAdmin gates /subadmin.html — a delegated console scoped to a
 	// specific group of OTHER viewer accounts (see User.SubAdminManagedUsers
 	// below), with only the specific capabilities the top admin grants.
@@ -39,7 +47,7 @@ const (
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture}
 
 // User represents an application user
 type User struct {

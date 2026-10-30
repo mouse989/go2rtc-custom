@@ -129,6 +129,7 @@ func Init() {
 	}
 
 	registerAPIHandlers()
+	registerFlowCapturePageHandlers()
 
 	// Auto-start worker if configured
 	if cfg.Running {
