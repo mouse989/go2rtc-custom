@@ -64,6 +64,14 @@ type Config struct {
 	Sheets        SheetsConfig   `json:"sheets"`
 	Storage       StorageConfig  `json:"storage"`
 	Running       bool           `json:"running"`
+	// FlowCaptureEnabled, off by default, persists the FULL
+	// traffic.genfast.vn/api/traffic/flow response (every field, not just
+	// what extractPoints needs for the jam-point map) into
+	// traffic_data/flow_capture.db for research/analysis — see
+	// flow_capture_parse.go/flow_capture_db.go. An explicit opt-in since a
+	// single region's response can run ~100KB and this stores every scan
+	// verbatim.
+	FlowCaptureEnabled bool `json:"flowCaptureEnabled"`
 }
 
 var (
@@ -112,6 +120,12 @@ func Init() {
 			log.Warn().Err(err).Msg("[traffic] config parse error, using defaults")
 			cfg = defaultConfig()
 		}
+	}
+
+	// Always initialized regardless of FlowCaptureEnabled, so flipping that
+	// toggle at runtime (no restart) takes effect on the next scan.
+	if err := initFlowCaptureDB(dataDir()); err != nil {
+		log.Warn().Err(err).Msg("[traffic] flow capture DB init failed — capture disabled")
 	}
 
 	registerAPIHandlers()

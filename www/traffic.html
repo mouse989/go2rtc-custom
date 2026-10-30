@@ -520,6 +520,20 @@ function doGet() {
         </div>
       </div>
 
+      <!-- Flow Capture: research/debug-only, captures the FULL
+           traffic/flow API response (every field, not just what the
+           jam-point map needs) into its own file for analysis. -->
+      <h4>Flow Capture (nghiên cứu / debug)</h4>
+      <label class="tf-toggle-row" style="margin-bottom:.4rem">
+        <input type="checkbox" id="cfgFlowCapture"> Lưu toàn bộ response traffic/flow API để phân tích
+      </label>
+      <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:.75rem;line-height:1.5">
+        Lưu mọi trường API trả về (tốc độ, freeFlow, subSegments, functionalClass...) vào file riêng
+        <code>traffic_data/flow_capture.db</code> mỗi lần quét — không ảnh hưởng tính năng bản đồ ùn tắc hiện tại.
+        Dung lượng có thể tăng nhanh (một vùng có thể ~100KB/lần quét) — chỉ nên bật tạm thời khi cần lấy dữ liệu
+        thật để phân tích, tắt lại sau khi đủ dữ liệu.
+      </div>
+
       <div style="margin-top:1.1rem;display:flex;gap:.5rem;justify-content:flex-end">
         <button class="btn btn-primary" id="btnSaveConfig">Save Config</button>
       </div>
@@ -691,6 +705,8 @@ async function loadConfig() {
     const st = cfg.storage || {};
     document.getElementById('stEnabled').checked   = !!st.enabled;
     document.getElementById('stRetention').value   = st.retentionDays ?? 30;
+
+    document.getElementById('cfgFlowCapture').checked = !!cfg.flowCaptureEnabled;
   } catch(e) {
     console.error('loadConfig error', e);
   }
@@ -729,6 +745,7 @@ async function saveConfig() {
       enabled:       document.getElementById('stEnabled').checked,
       retentionDays: parseInt(document.getElementById('stRetention').value) || 0,
     },
+    flowCaptureEnabled: document.getElementById('cfgFlowCapture').checked,
     running: document.getElementById('btnStartStop').dataset.running === 'true',
   };
 
