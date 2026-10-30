@@ -154,6 +154,73 @@ func TestLatestFlowScanPerRegion(t *testing.T) {
 	}
 }
 
+func TestCleanupFlowCaptureOlderThanDeletesOldRowsAndTheirSegments(t *testing.T) {
+	resetFlowCaptureDB(t)
+
+	results, sourceUpdated, err := parseFlowResults([]byte(realSampleJSON))
+	if err != nil {
+		t.Fatalf("parseFlowResults: %v", err)
+	}
+	old := time.Now().AddDate(0, 0, -10)
+	recent := time.Now().AddDate(0, 0, -1)
+	if err := recordFlowScan("Region A", old, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan (old): %v", err)
+	}
+	if err := recordFlowScan("Region A", recent, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan (recent): %v", err)
+	}
+
+	if err := cleanupFlowCaptureOlderThan(7); err != nil {
+		t.Fatalf("cleanupFlowCaptureOlderThan: %v", err)
+	}
+
+	scans, err := listFlowScans(10)
+	if err != nil {
+		t.Fatalf("listFlowScans: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("got %d scans after cleanup, want 1 (only the recent one should survive)", len(scans))
+	}
+	remaining := scans[0]
+	if remaining.ScannedAt != recent.UTC().Format(time.RFC3339) {
+		t.Errorf("surviving scan ScannedAt = %q, want the recent one %q", remaining.ScannedAt, recent.UTC().Format(time.RFC3339))
+	}
+
+	var segCount int
+	if err := flowCaptureDB.QueryRow(`SELECT COUNT(*) FROM flow_segments`).Scan(&segCount); err != nil {
+		t.Fatalf("count flow_segments: %v", err)
+	}
+	wantSegs, err := listFlowSegments(remaining.ID)
+	if err != nil {
+		t.Fatalf("listFlowSegments: %v", err)
+	}
+	if segCount != len(wantSegs) {
+		t.Errorf("flow_segments has %d rows total, want exactly %d (the surviving scan's own — the deleted scan's segments must be gone too)", segCount, len(wantSegs))
+	}
+}
+
+func TestCleanupFlowCaptureOlderThanNoopWhenDaysNotPositive(t *testing.T) {
+	resetFlowCaptureDB(t)
+	results, sourceUpdated, err := parseFlowResults([]byte(realSampleJSON))
+	if err != nil {
+		t.Fatalf("parseFlowResults: %v", err)
+	}
+	veryOld := time.Now().AddDate(-1, 0, 0)
+	if err := recordFlowScan("Region A", veryOld, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan: %v", err)
+	}
+	if err := cleanupFlowCaptureOlderThan(0); err != nil {
+		t.Fatalf("cleanupFlowCaptureOlderThan(0): %v", err)
+	}
+	scans, err := listFlowScans(10)
+	if err != nil {
+		t.Fatalf("listFlowScans: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Errorf("got %d scans, want 1 — days<=0 must be a no-op (0 = keep forever)", len(scans))
+	}
+}
+
 func TestListFlowScansEmptyWhenNothingRecorded(t *testing.T) {
 	resetFlowCaptureDB(t)
 	scans, err := listFlowScans(10)

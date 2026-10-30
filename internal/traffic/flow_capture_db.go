@@ -5,10 +5,12 @@ package traffic
 // existing traffic_data/<date>.json history (storage.go). Separate from
 // that JSON history on purpose: this stores much richer per-segment detail
 // (including the full raw response, verbatim, as a safety net for any
-// field not flattened into columns below) purely for research/analysis —
-// gated by Config.FlowCaptureEnabled, off by default, since it can grow
-// fast (a single region's response was ~95KB in one real sample) and is not
-// needed for any production feature today.
+// field not flattened into columns below). Capture always runs (no on/off
+// switch — www/flowcapture.html's map depends on it); growth is instead
+// bounded by Config.FlowCaptureRetentionDays (0 = keep forever, the
+// default — a single region's response was ~95-100KB in real samples, so
+// an admin who wants a cap can set one, same convention
+// StorageConfig.RetentionDays already uses for traffic_data).
 //
 // Driver: modernc.org/sqlite — pure Go (no cgo), already a dependency via
 // internal/trafficflow/db.go; same schema/init shape as that file.
@@ -164,6 +166,36 @@ func recordFlowScan(regionName string, scannedAt time.Time, sourceUpdated string
 		}
 	}
 
+	return tx.Commit()
+}
+
+// cleanupFlowCaptureOlderThan deletes every flow_scans row (and its
+// flow_segments rows — deleted first, in the same transaction, since this
+// DB doesn't enable SQLite's FK-cascade pragma) whose scanned_at is older
+// than days ago. A no-op when days <= 0 — callers are expected to check
+// that themselves (see runScan's own "0 = forever" skip) since this
+// function has no way to tell "disabled" apart from "clean up everything",
+// which 0 would otherwise mean.
+func cleanupFlowCaptureOlderThan(days int) error {
+	if flowCaptureDB == nil || days <= 0 {
+		return nil
+	}
+	cutoff := time.Now().AddDate(0, 0, -days).UTC().Format(time.RFC3339)
+
+	tx, err := flowCaptureDB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`DELETE FROM flow_segments WHERE scan_id IN (SELECT id FROM flow_scans WHERE scanned_at < ?)`, cutoff,
+	); err != nil {
+		return fmt.Errorf("delete old flow_segments: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM flow_scans WHERE scanned_at < ?`, cutoff); err != nil {
+		return fmt.Errorf("delete old flow_scans: %w", err)
+	}
 	return tx.Commit()
 }
 

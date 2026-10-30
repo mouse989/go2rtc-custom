@@ -189,7 +189,7 @@ function renderFcStats(latest) {
   const asOf = document.getElementById('fcAsOf');
   const regions = (latest && latest.regions) || [];
   if (!regions.length) {
-    el.innerHTML = '<div class="fc-empty">Chưa có dữ liệu — bật "Flow Capture" ở Traffic Monitor rồi đợi lượt quét tiếp theo.</div>';
+    el.innerHTML = '<div class="fc-empty">Chưa có dữ liệu — đợi lượt quét tiếp theo của Traffic Monitor.</div>';
     asOf.textContent = '—';
     return;
   }
