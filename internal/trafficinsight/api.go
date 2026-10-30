@@ -16,6 +16,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/traffic"
+	"github.com/AlexxIT/go2rtc/internal/traveltime"
 )
 
 func Init() {
@@ -31,6 +32,61 @@ func Init() {
 	http.HandleFunc("/api/trafficinsight/incident-stats", handleIncidentStats)
 	http.HandleFunc("/api/trafficinsight/incident-time-slots", handleIncidentTimeSlots)
 	http.HandleFunc("/api/trafficinsight/route-tti", handleRouteTTI)
+	http.HandleFunc("/api/trafficinsight/route-filters", handleRouteFilters)
+	http.HandleFunc("/api/trafficinsight/network-status", handleNetworkStatus)
+}
+
+// parseRouteFilter reads ?region=&roadType= into a RouteFilter — either
+// or both may be omitted (empty = no constraint on that dimension, see
+// RouteFilter.Empty). Used by every TTI-related endpoint below except
+// /today and /averages, which intentionally stay unfiltered (they back
+// the "Chỉ số giao thông hôm nay" strip and "So sánh: hôm nay — TB7 —
+// TB30" card, not one of the four modules this filter was added for).
+func parseRouteFilter(r *http.Request) RouteFilter {
+	return RouteFilter{
+		Region:   r.URL.Query().Get("region"),
+		RoadType: r.URL.Query().Get("roadType"),
+	}
+}
+
+type routeFiltersResponse struct {
+	Regions   []string `json:"regions"`
+	RoadTypes []string `json:"roadTypes"`
+}
+
+// GET /api/trafficinsight/route-filters — the Khu vực/Loại đường dropdown
+// options for every TTI filter control on the page. A thin passthrough
+// onto traveltime.ListRegions()/RoadTypes, same reasoning as this
+// package's other passthroughs (e.g. handleIncidentCategoryIcons): the
+// real traveltime.Init()-registered endpoints are admin-gated and would
+// 403 a TabTrafficInsight-only viewer.
+func handleRouteFilters(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, routeFiltersResponse{Regions: traveltime.ListRegions(), RoadTypes: traveltime.RoadTypes})
+}
+
+// GET /api/trafficinsight/network-status — "Trạng thái mạng lưới" (tier
+// counts + AI-forecast pills, see network_status.go) for the Chỉ số giao
+// thông hôm nay strip. A thin passthrough onto
+// traveltime.GetAppearance()/LatestSnapshot()/Forecast(), same reasoning as
+// handleRouteFilters above: traveltime's own /forecast endpoint is gated to
+// TabDashboard/TabDashboard2 only (see auth/middleware.go's
+// tabExtraPaths), which would 403 a TabTrafficInsight-only viewer.
+func handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, GetNetworkStatus())
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -105,16 +161,16 @@ func handleAverages(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().In(vnLocation)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, vnLocation)
 
-	todayMetrics, err := GetDailyMetrics(today.Format("2006-01-02"))
+	todayMetrics, err := GetDailyMetrics(today.Format("2006-01-02"), RouteFilter{})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	yesterday := today.AddDate(0, 0, -1)
-	avg7, _ := GetRangeAverageUntil(today.AddDate(0, 0, -7), yesterday, now)
-	avg30, _ := GetRangeAverageUntil(today.AddDate(0, 0, -30), yesterday, now)
-	avg7Full, _ := GetRangeAverage(today.AddDate(0, 0, -7), yesterday)
-	avg30Full, _ := GetRangeAverage(today.AddDate(0, 0, -30), yesterday)
+	avg7, _ := GetRangeAverageUntil(today.AddDate(0, 0, -7), yesterday, now, RouteFilter{})
+	avg30, _ := GetRangeAverageUntil(today.AddDate(0, 0, -30), yesterday, now, RouteFilter{})
+	avg7Full, _ := GetRangeAverage(today.AddDate(0, 0, -7), yesterday, RouteFilter{})
+	avg30Full, _ := GetRangeAverage(today.AddDate(0, 0, -30), yesterday, RouteFilter{})
 
 	writeJSON(w, averagesResponse{Today: todayMetrics, Avg7: avg7, Avg30: avg30, Avg7Full: avg7Full, Avg30Full: avg30Full})
 }
@@ -133,10 +189,11 @@ func handleDailySeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	filter := parseRouteFilter(r)
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from != "" && to != "" {
-		series, err := GetDailySeriesRange(from, to)
+		series, err := GetDailySeriesRange(from, to, filter)
 		if err != nil {
 			http.Error(w, "invalid from/to: "+err.Error(), http.StatusBadRequest)
 			return
@@ -151,7 +208,7 @@ func handleDailySeries(w http.ResponseWriter, r *http.Request) {
 			days = n
 		}
 	}
-	writeJSON(w, GetDailySeries(days))
+	writeJSON(w, GetDailySeries(days, filter))
 }
 
 // GET /api/trafficinsight/hourly-series?date=YYYY-MM-DD — the "Xu hướng
@@ -170,7 +227,7 @@ func handleHourlySeries(w http.ResponseWriter, r *http.Request) {
 	if date == "" {
 		date = time.Now().In(vnLocation).Format("2006-01-02")
 	}
-	series, err := GetHourlySeries(date)
+	series, err := GetHourlySeries(date, parseRouteFilter(r))
 	if err != nil {
 		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
 		return
@@ -282,10 +339,11 @@ func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
 		hour = h
 	}
 
+	filter := parseRouteFilter(r)
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from != "" && to != "" {
-		routes, err := GetRouteTTIForRange(from, to, hour)
+		routes, err := GetRouteTTIForRange(from, to, hour, filter)
 		if err != nil {
 			http.Error(w, "invalid from/to: "+err.Error(), http.StatusBadRequest)
 			return
@@ -301,7 +359,7 @@ func handleRouteTTI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid date: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	routes, err := GetRouteTTIForDate(date, hour)
+	routes, err := GetRouteTTIForDate(date, hour, filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -325,5 +383,5 @@ func handleWeekdayMatrix(w http.ResponseWriter, r *http.Request) {
 			weeks = n
 		}
 	}
-	writeJSON(w, GetWeekdayMatrix(weeks))
+	writeJSON(w, GetWeekdayMatrix(weeks, parseRouteFilter(r)))
 }

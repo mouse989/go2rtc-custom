@@ -258,6 +258,12 @@ var tabExtraPaths = map[string][]string{
 	// Dashboard 02 use, and this is a read of a shared display config
 	// (handler itself is "any logged-in user"), not Dashboard-specific data.
 	TabTrafficInsight: {"/api/trafficinsight", "/api/traveltime/appearance"},
+	// /api/flowcapture/* is a thin, read-only passthrough onto
+	// internal/traffic's flow_capture_db.go (flowcapture_page_api.go) —
+	// separate from /api/traffic/flow-capture/* (admin-only, the Traffic
+	// Monitor tool's own viewer) for the same reason TabTrafficInsight gets
+	// its own paths above.
+	TabFlowCapture: {"/api/flowcapture"},
 	// requireSubAdmin (api_subadmin.go) does the real per-action gating
 	// (SubAdminCan* flags + SubAdminManagedUsers membership) — this entry
 	// only gets a sub admin account past the outer path check, same as

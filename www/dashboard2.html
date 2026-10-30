@@ -176,6 +176,10 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
       Tổng quan giao thông
     </a>
+    <a href="/flowcapture.html" class="nav-item" data-tab-require="flowcapture" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" clip-rule="evenodd"/></svg>
+      Flow Capture
+    </a>
     <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
       Sub Admin
@@ -1598,10 +1602,17 @@ function buildForecast(todaySlots, baseSlots, curSlot) {
   }
   return out;
 }
+// Scroll to the worst abnormal route's own row, not just the chart
+// container — d2TtiChartBody has no fixed height (grows to fit every
+// route), so scrolling the container into view centers the viewport on the
+// midpoint of the whole route list, which can land far from any actually
+// flagged row. See dashboard.html's own highlightAbnormalRoutes for the
+// same fix.
 function highlightAbnormalRoutes() {
   if (!_abnormalRoutes.length) return;
-  const chart = document.getElementById('d2TtiChartBody');
-  if (chart) chart.scrollIntoView({ behavior:'smooth', block:'center' });
+  const worst = _abnormalRoutes.slice().sort((a, b) => b.ratio - a.ratio)[0];
+  const target = document.getElementById('d2TtiRow-' + worst.id) || document.getElementById('d2TtiChartBody');
+  if (target) target.scrollIntoView({ behavior:'smooth', block:'center' });
   _abnormalRoutes.forEach(a => {
     const row = document.getElementById('d2TtiRow-' + a.id);
     if (!row) return;

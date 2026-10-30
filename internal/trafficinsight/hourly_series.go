@@ -36,7 +36,7 @@ type HourlyMetrics struct {
 // GetHourlySeries returns 24 HourlyMetrics (hour 0..23, always present and
 // in order even for hours with no data) for one Vietnam-local calendar
 // day "date" (YYYY-MM-DD).
-func GetHourlySeries(date string) ([]HourlyMetrics, error) {
+func GetHourlySeries(date string, filter RouteFilter) ([]HourlyMetrics, error) {
 	start, end, err := dayBounds(date)
 	if err != nil {
 		return nil, err
@@ -75,11 +75,18 @@ func GetHourlySeries(date string) ([]HourlyMetrics, error) {
 	// its comment for why (a failed/empty scan isn't a real "free flow"
 	// reading and must not be averaged in as if it were).
 	if entries, err := traveltime.GetLogsForDate(date, 0); err == nil {
+		var lookup routeTagLookup
+		if !filter.Empty() {
+			lookup = buildRouteTagLookup()
+		}
 		ttiSums := make([]float64, 24)
 		delaySums := make([]int, 24)
 		counts := make([]int, 24)
 		for _, e := range entries {
 			if e.RouteID == "" || e.TTI <= 0 {
+				continue
+			}
+			if !filter.matches(e.RouteID, lookup) {
 				continue
 			}
 			t, err := time.Parse(time.RFC3339, e.Timestamp)

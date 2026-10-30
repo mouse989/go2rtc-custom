@@ -2,7 +2,9 @@ package traffic
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
@@ -18,6 +20,9 @@ func registerAPIHandlers() {
 	http.HandleFunc("/api/traffic/data", handleData)
 	http.HandleFunc("/api/traffic/persistent-export", handlePersistentExport)
 	http.HandleFunc("/api/traffic/duplicate-scans", handleDuplicateScans)
+	http.HandleFunc("/api/traffic/flow-capture/scans", handleFlowCaptureScans)
+	http.HandleFunc("/api/traffic/flow-capture/segments", handleFlowCaptureSegments)
+	http.HandleFunc("/api/traffic/flow-capture/raw", handleFlowCaptureRaw)
 }
 
 func requireTrafficAccess(w http.ResponseWriter, r *http.Request) bool {
@@ -306,4 +311,80 @@ func handleDuplicateScans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, report)
+}
+
+// handleFlowCaptureScans  GET /api/traffic/flow-capture/scans?limit=N
+// Lists the most recent captured traffic/flow scans (flow_capture_db.go),
+// newest first — the entry point for pulling research data: find a
+// scanId here, then fetch its segments or raw JSON below.
+func handleFlowCaptureScans(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficAccess(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+			limit = n
+		}
+	}
+	scans, err := listFlowScans(limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, scans)
+}
+
+// handleFlowCaptureSegments  GET /api/traffic/flow-capture/segments?scanId=N
+// Returns every parsed segment (results + their subSegments) for one
+// captured scan — the flattened, queryable view.
+func handleFlowCaptureSegments(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficAccess(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	scanID, err := strconv.ParseInt(r.URL.Query().Get("scanId"), 10, 64)
+	if err != nil {
+		http.Error(w, "scanId is required", http.StatusBadRequest)
+		return
+	}
+	segs, err := listFlowSegments(scanID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, segs)
+}
+
+// handleFlowCaptureRaw  GET /api/traffic/flow-capture/raw?scanId=N
+// Returns one scan's raw API response, verbatim — the safety net for any
+// field not flattened into handleFlowCaptureSegments' columns.
+func handleFlowCaptureRaw(w http.ResponseWriter, r *http.Request) {
+	if !requireTrafficAccess(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	scanID, err := strconv.ParseInt(r.URL.Query().Get("scanId"), 10, 64)
+	if err != nil {
+		http.Error(w, "scanId is required", http.StatusBadRequest)
+		return
+	}
+	raw, err := rawFlowScanJSON(scanID)
+	if err != nil {
+		http.Error(w, "not found: "+err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"flow-scan-%d.json\"", scanID))
+	_, _ = w.Write([]byte(raw))
 }

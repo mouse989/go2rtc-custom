@@ -69,6 +69,15 @@
 .ti-stat-tile .ti-stat-sub { font-size:.7rem; color:var(--text-muted); margin-top:.2rem; }
 @media (max-width:900px) { .ti-stat-tile { min-width:46%; } }
 
+/* Trạng thái mạng lưới — route tier counts + AI-forecast pills, same chip
+   shape dashboard2.html's own #d2RouteStatus uses (.d2-rs-chip/.d2-rs-dot),
+   ti-prefixed here for this page's own naming convention. */
+.ti-netstatus { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-top:.7rem; padding-top:.7rem; border-top:1px solid var(--border); }
+.ti-netstatus-lbl { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+.ti-rs-chip { display:inline-flex; align-items:center; gap:.28rem; font-size:.74rem; font-weight:600; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:.18rem .6rem; }
+.ti-rs-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.ti-rs-chip.ti-rs-forecast { background:none; }
+
 #tiMap { height:360px; border-radius:10px; overflow:hidden; background:var(--surface2); }
 .ti-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.72rem; color:var(--text-muted); flex-wrap:wrap; }
 .ti-jf-legend-bar { flex:1; min-width:120px; height:10px; border-radius:5px; }
@@ -191,6 +200,10 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
       Tổng quan giao thông
     </a>
+    <a href="/flowcapture.html" class="nav-item" data-tab-require="flowcapture" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" clip-rule="evenodd"/></svg>
+      Flow Capture
+    </a>
     <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
       Sub Admin
@@ -230,6 +243,7 @@
       <div class="ti-stat-strip" id="tiStatStrip">
         <div class="ti-empty">Đang tải…</div>
       </div>
+      <div class="ti-netstatus" id="tiNetStatus"></div>
     </div>
 
     <!-- KPI comparison: hôm nay / 7 ngày / 30 ngày -->
@@ -264,6 +278,22 @@
         <div class="ti-jf-legend-bar" id="tiJfLegendBar"></div>
         <span class="ti-jf-legend-label">10</span>
       </div>
+    </div>
+
+    <!-- Route filter: Khu vực/Loại đường — applies to the 4 TTI-based
+         modules below (Xu hướng theo ngày/giờ, So sánh theo thứ giữa các
+         tuần, Top 10 tuyến đường). Never touches Ùn tắc (jamFactor)/Sự cố,
+         which have no route concept — see RouteFilter in
+         internal/trafficinsight for why. -->
+    <div class="ti-section">
+      <h3><span>🔍 Lọc theo tuyến đường</span></h3>
+      <div class="ti-filter-row">
+        <label>Khu vực</label>
+        <select id="tiRouteFilterRegion"><option value="">Tất cả khu vực</option></select>
+        <label>Loại đường</label>
+        <select id="tiRouteFilterRoadType"><option value="">Tất cả loại đường</option></select>
+      </div>
+      <div style="font-size:.7rem;color:var(--text-muted);margin-top:.5rem">Áp dụng cho Xu hướng theo ngày/giờ, So sánh theo thứ giữa các tuần và Top 10 tuyến đường bên dưới — chỉ ảnh hưởng chỉ số TTI/Trễ, không ảnh hưởng Ùn tắc (jamFactor)/Sự cố vì 2 chỉ số đó không gắn với tuyến đường cụ thể.</div>
     </div>
 
     <!-- Daily trend chart -->
@@ -462,6 +492,35 @@ let _tiTrendChart = null;
 let _tiDailySeries = [];
 let _tiMatrixResult = null;
 
+// ── Route filter (Khu vực/Loại đường) ──────────────────────────────────────
+// Shared by the 4 TTI-based modules (Xu hướng theo ngày/giờ, So sánh theo
+// thứ, Top 10 tuyến đường) — see the "🔍 Lọc theo tuyến đường" section's own
+// comment above for why it stops there and never touches jam/incident data.
+async function loadTiRouteFilters() {
+  try {
+    const data = await apiFetch('/api/trafficinsight/route-filters');
+    const regionSel = document.getElementById('tiRouteFilterRegion');
+    const roadTypeSel = document.getElementById('tiRouteFilterRoadType');
+    (data.regions || []).forEach(r => regionSel.insertAdjacentHTML('beforeend', `<option value="${escHtml(r)}">${escHtml(r)}</option>`));
+    (data.roadTypes || []).forEach(rt => roadTypeSel.insertAdjacentHTML('beforeend', `<option value="${escHtml(rt)}">${escHtml(rt)}</option>`));
+  } catch (e) {
+    toast('Không tải được danh sách khu vực/loại đường: ' + e.message, 'error');
+  }
+}
+
+// tiRouteFilterQS: the current Khu vực/Loại đường selection as a query
+// string fragment (e.g. "&region=Qu%E1%BA%ADn+1"), empty when both are
+// "Tất cả" — appended to each of the 4 filtered modules' own fetch URLs.
+function tiRouteFilterQS() {
+  const p = new URLSearchParams();
+  const region = document.getElementById('tiRouteFilterRegion').value;
+  const roadType = document.getElementById('tiRouteFilterRoadType').value;
+  if (region) p.set('region', region);
+  if (roadType) p.set('roadType', roadType);
+  const qs = p.toString();
+  return qs ? '&' + qs : '';
+}
+
 function fmtNum(v, digits) {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   return Number(v).toFixed(digits === undefined ? 1 : digits);
@@ -527,6 +586,34 @@ async function loadStatStrip() {
       </div>`).join('');
   } catch (e) {
     el.innerHTML = `<div class="ti-empty">Lỗi tải dữ liệu: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── Trạng thái mạng lưới (route tier counts + AI-forecast pills) ─────────
+// Reuses dashboard2.html's own "degrade near / reach-worst far" forecast
+// shape (see internal/trafficinsight/network_status.go's doc comment) —
+// 🤖 marks these two pills as AI-forecast (not a measured count like the
+// tier chips before them).
+async function loadNetworkStatus() {
+  const el = document.getElementById('tiNetStatus');
+  try {
+    const ns = await apiFetch('/api/trafficinsight/network-status');
+    const chips = (ns.tiers || []).filter(t => t.count > 0).map(t =>
+      `<span class="ti-rs-chip"><span class="ti-rs-dot" style="background:${t.color}"></span>${t.count} ${escHtml(t.label || '')}</span>`);
+    if (ns.noDataCount > 0) {
+      chips.push(`<span class="ti-rs-chip"><span class="ti-rs-dot" style="background:${ns.noDataColor || '#334155'}"></span>${ns.noDataCount} chưa có dữ liệu</span>`);
+    }
+    if (ns.forecast10) {
+      chips.push(`<span class="ti-rs-chip ti-rs-forecast" style="border-color:${ns.forecast10.tierColor};color:${ns.forecast10.tierColor}">🤖 +${ns.forecast10.minutesAhead}′: ${ns.forecast10.count} tuyến → ${escHtml(ns.forecast10.tierLabel || '')}</span>`);
+    }
+    if (ns.forecast60) {
+      chips.push(`<span class="ti-rs-chip ti-rs-forecast" style="border-color:${ns.forecast60.tierColor};color:${ns.forecast60.tierColor}">🤖 +${ns.forecast60.minutesAhead}′: ${ns.forecast60.count} tuyến dự báo ${escHtml(ns.forecast60.tierLabel || '')}</span>`);
+    }
+    el.innerHTML = chips.length
+      ? `<span class="ti-netstatus-lbl">Trạng thái mạng lưới:</span>${chips.join('')}`
+      : `<span class="ti-netstatus-lbl">Trạng thái mạng lưới:</span><span style="font-size:.74rem;color:var(--text-muted)">Chưa có dữ liệu tuyến</span>`;
+  } catch (e) {
+    el.innerHTML = `<span class="ti-netstatus-lbl">Trạng thái mạng lưới:</span><span style="font-size:.74rem;color:var(--text-muted)">Lỗi tải dữ liệu: ${escHtml(e.message)}</span>`;
   }
 }
 
@@ -919,7 +1006,7 @@ async function loadDailySeries() {
   const to = document.getElementById('tiTrendTo').value;
   if (!from || !to) return; // initTrendRangeDefaults() always fills these before the first call
   try {
-    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    _tiDailySeries = await apiFetch('/api/trafficinsight/daily-series?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + tiRouteFilterQS());
     renderTrendChart();
   } catch (e) {
     toast('Không tải được xu hướng theo ngày: ' + e.message, 'error');
@@ -971,7 +1058,7 @@ async function loadHourlySeries() {
   const date = document.getElementById('tiHourTrendDate').value;
   if (!date) return; // initHourTrendDefaults() always fills this before the first call
   try {
-    _tiHourlySeries = await apiFetch('/api/trafficinsight/hourly-series?date=' + encodeURIComponent(date));
+    _tiHourlySeries = await apiFetch('/api/trafficinsight/hourly-series?date=' + encodeURIComponent(date) + tiRouteFilterQS());
     renderHourlyTrendChart();
   } catch (e) {
     toast('Không tải được xu hướng theo giờ: ' + e.message, 'error');
@@ -1059,7 +1146,7 @@ function renderMatrix() {
 async function loadMatrix() {
   const weeks = document.getElementById('tiMatrixWeeks').value;
   try {
-    _tiMatrixResult = await apiFetch('/api/trafficinsight/weekday-matrix?weeks=' + encodeURIComponent(weeks));
+    _tiMatrixResult = await apiFetch('/api/trafficinsight/weekday-matrix?weeks=' + encodeURIComponent(weeks) + tiRouteFilterQS());
     renderMatrix();
   } catch (e) {
     toast('Không tải được bảng so sánh theo tuần: ' + e.message, 'error');
@@ -1484,6 +1571,10 @@ async function loadRouteTTI() {
   const hourSel = document.getElementById('tiRouteHour').value;
   const hour = hourSel === '' ? -1 : parseInt(hourSel, 10);
   if (hour >= 0) params.set('hour', String(hour));
+  const region = document.getElementById('tiRouteFilterRegion').value;
+  const roadType = document.getElementById('tiRouteFilterRoadType').value;
+  if (region) params.set('region', region);
+  if (roadType) params.set('roadType', roadType);
   const qs = params.toString();
   try {
     const res = await apiFetch('/api/trafficinsight/route-tti' + (qs ? '?' + qs : ''));
@@ -1516,6 +1607,8 @@ document.getElementById('tiRouteMode').addEventListener('change', () => {
 });
 document.getElementById('tiRouteDate').addEventListener('change', loadRouteTTI);
 document.getElementById('tiRouteHour').addEventListener('change', loadRouteTTI);
+document.getElementById('tiRouteFilterRegion').addEventListener('change', () => { loadDailySeries(); loadHourlySeries(); loadMatrix(); loadRouteTTI(); });
+document.getElementById('tiRouteFilterRoadType').addEventListener('change', () => { loadDailySeries(); loadHourlySeries(); loadMatrix(); loadRouteTTI(); });
 
 function initRouteRangeDefaults() {
   const sel = document.getElementById('tiRouteRange');
@@ -1542,7 +1635,9 @@ function initRouteRangeDefaults() {
     Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
 
   await loadTiTtiAppearance();
+  await loadTiRouteFilters();
   loadStatStrip();
+  loadNetworkStatus();
   loadKpis();
   initTiMap();
   initTrendRangeDefaults();
@@ -1563,6 +1658,7 @@ function initRouteRangeDefaults() {
   // refresh uses. A historical "theo ngày" view doesn't change on its
   // own, so the map and route panel only re-poll while still showing live/today.
   setInterval(loadStatStrip, 60000);
+  setInterval(loadNetworkStatus, 60000);
   setInterval(loadKpis, 60000);
   setInterval(() => {
     if (document.getElementById('tiMapMode').value === 'live') loadMapPoints();

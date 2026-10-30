@@ -658,6 +658,21 @@ func runScan() error {
 		totalBytes += len(data)
 		addLog("info", fmt.Sprintf("region %s: fetched %d KB in %s",
 			r.Name, len(data)/1024, time.Since(regionStart).Round(time.Millisecond)))
+
+		// Flow capture (research/analysis) is a separate path from the
+		// jam-point pipeline below — see flow_capture_parse.go's own doc
+		// comment for why. Gated by FlowCaptureEnabled (off by default) and
+		// skipped on any parse/save error without affecting the scan.
+		if c.FlowCaptureEnabled {
+			if results, sourceUpdated, perr := parseFlowResults(data); perr != nil {
+				addLog("warn", fmt.Sprintf("region %s: flow capture parse error: %v", r.Name, perr))
+			} else if len(results) > 0 {
+				if serr := recordFlowScan(r.Name, regionStart, sourceUpdated, len(data), data, results); serr != nil {
+					addLog("warn", fmt.Sprintf("region %s: flow capture save error: %v", r.Name, serr))
+				}
+			}
+		}
+
 		segs, err := normalizeTrafficData(data)
 		if err != nil {
 			addLog("warn", fmt.Sprintf("region %s parse error: %v", r.Name, err))

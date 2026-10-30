@@ -284,22 +284,23 @@ func parseSlotMin(r *http.Request) int {
 	return slotMin
 }
 
-// GET /api/traveltime/forecast?slotMin=10&horizonMin=120   (or legacy ?horizon=N slots)
-// Returns per-route short-term TTI forecasts with ≈80% confidence bands.
-func handleForecast(w http.ResponseWriter, r *http.Request) {
-	if !requireLogin(w, r) {
-		return
+// Forecast computes short-term per-route TTI forecasts — the same model
+// GET /api/traveltime/forecast serves, exported so other packages (e.g.
+// trafficinsight's network-status summary) can call it in-process instead
+// of through this package's own HTTP endpoint, which is gated to
+// TabDashboard/TabDashboard2 only (see internal/auth/middleware.go's
+// tabExtraPaths) and would 403 a TabTrafficInsight-only viewer.
+// slotMin/horizonMin are both in minutes; both get the same clamping
+// handleForecast itself always applied.
+func Forecast(slotMin, horizonMin int) []RouteForecast {
+	if slotMin < fcMinSlotMin {
+		slotMin = fcMinSlotMin
+	} else if slotMin > fcMaxSlotMin {
+		slotMin = fcMaxSlotMin
 	}
-	q := r.URL.Query()
-	slotMin := parseSlotMin(r)
 	nSlots := slotsPerDay(slotMin)
 
-	horizon := (60 + slotMin - 1) / slotMin // default ≈1h
-	if v, err := strconv.Atoi(q.Get("horizonMin")); err == nil && v > 0 {
-		horizon = (v + slotMin - 1) / slotMin
-	} else if v, err := strconv.Atoi(q.Get("horizon")); err == nil && v > 0 {
-		horizon = v
-	}
+	horizon := (horizonMin + slotMin - 1) / slotMin
 	if maxH := fcMaxHorizonMin / slotMin; horizon > maxH {
 		horizon = maxH
 	}
@@ -377,5 +378,24 @@ func handleForecast(w http.ResponseWriter, r *http.Request) {
 		rf.HolidayLabel = holidayLabel
 		out = append(out, rf)
 	}
-	writeJSON(w, out)
+	return out
+}
+
+// GET /api/traveltime/forecast?slotMin=10&horizonMin=120   (or legacy ?horizon=N slots)
+// Returns per-route short-term TTI forecasts with ≈80% confidence bands.
+func handleForecast(w http.ResponseWriter, r *http.Request) {
+	if !requireLogin(w, r) {
+		return
+	}
+	q := r.URL.Query()
+	slotMin := parseSlotMin(r)
+
+	horizonMin := 60 // default ≈1h
+	if v, err := strconv.Atoi(q.Get("horizonMin")); err == nil && v > 0 {
+		horizonMin = v
+	} else if v, err := strconv.Atoi(q.Get("horizon")); err == nil && v > 0 {
+		horizonMin = v * slotMin // legacy ?horizon= was a slot count, not minutes
+	}
+
+	writeJSON(w, Forecast(slotMin, horizonMin))
 }

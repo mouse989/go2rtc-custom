@@ -156,7 +156,7 @@ func TestGetDailyMetricsCombinesAllThreeSources(t *testing.T) {
 	createIncident(t, time.Date(2027, 3, 15, 11, 0, 0, 0, vnLocation), "Va chạm")
 	createIncident(t, time.Date(2027, 3, 15, 20, 0, 0, 0, vnLocation), "Đông xe")
 
-	m, err := GetDailyMetrics(date)
+	m, err := GetDailyMetrics(date, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetDailyMetrics: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestGetDailyMetricsExcludesNonPositiveTTIFromAverage(t *testing.T) {
 		{Timestamp: date + "T09:40:00+07:00", RouteID: "r1", TTI: 4.0, DelaySec: 360},
 	})
 
-	m, err := GetDailyMetrics(date)
+	m, err := GetDailyMetrics(date, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetDailyMetrics: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestPersistentPointsForDateEmptyWhenNoFile(t *testing.T) {
 
 func TestGetDailyMetricsEmptyDayHasNoData(t *testing.T) {
 	setupSources(t)
-	m, err := GetDailyMetrics("2027-03-16")
+	m, err := GetDailyMetrics("2027-03-16", RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetDailyMetrics: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestGetRangeAverageIgnoresDaysWithoutData(t *testing.T) {
 
 	from := time.Date(2027, 4, 1, 0, 0, 0, 0, vnLocation)
 	to := time.Date(2027, 4, 3, 0, 0, 0, 0, vnLocation)
-	agg, err := GetRangeAverage(from, to)
+	agg, err := GetRangeAverage(from, to, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRangeAverage: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestGetDailyMetricsUntilTruncatesByWallClockTime(t *testing.T) {
 	// ignored — only its 12:00:00 wall-clock time matters, applied to `date`.
 	cutoff := time.Date(1999, 1, 1, 12, 0, 0, 0, vnLocation)
 
-	m, err := GetDailyMetricsUntil(date, cutoff)
+	m, err := GetDailyMetricsUntil(date, cutoff, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetDailyMetricsUntil: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestGetDailyMetricsUntilEmptyBeforeCutoffHasNoData(t *testing.T) {
 	})
 	cutoff := time.Date(2027, 3, 17, 6, 0, 0, 0, vnLocation)
 
-	m, err := GetDailyMetricsUntil(date, cutoff)
+	m, err := GetDailyMetricsUntil(date, cutoff, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetDailyMetricsUntil: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestGetRangeAverageUntilUsesOnlyPreCutoffDataPerDay(t *testing.T) {
 	from := time.Date(2027, 5, 1, 0, 0, 0, 0, vnLocation)
 	to := time.Date(2027, 5, 2, 0, 0, 0, 0, vnLocation)
 	cutoff := time.Date(2027, 5, 2, 12, 0, 0, 0, vnLocation) // noon — excludes both days' 18:00 scans
-	agg, err := GetRangeAverageUntil(from, to, cutoff)
+	agg, err := GetRangeAverageUntil(from, to, cutoff, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetRangeAverageUntil: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestGetRangeAverageUntilUsesOnlyPreCutoffDataPerDay(t *testing.T) {
 
 func TestGetDailySeriesReturnsOneEntryPerDayOldestFirst(t *testing.T) {
 	setupSources(t)
-	series := GetDailySeries(5)
+	series := GetDailySeries(5, RouteFilter{})
 	if len(series) != 5 {
 		t.Fatalf("expected 5 entries, got %d", len(series))
 	}
@@ -447,7 +447,7 @@ func TestGetDailySeriesReturnsOneEntryPerDayOldestFirst(t *testing.T) {
 
 func TestGetDailySeriesRangeReturnsInclusiveOldestFirst(t *testing.T) {
 	setupSources(t)
-	series, err := GetDailySeriesRange("2027-04-01", "2027-04-05")
+	series, err := GetDailySeriesRange("2027-04-01", "2027-04-05", RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetDailySeriesRange: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestGetDailySeriesRangeReturnsInclusiveOldestFirst(t *testing.T) {
 
 func TestGetDailySeriesRangeSwapsReversedBounds(t *testing.T) {
 	setupSources(t)
-	series, err := GetDailySeriesRange("2027-04-05", "2027-04-01") // from/to reversed
+	series, err := GetDailySeriesRange("2027-04-05", "2027-04-01", RouteFilter{}) // from/to reversed
 	if err != nil {
 		t.Fatalf("GetDailySeriesRange: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestGetDailySeriesRangeSwapsReversedBounds(t *testing.T) {
 
 func TestGetDailySeriesRangeClampsOverlongRangeKeepingRecentEnd(t *testing.T) {
 	setupSources(t)
-	series, err := GetDailySeriesRange("2027-01-01", "2027-06-01") // ~152 days, over the 90-day cap
+	series, err := GetDailySeriesRange("2027-01-01", "2027-06-01", RouteFilter{}) // ~152 days, over the 90-day cap
 	if err != nil {
 		t.Fatalf("GetDailySeriesRange: %v", err)
 	}
@@ -491,10 +491,10 @@ func TestGetDailySeriesRangeClampsOverlongRangeKeepingRecentEnd(t *testing.T) {
 
 func TestGetDailySeriesRangeInvalidDateReturnsError(t *testing.T) {
 	setupSources(t)
-	if _, err := GetDailySeriesRange("not-a-date", "2027-04-01"); err == nil {
+	if _, err := GetDailySeriesRange("not-a-date", "2027-04-01", RouteFilter{}); err == nil {
 		t.Error("expected an error for an invalid 'from' date, got nil")
 	}
-	if _, err := GetDailySeriesRange("2027-04-01", "not-a-date"); err == nil {
+	if _, err := GetDailySeriesRange("2027-04-01", "not-a-date", RouteFilter{}); err == nil {
 		t.Error("expected an error for an invalid 'to' date, got nil")
 	}
 }
@@ -516,7 +516,7 @@ func TestGetWeekdayMatrixPerMetricHasDataFlags(t *testing.T) {
 		}),
 	})
 
-	result := GetWeekdayMatrix(1)
+	result := GetWeekdayMatrix(1, RouteFilter{})
 	offset := (int(today.Weekday()) + 6) % 7
 	cell := result.Cells[offset][0]
 	if cell.Date != date {
@@ -535,7 +535,7 @@ func TestGetWeekdayMatrixPerMetricHasDataFlags(t *testing.T) {
 
 func TestGetWeekdayMatrixShapeAndFutureDays(t *testing.T) {
 	setupSources(t)
-	result := GetWeekdayMatrix(4)
+	result := GetWeekdayMatrix(4, RouteFilter{})
 	if len(result.Weeks) != 4 {
 		t.Fatalf("expected 4 weeks, got %d", len(result.Weeks))
 	}
@@ -574,7 +574,7 @@ func TestGetWeekdayMatrixShapeAndFutureDays(t *testing.T) {
 
 func TestGetWeekdayMatrixCapsExcessiveWeeks(t *testing.T) {
 	setupSources(t)
-	result := GetWeekdayMatrix(1000)
+	result := GetWeekdayMatrix(1000, RouteFilter{})
 	if len(result.Weeks) != maxWeekdayMatrixWeeks {
 		t.Errorf("expected weeks capped at %d, got %d", maxWeekdayMatrixWeeks, len(result.Weeks))
 	}

@@ -9,7 +9,7 @@ import (
 
 func TestGetHourlySeriesAlwaysReturns24HoursInOrder(t *testing.T) {
 	setupSources(t)
-	series, err := GetHourlySeries("2027-05-01")
+	series, err := GetHourlySeries("2027-05-01", RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetHourlySeries: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestGetHourlySeriesBucketsByHourAcrossAllThreeSources(t *testing.T) {
 	createIncident(t, time.Date(2027, 5, 2, 8, 50, 0, 0, vnLocation), "Va chạm")
 	createIncident(t, time.Date(2027, 5, 2, 20, 0, 0, 0, vnLocation), "Đông xe")
 
-	series, err := GetHourlySeries(date)
+	series, err := GetHourlySeries(date, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetHourlySeries: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestGetHourlySeriesExcludesNonPositiveTTI(t *testing.T) {
 		{Timestamp: date + "T09:45:00+07:00", RouteID: "", TTI: 5.0, DelaySec: 300}, // missing route id — excluded
 	})
 
-	series, err := GetHourlySeries(date)
+	series, err := GetHourlySeries(date, RouteFilter{})
 	if err != nil {
 		t.Fatalf("GetHourlySeries: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestGetHourlySeriesExcludesNonPositiveTTI(t *testing.T) {
 
 func TestGetHourlySeriesInvalidDateReturnsError(t *testing.T) {
 	setupSources(t)
-	if _, err := GetHourlySeries("not-a-date"); err == nil {
+	if _, err := GetHourlySeries("not-a-date", RouteFilter{}); err == nil {
 		t.Fatal("expected error for invalid date")
 	}
 }
