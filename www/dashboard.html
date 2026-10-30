@@ -863,7 +863,18 @@ function openRouteDetail(routeId) {
     ? stat('Chiều dài tuyến', (r.latestLengthM / 1000).toFixed(1).replace('.', ',') + ' km', '',
         freeSec ? `~${fmtMinSec(freeSec)} khi đường thông thoáng` : '')
     : '';
-  document.getElementById('fcStats').innerHTML = lenCard + (hasMin
+  // Tốc độ TB hiện tại: derived from the same length/duration already shown
+  // above (length ÷ current travel time), not a separate data source — km/h
+  // is a plainer read than the raw TTI ratio for most people. freeSpeedKmh
+  // (length ÷ free-flow time) is the sub-line for context, same pairing
+  // "Thời gian đi hiện tại" already does against freeSec.
+  const curSpeedKmh  = (r.latestLengthM > 0 && curSec > 0)  ? r.latestLengthM / curSec * 3.6  : null;
+  const freeSpeedKmh = (r.latestLengthM > 0 && freeSec > 0) ? r.latestLengthM / freeSec * 3.6 : null;
+  const speedCard = curSpeedKmh != null
+    ? stat('Tốc độ TB hiện tại', curSpeedKmh.toFixed(1).replace('.', ',') + ' km/h', ttiColor(cur),
+        freeSpeedKmh != null ? `thông thoáng ~${freeSpeedKmh.toFixed(0)} km/h` : '')
+    : '';
+  document.getElementById('fcStats').innerHTML = lenCard + speedCard + (hasMin
     ? stat('Thời gian đi hiện tại', fmtMinSec(curSec), ttiColor(cur), `TTI ${cur ? cur.toFixed(2) : '—'}`) +
       stat('Trễ hiện tại', delayTxt(curDelay), ttiColor(cur), `so với khi đường thông thoáng (${fmtMinSec(freeSec)})`) +
       stat('Bình thường giờ này', baseNow ? fmtMinSec(toSec(baseNow)) : '—', '',
