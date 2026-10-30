@@ -1340,11 +1340,17 @@ function updateKPIs(tf, tt) {
   `;
 }
 
-// Scroll to the TTI chart and briefly flash the rows currently flagged as abnormal.
+// Scroll to the worst abnormal route's own row and briefly flash every row
+// currently flagged as abnormal. ttiChartBody has no fixed height — it just
+// grows to fit every monitored route — so scrolling the CONTAINER into view
+// centers the viewport on the midpoint of the whole route list, not on the
+// flagged row(s); with more than a handful of routes that can land far from
+// any actual abnormal route. Scrolling the worst row itself fixes that.
 function highlightAbnormalRoutes() {
   if (!_abnormalRoutes.length) return;
-  const chart = document.getElementById('ttiChartBody');
-  if (chart) chart.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const worst = _abnormalRoutes.slice().sort((a, b) => b.ratio - a.ratio)[0];
+  const target = document.getElementById('ttiRow-' + worst.id) || document.getElementById('ttiChartBody');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   _abnormalRoutes.forEach(a => {
     const row = document.getElementById('ttiRow-' + a.id);
     if (!row) return;
