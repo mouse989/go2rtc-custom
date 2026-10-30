@@ -159,9 +159,12 @@
         được thay thế. Bấm vào 1 đường để xem chi tiết — không hiện tên đường vì tên tra ngược từ toạ độ có thể
         không chính xác.<br>
         Đường <b>viền đậm, tô theo cùng thang màu</b> là từng đoạn của các tuyến TTI bạn đang theo dõi (Travel
-        Time) — mỗi đoạn là khoảng cách giữa 2 điểm liên tiếp (gốc/điểm giữa/đích) đã đặt khi cấu hình tuyến;
-        thêm điểm giữa cho 1 tuyến để tách nó ra nhiều đoạn chi tiết hơn. Màu suy ra từ TTI của đoạn đó (TTI 1.0
-        → xanh, TTI ≥2.0 → đỏ đậm) để dùng chung ngôn ngữ màu với dữ liệu traffic/flow, không phải jamFactor thật.
+        Time) — mỗi đoạn là quãng giữa 2 điểm liên tiếp (gốc/điểm giữa/đích) đã đặt khi cấu hình tuyến, vẽ
+        <b>bám theo đường thực tế</b> (dò qua VietMap Route API, giống bản đồ "Tổng quan tuyến" ở Admin Config),
+        không còn nối thẳng 2 điểm; thêm điểm giữa cho 1 tuyến để tách nó ra nhiều đoạn chi tiết hơn. Màu suy ra
+        từ TTI của đoạn đó (TTI 1.0 → xanh, TTI ≥2.0 → đỏ đậm) để dùng chung ngôn ngữ màu với dữ liệu
+        traffic/flow, không phải jamFactor thật. Nếu không dò được đường cho 1 đoạn, đoạn đó tạm hiển thị bằng
+        đường thẳng và popup sẽ cảnh báo rõ.
       </div>
     </div>
 
@@ -331,33 +334,87 @@ function fcLinePopupHtml(p) {
 }
 
 // ── Route-segment TTI layer ("Phương án B") → GeoJSON ─────────────────────
-// Each leg is a straight line between 2 consecutive points (gốc/điểm giữa/
-// đích) already fetched for the route's own TTI collection — no new API
-// calls, see internal/traveltime/collector.go's RouteLegStat. TTI has no
-// native 0–10 scale like jamFactor, so it's linearly mapped onto that same
-// range purely so this layer can reuse jfColorExpression()/jfToColor(); the
-// popup always shows the real TTI, never presenting the derived number as
-// an actual jamFactor.
+// A leg's own TTI (collected via traffic.genfast.vn/api/routing, see
+// internal/traveltime/collector.go's RouteLegStat) carries only its 2
+// endpoints, not the road geometry between them. Real road-following
+// geometry comes from a separate, already-existing endpoint:
+// /api/vietmap/route (internal/traveltime/vietmap_proxy.go), a thin proxy
+// onto VietMap's commercial Route v3 API — the same one admin.html's own
+// "Tổng quan tuyến" map already uses (ttFetchRouteGeom there) to draw
+// routes following real streets instead of straight lines. Fetched once
+// per LEG (not once per whole multi-leg route, like admin.html does) so
+// each leg keeps its own TTI color instead of one color spanning several
+// legs. Cached by endpoint pair for the page's lifetime — a leg's road
+// geometry never changes between polls, only a route edit (which changes
+// its endpoints, and so its cache key) invalidates the entry.
 const TTI_JF_REFERENCE_MAX = 2.0;
 function ttiToJfEquivalent(tti) {
   if (tti == null || tti <= 1) return 0;
   return Math.max(0, Math.min(10, (tti - 1) / (TTI_JF_REFERENCE_MAX - 1) * 10));
 }
 
-function buildRouteSegmentsGeoJSON(routes) {
-  const features = [];
+const _fcLegGeomCache = {};
+function fcLegGeomKey(seg) {
+  return `${seg.fromLat},${seg.fromLng}|${seg.toLat},${seg.toLng}`;
+}
+
+async function fcFetchLegGeom(seg) {
+  const params = new URLSearchParams();
+  params.append('point', `${seg.fromLat},${seg.fromLng}`);
+  params.append('point', `${seg.toLat},${seg.toLng}`);
+  params.set('vehicle', 'car');
+  const data = await apiFetch('/api/vietmap/route?' + params.toString());
+  if (data?.error || !data?.paths?.length) throw new Error('no route');
+  const coords = data.paths[0].points?.coordinates ?? data.paths[0].points;
+  if (!coords || coords.length < 2) throw new Error('bad geometry');
+  return coords;
+}
+
+// Runs `fn` over `items` with at most `limit` in flight at once — same
+// pattern as admin.html's ttMapWithConcurrency, so a page with many tracked
+// legs doesn't fire dozens of concurrent VietMap API calls at once.
+async function fcWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 1 }, worker));
+  return results;
+}
+
+async function buildRouteSegmentsGeoJSON(routes) {
+  const entries = [];
   (routes || []).forEach(rt => {
-    (rt.segments || []).forEach(seg => {
-      features.push({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [[seg.fromLng, seg.fromLat], [seg.toLng, seg.toLat]] },
-        properties: {
-          jf: ttiToJfEquivalent(seg.tti), routeName: rt.routeName, legIndex: seg.legIndex,
-          lengthM: seg.lengthM, tti: seg.tti, durationSec: seg.durationSec,
-          baseSec: seg.baseSec, delaySec: seg.delaySec,
-        },
-      });
-    });
+    (rt.segments || []).forEach(seg => entries.push({ rt, seg }));
+  });
+
+  await fcWithConcurrency(entries, 4, async ({ seg }) => {
+    const key = fcLegGeomKey(seg);
+    if (_fcLegGeomCache[key] === undefined) {
+      _fcLegGeomCache[key] = await fcFetchLegGeom(seg).catch(() => 'error');
+    }
+  });
+
+  const features = entries.map(({ rt, seg }) => {
+    const geom = _fcLegGeomCache[fcLegGeomKey(seg)];
+    const geomOk = geom && geom !== 'error';
+    // Falls back to a straight line only when the road couldn't be dòed —
+    // still shows the leg (with its real TTI/color) instead of silently
+    // dropping it, but flags it so the popup can say so.
+    const coords = geomOk ? geom : [[seg.fromLng, seg.fromLat], [seg.toLng, seg.toLat]];
+    return {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: coords },
+      properties: {
+        jf: ttiToJfEquivalent(seg.tti), routeName: rt.routeName, legIndex: seg.legIndex,
+        lengthM: seg.lengthM, tti: seg.tti, durationSec: seg.durationSec,
+        baseSec: seg.baseSec, delaySec: seg.delaySec, geomApprox: !geomOk,
+      },
+    };
   });
   return { type: 'FeatureCollection', features };
 }
@@ -373,6 +430,7 @@ function fcRoutePopupHtml(p) {
       <b>Thời gian đi:</b> ${p.durationSec}s (nền: ${p.baseSec}s)<br>
       <b>Trễ do kẹt xe:</b> ${p.delaySec}s
     </div>
+    ${p.geomApprox ? '<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">⚠ Không dò được tuyến đường thực tế cho đoạn này — tạm hiển thị bằng đường thẳng nối 2 điểm.</div>' : ''}
   </div>`;
 }
 
@@ -384,7 +442,7 @@ async function loadFcLatest() {
     ]);
     renderFcStats(latest, routes);
     const data = buildFcGeoJSON(latest);
-    const routeData = buildRouteSegmentsGeoJSON(routes);
+    const routeData = await buildRouteSegmentsGeoJSON(routes);
     if (_fcMapInited && _fcMap.getSource('fc-lines')) {
       const firstLoad = !_fcHasFitOnce;
       _fcMap.getSource('fc-lines').setData(data);
