@@ -411,8 +411,8 @@ function fcRoutePopupHtml(p) {
     <div style="margin-top:.3rem;font-size:.8rem">
       <b>TTI:</b> ${p.tti.toFixed(2)}<br>
       <b>Tốc độ:</b> ${speedKmh.toFixed(1)} km/h<br>
-      <b>Thời gian đi:</b> ${p.durationSec}s (nền: ${p.baseSec}s)<br>
-      <b>Trễ do kẹt xe:</b> ${p.delaySec}s
+      <b>Thời gian đi:</b> ${(p.durationSec / 60).toFixed(1)} phút (nền: ${(p.baseSec / 60).toFixed(1)} phút)<br>
+      <b>Trễ do kẹt xe:</b> ${(p.delaySec / 60).toFixed(1)} phút
     </div>
     ${p.geomApprox ? '<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">⚠ Không dò được tuyến đường thực tế cho đoạn này — tạm hiển thị bằng đường thẳng nối 2 điểm.</div>' : ''}
   </div>`;
