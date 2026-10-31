@@ -486,10 +486,21 @@ async function initFcMap() {
 
       const routesVisible = document.getElementById('fcLayerRoutes').checked ? 'visible' : 'none';
       _fcMap.addSource('fc-routes', { type: 'geojson', data: _pendingFcRouteData || { type: 'FeatureCollection', features: [] } });
+      // A tracked route very often runs along a road the ambient flow-capture
+      // layer (fc-lines-line, width 4) already scanned — without any outline,
+      // a thin same-family-colored line on top of it can disappear entirely
+      // into the wider one underneath. A slim white halo (not the old thick
+      // black casing) keeps it readable without bringing that heavy border
+      // look back.
+      _fcMap.addLayer({
+        id: 'fc-routes-halo', type: 'line', source: 'fc-routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
+        paint: { 'line-color': '#ffffff', 'line-width': 4.5, 'line-opacity': .85 },
+      });
       _fcMap.addLayer({
         id: 'fc-routes-line', type: 'line', source: 'fc-routes',
         layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
-        paint: { 'line-color': jfColorExpression(), 'line-width': 2, 'line-opacity': 1 },
+        paint: { 'line-color': jfColorExpression(), 'line-width': 2.5, 'line-opacity': 1 },
       });
       _fcMap.on('click', 'fc-routes-line', e => {
         const p = e.features[0].properties;
@@ -514,6 +525,7 @@ document.getElementById('btnFcRefresh').addEventListener('click', loadFcLatest);
 document.getElementById('fcLayerRoutes').addEventListener('change', e => {
   if (!_fcMapInited) return;
   const vis = e.target.checked ? 'visible' : 'none';
+  _fcMap.setLayoutProperty('fc-routes-halo', 'visibility', vis);
   _fcMap.setLayoutProperty('fc-routes-line', 'visibility', vis);
 });
 
