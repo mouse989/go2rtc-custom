@@ -36,7 +36,6 @@
 .fc-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.7rem; color:var(--text-muted); }
 .fc-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
 .fc-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
-.fc-hint { font-size:.72rem; color:var(--text-muted); margin-top:.6rem; line-height:1.5; }
 @media (max-width:900px) { .fc-stat-tile { min-width:46%; } }
 </style>
 </head>
@@ -135,7 +134,7 @@
 
     <div class="fc-section">
       <h3>
-        <span>🗺 Bản đồ dữ liệu traffic/flow API — luôn hiện dữ liệu mới nhất</span>
+        <span>🗺 Bản đồ dữ liệu Traffic flow</span>
         <div class="fc-controls">
           <label style="display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">
             <input type="checkbox" id="fcLayerRoutes" checked> Tuyến TTI đang theo dõi
@@ -150,21 +149,6 @@
         <span>0</span>
         <div class="fc-jf-legend-bar" id="fcJfLegendBar"></div>
         <span>10</span>
-      </div>
-      <div class="fc-hint">
-        Mỗi đường mảnh trên bản đồ là 1 "result" (hoặc 1 "subSegment" khi result đó được API tự chia nhỏ) từ dữ
-        liệu traffic/flow — màu theo đúng thang jamFactor 0–10 đã cấu hình ở Settings (giống bản đồ điểm ùn tắc).
-        Trang này luôn hiện dữ liệu <b>mới nhất của từng khu vực đang quét, gộp chung lại</b> — khu vực chỉ là
-        cách chia vùng quét trên bbox, không dùng để lọc hiển thị ở đây; có lượt quét mới thì dữ liệu cũ tự động
-        được thay thế. Bấm vào 1 đường để xem chi tiết — không hiện tên đường vì tên tra ngược từ toạ độ có thể
-        không chính xác.<br>
-        Đường <b>mảnh, tô theo cùng thang màu</b> là từng đoạn của các tuyến TTI bạn đang theo dõi (Travel
-        Time) — mỗi đoạn là quãng giữa 2 điểm liên tiếp (gốc/điểm giữa/đích) đã đặt khi cấu hình tuyến, vẽ
-        <b>bám theo đường thực tế</b> (dò qua VietMap Route API, giống bản đồ "Tổng quan tuyến" ở Admin Config),
-        không còn nối thẳng 2 điểm; thêm điểm giữa cho 1 tuyến để tách nó ra nhiều đoạn chi tiết hơn. Màu suy ra
-        từ TTI của đoạn đó (TTI 1.0 → xanh, TTI ≥2.0 → đỏ đậm) để dùng chung ngôn ngữ màu với dữ liệu
-        traffic/flow, không phải jamFactor thật. Nếu không dò được đường cho 1 đoạn, đoạn đó tạm hiển thị bằng
-        đường thẳng và popup sẽ cảnh báo rõ.
       </div>
     </div>
 
