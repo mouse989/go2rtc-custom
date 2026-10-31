@@ -158,7 +158,7 @@
         cách chia vùng quét trên bbox, không dùng để lọc hiển thị ở đây; có lượt quét mới thì dữ liệu cũ tự động
         được thay thế. Bấm vào 1 đường để xem chi tiết — không hiện tên đường vì tên tra ngược từ toạ độ có thể
         không chính xác.<br>
-        Đường <b>viền đậm, tô theo cùng thang màu</b> là từng đoạn của các tuyến TTI bạn đang theo dõi (Travel
+        Đường <b>mảnh, tô theo cùng thang màu</b> là từng đoạn của các tuyến TTI bạn đang theo dõi (Travel
         Time) — mỗi đoạn là quãng giữa 2 điểm liên tiếp (gốc/điểm giữa/đích) đã đặt khi cấu hình tuyến, vẽ
         <b>bám theo đường thực tế</b> (dò qua VietMap Route API, giống bản đồ "Tổng quan tuyến" ở Admin Config),
         không còn nối thẳng 2 điểm; thêm điểm giữa cho 1 tuyến để tách nó ra nhiều đoạn chi tiết hơn. Màu suy ra
@@ -503,14 +503,9 @@ async function initFcMap() {
       const routesVisible = document.getElementById('fcLayerRoutes').checked ? 'visible' : 'none';
       _fcMap.addSource('fc-routes', { type: 'geojson', data: _pendingFcRouteData || { type: 'FeatureCollection', features: [] } });
       _fcMap.addLayer({
-        id: 'fc-routes-casing', type: 'line', source: 'fc-routes',
-        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
-        paint: { 'line-color': '#0f172a', 'line-width': 9, 'line-opacity': .9 },
-      });
-      _fcMap.addLayer({
         id: 'fc-routes-line', type: 'line', source: 'fc-routes',
         layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
-        paint: { 'line-color': jfColorExpression(), 'line-width': 5, 'line-opacity': 1 },
+        paint: { 'line-color': jfColorExpression(), 'line-width': 2, 'line-opacity': 1 },
       });
       _fcMap.on('click', 'fc-routes-line', e => {
         const p = e.features[0].properties;
@@ -535,7 +530,6 @@ document.getElementById('btnFcRefresh').addEventListener('click', loadFcLatest);
 document.getElementById('fcLayerRoutes').addEventListener('change', e => {
   if (!_fcMapInited) return;
   const vis = e.target.checked ? 'visible' : 'none';
-  _fcMap.setLayoutProperty('fc-routes-casing', 'visibility', vis);
   _fcMap.setLayoutProperty('fc-routes-line', 'visibility', vis);
 });
 
