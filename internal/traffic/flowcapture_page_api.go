@@ -15,12 +15,14 @@ import (
 	"strconv"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/traveltime"
 )
 
 func registerFlowCapturePageHandlers() {
 	http.HandleFunc("/api/flowcapture/scans", handleFlowCapturePageScans)
 	http.HandleFunc("/api/flowcapture/geometry", handleFlowCapturePageGeometry)
 	http.HandleFunc("/api/flowcapture/latest", handleFlowCapturePageLatest)
+	http.HandleFunc("/api/flowcapture/routes", handleFlowCapturePageRoutes)
 }
 
 // requireFlowCaptureViewer only checks the caller is authenticated — the
@@ -226,4 +228,29 @@ func handleFlowCapturePageLatest(w http.ResponseWriter, r *http.Request) {
 		resp.Results = append(resp.Results, resultsToGeometry(parsed)...)
 	}
 	writeJSON(w, resp)
+}
+
+// handleFlowCapturePageRoutes  GET /api/flowcapture/routes
+// "Phương án B": TTI per leg of each tracked travel-time route, collected
+// by having the admin add waypoints (see internal/traveltime/collector.go's
+// RouteLegStat/segment_capture_db.go) — the Flow Capture map's own "tuyến
+// TTI đang theo dõi" layer, separate from (and overlaid on top of) the
+// ambient traffic/flow data above. A thin passthrough onto
+// traveltime.LatestRouteSegments(), same principle as the flow_capture_db.go
+// passthroughs above: this page's own tab gates it, not the stricter
+// Travel Time admin tool.
+func handleFlowCapturePageRoutes(w http.ResponseWriter, r *http.Request) {
+	if !requireFlowCaptureViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	routes, err := traveltime.LatestRouteSegments()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, routes)
 }
