@@ -193,23 +193,19 @@ function renderFcStats(latest, routes) {
   const newest = regions.reduce((a, b) => (a.scannedAt > b.scannedAt ? a : b));
   asOf.textContent = 'Cập nhật lúc ' + fmtFcTime(newest.scannedAt);
 
-  const routeLegCount = (routes || []).reduce((n, rt) => n + (rt.segments ? rt.segments.length : 0), 0);
   const tiles = [
     { lbl: 'Số khu vực có dữ liệu', val: regions.length, color: '#60a5fa' },
     { lbl: 'Lượt quét gần nhất', val: fmtFcTime(newest.scannedAt), color: '#818cf8' },
     { lbl: 'Số tuyến (results)', val: results.length, color: '#38bdf8' },
     { lbl: 'Số đoạn con (subSegments)', val: subCount, color: '#a78bfa' },
     { lbl: 'JamFactor TB', val: avgJf.toFixed(1), color: jfToColor(avgJf) },
-    { lbl: 'Tuyến TTI đang theo dõi', val: (routes || []).length + ' tuyến · ' + routeLegCount + ' đoạn', color: '#34d399' },
+    { lbl: 'Tuyến TTI đang theo dõi', val: (routes || []).length + ' tuyến', color: '#34d399' },
   ];
-  const regionList = regions.map(r =>
-    `<span style="margin-right:1rem">${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}</span>`).join('');
   el.innerHTML = tiles.map(x => `
     <div class="fc-stat-tile" style="--fc-stat-c:${x.color}">
       <div class="fc-stat-lbl">${x.lbl}</div>
       <div class="fc-stat-val">${x.val}</div>
-    </div>`).join('') +
-    `<div style="flex-basis:100%;font-size:.72rem;color:var(--text-muted);margin-top:.3rem">${regionList}</div>`;
+    </div>`).join('');
 }
 
 // ── Geometry → GeoJSON lines (split at subSegment boundaries) ────────────
