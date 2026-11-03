@@ -67,13 +67,13 @@ func handleFlowCapturePageScans(w http.ResponseWriter, r *http.Request) {
 // flowGeometrySubSegment/Link/Result mirror flowSubSegment/flowLink/
 // flowResult (flow_capture_parse.go) with speeds pre-converted to km/h —
 // the unit the map/legend actually renders in — so the frontend never has
-// to know about the raw m/s fields. TTI/Z/LOS/Anomaly are computed fresh
+// to know about the raw m/s fields. TTI/LOS/Anomaly are computed fresh
 // here from this same reading's own speed/freeFlow/JF (internal/
-// trafficmetrics, SPEC-ITS-TRAFFIC-ANALYSIS-01) — independent of (but with
-// the exact same formula as) the tti_raw/z_est/los_label/anomaly_flag
-// columns flow_capture_db.go's recordFlowScan persists for SQL-based
-// reporting: this endpoint always re-parses raw_json rather than reading
-// those stored columns back, so it recomputes rather than reads them.
+// trafficmetrics) — independent of (but with the exact same formula as)
+// the tti_raw/los_label/anomaly_flag columns flow_capture_db.go's
+// recordFlowScan persists for SQL-based reporting: this endpoint always
+// re-parses raw_json rather than reading those stored columns back, so it
+// recomputes rather than reads them.
 type flowGeometrySubSegment struct {
 	LengthM        float64 `json:"lengthM"`
 	SpeedKmh       float64 `json:"speedKmh"`
@@ -84,8 +84,6 @@ type flowGeometrySubSegment struct {
 	Confidence     float64 `json:"confidence"`
 	Traversability string  `json:"traversability"`
 	TTIFused       float64 `json:"ttiFused"`
-	Z              float64 `json:"z"`
-	ZPercent       float64 `json:"zPercent"`
 	LOSLabel       string  `json:"losLabel"`
 	LOSColor       string  `json:"losColor"`
 	Anomaly        bool    `json:"anomaly"`
@@ -110,8 +108,6 @@ type flowGeometryResult struct {
 	Traversability string                   `json:"traversability"`
 	SubSegments    []flowGeometrySubSegment `json:"subSegments,omitempty"`
 	TTIFused       float64                  `json:"ttiFused"`
-	Z              float64                  `json:"z"`
-	ZPercent       float64                  `json:"zPercent"`
 	LOSLabel       string                   `json:"losLabel"`
 	LOSColor       string                   `json:"losColor"`
 	Anomaly        bool                     `json:"anomaly"`
@@ -139,7 +135,7 @@ func resultsToGeometry(parsed []flowResult) []flowGeometryResult {
 			SpeedKmh: fr.SpeedMps * 3.6, FreeFlowKmh: fr.FreeFlowMps * 3.6,
 			JamFactor: fr.JamFactor, HasJamTendency: fr.HasJamTendency, JamTendency: fr.JamTendency,
 			Confidence: fr.Confidence, Traversability: fr.Traversability,
-			TTIFused: m.TTIFused, Z: m.Z, ZPercent: m.ZPercent,
+			TTIFused: m.TTIFused,
 			LOSLabel: m.LOS.Label, LOSColor: m.LOS.Color, Anomaly: m.Anomaly,
 		}
 		for _, lk := range fr.Links {
@@ -158,7 +154,7 @@ func resultsToGeometry(parsed []flowResult) []flowGeometryResult {
 				LengthM: ss.LengthM, SpeedKmh: ss.SpeedMps * 3.6, FreeFlowKmh: ss.FreeFlowMps * 3.6,
 				JamFactor: ss.JamFactor, HasJamTendency: ss.HasJamTendency, JamTendency: ss.JamTendency,
 				Confidence: ss.Confidence, Traversability: ss.Traversability,
-				TTIFused: sm.TTIFused, Z: sm.Z, ZPercent: sm.ZPercent,
+				TTIFused: sm.TTIFused,
 				LOSLabel: sm.LOS.Label, LOSColor: sm.LOS.Color, Anomaly: sm.Anomaly,
 			})
 		}

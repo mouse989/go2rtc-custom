@@ -141,7 +141,7 @@
             <select id="fcColorMode">
               <option value="jf">Jam Factor</option>
               <option value="tti">TTI</option>
-              <option value="los">LOS (Z%)</option>
+              <option value="los">LOS</option>
             </select>
           </label>
           <label style="display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">
@@ -186,7 +186,7 @@ function renderFcLegend() {
   if (bar) bar.style.background = jfGradientCssString();
 }
 
-// ── Tô theo: Jam Factor / TTI / LOS (Z%) ──────────────────────────────────
+// ── Tô theo: Jam Factor / TTI / LOS ────────────────────────────────────────
 // All 3 reuse the same admin-configured JF color gradient (jfColorStops())
 // except LOS, which uses its own fixed 6-swatch table
 // (internal/trafficmetrics's own color per level, not a gradient) since LOS
@@ -217,7 +217,7 @@ function renderFcLosLegend() {
   el.innerHTML = levels.map(lv => `
     <span style="display:inline-flex;align-items:center;gap:.3rem">
       <span style="width:12px;height:12px;border-radius:3px;background:${escHtml(lv.color)};display:inline-block"></span>
-      ${escHtml(lv.label)} (≥${lv.zMinPercent}%)
+      ${escHtml(lv.label)} (TTI≥${lv.ttiMin})
     </span>`).join('');
 }
 
@@ -342,7 +342,7 @@ function buildFcGeoJSON(geo) {
           lengthM: r.lengthM, speedKmh: r.speedKmh, freeFlowKmh: r.freeFlowKmh,
           confidence: r.confidence, functionalClass, resultIndex: ri,
           ttiFused: r.ttiFused, ttiJfEquiv: ttiToJfEquivalent(r.ttiFused),
-          z: r.z, zPercent: r.zPercent, losLabel: r.losLabel, losColor: r.losColor,
+          losLabel: r.losLabel, losColor: r.losColor,
           anomaly: r.anomaly, bottleneck: r.bottleneck,
         },
       });
@@ -362,7 +362,7 @@ function buildFcGeoJSON(geo) {
           lengthM: ss.lengthM, speedKmh: ss.speedKmh, freeFlowKmh: ss.freeFlowKmh,
           confidence: ss.confidence, functionalClass, resultIndex: ri,
           ttiFused: ss.ttiFused, ttiJfEquiv: ttiToJfEquivalent(ss.ttiFused),
-          z: ss.z, zPercent: ss.zPercent, losLabel: ss.losLabel, losColor: ss.losColor,
+          losLabel: ss.losLabel, losColor: ss.losColor,
           anomaly: ss.anomaly, bottleneck: r.bottleneck,
         },
       });
@@ -389,7 +389,7 @@ function fcLinePopupHtml(p) {
       <b>Độ tin cậy:</b> ${(p.confidence * 100).toFixed(0)}%<br>
       ${p.functionalClass != null ? `<b>Loại đường:</b> ${p.functionalClass}<br>` : ''}
       <b>TTI (hợp nhất):</b> ${(p.ttiFused || 0).toFixed(2)}<br>
-      <b>Z (% thông hành):</b> <span style="color:${escHtml(p.losColor || '#999')}">${(p.zPercent || 0).toFixed(0)}% — LOS ${escHtml(p.losLabel || '—')}</span>
+      <b>LOS:</b> <span style="color:${escHtml(p.losColor || '#999')}">${escHtml(p.losLabel || '—')}</span>
     </div>
     ${flags.length ? `<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">${flags.map(escHtml).join('<br>')}</div>` : ''}
   </div>`;
@@ -475,7 +475,7 @@ async function buildRouteSegmentsGeoJSON(routes) {
         jf: ttiToJfEquivalent(seg.tti), routeName: rt.routeName, legIndex: seg.legIndex,
         lengthM: seg.lengthM, tti: seg.tti, durationSec: seg.durationSec,
         baseSec: seg.baseSec, delaySec: seg.delaySec, geomApprox: !geomOk,
-        z: seg.z, zPercent: seg.zPercent, losLabel: seg.losLabel, losColor: seg.losColor,
+        losLabel: seg.losLabel, losColor: seg.losColor,
       },
     };
   });
@@ -492,7 +492,7 @@ function fcRoutePopupHtml(p) {
       <b>Tốc độ:</b> ${speedKmh.toFixed(1)} km/h<br>
       <b>Thời gian đi:</b> ${(p.durationSec / 60).toFixed(1)} phút (nền: ${(p.baseSec / 60).toFixed(1)} phút)<br>
       <b>Trễ do kẹt xe:</b> ${(p.delaySec / 60).toFixed(1)} phút<br>
-      <b>Z (% thông hành):</b> <span style="color:${escHtml(p.losColor || '#999')}">${(p.zPercent || 0).toFixed(0)}% — LOS ${escHtml(p.losLabel || '—')}</span>
+      <b>LOS:</b> <span style="color:${escHtml(p.losColor || '#999')}">${escHtml(p.losLabel || '—')}</span>
     </div>
     ${p.geomApprox ? '<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">⚠ Không dò được tuyến đường thực tế cho đoạn này — tạm hiển thị bằng đường thẳng nối 2 điểm.</div>' : ''}
   </div>`;

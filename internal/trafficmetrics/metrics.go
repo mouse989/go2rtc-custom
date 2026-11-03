@@ -1,12 +1,18 @@
 package trafficmetrics
 
-// metrics.go — pure math implementing SPEC-ITS-TRAFFIC-ANALYSIS-01: TTI<->JF
-// correlation, Z (hệ số sử dụng khả năng thông hành / capacity utilization
-// ratio) inference via a Vietnam-calibrated inverse-BPR model, and the
-// bottleneck/consistency diagnostic flags. No I/O, no config loading here —
-// callers pass the calibration constants explicitly (see config.go's Config
-// for where those live and how they're admin-editable) so this file stays
-// trivially unit-testable against the spec's own TC-01..TC-05 cases.
+// metrics.go — pure math: TTI<->JF correlation (used to fuse a
+// speed-derived TTI with a JamFactor-implied one, and to cross-check the
+// two against each other) and the bottleneck/consistency diagnostic flags.
+// LOS classification itself (config.go's ClassifyLOS) is driven directly
+// from TTI per HCM's Urban Streets methodology — no Z (volume-to-capacity)
+// estimate is computed anywhere in this package; an earlier BPR-inverse Z
+// formula was removed entirely (no real traffic-volume data exists to
+// calibrate it against, and taken at the spec's own stated constants it
+// misclassified moderate congestion as the worst LOS tier — see git
+// history for SPEC-ITS-TRAFFIC-ANALYSIS-01, the original source). No I/O,
+// no config loading here — callers pass the calibration constants
+// explicitly (see config.go's Config for where those live and how they're
+// admin-editable).
 
 import "math"
 
@@ -54,17 +60,6 @@ func ImpliedJFFromTTI(tti float64) float64 {
 // raw speed-derived reading and uses JF as a smoothing filter.
 func FuseTTI(ttiRaw, ttiFromJF, weightRaw, weightJF float64) float64 {
 	return round3(weightRaw*ttiRaw + weightJF*ttiFromJF)
-}
-
-// InferZ suy diễn hệ số sử dụng khả năng thông hành Z từ TTI qua mô hình
-// BPR nghịch đảo hiệu chuẩn: TTI = 1 + alpha·Z^beta ⇒ Z = ((TTI-1)/alpha)^(1/beta).
-// Returns 0 for TTI ≤ 1.0 (free flow, no excess delay to attribute to
-// over-capacity demand).
-func InferZ(tti, alpha, beta float64) float64 {
-	if tti <= 1.0 || alpha <= 0 || beta <= 0 {
-		return 0.0
-	}
-	return round3(math.Pow((tti-1.0)/alpha, 1.0/beta))
 }
 
 // ConsistencyFlag reports whether an actually-reported JamFactor disagrees
