@@ -238,3 +238,80 @@ func TestRecordFlowScanSkipsWhenCaptureDBNotInitialized(t *testing.T) {
 		t.Errorf("recordFlowScan with nil DB = %v, want nil (no-op)", err)
 	}
 }
+
+// TestRecordFlowScanPopulatesMetricsColumns pins that internal/trafficmetrics
+// (SPEC-ITS-TRAFFIC-ANALYSIS-01's TTI/Z/LOS derivation) is actually wired
+// into recordFlowScan's insert, not just migrated as empty/default columns.
+// realSampleJSON's second result has 3 subSegments whose jamFactor spans
+// 9.1/3.9/9.1 (5.2 apart) — well past the default bottleneck threshold
+// (3.0), so its own result row (sub_index=-1) must come back flagged.
+func TestRecordFlowScanPopulatesMetricsColumns(t *testing.T) {
+	resetFlowCaptureDB(t)
+	results, sourceUpdated, err := parseFlowResults([]byte(realSampleJSON))
+	if err != nil {
+		t.Fatalf("parseFlowResults: %v", err)
+	}
+	if err := recordFlowScan("TPHCM BD", time.Now(), sourceUpdated, len(realSampleJSON), []byte(realSampleJSON), results); err != nil {
+		t.Fatalf("recordFlowScan: %v", err)
+	}
+
+	rows, err := flowCaptureDB.Query(`
+		SELECT result_index, sub_index, tti_raw, tti_fused, z_est, z_percent, los_label, los_color, bottleneck_detected
+		FROM flow_segments ORDER BY result_index, sub_index`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+
+	type row struct {
+		resultIdx, subIdx         int
+		ttiRaw, ttiFused, z, zPct float64
+		losLabel, losColor        string
+		bottleneck                bool
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.resultIdx, &r.subIdx, &r.ttiRaw, &r.ttiFused, &r.z, &r.zPct, &r.losLabel, &r.losColor, &r.bottleneck); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 5 {
+		t.Fatalf("got %d rows, want 5 (2 results + 3 subSegments)", len(got))
+	}
+
+	// First result (sub_index=-1): speed==freeFlow would give TTI=1, but
+	// this sample's first result is the heavily-jammed one (JF 8.7) — just
+	// assert it's populated and internally consistent, not a hardcoded value.
+	first := got[0]
+	if first.ttiRaw <= 0 || first.ttiFused <= 0 {
+		t.Errorf("first result TTI not computed: %+v", first)
+	}
+	if first.losLabel == "" || first.losColor == "" {
+		t.Errorf("first result LOS not classified: %+v", first)
+	}
+
+	// Second result's own row (index 1, sub_index -1) must carry the
+	// bottleneck flag from its subSegments' JF spread.
+	var secondResultRow *row
+	for i := range got {
+		if got[i].resultIdx == 1 && got[i].subIdx == -1 {
+			secondResultRow = &got[i]
+		}
+	}
+	if secondResultRow == nil {
+		t.Fatal("second result's own row (sub_index=-1) not found")
+	}
+	if !secondResultRow.bottleneck {
+		t.Errorf("second result bottleneck_detected = false, want true (subSegment JF spread 9.1/3.9/9.1)")
+	}
+
+	// subSegment rows never carry their own bottleneck flag — it's a
+	// property of the whole result, not one piece of it.
+	for _, r := range got {
+		if r.subIdx >= 0 && r.bottleneck {
+			t.Errorf("subSegment row %+v has bottleneck_detected=true, want false", r)
+		}
+	}
+}

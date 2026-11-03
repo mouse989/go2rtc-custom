@@ -84,17 +84,22 @@ func Init() {
 	regionsFile := "travel_route_regions.json"
 	logsDir := "travel_logs"
 	holidayFile := "holiday_overrides.json"
+	segmentCaptureDir := "."
 	if app.ConfigPath != "" {
 		dir := filepath.Dir(app.ConfigPath)
 		routesFile = filepath.Join(dir, "travel_routes.json")
 		regionsFile = filepath.Join(dir, "travel_route_regions.json")
 		logsDir = filepath.Join(dir, "travel_logs")
 		holidayFile = filepath.Join(dir, "holiday_overrides.json")
+		segmentCaptureDir = dir
 	}
 	initRoutes(routesFile)
 	initRegions(regionsFile)
 	initLogs(logsDir)
 	initHolidayStore(holidayFile)
+	if err := initSegmentCaptureDB(segmentCaptureDir); err != nil {
+		log.Warn().Err(err).Msg("[traveltime] segment capture DB init failed — per-leg TTI capture disabled")
+	}
 
 	registerHandlers()
 	registerVietmapHandlers()

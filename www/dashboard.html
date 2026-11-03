@@ -59,6 +59,7 @@
   font-size:.72rem; font-weight:600; color:var(--text);
   line-height:1.3; word-break:break-word;
 }
+.tti-rname-abnormal { color:#ef4444; }
 .tti-row-bars { flex:1; min-width:0; }
 .tti-bar {
   display:flex; width:100%; overflow:hidden;
@@ -1350,7 +1351,7 @@ function updateKPIs(tf, tt) {
     <div class="db-kpi-mini orange">
       <div class="lbl">Ùn tắc</div>
       <div class="val">${tf.persistent||0}</div>
-      <div class="sub">điểm dai dẳng · ${tf.filtered||0} filtered</div>
+      <div class="sub">lượt dai dẳng · ${tf.filtered||0} filtered</div>
     </div>
   `;
 }
@@ -1442,7 +1443,7 @@ function renderTTIChart(routes, primaryLogs, histLogs) {
 
     return `<div class="tti-chart-row" id="ttiRow-${escH(r.id)}" ${dragAttr}>
       <div class="tti-row-label">
-        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}${abnMark}<span class="tti-rname" title="Bấm để xem chi tiết & dự báo: ${escH(r.name)}" style="cursor:pointer;text-decoration:underline dotted .5px" onclick="openRouteDetail('${escH(r.id)}')">${escH(r.name)}</span></div>
+        <div style="display:flex;align-items:center;gap:.3rem">${dragHandle}${trendArrow(trend)}${abnMark}<span class="tti-rname${abn ? ' tti-rname-abnormal' : ''}" title="Bấm để xem chi tiết & dự báo: ${escH(r.name)}" style="cursor:pointer;text-decoration:underline dotted .5px" onclick="openRouteDetail('${escH(r.id)}')">${escH(r.name)}</span></div>
       </div>
       <div class="tti-row-bars">
         <div class="tti-bar tti-bar-today">${todayBar}</div>

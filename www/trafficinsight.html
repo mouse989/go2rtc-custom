@@ -575,7 +575,7 @@ async function loadStatStrip() {
       { lbl: 'TTI TB hiện tại', val: snap.hasCurrentTTIData ? fmtNum(snap.currentTTIAvg, 2) : '—', color: '#38bdf8', hint: TI_TTI_CURRENT_HINT },
       { lbl: 'Trễ TB cả ngày (phút)', val: m.hasTTIData ? fmtNum(m.ttiAvgDelayMin, 1) : '—', color: '#f59e0b', hint: TI_TTI_TODAY_HINT },
       { lbl: 'Trễ TB hiện tại (phút)', val: snap.hasCurrentTTIData ? fmtNum(snap.currentTTIAvgDelayMin, 1) : '—', color: '#f59e0b', hint: TI_TTI_CURRENT_HINT },
-      { lbl: 'Điểm ùn tắc hiện tại', val: snap.livePersistentCount ?? 0, color: '#ef4444' },
+      { lbl: 'Lượt ùn tắc hiện tại', val: snap.livePersistentCount ?? 0, color: '#ef4444' },
       { lbl: 'Số tuyến giám sát', val: snap.routeCount ?? '—', color: '#60a5fa' },
       { lbl: 'Chiều dài (km)', val: snap.routeTotalLengthKm ? fmtNum(snap.routeTotalLengthKm, 1) : '—', color: '#818cf8' },
     ];

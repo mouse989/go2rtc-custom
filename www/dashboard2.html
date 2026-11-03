@@ -1498,7 +1498,7 @@ function renderKPIs(tt, tf) {
   const tiles = [
     { lbl:'TTI trung bình', val: tt.avgTTI ? tt.avgTTI.toFixed(2) : '—', extra: deltaHtml(tt.avgTTI||null, ttiBase, '', true), color: tt.avgTTI ? (ttiColor(tt.avgTTI) || D2_KPI_NEUTRAL) : null },
     { lbl:'Trễ TB (phút/tuyến)', val: tt.avgDelaySec ? (tt.avgDelaySec/60).toFixed(1) : '—', extra: deltaHtml(tt.avgDelaySec ? tt.avgDelaySec/60 : null, delayBase, 'p', true), color: D2_KPI_WARN },
-    { lbl:'Điểm ùn tắc >10 phút', val: _persistCmp.current ?? (tf.persistent ?? '—'), color: D2_KPI_BAD, extra:
+    { lbl:'Lượt ùn tắc >10 phút', val: _persistCmp.current ?? (tf.persistent ?? '—'), color: D2_KPI_BAD, extra:
         `<div class="sub2">So hôm qua cùng giờ: ${_persistCmp.yesterday!=null ? (_persistCmp.current - _persistCmp.yesterday >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.yesterday) : '—'}</div>` +
         `<div class="sub2">So TB ${_persistCmp.baselineWeeks||0} tuần cùng giờ: ${_persistCmp.baseline4w!=null ? (_persistCmp.current - _persistCmp.baseline4w >= 0 ? '+' : '') + (_persistCmp.current - _persistCmp.baseline4w).toFixed(1) : '—'}</div>` },
     { lbl:'Số tuyến giám sát', val: tt.routeCount ?? '—', color: D2_KPI_NEUTRAL },

@@ -36,7 +36,6 @@
 .fc-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.7rem; color:var(--text-muted); }
 .fc-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
 .fc-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
-.fc-hint { font-size:.72rem; color:var(--text-muted); margin-top:.6rem; line-height:1.5; }
 @media (max-width:900px) { .fc-stat-tile { min-width:46%; } }
 </style>
 </head>
@@ -135,26 +134,35 @@
 
     <div class="fc-section">
       <h3>
-        <span>🗺 Bản đồ dữ liệu traffic/flow API — luôn hiện dữ liệu mới nhất</span>
+        <span>🗺 Bản đồ dữ liệu Traffic flow</span>
         <div class="fc-controls">
+          <label style="display:inline-flex;align-items:center;gap:.3rem">
+            Tô theo
+            <select id="fcColorMode">
+              <option value="jf">Jam Factor</option>
+              <option value="tti">TTI</option>
+              <option value="los">LOS (Z%)</option>
+            </select>
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">
+            <input type="checkbox" id="fcLayerRoutes" checked> Tuyến TTI đang theo dõi
+          </label>
           <span id="fcAsOf" style="color:var(--text-muted)">—</span>
           <button id="btnFcRefresh">Làm mới</button>
         </div>
       </h3>
       <div class="fc-stat-strip" id="fcStatStrip"><div class="fc-empty">Đang tải...</div></div>
       <div id="fcMap" style="margin-top:.8rem"></div>
-      <div class="fc-jf-legend">
-        <span>0</span>
+      <div class="fc-jf-legend" id="fcGradientLegend">
+        <span id="fcLegendMinLbl">0</span>
         <div class="fc-jf-legend-bar" id="fcJfLegendBar"></div>
-        <span>10</span>
+        <span id="fcLegendMaxLbl">10</span>
       </div>
-      <div class="fc-hint">
-        Mỗi đường trên bản đồ là 1 "result" (hoặc 1 "subSegment" khi result đó được API tự chia nhỏ) — màu theo
-        đúng thang jamFactor 0–10 đã cấu hình ở Settings (giống bản đồ điểm ùn tắc). Trang này luôn hiện dữ liệu
-        <b>mới nhất của từng khu vực đang quét, gộp chung lại</b> — khu vực chỉ là cách chia vùng quét trên bbox,
-        không dùng để lọc hiển thị ở đây; có lượt quét mới thì dữ liệu cũ tự động được thay thế (không cần chọn
-        lại). Bấm vào 1 đường để xem chi tiết (chiều dài, tốc độ km/h, tốc độ thông thoáng, độ tin cậy, loại
-        đường) — không hiện tên đường vì tên tra ngược từ toạ độ có thể không chính xác.
+      <div class="fc-jf-legend" id="fcLosLegend" style="display:none;flex-wrap:wrap;gap:.6rem">
+      </div>
+      <div class="fc-hint-note" id="fcRouteJfNote" style="display:none;font-size:.7rem;color:var(--text-muted);margin-top:.4rem">
+        ⚠ Lớp "Tuyến TTI đang theo dõi" không có JamFactor thật cho từng đoạn — khi chọn tô theo Jam Factor, lớp này
+        vẫn giữ nguyên tô theo TTI.
       </div>
     </div>
 
@@ -178,13 +186,69 @@ function renderFcLegend() {
   if (bar) bar.style.background = jfGradientCssString();
 }
 
+// ── Tô theo: Jam Factor / TTI / LOS (Z%) ──────────────────────────────────
+// All 3 reuse the same admin-configured JF color gradient (jfColorStops())
+// except LOS, which uses its own fixed 6-swatch table
+// (internal/trafficmetrics's own color per level, not a gradient) since LOS
+// is a discrete classification, not a continuous 0–10 value like JF/TTI.
+let _fcColorMode = 'jf';
+let _fcLOSConfig = null;
+
+async function loadLOSMetricsConfig() {
+  try {
+    _fcLOSConfig = await apiFetch('/api/trafficmetrics/config');
+  } catch (e) {
+    _fcLOSConfig = null;
+  }
+  renderFcLosLegend();
+}
+
+function fcColorExpressionFor(propName) {
+  const stops = jfColorStops();
+  const expr = ['interpolate', ['linear'], ['get', propName]];
+  stops.forEach(s => { expr.push(s.value, s.color); });
+  return expr;
+}
+
+function renderFcLosLegend() {
+  const el = document.getElementById('fcLosLegend');
+  if (!el) return;
+  const levels = (_fcLOSConfig && _fcLOSConfig.losLevels) || [];
+  el.innerHTML = levels.map(lv => `
+    <span style="display:inline-flex;align-items:center;gap:.3rem">
+      <span style="width:12px;height:12px;border-radius:3px;background:${escHtml(lv.color)};display:inline-block"></span>
+      ${escHtml(lv.label)} (≥${lv.zMinPercent}%)
+    </span>`).join('');
+}
+
+// Called on toggle change and once after the map loads. The route-segment
+// layer has no real JamFactor per leg (see fcRouteJfNote), so when "Jam
+// Factor" is picked it keeps coloring by TTI instead of going blank/wrong.
+function applyFcColorMode(mode) {
+  _fcColorMode = mode;
+  document.getElementById('fcGradientLegend').style.display = mode === 'los' ? 'none' : 'flex';
+  document.getElementById('fcLosLegend').style.display = mode === 'los' ? 'flex' : 'none';
+  document.getElementById('fcRouteJfNote').style.display = mode === 'jf' ? '' : 'none';
+  document.getElementById('fcLegendMinLbl').textContent = mode === 'tti' ? 'TTI 1.0' : '0';
+  document.getElementById('fcLegendMaxLbl').textContent = mode === 'tti' ? 'TTI ≥2.0' : '10';
+
+  if (!_fcMapInited) return;
+  const ambientExpr = mode === 'los' ? ['get', 'losColor']
+    : mode === 'tti' ? fcColorExpressionFor('ttiJfEquiv')
+    : jfColorExpression();
+  _fcMap.setPaintProperty('fc-lines-line', 'line-color', ambientExpr);
+
+  const routeExpr = mode === 'los' ? ['get', 'losColor'] : jfColorExpression(); // route 'jf' prop is already TTI-derived
+  _fcMap.setPaintProperty('fc-routes-line', 'line-color', routeExpr);
+}
+
 // ── Live view: every region's own latest capture, combined ───────────────
 // No region/scan picker — regions are purely a bbox-scanning control (how
 // the admin splits the area VietMap is queried for), not something
 // meaningful to filter this map by. loadFcLatest() always shows whatever
 // is newest right now; calling it again (poll or "Làm mới") simply
 // replaces the map/stats with whatever is newest at that moment.
-function renderFcStats(latest) {
+function renderFcStats(latest, routes) {
   const el = document.getElementById('fcStatStrip');
   const asOf = document.getElementById('fcAsOf');
   const regions = (latest && latest.regions) || [];
@@ -205,15 +269,13 @@ function renderFcStats(latest) {
     { lbl: 'Số tuyến (results)', val: results.length, color: '#38bdf8' },
     { lbl: 'Số đoạn con (subSegments)', val: subCount, color: '#a78bfa' },
     { lbl: 'JamFactor TB', val: avgJf.toFixed(1), color: jfToColor(avgJf) },
+    { lbl: 'Tuyến TTI đang theo dõi', val: (routes || []).length + ' tuyến', color: '#34d399' },
   ];
-  const regionList = regions.map(r =>
-    `<span style="margin-right:1rem">${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}</span>`).join('');
   el.innerHTML = tiles.map(x => `
     <div class="fc-stat-tile" style="--fc-stat-c:${x.color}">
       <div class="fc-stat-lbl">${x.lbl}</div>
       <div class="fc-stat-val">${x.val}</div>
-    </div>`).join('') +
-    `<div style="flex-basis:100%;font-size:.72rem;color:var(--text-muted);margin-top:.3rem">${regionList}</div>`;
+    </div>`).join('');
 }
 
 // ── Geometry → GeoJSON lines (split at subSegment boundaries) ────────────
@@ -279,6 +341,9 @@ function buildFcGeoJSON(geo) {
           jf: r.jamFactor, subLabel: 'cả tuyến',
           lengthM: r.lengthM, speedKmh: r.speedKmh, freeFlowKmh: r.freeFlowKmh,
           confidence: r.confidence, functionalClass, resultIndex: ri,
+          ttiFused: r.ttiFused, ttiJfEquiv: ttiToJfEquivalent(r.ttiFused),
+          z: r.z, zPercent: r.zPercent, losLabel: r.losLabel, losColor: r.losColor,
+          anomaly: r.anomaly, bottleneck: r.bottleneck,
         },
       });
       return;
@@ -296,6 +361,9 @@ function buildFcGeoJSON(geo) {
           jf: ss.jamFactor, subLabel: 'đoạn ' + (si + 1),
           lengthM: ss.lengthM, speedKmh: ss.speedKmh, freeFlowKmh: ss.freeFlowKmh,
           confidence: ss.confidence, functionalClass, resultIndex: ri,
+          ttiFused: ss.ttiFused, ttiJfEquiv: ttiToJfEquivalent(ss.ttiFused),
+          z: ss.z, zPercent: ss.zPercent, losLabel: ss.losLabel, losColor: ss.losColor,
+          anomaly: ss.anomaly, bottleneck: r.bottleneck,
         },
       });
     });
@@ -308,6 +376,9 @@ function buildFcGeoJSON(geo) {
 // segment number) + length is enough to tell pieces of the same road apart
 // without claiming an unreliable name is correct.
 function fcLinePopupHtml(p) {
+  const flags = [];
+  if (p.anomaly) flags.push('⚠ JF và TTI không nhất quán (có thể số liệu nhiễu)');
+  if (p.bottleneck) flags.push('⚠ Nghi ngờ nghẽn đầu nút (JF lệch nhiều giữa các đoạn con)');
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:170px;color:#1a1a1a">
     <div style="font-size:.92rem;font-weight:700">${escHtml(p.subLabel)}</div>
     <div style="color:#333;font-size:.78rem">${p.lengthM.toFixed(0)} m</div>
@@ -316,22 +387,134 @@ function fcLinePopupHtml(p) {
       <b>Tốc độ:</b> ${p.speedKmh.toFixed(1)} km/h<br>
       <b>Thông thoáng:</b> ${p.freeFlowKmh.toFixed(1)} km/h<br>
       <b>Độ tin cậy:</b> ${(p.confidence * 100).toFixed(0)}%<br>
-      ${p.functionalClass != null ? `<b>Loại đường:</b> ${p.functionalClass}` : ''}
+      ${p.functionalClass != null ? `<b>Loại đường:</b> ${p.functionalClass}<br>` : ''}
+      <b>TTI (hợp nhất):</b> ${(p.ttiFused || 0).toFixed(2)}<br>
+      <b>Z (% thông hành):</b> <span style="color:${escHtml(p.losColor || '#999')}">${(p.zPercent || 0).toFixed(0)}% — LOS ${escHtml(p.losLabel || '—')}</span>
     </div>
+    ${flags.length ? `<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">${flags.map(escHtml).join('<br>')}</div>` : ''}
+  </div>`;
+}
+
+// ── Route-segment TTI layer ("Phương án B") → GeoJSON ─────────────────────
+// A leg's own TTI (collected via traffic.genfast.vn/api/routing, see
+// internal/traveltime/collector.go's RouteLegStat) carries only its 2
+// endpoints, not the road geometry between them. Real road-following
+// geometry comes from a separate, already-existing endpoint:
+// /api/vietmap/route (internal/traveltime/vietmap_proxy.go), a thin proxy
+// onto VietMap's commercial Route v3 API — the same one admin.html's own
+// "Tổng quan tuyến" map already uses (ttFetchRouteGeom there) to draw
+// routes following real streets instead of straight lines. Fetched once
+// per LEG (not once per whole multi-leg route, like admin.html does) so
+// each leg keeps its own TTI color instead of one color spanning several
+// legs. Cached by endpoint pair for the page's lifetime — a leg's road
+// geometry never changes between polls, only a route edit (which changes
+// its endpoints, and so its cache key) invalidates the entry.
+const TTI_JF_REFERENCE_MAX = 2.0;
+function ttiToJfEquivalent(tti) {
+  if (tti == null || tti <= 1) return 0;
+  return Math.max(0, Math.min(10, (tti - 1) / (TTI_JF_REFERENCE_MAX - 1) * 10));
+}
+
+const _fcLegGeomCache = {};
+function fcLegGeomKey(seg) {
+  return `${seg.fromLat},${seg.fromLng}|${seg.toLat},${seg.toLng}`;
+}
+
+async function fcFetchLegGeom(seg) {
+  const params = new URLSearchParams();
+  params.append('point', `${seg.fromLat},${seg.fromLng}`);
+  params.append('point', `${seg.toLat},${seg.toLng}`);
+  params.set('vehicle', 'car');
+  const data = await apiFetch('/api/vietmap/route?' + params.toString());
+  if (data?.error || !data?.paths?.length) throw new Error('no route');
+  const coords = data.paths[0].points?.coordinates ?? data.paths[0].points;
+  if (!coords || coords.length < 2) throw new Error('bad geometry');
+  return coords;
+}
+
+// Runs `fn` over `items` with at most `limit` in flight at once — same
+// pattern as admin.html's ttMapWithConcurrency, so a page with many tracked
+// legs doesn't fire dozens of concurrent VietMap API calls at once.
+async function fcWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 1 }, worker));
+  return results;
+}
+
+async function buildRouteSegmentsGeoJSON(routes) {
+  const entries = [];
+  (routes || []).forEach(rt => {
+    (rt.segments || []).forEach(seg => entries.push({ rt, seg }));
+  });
+
+  await fcWithConcurrency(entries, 4, async ({ seg }) => {
+    const key = fcLegGeomKey(seg);
+    if (_fcLegGeomCache[key] === undefined) {
+      _fcLegGeomCache[key] = await fcFetchLegGeom(seg).catch(() => 'error');
+    }
+  });
+
+  const features = entries.map(({ rt, seg }) => {
+    const geom = _fcLegGeomCache[fcLegGeomKey(seg)];
+    const geomOk = geom && geom !== 'error';
+    // Falls back to a straight line only when the road couldn't be dòed —
+    // still shows the leg (with its real TTI/color) instead of silently
+    // dropping it, but flags it so the popup can say so.
+    const coords = geomOk ? geom : [[seg.fromLng, seg.fromLat], [seg.toLng, seg.toLat]];
+    return {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: coords },
+      properties: {
+        jf: ttiToJfEquivalent(seg.tti), routeName: rt.routeName, legIndex: seg.legIndex,
+        lengthM: seg.lengthM, tti: seg.tti, durationSec: seg.durationSec,
+        baseSec: seg.baseSec, delaySec: seg.delaySec, geomApprox: !geomOk,
+        z: seg.z, zPercent: seg.zPercent, losLabel: seg.losLabel, losColor: seg.losColor,
+      },
+    };
+  });
+  return { type: 'FeatureCollection', features };
+}
+
+function fcRoutePopupHtml(p) {
+  const speedKmh = p.durationSec > 0 ? (p.lengthM / 1000) / (p.durationSec / 3600) : 0;
+  return `<div style="font-family:sans-serif;line-height:1.6;min-width:180px;color:#1a1a1a">
+    <div style="font-size:.92rem;font-weight:700">${escHtml(p.routeName)}</div>
+    <div style="color:#333;font-size:.78rem">Đoạn ${p.legIndex + 1} · ${p.lengthM.toFixed(0)} m</div>
+    <div style="margin-top:.3rem;font-size:.8rem">
+      <b>TTI:</b> ${p.tti.toFixed(2)}<br>
+      <b>Tốc độ:</b> ${speedKmh.toFixed(1)} km/h<br>
+      <b>Thời gian đi:</b> ${(p.durationSec / 60).toFixed(1)} phút (nền: ${(p.baseSec / 60).toFixed(1)} phút)<br>
+      <b>Trễ do kẹt xe:</b> ${(p.delaySec / 60).toFixed(1)} phút<br>
+      <b>Z (% thông hành):</b> <span style="color:${escHtml(p.losColor || '#999')}">${(p.zPercent || 0).toFixed(0)}% — LOS ${escHtml(p.losLabel || '—')}</span>
+    </div>
+    ${p.geomApprox ? '<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">⚠ Không dò được tuyến đường thực tế cho đoạn này — tạm hiển thị bằng đường thẳng nối 2 điểm.</div>' : ''}
   </div>`;
 }
 
 async function loadFcLatest() {
   try {
-    const latest = await apiFetch('/api/flowcapture/latest');
-    renderFcStats(latest);
+    const [latest, routes] = await Promise.all([
+      apiFetch('/api/flowcapture/latest'),
+      apiFetch('/api/flowcapture/routes').catch(() => []),
+    ]);
+    renderFcStats(latest, routes);
     const data = buildFcGeoJSON(latest);
+    const routeData = await buildRouteSegmentsGeoJSON(routes);
     if (_fcMapInited && _fcMap.getSource('fc-lines')) {
       const firstLoad = !_fcHasFitOnce;
       _fcMap.getSource('fc-lines').setData(data);
-      if (firstLoad) { fitFcBounds(data); _fcHasFitOnce = true; }
+      _fcMap.getSource('fc-routes').setData(routeData);
+      if (firstLoad) { fitFcBounds(data, routeData); _fcHasFitOnce = true; }
     } else {
       _pendingFcData = data;
+      _pendingFcRouteData = routeData;
     }
   } catch (e) {
     toast('Không tải được dữ liệu bản đồ: ' + e.message, 'error');
@@ -340,11 +523,14 @@ async function loadFcLatest() {
 let _fcHasFitOnce = false;
 
 let _pendingFcData = null;
+let _pendingFcRouteData = null;
 
-function fitFcBounds(data) {
-  if (!_fcMapInited || !data.features.length) return;
+function fitFcBounds(data, routeData) {
+  if (!_fcMapInited) return;
+  const allFeatures = (data.features || []).concat((routeData && routeData.features) || []);
+  if (!allFeatures.length) return;
   let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
-  data.features.forEach(f => f.geometry.coordinates.forEach(([lng, lat]) => {
+  allFeatures.forEach(f => f.geometry.coordinates.forEach(([lng, lat]) => {
     if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
     if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   }));
@@ -355,7 +541,7 @@ function fitFcBounds(data) {
 
 async function initFcMap() {
   try {
-    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops()]);
+    const [settings] = await Promise.all([apiFetch('/api/settings'), loadJamColorStops(), loadLOSMetricsConfig()]);
     renderFcLegend();
     const apiKey = (settings || {}).vietmap_api_key || '';
     const el = document.getElementById('fcMap');
@@ -377,7 +563,39 @@ async function initFcMap() {
       });
       _fcMap.on('mouseenter', 'fc-lines-line', () => _fcMap.getCanvas().style.cursor = 'pointer');
       _fcMap.on('mouseleave', 'fc-lines-line', () => _fcMap.getCanvas().style.cursor = '');
-      if (_pendingFcData) { fitFcBounds(_pendingFcData); _pendingFcData = null; }
+
+      const routesVisible = document.getElementById('fcLayerRoutes').checked ? 'visible' : 'none';
+      _fcMap.addSource('fc-routes', { type: 'geojson', data: _pendingFcRouteData || { type: 'FeatureCollection', features: [] } });
+      // A tracked route very often runs along a road the ambient flow-capture
+      // layer (fc-lines-line, width 4) already scanned — without any outline,
+      // a thin same-family-colored line on top of it can disappear entirely
+      // into the wider one underneath. A slim white halo (not the old thick
+      // black casing) keeps it readable without bringing that heavy border
+      // look back.
+      _fcMap.addLayer({
+        id: 'fc-routes-halo', type: 'line', source: 'fc-routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
+        paint: { 'line-color': '#ffffff', 'line-width': 4.5, 'line-opacity': .85 },
+      });
+      _fcMap.addLayer({
+        id: 'fc-routes-line', type: 'line', source: 'fc-routes',
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
+        paint: { 'line-color': jfColorExpression(), 'line-width': 2.5, 'line-opacity': 1 },
+      });
+      _fcMap.on('click', 'fc-routes-line', e => {
+        const p = e.features[0].properties;
+        new vietmapgl.Popup({ closeButton: false, maxWidth: '260px' })
+          .setLngLat(e.lngLat).setHTML(fcRoutePopupHtml(p)).addTo(_fcMap);
+      });
+      _fcMap.on('mouseenter', 'fc-routes-line', () => _fcMap.getCanvas().style.cursor = 'pointer');
+      _fcMap.on('mouseleave', 'fc-routes-line', () => _fcMap.getCanvas().style.cursor = '');
+
+      if (_pendingFcData || _pendingFcRouteData) {
+        fitFcBounds(_pendingFcData || { type: 'FeatureCollection', features: [] }, _pendingFcRouteData);
+        _pendingFcData = null;
+        _pendingFcRouteData = null;
+      }
+      applyFcColorMode(_fcColorMode);
     });
   } catch (e) {
     document.getElementById('fcMap').innerHTML = `<div class="fc-empty">Lỗi bản đồ: ${escHtml(e.message)}</div>`;
@@ -385,6 +603,13 @@ async function initFcMap() {
 }
 
 document.getElementById('btnFcRefresh').addEventListener('click', loadFcLatest);
+document.getElementById('fcColorMode').addEventListener('change', e => applyFcColorMode(e.target.value));
+document.getElementById('fcLayerRoutes').addEventListener('change', e => {
+  if (!_fcMapInited) return;
+  const vis = e.target.checked ? 'visible' : 'none';
+  _fcMap.setLayoutProperty('fc-routes-halo', 'visibility', vis);
+  _fcMap.setLayoutProperty('fc-routes-line', 'visibility', vis);
+});
 
 (async () => {
   await initApp('flowcapture');

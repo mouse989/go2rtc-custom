@@ -131,11 +131,17 @@ func runOnce() {
 	errors := 0
 
 	for _, r := range routes {
-		stats, err := getRouteStats(ctx, client, apiKey, r)
+		stats, legs, err := getRouteStats(ctx, client, apiKey, r)
 		if err != nil {
 			errors++
 			log.Error().Err(err).Str("route", r.Name).Msg("[traveltime] collect failed")
 			continue
+		}
+		// Per-leg capture (www/flowcapture.html's "tuyến TTI đang theo dõi"
+		// layer) — a separate store from the aggregate log below, so a
+		// failure here never drops the route's own TTI entry.
+		if serr := recordRouteSegments(r.ID, r.Name, runStart, legs); serr != nil {
+			log.Warn().Err(serr).Str("route", r.Name).Msg("[traveltime] segment capture save failed")
 		}
 		wp := r.Waypoints
 		if wp == "" {
