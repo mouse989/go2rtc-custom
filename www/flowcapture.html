@@ -210,15 +210,52 @@ function fcColorExpressionFor(propName) {
   return expr;
 }
 
+// fcLosLevelPercentRange — one LOS band's own %-of-free-flow-speed range
+// (lower TTI = higher % = better, so a band's "better" edge, towards the
+// LOS above it, is 100/its own ttiMin; its "worse" edge, towards the LOS
+// below, is 100/the next band's ttiMin — 0 for the worst band, which has
+// none). sortedLevels must already be ascending by ttiMin.
+function fcLosLevelPercentRange(sortedLevels, idx) {
+  if (idx < 0 || idx >= sortedLevels.length) return null;
+  const pctBetter = 100 / sortedLevels[idx].ttiMin;
+  const pctWorse = (idx + 1 < sortedLevels.length) ? 100 / sortedLevels[idx + 1].ttiMin : 0;
+  return { pctWorse, pctBetter };
+}
+
+function fcSortedLosLevels() {
+  const levels = (_fcLOSConfig && _fcLOSConfig.losLevels) || [];
+  return levels.slice().sort((a, b) => a.ttiMin - b.ttiMin);
+}
+
+// fcSpeedPercentInfo — the numeric basis behind a LOS letter: % of
+// free-flow speed still being achieved (= 100/TTI, the same variable
+// HCM's own Exhibit 15-2 classifies LOS on) plus the current band's own
+// %-range, so a reading can be read as "near the top/bottom of its LOS
+// band" instead of just the bare letter.
+function fcSpeedPercentInfo(tti, losLabel) {
+  const pct = tti > 0 ? 100 / tti : 0;
+  const sorted = fcSortedLosLevels();
+  const idx = sorted.findIndex(lv => lv.label === losLabel);
+  const range = fcLosLevelPercentRange(sorted, idx);
+  return {
+    pct,
+    rangeLabel: range ? `dải ${losLabel}: ${range.pctWorse.toFixed(0)}–${range.pctBetter.toFixed(0)}%` : '',
+  };
+}
+
 function renderFcLosLegend() {
   const el = document.getElementById('fcLosLegend');
   if (!el) return;
-  const levels = (_fcLOSConfig && _fcLOSConfig.losLevels) || [];
-  el.innerHTML = levels.map(lv => `
-    <span style="display:inline-flex;align-items:center;gap:.3rem">
+  const sorted = fcSortedLosLevels();
+  el.innerHTML = sorted.map((lv, i) => {
+    const range = fcLosLevelPercentRange(sorted, i);
+    const pctText = range ? `${range.pctWorse.toFixed(0)}–${range.pctBetter.toFixed(0)}%` : '';
+    return `
+    <span style="display:inline-flex;align-items:center;gap:.3rem" title="% tốc độ còn lại so với thông thoáng">
       <span style="width:12px;height:12px;border-radius:3px;background:${escHtml(lv.color)};display:inline-block"></span>
-      ${escHtml(lv.label)} (TTI≥${lv.ttiMin})
-    </span>`).join('');
+      ${escHtml(lv.label)} (TTI≥${lv.ttiMin}${pctText ? `, ${pctText}` : ''})
+    </span>`;
+  }).join('');
 }
 
 // Called on toggle change and once after the map loads. The route-segment
@@ -379,6 +416,7 @@ function fcLinePopupHtml(p) {
   const flags = [];
   if (p.anomaly) flags.push('⚠ JF và TTI không nhất quán (có thể số liệu nhiễu)');
   if (p.bottleneck) flags.push('⚠ Nghi ngờ nghẽn đầu nút (JF lệch nhiều giữa các đoạn con)');
+  const sp = fcSpeedPercentInfo(p.ttiFused, p.losLabel);
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:170px;color:#1a1a1a">
     <div style="font-size:.92rem;font-weight:700">${escHtml(p.subLabel)}</div>
     <div style="color:#333;font-size:.78rem">${p.lengthM.toFixed(0)} m</div>
@@ -390,6 +428,7 @@ function fcLinePopupHtml(p) {
       ${p.functionalClass != null ? `<b>Loại đường:</b> ${p.functionalClass}<br>` : ''}
       <b>TTI (hợp nhất):</b> ${(p.ttiFused || 0).toFixed(2)}<br>
       <b>LOS:</b> <span style="color:${escHtml(p.losColor || '#999')}">${escHtml(p.losLabel || '—')}</span>
+      — ${sp.pct.toFixed(0)}% tốc độ thông thoáng${sp.rangeLabel ? ` (${escHtml(sp.rangeLabel)})` : ''}
     </div>
     ${flags.length ? `<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">${flags.map(escHtml).join('<br>')}</div>` : ''}
   </div>`;
@@ -484,6 +523,7 @@ async function buildRouteSegmentsGeoJSON(routes) {
 
 function fcRoutePopupHtml(p) {
   const speedKmh = p.durationSec > 0 ? (p.lengthM / 1000) / (p.durationSec / 3600) : 0;
+  const sp = fcSpeedPercentInfo(p.tti, p.losLabel);
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:180px;color:#1a1a1a">
     <div style="font-size:.92rem;font-weight:700">${escHtml(p.routeName)}</div>
     <div style="color:#333;font-size:.78rem">Đoạn ${p.legIndex + 1} · ${p.lengthM.toFixed(0)} m</div>
@@ -493,6 +533,7 @@ function fcRoutePopupHtml(p) {
       <b>Thời gian đi:</b> ${(p.durationSec / 60).toFixed(1)} phút (nền: ${(p.baseSec / 60).toFixed(1)} phút)<br>
       <b>Trễ do kẹt xe:</b> ${(p.delaySec / 60).toFixed(1)} phút<br>
       <b>LOS:</b> <span style="color:${escHtml(p.losColor || '#999')}">${escHtml(p.losLabel || '—')}</span>
+      — ${sp.pct.toFixed(0)}% tốc độ thông thoáng${sp.rangeLabel ? ` (${escHtml(sp.rangeLabel)})` : ''}
     </div>
     ${p.geomApprox ? '<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">⚠ Không dò được tuyến đường thực tế cho đoạn này — tạm hiển thị bằng đường thẳng nối 2 điểm.</div>' : ''}
   </div>`;

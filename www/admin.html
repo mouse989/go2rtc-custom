@@ -2954,6 +2954,15 @@ function renderLOSConstantInputs(c) {
   document.getElementById('losAnomalyInput').value = c.anomalyJFDelta;
 }
 
+// ttiToPctLabel — the % of free-flow speed a TTI value corresponds to
+// (= 100/TTI, the same variable HCM's own Exhibit 15-2 classifies LOS
+// on), shown next to each TTI input purely as a reference for the admin —
+// not a separately editable/stored field.
+function ttiToPctLabel(tti) {
+  const t = parseFloat(tti);
+  return (t > 0) ? '≈' + (100 / t).toFixed(0) + '%' : '';
+}
+
 function renderLOSRows() {
   const box = document.getElementById('losLevelRows');
   box.innerHTML = (_losConfig.losLevels || []).map((lv, i) => `
@@ -2962,6 +2971,7 @@ function renderLOSRows() {
       <input type="number" min="0" step="0.01" value="${lv.ttiMin}"
              oninput="updateLOSRow(${i}, 'ttiMin', this.value)" title="TTI tối thiểu"
              style="width:68px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+      <span id="losPctHint${i}" title="% tốc độ còn lại so với thông thoáng, tương đương TTI này" style="font-size:.72rem;color:var(--text-muted);width:42px">${ttiToPctLabel(lv.ttiMin)}</span>
       <input type="color" value="${esc(lv.color)}" oninput="updateLOSRow(${i}, 'color', this.value)"
              style="width:38px;height:30px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer">
       <input type="text" value="${esc(lv.action)}" oninput="updateLOSRow(${i}, 'action', this.value)" placeholder="Hành động gợi ý"
@@ -2971,6 +2981,10 @@ function renderLOSRows() {
 function updateLOSRow(i, field, value) {
   _losConfig.losLevels[i][field] = field === 'ttiMin' ? (parseFloat(value) || 0) : value;
   if (field === 'color') renderLOSRows();
+  if (field === 'ttiMin') {
+    const hint = document.getElementById('losPctHint' + i);
+    if (hint) hint.textContent = ttiToPctLabel(value);
+  }
 }
 async function loadLOSConfig() {
   try {
