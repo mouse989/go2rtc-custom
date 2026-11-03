@@ -517,6 +517,62 @@ tr:hover td { background:var(--surface2); }
         </div>
       </div>
 
+      <div class="card" style="max-width:560px;margin-top:1rem">
+        <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
+          <h3 style="font-size:.95rem;font-weight:700">🚦 Hệ số thông hành (Z) &amp; Mức phục vụ (LOS)</h3>
+        </div>
+        <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.9rem">
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0">
+            Hằng số hiệu chuẩn suy diễn hệ số sử dụng khả năng thông hành Z (TCVN) từ TTI/JamFactor, và 6 mức phục
+            vụ LOS (A–F) phân theo % của Z. Dùng ở Flow Capture (tô màu theo LOS) và các trang tổng hợp báo cáo.
+          </p>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem">
+            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+              Alpha (α)
+              <input type="number" id="losAlphaInput" step="0.01" min="0.01"
+                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
+            </label>
+            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+              Beta (β)
+              <input type="number" id="losBetaInput" step="0.01" min="0.01"
+                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
+            </label>
+            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+              Trọng số TTI thô (w1)
+              <input type="number" id="losW1Input" step="0.01" min="0"
+                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
+            </label>
+            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+              Trọng số TTI từ JF (w2)
+              <input type="number" id="losW2Input" step="0.01" min="0"
+                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
+            </label>
+            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+              Ngưỡng nghẽn đầu nút (ΔJF)
+              <input type="number" id="losBottleneckInput" step="0.1" min="0"
+                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
+            </label>
+            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
+              Ngưỡng bất thường (ΔJF)
+              <input type="number" id="losAnomalyInput" step="0.1" min="0"
+                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
+            </label>
+          </div>
+
+          <div>
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:.4rem">6 mức LOS (A–F) — Z tối thiểu (%), màu, hành động gợi ý</div>
+            <div id="losLevelRows" style="display:flex;flex-direction:column;gap:.4rem"></div>
+          </div>
+
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="saveLOSConfig()">💾 Lưu cấu hình Z/LOS</button>
+            <button class="btn btn-ghost btn-sm" onclick="resetLOSConfig()">↺ Khôi phục mặc định</button>
+            <span id="losSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Đã lưu</span>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="max-width:520px;margin-top:1rem">
         <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
           <h3 style="font-size:.95rem;font-weight:700">🔒 RTSP Server Security</h3>
@@ -2731,6 +2787,7 @@ async function loadSettings() {
   loadModules();
   loadAIClassColors();
   loadJfColorStops();
+  loadLOSConfig();
 }
 
 // ── AI Analyze detection marker colors (per class) ──
@@ -2858,6 +2915,92 @@ async function saveJfColorStops() {
     setTimeout(() => { msg.style.display = 'none'; }, 2500);
   } catch (e) {
     alert('Lưu thang màu thất bại: ' + e.message);
+  }
+}
+
+// ── Z (hệ số thông hành) / LOS (mức phục vụ) calibration — admin-edited
+// constants read from GET/PUT /api/trafficmetrics/config (internal/
+// trafficmetrics, SPEC-ITS-TRAFFIC-ANALYSIS-01). Mirrors the JF color
+// scale editor's own pattern above, just with a fixed 6-row (A–F) table
+// instead of an addable/removable stop list — the spec defines exactly
+// 6 LOS levels, so rows are edited in place, never added/removed.
+const LOS_DEFAULT_CONFIG = {
+  alpha: 0.50, beta: 2.20, fusionWeightTTI: 0.65, fusionWeightJF: 0.35,
+  bottleneckJFSpread: 3.0, anomalyJFDelta: 2.5,
+  losLevels: [
+    { label: 'A', zMinPercent: 0,   color: '#00E676', action: 'Duy trì điều khiển thông thường; giữ chu kỳ đèn tối ưu, duy trì làn sóng xanh' },
+    { label: 'B', zMinPercent: 25,  color: '#64DD17', action: 'Giám sát định kỳ; chuẩn bị kịch bản cao điểm' },
+    { label: 'C', zMinPercent: 45,  color: '#8BC34A', action: 'Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm' },
+    { label: 'D', zMinPercent: 75,  color: '#FFC107', action: 'Tăng nhẹ pha xanh trục chính; cảnh báo vận tốc chậm trên VMS' },
+    { label: 'E', zMinPercent: 90,  color: '#FF9800', action: 'Ngưỡng tới hạn! Kích hoạt thuật toán thích ứng (Adaptive Green); khuyến cáo lộ trình phụ' },
+    { label: 'F', zMinPercent: 105, color: '#D50000', action: 'Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)' },
+  ],
+};
+let _losConfig = null;
+
+function renderLOSConstantInputs(c) {
+  document.getElementById('losAlphaInput').value = c.alpha;
+  document.getElementById('losBetaInput').value = c.beta;
+  document.getElementById('losW1Input').value = c.fusionWeightTTI;
+  document.getElementById('losW2Input').value = c.fusionWeightJF;
+  document.getElementById('losBottleneckInput').value = c.bottleneckJFSpread;
+  document.getElementById('losAnomalyInput').value = c.anomalyJFDelta;
+}
+
+function renderLOSRows() {
+  const box = document.getElementById('losLevelRows');
+  box.innerHTML = (_losConfig.losLevels || []).map((lv, i) => `
+    <div style="display:flex;align-items:center;gap:.5rem">
+      <span style="width:18px;font-weight:700;font-size:.82rem;color:${esc(lv.color)}">${esc(lv.label)}</span>
+      <input type="number" min="0" step="1" value="${lv.zMinPercent}"
+             oninput="updateLOSRow(${i}, 'zMinPercent', this.value)" title="Z tối thiểu (%)"
+             style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+      <span style="font-size:.72rem;color:var(--text-muted)">%</span>
+      <input type="color" value="${esc(lv.color)}" oninput="updateLOSRow(${i}, 'color', this.value)"
+             style="width:38px;height:30px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer">
+      <input type="text" value="${esc(lv.action)}" oninput="updateLOSRow(${i}, 'action', this.value)" placeholder="Hành động gợi ý"
+             style="flex:1;min-width:120px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;color:var(--text);font-size:.78rem;box-sizing:border-box">
+    </div>`).join('');
+}
+function updateLOSRow(i, field, value) {
+  _losConfig.losLevels[i][field] = field === 'zMinPercent' ? (parseFloat(value) || 0) : value;
+  if (field === 'color') renderLOSRows();
+}
+async function loadLOSConfig() {
+  try {
+    const data = await apiFetch('/api/trafficmetrics/config');
+    _losConfig = data && data.losLevels && data.losLevels.length ? data : JSON.parse(JSON.stringify(LOS_DEFAULT_CONFIG));
+  } catch (e) {
+    _losConfig = JSON.parse(JSON.stringify(LOS_DEFAULT_CONFIG));
+  }
+  renderLOSConstantInputs(_losConfig);
+  renderLOSRows();
+}
+function resetLOSConfig() {
+  _losConfig = JSON.parse(JSON.stringify(LOS_DEFAULT_CONFIG));
+  renderLOSConstantInputs(_losConfig);
+  renderLOSRows();
+}
+async function saveLOSConfig() {
+  const c = {
+    alpha: parseFloat(document.getElementById('losAlphaInput').value) || 0,
+    beta: parseFloat(document.getElementById('losBetaInput').value) || 0,
+    fusionWeightTTI: parseFloat(document.getElementById('losW1Input').value) || 0,
+    fusionWeightJF: parseFloat(document.getElementById('losW2Input').value) || 0,
+    bottleneckJFSpread: parseFloat(document.getElementById('losBottleneckInput').value) || 0,
+    anomalyJFDelta: parseFloat(document.getElementById('losAnomalyInput').value) || 0,
+    losLevels: _losConfig.losLevels,
+  };
+  try {
+    const saved = await apiFetch('/api/trafficmetrics/config', { method: 'PUT', body: c });
+    _losConfig = saved;
+    renderLOSConstantInputs(_losConfig);
+    renderLOSRows();
+    const msg = document.getElementById('losSaveMsg');
+    msg.style.display = '';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  } catch (e) {
+    alert('Lưu cấu hình Z/LOS thất bại: ' + e.message);
   }
 }
 
