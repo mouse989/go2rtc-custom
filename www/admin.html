@@ -6194,6 +6194,17 @@ function renderTTRoutes() {
     return;
   }
   const tagOrDash = v => v ? esc(v) : '<em style="opacity:.5">—</em>';
+  // Shows only the first 2 waypoints + a "(+N)" count instead of the full
+  // pipe-separated list — a route with several midpoints (right-click "Thêm
+  // Điểm giữa" repeatedly) used to force this whole table into horizontal
+  // scroll. Full list is still in the title tooltip, and unchanged in the
+  // CSV export (exportTTLogsCSV below) and the edit form itself.
+  const wpSummary = wp => {
+    if (!wp) return '<em style="opacity:.5">—</em>';
+    const pts = wp.split('|').filter(Boolean);
+    const shown = pts.slice(0, 2).join(' | ') + (pts.length > 2 ? ` … (+${pts.length - 2})` : '');
+    return `<span title="${esc(wp)}">${esc(shown)}</span>`;
+  };
   tbody.innerHTML = _ttRoutes.map((r, i) => `<tr onmouseenter="ttOverviewSetHover('${esc(r.id)}')" onmouseleave="ttOverviewSetHover(null)">
     <td style="color:var(--text-muted)">${i+1}</td>
     <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${ttOverviewColor(i)};margin-right:.45rem;vertical-align:middle"></span><strong>${esc(r.name)}</strong></td>
@@ -6201,7 +6212,7 @@ function renderTTRoutes() {
     <td style="font-size:.77rem;color:var(--text-muted)">${tagOrDash(r.roadType)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.origin)}</td>
     <td style="font-size:.77rem;color:var(--text-muted)">${esc(r.destination)}</td>
-    <td style="font-size:.77rem;color:var(--text-muted)">${r.waypoints ? esc(r.waypoints) : '<em style="opacity:.5">—</em>'}</td>
+    <td style="font-size:.77rem;color:var(--text-muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${wpSummary(r.waypoints)}</td>
     <td style="text-align:right;white-space:nowrap">
       <button class="btn btn-secondary btn-sm" style="margin-right:.3rem" onclick="openTTRoute('${esc(r.id)}')">Sửa</button>
       <button class="btn btn-secondary btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteTTRoute('${esc(r.id)}')">Xóa</button>
