@@ -527,6 +527,23 @@ tr:hover td { background:var(--surface2); }
             vụ LOS (A–F) phân theo % của Z. Dùng ở Flow Capture (tô màu theo LOS) và các trang tổng hợp báo cáo.
           </p>
 
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.7rem .9rem;font-size:.74rem;line-height:1.7;color:var(--text-muted)">
+            <div style="font-weight:700;color:var(--text);margin-bottom:.3rem">📐 Công thức đang dùng</div>
+            <div><b>Dữ liệu quét (Flow Capture)</b> — có sẵn speed, freeFlow, JamFactor:</div>
+            <code style="display:block;white-space:pre-wrap;word-break:break-word">1) TTI_tốc_độ  = freeFlow / speed
+2) TTI_từ_JF   = 1 / (1 − (JamFactor/10)²)
+3) TTI_hợp_nhất = w1 × TTI_tốc_độ + w2 × TTI_từ_JF
+4) Z           = ((TTI_hợp_nhất − 1) / α) ^ (1/β)
+5) Z%          = Z × 100
+6) LOS         = mức A–F có "Z tối thiểu (%)" lớn nhất mà vẫn ≤ Z% (bảng dưới)</code>
+            <div style="margin-top:.5rem"><b>Tuyến TTI giám sát (Travel Time)</b> — không có JamFactor riêng từng đoạn:</div>
+            <code style="display:block;white-space:pre-wrap;word-break:break-word">Z = ((TTI − 1) / α) ^ (1/β)   (bỏ qua bước TTI_từ_JF/hợp_nhất ở trên, dùng thẳng TTI đo được)
+Z%, LOS tính như bước 5–6 ở trên</code>
+            <div style="margin-top:.5rem"><b>2 cờ cảnh báo riêng</b> (chỉ tính được cho dữ liệu quét, không áp dụng cho tuyến TTI):</div>
+            <code style="display:block;white-space:pre-wrap;word-break:break-word">Bất thường   = |JamFactor thực tế − JamFactor suy từ TTI_tốc_độ| > "Ngưỡng bất thường"
+Nghẽn đầu nút = (JF lớn nhất − JF nhỏ nhất giữa các đoạn con) ≥ "Ngưỡng nghẽn đầu nút"</code>
+          </div>
+
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem">
             <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
               Alpha (α)
@@ -2929,11 +2946,11 @@ const LOS_DEFAULT_CONFIG = {
   bottleneckJFSpread: 3.0, anomalyJFDelta: 2.5,
   losLevels: [
     { label: 'A', zMinPercent: 0,   color: '#00E676', action: 'Duy trì điều khiển thông thường; giữ chu kỳ đèn tối ưu, duy trì làn sóng xanh' },
-    { label: 'B', zMinPercent: 25,  color: '#64DD17', action: 'Giám sát định kỳ; chuẩn bị kịch bản cao điểm' },
-    { label: 'C', zMinPercent: 45,  color: '#8BC34A', action: 'Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm' },
+    { label: 'B', zMinPercent: 35,  color: '#64DD17', action: 'Giám sát định kỳ; chuẩn bị kịch bản cao điểm' },
+    { label: 'C', zMinPercent: 50,  color: '#8BC34A', action: 'Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm' },
     { label: 'D', zMinPercent: 75,  color: '#FFC107', action: 'Tăng nhẹ pha xanh trục chính; cảnh báo vận tốc chậm trên VMS' },
     { label: 'E', zMinPercent: 90,  color: '#FF9800', action: 'Ngưỡng tới hạn! Kích hoạt thuật toán thích ứng (Adaptive Green); khuyến cáo lộ trình phụ' },
-    { label: 'F', zMinPercent: 105, color: '#D50000', action: 'Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)' },
+    { label: 'F', zMinPercent: 100, color: '#D50000', action: 'Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)' },
   ],
 };
 let _losConfig = null;

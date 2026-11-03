@@ -147,9 +147,9 @@ func TestClassifyLOSBoundaries(t *testing.T) {
 		pct  float64
 		want string
 	}{
-		{0, "A"}, {24.9, "A"}, {25, "B"}, {44.9, "B"}, {45, "C"},
-		{74.9, "C"}, {75, "D"}, {89.9, "D"}, {90, "E"}, {104.9, "E"},
-		{105, "F"}, {500, "F"},
+		{0, "A"}, {34.9, "A"}, {35, "B"}, {49.9, "B"}, {50, "C"},
+		{74.9, "C"}, {75, "D"}, {89.9, "D"}, {90, "E"}, {99.9, "E"},
+		{100, "F"}, {500, "F"},
 	}
 	for _, c := range cases {
 		if got := ClassifyLOS(c.pct, levels).Label; got != c.want {

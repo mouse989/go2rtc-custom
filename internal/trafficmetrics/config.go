@@ -55,11 +55,11 @@ type Config struct {
 func defaultLOSLevels() []LOSLevel {
 	return []LOSLevel{
 		{Label: "A", ZMinPercent: 0, Color: "#00E676", Action: "Duy trì điều khiển thông thường; giữ chu kỳ đèn tối ưu, duy trì làn sóng xanh"},
-		{Label: "B", ZMinPercent: 25, Color: "#64DD17", Action: "Giám sát định kỳ; chuẩn bị kịch bản cao điểm"},
-		{Label: "C", ZMinPercent: 45, Color: "#8BC34A", Action: "Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm"},
+		{Label: "B", ZMinPercent: 35, Color: "#64DD17", Action: "Giám sát định kỳ; chuẩn bị kịch bản cao điểm"},
+		{Label: "C", ZMinPercent: 50, Color: "#8BC34A", Action: "Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm"},
 		{Label: "D", ZMinPercent: 75, Color: "#FFC107", Action: "Tăng nhẹ pha xanh trục chính; cảnh báo vận tốc chậm trên VMS"},
 		{Label: "E", ZMinPercent: 90, Color: "#FF9800", Action: "Ngưỡng tới hạn! Kích hoạt thuật toán thích ứng (Adaptive Green); khuyến cáo lộ trình phụ"},
-		{Label: "F", ZMinPercent: 105, Color: "#D50000", Action: "Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)"},
+		{Label: "F", ZMinPercent: 100, Color: "#D50000", Action: "Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)"},
 	}
 }
 
