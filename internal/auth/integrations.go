@@ -74,28 +74,48 @@ func (s *integrationStore) load() error {
 	}
 	var list []*Integration
 	if err := json.Unmarshal(data, &list); err != nil {
-		// The file exists but isn't valid JSON — almost certainly a
-		// truncated/corrupted write (the old saveLocked() used a plain
-		// os.WriteFile, which is NOT atomic: a crash or kill signal
-		// arriving mid-write leaves a half-written file on disk), not "this
-		// admin genuinely has zero integrations". Falling back to an empty
-		// in-memory store is still the only option (there's nothing else to
-		// load from), but doing that silently — Init() in auth.go treats
-		// this whole store as non-fatal and only logs a Warn — would then
-		// let the very next integration create/edit/delete call saveLocked()
-		// and permanently overwrite s.path with that empty list, destroying
-		// whatever bytes were still sitting there. Preserve the unreadable
-		// original for forensics before that can happen, and log loud
-		// enough that an admin staring at an empty "Tích hợp đẩy dữ liệu"
-		// table has a chance of finding out why.
+		// The file exists but isn't valid JSON — could be a truncated/
+		// corrupted write (the old saveLocked() used a plain os.WriteFile,
+		// which is NOT atomic), or storage-layer corruption outside this
+		// app entirely (observed in practice: a Synology Btrfs volume
+		// returning an all-zero block for a file whose checksum no longer
+		// matches, with no redundant copy to self-heal from — same exact
+		// byte-length as the real file, every byte 0x00). Either way, not
+		// "this admin genuinely has zero integrations". Falling back to an
+		// empty in-memory store is still the only option when nothing else
+		// can be recovered, but doing that silently — Init() in auth.go
+		// treats this whole store as non-fatal and only logs a Warn — would
+		// then let the very next integration create/edit/delete call
+		// saveLocked() and permanently overwrite s.path with that empty
+		// list, destroying whatever bytes were still sitting there.
+		// Preserve the unreadable original for forensics before that can
+		// happen, and log loud enough that an admin staring at an empty
+		// "Tích hợp đẩy dữ liệu" table has a chance of finding out why.
 		backupPath := s.path + ".corrupt-" + time.Now().UTC().Format("20060102T150405Z")
 		if bakErr := os.WriteFile(backupPath, data, 0644); bakErr == nil {
 			log.Error().Err(err).Str("path", s.path).Str("backup", backupPath).
-				Msg("[auth] integrations.json is not valid JSON — starting with an EMPTY integration list; the unreadable original was preserved at the backup path for recovery, but creating/editing/deleting ANY integration now will overwrite integrations.json with that empty list")
+				Msg("[auth] integrations.json is not valid JSON — the unreadable original was preserved at the backup path for recovery")
 		} else {
 			log.Error().Err(err).Str("path", s.path).AnErr("backup_error", bakErr).
-				Msg("[auth] integrations.json is not valid JSON — starting with an EMPTY integration list, AND failed to back up the unreadable original (it will be overwritten on the next integration change)")
+				Msg("[auth] integrations.json is not valid JSON, AND failed to back up the unreadable original (it will be overwritten on the next integration change)")
 		}
+
+		// Before giving up to an empty list, try the rotating known-good
+		// backups saveLocked() keeps on every successful save (see
+		// rotateBackups) — whatever corrupted the live file almost
+		// certainly didn't touch these too, so this recovers every
+		// integration/API key up to the last successful save instead of
+		// forcing them all to be manually recreated.
+		if recovered, recoveredFrom, rerr := s.recoverFromBackupLocked(); rerr == nil {
+			s.integrations = recovered
+			log.Warn().Str("path", s.path).Str("recoveredFrom", recoveredFrom).Int("count", len(recovered)).
+				Msg("[auth] integrations.json was corrupt — recovered its contents from the most recent valid backup and rewrote it")
+			if serr := s.saveLocked(); serr != nil {
+				log.Warn().Err(serr).Msg("[auth] recovered integrations into memory but failed to re-save integrations.json — it is still corrupt on disk until the next successful save")
+			}
+			return nil
+		}
+
 		return err
 	}
 	s.integrations = make(map[string]*Integration, len(list))
@@ -103,6 +123,57 @@ func (s *integrationStore) load() error {
 		s.integrations[in.ID] = in
 	}
 	return nil
+}
+
+// integrationBackupSuffixes names the rotating known-good backups
+// saveLocked() maintains on every successful save — index 0 is the most
+// recent, keeping a short history (not just the single most recent save)
+// in case corruption strikes between a save and the next one being
+// noticed, or a backup copy itself happens to be mid-rotation.
+var integrationBackupSuffixes = []string{".bak.0", ".bak.1", ".bak.2"}
+
+func (s *integrationStore) backupPaths() []string {
+	paths := make([]string, len(integrationBackupSuffixes))
+	for i, suf := range integrationBackupSuffixes {
+		paths[i] = s.path + suf
+	}
+	return paths
+}
+
+// rotateBackups shifts the existing backups one slot older and writes data
+// (the content saveLocked() just successfully persisted to s.path) into the
+// newest slot. Best-effort: a missing source file (fewer than N saves have
+// happened yet) is not an error, and a rotation failure never fails the
+// save itself — this is a safety net on top of a save that already
+// succeeded, not a precondition for it.
+func (s *integrationStore) rotateBackups(data []byte) {
+	paths := s.backupPaths()
+	for i := len(paths) - 1; i > 0; i-- {
+		_ = os.Rename(paths[i-1], paths[i])
+	}
+	_ = os.WriteFile(paths[0], data, 0644)
+}
+
+// recoverFromBackupLocked tries each rotating backup, newest first, and
+// returns the first one that parses as a valid integration list. Caller
+// must already hold s.mu.
+func (s *integrationStore) recoverFromBackupLocked() (map[string]*Integration, string, error) {
+	for _, p := range s.backupPaths() {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var list []*Integration
+		if err := json.Unmarshal(data, &list); err != nil {
+			continue
+		}
+		m := make(map[string]*Integration, len(list))
+		for _, in := range list {
+			m[in.ID] = in
+		}
+		return m, p, nil
+	}
+	return nil, "", errors.New("no valid integrations backup found")
 }
 
 // saveLocked persists the current integration list. Writes to a temp file
@@ -129,6 +200,7 @@ func (s *integrationStore) saveLocked() error {
 		_ = os.Remove(tmp)
 		return err
 	}
+	s.rotateBackups(data)
 	return nil
 }
 

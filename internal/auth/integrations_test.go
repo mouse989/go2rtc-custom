@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,6 +264,72 @@ func TestLoadCorruptedIntegrationsFileBacksUpOriginal(t *testing.T) {
 	}
 	if string(got) != corrupt {
 		t.Fatalf("backup content = %q, want %q", got, corrupt)
+	}
+}
+
+// A successful save must leave a recoverable rotating backup (.bak.0)
+// behind — the safety net TestLoadRecoversFromBackupWhenLiveFileIsZeroed
+// below depends on.
+func TestSaveLockedLeavesARotatingBackup(t *testing.T) {
+	setupIntegrationsTest(t)
+	if _, _, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push"); err != nil {
+		t.Fatalf("CreateIntegration: %v", err)
+	}
+	data, err := os.ReadFile(istore.path + ".bak.0")
+	if err != nil {
+		t.Fatalf("expected a .bak.0 file after a successful save: %v", err)
+	}
+	if !strings.Contains(string(data), "OMNIA") {
+		t.Fatalf("expected the backup to contain the new integration, got: %s", data)
+	}
+}
+
+// Reproduces the exact corruption reported against a Synology/Btrfs-backed
+// data volume: the live file stays the same byte length as before but
+// every byte reads back as 0x00 (a storage-layer checksum mismatch with no
+// redundant copy to self-heal from — not a truncation or a partial write,
+// which TestLoadCorruptedIntegrationsFileBacksUpOriginal already covers).
+// load() must recover the integrations from the rotating backup rather
+// than start empty, and heal the live file back to valid JSON so the next
+// restart doesn't need to recover again.
+func TestLoadRecoversFromBackupWhenLiveFileIsZeroed(t *testing.T) {
+	setupIntegrationsTest(t)
+	in, key, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push")
+	if err != nil {
+		t.Fatalf("CreateIntegration: %v", err)
+	}
+	liveInfo, err := os.Stat(istore.path)
+	if err != nil {
+		t.Fatalf("stat live file: %v", err)
+	}
+	// Simulate the exact observed corruption: same length, every byte 0x00.
+	zeroed := make([]byte, liveInfo.Size())
+	if err := os.WriteFile(istore.path, zeroed, 0644); err != nil {
+		t.Fatalf("simulate zeroed file: %v", err)
+	}
+
+	if err := istore.load(); err != nil {
+		t.Fatalf("load() after zeroing = %v, want nil (recovered from backup)", err)
+	}
+	if _, ok := ValidateIntegrationKey("/api/aievent/omnia/v1/push", key, "1.2.3.4"); !ok {
+		t.Fatal("expected the integration created before corruption to still validate after recovery")
+	}
+	recoveredList := ListIntegrations()
+	if len(recoveredList) != 1 || recoveredList[0].ID != in.ID {
+		t.Fatalf("ListIntegrations after recovery = %+v, want the one integration created before corruption", recoveredList)
+	}
+
+	// The live file must now be healed (valid JSON again), not left zeroed.
+	healed, err := os.ReadFile(istore.path)
+	if err != nil {
+		t.Fatalf("read healed live file: %v", err)
+	}
+	var sanity []*Integration
+	if err := json.Unmarshal(healed, &sanity); err != nil {
+		t.Fatalf("live file after recovery is still not valid JSON: %v", err)
+	}
+	if len(sanity) != 1 {
+		t.Fatalf("healed live file has %d entries, want 1", len(sanity))
 	}
 }
 
