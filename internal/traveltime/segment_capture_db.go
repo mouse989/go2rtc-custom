@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/trafficmetrics"
 	_ "modernc.org/sqlite"
 )
 
@@ -72,7 +74,36 @@ func initSegmentCaptureDB(dir string) error {
 	if _, err := segmentCaptureDB.Exec(segmentCaptureSchema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrateRouteSegmentsMetricsColumns(segmentCaptureDB); err != nil {
+		return err
+	}
 	return nil
+}
+
+// routeSegmentsMetricsColumns are the Z/LOS columns added after this
+// table's initial release (internal/trafficmetrics, SPEC-ITS-TRAFFIC-
+// ANALYSIS-01's "Z-từ-TTI-thuần" path — no JF available per leg, so only
+// Z/LOS, no fused TTI/anomaly here, unlike internal/traffic's flow_segments
+// equivalent). Added via ALTER TABLE, same convention
+// internal/traffic/flow_capture_db.go's own migration uses.
+var routeSegmentsMetricsColumns = []string{
+	"ALTER TABLE route_segments ADD COLUMN z_est REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE route_segments ADD COLUMN z_percent REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE route_segments ADD COLUMN los_label TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE route_segments ADD COLUMN los_color TEXT NOT NULL DEFAULT ''",
+}
+
+func migrateRouteSegmentsMetricsColumns(db *sql.DB) error {
+	for _, stmt := range routeSegmentsMetricsColumns {
+		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumnErr(err) {
+			return fmt.Errorf("migrate route_segments metrics columns: %w", err)
+		}
+	}
+	return nil
+}
+
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }
 
 // recordRouteSegments persists one route's leg-by-leg stats for this scan
@@ -100,16 +131,26 @@ func recordRouteSegments(routeID, routeName string, scannedAt time.Time, legs []
 	}
 
 	insertLeg, err := tx.Prepare(`INSERT INTO route_segments
-		(scan_id, leg_index, from_lat, from_lng, to_lat, to_lng, length_m, duration_sec, base_sec, delay_sec, tti)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		(scan_id, leg_index, from_lat, from_lng, to_lat, to_lng, length_m, duration_sec, base_sec, delay_sec, tti,
+		 z_est, z_percent, los_label, los_color)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer insertLeg.Close()
 
+	// internal/trafficmetrics (SPEC-ITS-TRAFFIC-ANALYSIS-01): only Z/LOS,
+	// no fused TTI/anomaly — a route leg has no JF reading of its own to
+	// fuse with or cross-check against (see ComputeRouteLeg's own doc
+	// comment for why this differs from internal/traffic's flow-capture
+	// path, which has speed+freeFlow+JF all from the same reading).
+	metricsCfg := trafficmetrics.GetConfig()
+
 	for _, leg := range legs {
+		m := metricsCfg.ComputeRouteLeg(leg.TTI)
 		if _, err := insertLeg.Exec(scanID, leg.LegIndex, leg.FromLat, leg.FromLng, leg.ToLat, leg.ToLng,
-			leg.LengthM, leg.DurationSec, leg.BaseSec, leg.DelaySec, leg.TTI); err != nil {
+			leg.LengthM, leg.DurationSec, leg.BaseSec, leg.DelaySec, leg.TTI,
+			m.Z, m.ZPercent, m.LOS.Label, m.LOS.Color); err != nil {
 			return fmt.Errorf("insert route_segments (leg %d): %w", leg.LegIndex, err)
 		}
 	}
@@ -164,6 +205,10 @@ type legRow struct {
 	BaseSec     int
 	DelaySec    int
 	TTI         float64
+	Z           float64
+	ZPercent    float64
+	LOSLabel    string
+	LOSColor    string
 }
 
 func getRouteSegmentLegs(scanID int64) ([]legRow, error) {
@@ -171,7 +216,8 @@ func getRouteSegmentLegs(scanID int64) ([]legRow, error) {
 		return nil, nil
 	}
 	rows, err := segmentCaptureDB.Query(`
-		SELECT leg_index, from_lat, from_lng, to_lat, to_lng, length_m, duration_sec, base_sec, delay_sec, tti
+		SELECT leg_index, from_lat, from_lng, to_lat, to_lng, length_m, duration_sec, base_sec, delay_sec, tti,
+		       z_est, z_percent, los_label, los_color
 		FROM route_segments WHERE scan_id = ? ORDER BY leg_index`, scanID)
 	if err != nil {
 		return nil, err
@@ -181,7 +227,8 @@ func getRouteSegmentLegs(scanID int64) ([]legRow, error) {
 	for rows.Next() {
 		var l legRow
 		if err := rows.Scan(&l.LegIndex, &l.FromLat, &l.FromLng, &l.ToLat, &l.ToLng,
-			&l.LengthM, &l.DurationSec, &l.BaseSec, &l.DelaySec, &l.TTI); err != nil {
+			&l.LengthM, &l.DurationSec, &l.BaseSec, &l.DelaySec, &l.TTI,
+			&l.Z, &l.ZPercent, &l.LOSLabel, &l.LOSColor); err != nil {
 			return nil, err
 		}
 		out = append(out, l)
@@ -227,6 +274,10 @@ type RouteSegmentDetail struct {
 	BaseSec     int     `json:"baseSec"`
 	DelaySec    int     `json:"delaySec"`
 	TTI         float64 `json:"tti"`
+	Z           float64 `json:"z"`
+	ZPercent    float64 `json:"zPercent"`
+	LOSLabel    string  `json:"losLabel"`
+	LOSColor    string  `json:"losColor"`
 }
 
 // RouteSegments is one route's own latest capture: every leg between its
@@ -258,6 +309,7 @@ func LatestRouteSegments() ([]RouteSegments, error) {
 			rs.Segments = append(rs.Segments, RouteSegmentDetail{
 				LegIndex: l.LegIndex, FromLat: l.FromLat, FromLng: l.FromLng, ToLat: l.ToLat, ToLng: l.ToLng,
 				LengthM: l.LengthM, DurationSec: l.DurationSec, BaseSec: l.BaseSec, DelaySec: l.DelaySec, TTI: l.TTI,
+				Z: l.Z, ZPercent: l.ZPercent, LOSLabel: l.LOSLabel, LOSColor: l.LOSColor,
 			})
 		}
 		out = append(out, rs)

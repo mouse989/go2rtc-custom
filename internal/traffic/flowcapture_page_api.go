@@ -15,6 +15,7 @@ import (
 	"strconv"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
+	"github.com/AlexxIT/go2rtc/internal/trafficmetrics"
 	"github.com/AlexxIT/go2rtc/internal/traveltime"
 )
 
@@ -66,7 +67,13 @@ func handleFlowCapturePageScans(w http.ResponseWriter, r *http.Request) {
 // flowGeometrySubSegment/Link/Result mirror flowSubSegment/flowLink/
 // flowResult (flow_capture_parse.go) with speeds pre-converted to km/h —
 // the unit the map/legend actually renders in — so the frontend never has
-// to know about the raw m/s fields.
+// to know about the raw m/s fields. TTI/Z/LOS/Anomaly are computed fresh
+// here from this same reading's own speed/freeFlow/JF (internal/
+// trafficmetrics, SPEC-ITS-TRAFFIC-ANALYSIS-01) — independent of (but with
+// the exact same formula as) the tti_raw/z_est/los_label/anomaly_flag
+// columns flow_capture_db.go's recordFlowScan persists for SQL-based
+// reporting: this endpoint always re-parses raw_json rather than reading
+// those stored columns back, so it recomputes rather than reads them.
 type flowGeometrySubSegment struct {
 	LengthM        float64 `json:"lengthM"`
 	SpeedKmh       float64 `json:"speedKmh"`
@@ -76,6 +83,12 @@ type flowGeometrySubSegment struct {
 	JamTendency    float64 `json:"jamTendency,omitempty"`
 	Confidence     float64 `json:"confidence"`
 	Traversability string  `json:"traversability"`
+	TTIFused       float64 `json:"ttiFused"`
+	Z              float64 `json:"z"`
+	ZPercent       float64 `json:"zPercent"`
+	LOSLabel       string  `json:"losLabel"`
+	LOSColor       string  `json:"losColor"`
+	Anomaly        bool    `json:"anomaly"`
 }
 
 type flowGeometryLink struct {
@@ -96,6 +109,13 @@ type flowGeometryResult struct {
 	Confidence     float64                  `json:"confidence"`
 	Traversability string                   `json:"traversability"`
 	SubSegments    []flowGeometrySubSegment `json:"subSegments,omitempty"`
+	TTIFused       float64                  `json:"ttiFused"`
+	Z              float64                  `json:"z"`
+	ZPercent       float64                  `json:"zPercent"`
+	LOSLabel       string                   `json:"losLabel"`
+	LOSColor       string                   `json:"losColor"`
+	Anomaly        bool                     `json:"anomaly"`
+	Bottleneck     bool                     `json:"bottleneck"`
 }
 
 type flowGeometryResponse struct {
@@ -110,22 +130,36 @@ type flowGeometryResponse struct {
 // the km/h-converted shape the map actually renders, shared by
 // handleFlowCapturePageGeometry and handleFlowCapturePageLatest.
 func resultsToGeometry(parsed []flowResult) []flowGeometryResult {
+	metricsCfg := trafficmetrics.GetConfig()
 	out := make([]flowGeometryResult, 0, len(parsed))
 	for _, fr := range parsed {
+		m := metricsCfg.ComputeFlow(fr.SpeedMps, fr.FreeFlowMps, fr.JamFactor)
 		gr := flowGeometryResult{
 			Description: fr.Description, LengthM: fr.LengthM,
 			SpeedKmh: fr.SpeedMps * 3.6, FreeFlowKmh: fr.FreeFlowMps * 3.6,
 			JamFactor: fr.JamFactor, HasJamTendency: fr.HasJamTendency, JamTendency: fr.JamTendency,
 			Confidence: fr.Confidence, Traversability: fr.Traversability,
+			TTIFused: m.TTIFused, Z: m.Z, ZPercent: m.ZPercent,
+			LOSLabel: m.LOS.Label, LOSColor: m.LOS.Color, Anomaly: m.Anomaly,
 		}
 		for _, lk := range fr.Links {
 			gr.Links = append(gr.Links, flowGeometryLink{Points: lk.Points, LengthM: lk.LengthM, FunctionalClass: lk.FunctionalClass})
 		}
+		if len(fr.SubSegments) >= 2 {
+			jfs := make([]float64, len(fr.SubSegments))
+			for i, ss := range fr.SubSegments {
+				jfs[i] = ss.JamFactor
+			}
+			gr.Bottleneck = trafficmetrics.DetectBottleneck(jfs, metricsCfg.BottleneckJFSpread)
+		}
 		for _, ss := range fr.SubSegments {
+			sm := metricsCfg.ComputeFlow(ss.SpeedMps, ss.FreeFlowMps, ss.JamFactor)
 			gr.SubSegments = append(gr.SubSegments, flowGeometrySubSegment{
 				LengthM: ss.LengthM, SpeedKmh: ss.SpeedMps * 3.6, FreeFlowKmh: ss.FreeFlowMps * 3.6,
 				JamFactor: ss.JamFactor, HasJamTendency: ss.HasJamTendency, JamTendency: ss.JamTendency,
 				Confidence: ss.Confidence, Traversability: ss.Traversability,
+				TTIFused: sm.TTIFused, Z: sm.Z, ZPercent: sm.ZPercent,
+				LOSLabel: sm.LOS.Label, LOSColor: sm.LOS.Color, Anomaly: sm.Anomaly,
 			})
 		}
 		out = append(out, gr)

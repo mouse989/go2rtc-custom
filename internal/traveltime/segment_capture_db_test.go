@@ -59,6 +59,46 @@ func TestRecordAndFetchRouteSegments(t *testing.T) {
 	}
 }
 
+// TestRecordRouteSegmentsPopulatesZLOS pins that internal/trafficmetrics
+// (SPEC-ITS-TRAFFIC-ANALYSIS-01's TTI-only Z/LOS path, ComputeRouteLeg) is
+// actually wired into recordRouteSegments' insert. testLegs()'s leg[1] has
+// TTI=1.0 (free flow) so must classify as the lowest LOS band (Z=0); leg[0]
+// has TTI=1.5 so must classify higher.
+func TestRecordRouteSegmentsPopulatesZLOS(t *testing.T) {
+	resetSegmentCaptureDB(t)
+	if err := recordRouteSegments("r1", "Test Route", time.Now(), testLegs()); err != nil {
+		t.Fatalf("recordRouteSegments: %v", err)
+	}
+	metas, err := latestRouteSegmentScans()
+	if err != nil {
+		t.Fatalf("latestRouteSegmentScans: %v", err)
+	}
+	legs, err := getRouteSegmentLegs(metas[0].ID)
+	if err != nil {
+		t.Fatalf("getRouteSegmentLegs: %v", err)
+	}
+	if len(legs) != 2 {
+		t.Fatalf("got %d legs, want 2", len(legs))
+	}
+	if legs[1].Z != 0 || legs[1].LOSLabel == "" {
+		t.Errorf("free-flow leg (TTI=1.0) = %+v, want Z=0 and a non-empty LOS label", legs[1])
+	}
+	if legs[0].Z <= 0 || legs[0].LOSLabel == "" || legs[0].LOSColor == "" {
+		t.Errorf("congested leg (TTI=1.5) = %+v, want Z>0, LOS label/color populated", legs[0])
+	}
+
+	all, err := LatestRouteSegments()
+	if err != nil {
+		t.Fatalf("LatestRouteSegments: %v", err)
+	}
+	if len(all) != 1 || len(all[0].Segments) != 2 {
+		t.Fatalf("LatestRouteSegments = %+v, want 1 route with 2 segments", all)
+	}
+	if all[0].Segments[0].LOSLabel == "" {
+		t.Errorf("exported RouteSegmentDetail missing LOSLabel: %+v", all[0].Segments[0])
+	}
+}
+
 func TestLatestRouteSegmentsOnlyKeepsNewestPerRoute(t *testing.T) {
 	resetSegmentCaptureDB(t)
 	older := time.Date(2026, 10, 30, 11, 0, 0, 0, time.UTC)

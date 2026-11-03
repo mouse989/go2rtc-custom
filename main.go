@@ -52,6 +52,7 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/traffic"
 	"github.com/AlexxIT/go2rtc/internal/trafficflow"
 	"github.com/AlexxIT/go2rtc/internal/trafficinsight"
+	"github.com/AlexxIT/go2rtc/internal/trafficmetrics"
 	"github.com/AlexxIT/go2rtc/internal/traveltime"
 	"github.com/AlexxIT/go2rtc/internal/tuya"
 	"github.com/AlexxIT/go2rtc/internal/v4l2"
@@ -126,6 +127,11 @@ func main() {
 		{"xiaomi", xiaomi.Init},
 		{"yandex", yandex.Init},
 		// Traffic monitoring, travel time, vehicle counting & dashboard
+		// trafficmetrics before traffic/traveltime: both of those read its
+		// GetConfig() from their own scan/collection paths (well after all
+		// Init() calls finish), but listing it first keeps init order
+		// matching the real dependency direction.
+		{"trafficmetrics", trafficmetrics.Init},
 		{"traffic", traffic.Init},
 		{"traveltime", traveltime.Init},
 		{"workers", workers.Init},

@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/trafficmetrics"
 	_ "modernc.org/sqlite"
 )
 
@@ -86,7 +88,42 @@ func initFlowCaptureDB(dir string) error {
 	if _, err := flowCaptureDB.Exec(flowCaptureSchema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrateFlowSegmentsMetricsColumns(flowCaptureDB); err != nil {
+		return err
+	}
 	return nil
+}
+
+// flowSegmentsMetricsColumns are the Z/LOS columns added after this table's
+// initial release (internal/trafficmetrics, SPEC-ITS-TRAFFIC-ANALYSIS-01) —
+// added via ALTER TABLE, not listed in flowCaptureSchema's own CREATE
+// TABLE, same convention internal/trafficflow/db.go's push_log.source_uuid
+// migration uses: SQLite has no "ADD COLUMN IF NOT EXISTS", so a second run
+// against an already-migrated DB just ignores the "duplicate column name"
+// error each ALTER produces once its column exists.
+var flowSegmentsMetricsColumns = []string{
+	"ALTER TABLE flow_segments ADD COLUMN tti_raw REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE flow_segments ADD COLUMN tti_from_jf REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE flow_segments ADD COLUMN tti_fused REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE flow_segments ADD COLUMN z_est REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE flow_segments ADD COLUMN z_percent REAL NOT NULL DEFAULT 0",
+	"ALTER TABLE flow_segments ADD COLUMN los_label TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE flow_segments ADD COLUMN los_color TEXT NOT NULL DEFAULT ''",
+	"ALTER TABLE flow_segments ADD COLUMN anomaly_flag INTEGER NOT NULL DEFAULT 0",
+	"ALTER TABLE flow_segments ADD COLUMN bottleneck_detected INTEGER NOT NULL DEFAULT 0",
+}
+
+func migrateFlowSegmentsMetricsColumns(db *sql.DB) error {
+	for _, stmt := range flowSegmentsMetricsColumns {
+		if _, err := db.Exec(stmt); err != nil && !isDuplicateColumnErr(err) {
+			return fmt.Errorf("migrate flow_segments metrics columns: %w", err)
+		}
+	}
+	return nil
+}
+
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }
 
 // recordFlowScan persists one region's flow response: one flow_scans row
@@ -118,12 +155,20 @@ func recordFlowScan(regionName string, scannedAt time.Time, sourceUpdated string
 	insertSeg, err := tx.Prepare(`INSERT INTO flow_segments
 		(scan_id, result_index, sub_index, description, length_m, speed_mps, speed_uncapped_mps, free_flow_mps,
 		 jam_factor, has_jam_tendency, jam_tendency, confidence, traversability, functional_class,
-		 first_lat, first_lng, last_lat, last_lng)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		 first_lat, first_lng, last_lat, last_lng,
+		 tti_raw, tti_from_jf, tti_fused, z_est, z_percent, los_label, los_color, anomaly_flag, bottleneck_detected)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer insertSeg.Close()
+
+	// internal/trafficmetrics (SPEC-ITS-TRAFFIC-ANALYSIS-01): TTI/Z/LOS
+	// derived from this same reading's own speed/freeFlow/JF, computed once
+	// per scan with whatever calibration is current at save time — a config
+	// change afterwards doesn't retroactively alter already-saved rows
+	// (same as every other admin-configurable display setting in this app).
+	metricsCfg := trafficmetrics.GetConfig()
 
 	for ri, r := range results {
 		var functionalClass *int
@@ -147,9 +192,20 @@ func recordFlowScan(regionName string, scannedAt time.Time, sourceUpdated string
 			v := r.JamTendency
 			jt = &v
 		}
+		m := metricsCfg.ComputeFlow(r.SpeedMps, r.FreeFlowMps, r.JamFactor)
+		bottleneck := false
+		if len(r.SubSegments) >= 2 {
+			jfs := make([]float64, len(r.SubSegments))
+			for i, ss := range r.SubSegments {
+				jfs[i] = ss.JamFactor
+			}
+			bottleneck = trafficmetrics.DetectBottleneck(jfs, metricsCfg.BottleneckJFSpread)
+		}
 		if _, err := insertSeg.Exec(scanID, ri, -1, r.Description, r.LengthM, r.SpeedMps, r.SpeedUncappedMps,
 			r.FreeFlowMps, r.JamFactor, r.HasJamTendency, jt, r.Confidence, r.Traversability, functionalClass,
-			firstLat, firstLng, lastLat, lastLng); err != nil {
+			firstLat, firstLng, lastLat, lastLng,
+			m.TTIRaw, m.TTIFromJF, m.TTIFused, m.Z, m.ZPercent, m.LOS.Label, m.LOS.Color, m.Anomaly, bottleneck,
+		); err != nil {
 			return fmt.Errorf("insert flow_segments (result %d): %w", ri, err)
 		}
 		for si, ss := range r.SubSegments {
@@ -158,9 +214,12 @@ func recordFlowScan(regionName string, scannedAt time.Time, sourceUpdated string
 				v := ss.JamTendency
 				sjt = &v
 			}
+			sm := metricsCfg.ComputeFlow(ss.SpeedMps, ss.FreeFlowMps, ss.JamFactor)
 			if _, err := insertSeg.Exec(scanID, ri, si, r.Description, ss.LengthM, ss.SpeedMps, ss.SpeedUncappedMps,
 				ss.FreeFlowMps, ss.JamFactor, ss.HasJamTendency, sjt, ss.Confidence, ss.Traversability, functionalClass,
-				nil, nil, nil, nil); err != nil {
+				nil, nil, nil, nil,
+				sm.TTIRaw, sm.TTIFromJF, sm.TTIFused, sm.Z, sm.ZPercent, sm.LOS.Label, sm.LOS.Color, sm.Anomaly, false,
+			); err != nil {
 				return fmt.Errorf("insert flow_segments (result %d sub %d): %w", ri, si, err)
 			}
 		}
