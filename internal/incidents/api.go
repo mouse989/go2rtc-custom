@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"time"
 
@@ -20,6 +19,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/incidents/time-slots", handleTimeSlots)
 	http.HandleFunc("/api/incidents/recompute-slots", handleRecomputeSlots)
 	http.HandleFunc("/api/incidents/active", handleActive)
+	http.HandleFunc("/api/incidents/end", handleEnd)
 	http.HandleFunc("/api/incidents/category-icons", handleCategoryIcons)
 	http.HandleFunc("/api/incidents/category-icons/color", handleCategoryIconColor)
 	http.HandleFunc("/api/incidents/category-icons/image", handleCategoryIconImage)
@@ -305,41 +305,12 @@ func handleRecomputeSlots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]int{"updated": updated})
 }
 
-// handleActive serves the Map page's "🚨 Traffic Event" layer: incidents
-// that have a coordinate (Lat/Lng set) and whose Time falls within the last
-// auth.AppSettings.EventWindowMinutes minutes (default 10,
-// admin-configurable, shared with the "🤖 AI Event" layer — see that
-// field's doc comment) — an incident drops off this list, and its map
-// marker with it, once it ages past the window on the layer's next poll.
-// Unlike the main list endpoint this is always "now"-relative and ignores
-// the year/from/to/category/unit/q query params the list view uses; it also
-// checks both the current and previous year's file so a window spanning a
-// New Year's Eve midnight still sees across the file boundary.
-// activeWindowGrace absorbs clock skew between the server and whichever
-// browser set Incident.Time (map.html/incidents.html both compute it
-// client-side via `new Date(...).toISOString()` — see their saveIncident
-// functions). Without it, a server clock even a little behind a client's
-// makes a just-created incident's Time land after "now" from the server's
-// point of view, and List()'s To-bound (in.Time.After(f.To)) drops it
-// until the server's own clock catches up — the incident doesn't appear
-// on the map until it ages into relevance, which reads exactly like a
-// display delay. The same slack is applied to the From bound so a server
-// clock running *ahead* doesn't age an incident out early either. Bounded
-// to a couple of minutes so a genuinely mistyped/far-off Time still can't
-// pin an incident as "active" forever.
-const activeWindowGrace = 2 * time.Minute
-
-// activeWindow returns handleActive's search range for the configured
-// window (minutes; <=0 means the 10-minute default) as of now.
-func activeWindow(now time.Time, windowMin int) (from, to time.Time) {
-	if windowMin <= 0 {
-		windowMin = 10
-	}
-	from = now.Add(-time.Duration(windowMin)*time.Minute - activeWindowGrace)
-	to = now.Add(activeWindowGrace)
-	return from, to
-}
-
+// handleActive serves the Map page's "🚨 Traffic Event" layer: every
+// incident that has a coordinate (Lat/Lng set) and has not been marked
+// ended (EndTime unset) — see ActiveList. Unlike the main list endpoint this
+// ignores the year/from/to/category/unit/q query params the list view uses,
+// and is not time-window-bound at all: an incident keeps showing, however
+// old, until someone ends it via handleEnd.
 func handleActive(w http.ResponseWriter, r *http.Request) {
 	if !requireTab(w, r) {
 		return
@@ -349,25 +320,46 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	from, to := activeWindow(now, auth.GetSettings().EventWindowMinutes)
-
-	yearSet := map[int]bool{now.Year(): true, from.Year(): true}
-	out := make([]*Incident, 0, 16)
-	for y := range yearSet {
-		list, err := List(ListFilter{Year: y, From: from, To: to})
-		if err != nil {
-			continue
-		}
-		for _, in := range list {
-			if in.Lat == 0 && in.Lng == 0 {
-				continue // no coordinate, nothing to place on the map
-			}
-			out = append(out, in)
-		}
+	out, err := ActiveList()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
 	writeJSON(w, out)
+}
+
+// handleEnd marks an incident resolved (records EndTime = now), via the
+// incidents.html table's green "✓" button. Same permission level as
+// edit/delete — any Incidents-tab holder, not admin-only.
+func handleEnd(w http.ResponseWriter, r *http.Request) {
+	if !requireTab(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	year, err := strconv.Atoi(r.URL.Query().Get("year"))
+	if err != nil {
+		http.Error(w, "missing/invalid year", http.StatusBadRequest)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	user, _ := auth.UserFromContext(r.Context())
+	in, err := EndIncident(year, id, user.Username)
+	if err != nil {
+		status := http.StatusBadRequest
+		if err == errNotFound {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, in)
 }
 
 // handleCategoryIcons: GET lists every category's icon/color metadata

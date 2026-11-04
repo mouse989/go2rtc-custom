@@ -52,6 +52,15 @@ type Incident struct {
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedBy           string    `json:"updated_by,omitempty"`
 	UpdatedAt           time.Time `json:"updated_at,omitempty"`
+	// EndTime: when the incident was marked resolved (nil = still ongoing).
+	// A *time.Time, not time.Time: encoding/json's omitempty never omits a
+	// zero-value struct, so a plain time.Time field would always serialize
+	// (as "0001-01-01T00:00:00Z"), making it truthy in JS even when unset.
+	// Set only via EndIncident, from the incidents.html "✓ kết thúc" button —
+	// map.html's "🚨 Sự cố giao thông" layer uses this (not a rolling time
+	// window) to decide whether an incident still shows on the map.
+	EndTime *time.Time `json:"end_time,omitempty"`
+	EndedBy string     `json:"ended_by,omitempty"`
 }
 
 // Time-slot windows (Khung giờ) are admin-configurable — see timeslots.go for
@@ -388,6 +397,64 @@ func Delete(year int, id string) error {
 	}
 	delete(years[year], id)
 	return saveYearLocked(year)
+}
+
+// EndIncident marks an incident resolved, recording the current time as its
+// EndTime. A no-op (returns the incident unchanged, no error) if it was
+// already ended, so a double-click/retry can't clobber the original end time.
+func EndIncident(year int, id, username string) (*Incident, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := loadYearLocked(year); err != nil {
+		return nil, err
+	}
+	in, ok := years[year][id]
+	if !ok {
+		return nil, errNotFound
+	}
+	if in.EndTime != nil {
+		return in, nil
+	}
+	now := time.Now().In(vnLocation)
+	in.EndTime = &now
+	in.EndedBy = username
+	if err := saveYearLocked(year); err != nil {
+		return nil, err
+	}
+	return in, nil
+}
+
+// ActiveList returns every incident that has a coordinate and has not been
+// marked ended, across all years — for map.html's "🚨 Sự cố giao thông"
+// layer, which (unlike every other map layer) must keep showing an incident
+// indefinitely as long as it's unresolved, regardless of how old it is.
+func ActiveList() ([]*Incident, error) {
+	yearList := ListYears()
+	mu.Lock()
+	for _, y := range yearList {
+		if err := loadYearLocked(y); err != nil {
+			mu.Unlock()
+			return nil, err
+		}
+	}
+	mu.Unlock()
+
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]*Incident, 0, 16)
+	for _, y := range yearList {
+		for _, in := range years[y] {
+			if in.EndTime != nil {
+				continue
+			}
+			if in.Lat == 0 && in.Lng == 0 {
+				continue // no coordinate, nothing to place on the map
+			}
+			out = append(out, in)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	return out, nil
 }
 
 // RecomputeAllTimeSlots reloads every saved year and, for every incident:

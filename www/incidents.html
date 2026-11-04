@@ -173,7 +173,7 @@ table.inc-table { min-width:920px; }
             <th style="width:80px" title="Thuộc 28 vị trí có nguy cơ ùn tắc giao thông">⚠️ 28 điểm</th>
             <th style="width:110px">Khung giờ</th>
             <th style="width:140px">Ghi chú</th>
-            <th style="width:90px"></th>
+            <th style="width:116px"></th>
           </tr></thead>
           <tbody id="incBody"><tr><td colspan="10" class="inc-empty">Đang tải…</td></tr></tbody>
         </table>
@@ -492,6 +492,9 @@ function renderTable(list) {
       <td>${esc(inc.note || '')}</td>
       <td class="inc-actions">
         <button class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Sửa" onclick="openEditModal(${i})">✎</button>
+        ${inc.end_time
+          ? `<span style="display:inline-block;padding:2px 7px;color:#4ade80" title="Đã kết thúc lúc ${esc(fmtDateTime(inc.end_time))}${inc.ended_by ? ' bởi ' + esc(inc.ended_by) : ''}">✓</span>`
+          : `<button class="btn btn-sm" style="padding:2px 7px;color:#4ade80;border-color:#4ade80" title="Kết thúc sự cố" onclick="endIncident(${i})">✓</button>`}
         <button class="btn btn-danger btn-sm" style="padding:2px 7px" title="Xoá" onclick="deleteIncident(${i})">✕</button>
       </td>
     </tr>`).join('');
@@ -580,6 +583,18 @@ async function saveIncident() {
     msg.textContent = 'Lỗi: ' + e.message;
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function endIncident(i) {
+  const inc = currentList[i];
+  if (!confirm('Bạn muốn kết thúc sự kiện này?')) return;
+  const year = new Date(inc.time).getFullYear();
+  try {
+    await apiFetch(`/api/incidents/end?year=${year}&id=${encodeURIComponent(inc.id)}`, { method: 'POST' });
+    await applyFilters();
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
   }
 }
 
