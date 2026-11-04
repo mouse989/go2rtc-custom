@@ -243,24 +243,6 @@
 
       <!-- RIGHT: Giao thông -->
       <div class="d2-col">
-        <div class="d2-section" style="flex-shrink:0;">
-          <div class="d2-filters">
-            <select id="d2Week"></select>
-            <label style="font-size:.68rem;color:var(--text-muted)">Từ</label>
-            <input type="date" id="d2From">
-            <label style="font-size:.68rem;color:var(--text-muted)">Đến</label>
-            <input type="date" id="d2To">
-            <select id="d2Cat">
-              <option value="">Tất cả loại</option>
-              <option value="dongxe">Ùn tắc/Đông xe</option>
-              <option value="vacham">Va chạm/TNGT</option>
-              <option value="ngapnuoc">Ngập nước</option>
-              <option value="khac">Sự cố khác</option>
-            </select>
-          </div>
-          <div class="d2-inc-tiles" id="d2IncTiles"></div>
-        </div>
-
         <div class="d2-section" style="flex:1; min-height:0;">
           <h3>🗺 Bản đồ ùn tắc <span id="d2MapCount" style="font-weight:400;text-transform:none"></span>
             <button class="d2-heat-cfg-btn" id="d2HeatCfgBtn" onclick="toggleHeatmapCfg()" style="display:none">⚙ Cấu hình</button>
@@ -270,22 +252,10 @@
         </div>
       </div>
     </div>
-
-    <!-- Thống kê sự cố giao thông (rút gọn) — driven by the SAME Từ/Đến/loại
-         filter above; reached by scrolling, not locked to the first screen. -->
-    <div class="d2-an-wrap">
-      <div class="d2-an-grid" style="grid-template-columns:1fr 1fr;">
-        <div class="d2-section"><h3>Theo khung giờ</h3>
-          <div class="d2-an-cbox tall"><canvas id="d2AnSlot"></canvas></div></div>
-        <div class="d2-section"><h3>Tổng theo tuần<span class="d2-an-hint">tuần tính từ Thứ Hai</span></h3>
-          <div class="d2-an-cbox tall"><canvas id="d2AnWeek"></canvas></div></div>
-      </div>
-    </div>
   </div>
 </main>
 
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>
 <script>
 // ─────────────────────────────────────────────────────────────────────────
@@ -405,13 +375,10 @@ const BASELINE_WEEKS = 4;
 let _baseline = { day:'', byRoute:{} };
 let _forecast = { byRoute:{}, weeks:0 };
 let _persistCmp = { current:null, yesterday:null, baseline4w:null, baselineWeeks:0 };
-let _incidents = [];          // current filter range, all categories (no server-side category filter)
 let _map = null, _mapInited = false;
-// "Bản đồ ùn tắc" display scope — independent of the wider Từ/Đến filter
-// used by the incident tiles/week chart above: what's shown here is
-// whatever the admin configured (or the default last-24h/both-on window),
-// never "every incident in the currently selected date range" (which,
-// over a week/month filter, was the whole point's worth of markers).
+// "Bản đồ ùn tắc" display scope: whatever the admin configured (or the
+// default last-24h/both-on window) — this page has no incident-statistics
+// filter of its own anymore (see loadMapWindowData below).
 let _mapShowEvents = true, _mapShowHeat = true;
 let _mapFrom = null, _mapTo = null; // Date objects
 // _mapFollowScan: true (the default, for every user) means the window keeps
@@ -515,263 +482,6 @@ async function loadPersistentComparisons() {
     baseline4w: used.length ? used.reduce((a,b)=>a+b,0)/used.length : null,
     baselineWeeks: used.length,
   };
-}
-
-// ── Incidents (real /api/incidents — this system's own data) ────────────
-function incidentBucket(cat) {
-  if (cat === 'Đông xe') return 'dongxe';
-  if (cat === 'Va chạm') return 'vacham';
-  if (cat === 'Ngập nước') return 'ngapnuoc';
-  return 'khac';
-}
-function initIncidentFilterDefaults() {
-  const sel = document.getElementById('d2Week');
-  [['week_7d','7 ngày qua'],['d14','14 ngày qua'],['d30','30 ngày qua'],['week_this','Tuần này'],['week_last','Tuần trước'],['month_this','Tháng này']].forEach(([v,l]) => {
-    const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o);
-  });
-  sel.value = 'week_7d';
-  applyWeekPreset('week_7d');
-  sel.addEventListener('change', () => { applyWeekPreset(sel.value); loadIncidents(); });
-  document.getElementById('d2From').addEventListener('change', loadIncidents);
-  document.getElementById('d2To').addEventListener('change', loadIncidents);
-  document.getElementById('d2Cat').addEventListener('change', () => { renderIncidentViews(); loadMapWindowData(); });
-}
-function applyWeekPreset(key) {
-  const now = new Date();
-  const ts = todayISO();
-  let from = ts, to = ts;
-  if (key === 'week_7d') {
-    from = vnDateStr(new Date(now - 6*86400000));
-  } else if (key === 'd14') {
-    from = vnDateStr(new Date(now - 13*86400000));
-  } else if (key === 'd30') {
-    from = vnDateStr(new Date(now - 29*86400000));
-  } else if (key === 'week_this' || key === 'week_last') {
-    const wd = new Intl.DateTimeFormat('en-US', {timeZone:VN_TZ, weekday:'short'}).format(now);
-    const map = {Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6};
-    let offset = map[wd] ?? 0;
-    if (key === 'week_last') offset += 7;
-    from = vnDateStr(new Date(now - offset*86400000));
-    const toOffset = key === 'week_last' ? offset - 6 : 0;
-    to = vnDateStr(new Date(now - toOffset*86400000));
-  } else if (key === 'month_this') {
-    const p = vnParts(now);
-    from = `${p.year}-${p.month}-01`;
-  }
-  document.getElementById('d2From').value = from;
-  document.getElementById('d2To').value = to;
-}
-function shiftDateStr(dateStr, days) {
-  return vnDateStr(new Date(new Date(dateStr + 'T12:00:00+07:00').getTime() + days*86400000));
-}
-// /api/incidents only ever loads ONE year's file server-side (year= param,
-// filtered further by from/to within it) — fine for same-year ranges, but
-// now that the Từ/Đến preset list includes 14/30-ngày (and "Tuần trước" or
-// "Tháng này" could already straddle Jan 1 near year boundaries), a range
-// can legitimately span two calendar years. Fetch each year the range
-// touches and concatenate — from/to still bound each year's own result
-// correctly since Incident.Time is an absolute timestamp, not year-relative.
-async function fetchIncidentsRange(from, to) {
-  const fromYear = (from || to || todayISO()).slice(0, 4);
-  const toYear = (to || from || todayISO()).slice(0, 4);
-  const years = fromYear === toYear ? [fromYear] : [fromYear, toYear];
-  const lists = await Promise.all(years.map(year => {
-    const qs = new URLSearchParams({ year });
-    if (from) qs.set('from', from);
-    if (to) qs.set('to', to);
-    return apiFetch('/api/incidents?' + qs.toString());
-  }));
-  return lists.flat().filter(Boolean);
-}
-async function loadIncidents() {
-  const from = document.getElementById('d2From').value;
-  const to = document.getElementById('d2To').value;
-  try {
-    _incidents = await fetchIncidentsRange(from, to);
-  } catch (e) {
-    _incidents = null; // null = fetch failed (no Incidents-tab access, etc.) vs [] = genuinely empty
-  }
-  renderIncidentViews();
-}
-
-// Feeds the incident tiles + week chart only — NOT the map (see
-// loadMapWindowData/refreshMapWindow), which has its own, much narrower
-// time-window scope (max 2 days) independent of this panel's Từ/Đến
-// filter so "Bản đồ ùn tắc" never ends up trying to plot every incident
-// across a week/month-long filter range at once.
-function renderIncidentViews() {
-  const wrap = document.getElementById('d2IncTiles');
-  if (_incidents === null) {
-    wrap.innerHTML = '<div class="d2-err" style="flex:1">⚠️ Không tải được dữ liệu sự cố (cần quyền "Sự cố GT")</div>';
-    renderIncidentAnalytics();
-    return;
-  }
-  const counts = { dongxe:0, vacham:0, ngapnuoc:0, khac:0 };
-  _incidents.forEach(i => { counts[incidentBucket(i.category)]++; });
-  const tiles = [
-    ['Tổng', _incidents.length, 'var(--text)'],
-    ['🔴 Ùn tắc/Đông xe', counts.dongxe, '#f87171'],
-    ['🟠 Va chạm/TNGT', counts.vacham, '#fb923c'],
-    ['🔵 Ngập nước', counts.ngapnuoc, '#38bdf8'],
-    ['⚪ Sự cố khác', counts.khac, '#a78bfa'],
-  ];
-  wrap.innerHTML = tiles.map(([l,n,c]) => `<div class="d2-inc-tile"><div class="n" style="color:${c}">${n}</div><div class="l">${escH(l)}</div></div>`).join('');
-  renderIncidentAnalytics();
-}
-
-// Monday-first index (0=T2 … 6=CN), matching the Vietnamese week convention
-// used everywhere else in this app — still needed by "Tổng theo tuần"'s
-// Monday-anchored week grouping below.
-function weekdayIdx(dateStr) { return (new Date(dateStr).getDay() + 6) % 7; }
-
-// Chart.js draws straight to canvas, so it never picks up this page's own
-// CSS variables (--text-muted/--border) the way the HTML around it does —
-// every chart here used to hardcode dark-theme-only tick/grid/line colors,
-// which on the light theme read as barely-there pale gray on a near-white
-// background. d2ChartColors() mirrors each CSS var's per-theme value so
-// Chart.js text stays legible in both themes; every chart below pulls its
-// colors from here instead of a literal hex.
-function d2IsLightTheme() { return document.documentElement.getAttribute('data-theme') === 'light'; }
-function d2ChartColors() {
-  const light = d2IsLightTheme();
-  return {
-    tick: light ? '#46536b' : '#94a3b8',      // mirrors --text-muted
-    grid: light ? '#d7dfea99' : '#1e2d4555',  // mirrors --border, translucent
-    axisLabel: light ? '#1e293b' : '#cbd5e1', // street-name labels — a touch stronger than tick
-    avgLine: light ? '#1e293b' : '#e2e8f0',   // the "TB trượt 7 ngày" moving-average line
-  };
-}
-// ── Incident analytics ("Thống kê sự cố giao thông", below the fold) ────
-// Everything here is computed straight from the already-fetched _incidents
-// (same Từ/Đến range the tiles use), not a new Go endpoint.
-// That's fine because this panel's range is always bounded (the longest
-// preset is 30 ngày/Tháng này), so there's no realistic case where
-// crunching it in the browser is too slow.
-let _d2PeakWindowNames = [], _d2DefaultSlotLabel = 'Ngoài giờ cao điểm';
-async function loadD2TimeSlotLabels() {
-  try {
-    const r = await apiFetch('/api/incidents/time-slots');
-    _d2PeakWindowNames = (r && r.windows || []).map(w => w.name);
-    if (r && r.default_label) _d2DefaultSlotLabel = r.default_label;
-  } catch (_) {}
-}
-
-// Generic Chart.js-safe renderer shared by every chart below — never
-// replaces the canvas's own markup on error (a transient CDN hiccup must
-// not permanently break the chart even after Chart.js becomes available
-// again), just shows/hides a sibling message div instead.
-const _anCharts = {};
-function renderD2Chart(canvasId, config) {
-  const el = document.getElementById(canvasId);
-  if (!el) return;
-  let errEl = document.getElementById(canvasId + 'Msg');
-  try {
-    if (_anCharts[canvasId]) _anCharts[canvasId].destroy();
-    _anCharts[canvasId] = new Chart(el, config);
-    el.style.display = '';
-    if (errEl) errEl.style.display = 'none';
-  } catch (e) {
-    el.style.display = 'none';
-    if (!errEl) {
-      errEl = document.createElement('div');
-      errEl.id = canvasId + 'Msg';
-      errEl.className = 'd2-err';
-      el.insertAdjacentElement('afterend', errEl);
-    }
-    errEl.style.display = '';
-    errEl.textContent = '⚠️ Không vẽ được biểu đồ: ' + e.message;
-  }
-}
-// Same id+Msg sibling-div convention as renderD2Chart, for the one "chart"
-// below that's intentionally empty rather than broken (not enough days in
-// range to group by week) — kept distinct from the error path so the two
-// states never get confused with each other.
-function showD2ChartEmpty(canvasId, text) {
-  const el = document.getElementById(canvasId);
-  if (!el) return;
-  if (_anCharts[canvasId]) { _anCharts[canvasId].destroy(); delete _anCharts[canvasId]; }
-  el.style.display = 'none';
-  let msgEl = document.getElementById(canvasId + 'Msg');
-  if (!msgEl) {
-    msgEl = document.createElement('div');
-    msgEl.id = canvasId + 'Msg';
-    msgEl.className = 'd2-empty';
-    el.insertAdjacentElement('afterend', msgEl);
-  }
-  msgEl.className = 'd2-empty';
-  msgEl.style.display = '';
-  msgEl.textContent = text;
-}
-
-function d2ShortDate(dateStr) { return dateStr.slice(8,10) + '/' + dateStr.slice(5,7); }
-function d2DateRangeList(from, to) {
-  const out = [];
-  let d = from, guard = 0;
-  while (d <= to && guard++ < 400) { out.push(d); d = shiftDateStr(d, 1); }
-  return out;
-}
-
-// Dashboard 03 keeps only "Theo khung giờ" + "Tổng theo tuần" from Dashboard
-// 02's incident-analytics section — the KPI row, "Diễn biến sự cố theo
-// ngày", "Phân bố theo giờ trong ngày", "Sự cố theo ngày trong tuần" and
-// "Sự cố mức độ nghiêm trọng cao" blocks were dropped on purpose, so this
-// no longer early-returns on a missing #d2AnKpiRow (that element doesn't
-// exist on this page at all).
-function renderIncidentAnalytics() {
-  if (_incidents === null) {
-    ['d2AnSlot','d2AnWeek'].forEach(id => showD2ChartEmpty(id, ''));
-    return;
-  }
-
-  const from = document.getElementById('d2From').value;
-  const to = document.getElementById('d2To').value;
-  const days = (from && to && from <= to) ? d2DateRangeList(from, to) : [];
-  const cc = d2ChartColors();
-
-  // ── Theo khung giờ: doughnut by the admin-configured Khung giờ windows ──
-  const slotPalette = ['#0ea5e9','#f97316','#a78bfa','#f43f5e','#10b981','#eab308'];
-  const slotCounts = {};
-  _incidents.forEach(i => { const s = i.time_slot || _d2DefaultSlotLabel; slotCounts[s] = (slotCounts[s]||0)+1; });
-  const slotLabels = Object.keys(slotCounts).sort((a,b) => (a===_d2DefaultSlotLabel?1:0)-(b===_d2DefaultSlotLabel?1:0));
-  if (slotLabels.length) {
-    renderD2Chart('d2AnSlot', {
-      type:'doughnut',
-      data: { labels: slotLabels, datasets:[{ data: slotLabels.map(s=>slotCounts[s]),
-        backgroundColor: slotLabels.map((s,idx) => s===_d2DefaultSlotLabel ? '#64748b' : slotPalette[idx % slotPalette.length]),
-        borderWidth:0 }] },
-      options: { maintainAspectRatio:false, cutout:'58%', plugins:{ legend:{ position:'bottom', labels:{color:cc.tick, boxWidth:9, font:{size:9}} } } },
-    });
-  } else {
-    showD2ChartEmpty('d2AnSlot', 'Chưa có sự cố nào trong kỳ.');
-  }
-
-  // ── Tổng theo tuần — only meaningful once the range spans more than a
-  // single week; a shorter range shows an explanatory empty state instead
-  // of a one-bar chart. ──
-  if (days.length > 7) {
-    const weekMap = {}; // Monday ISO date -> {total, days}
-    days.forEach(d => {
-      const monday = shiftDateStr(d, -weekdayIdx(d));
-      if (!weekMap[monday]) weekMap[monday] = { total:0, days:0 };
-      weekMap[monday].days++;
-    });
-    _incidents.forEach(i => {
-      const d = (i.time||'').slice(0,10);
-      const monday = shiftDateStr(d, -weekdayIdx(d));
-      if (weekMap[monday]) weekMap[monday].total++;
-    });
-    const weeks = Object.keys(weekMap).sort();
-    renderD2Chart('d2AnWeek', {
-      type:'bar',
-      data: { labels: weeks.map(w => 'Tuần ' + d2ShortDate(w)), datasets:[{ label:'Tổng số sự cố', data: weeks.map(w=>weekMap[w].total),
-        backgroundColor: weeks.map(w => weekMap[w].days < 7 ? '#93c5fd' : '#38bdf8'), borderRadius:3 }] },
-      options: { maintainAspectRatio:false, plugins:{ legend:{display:false},
-        tooltip:{ callbacks:{ afterLabel:(c) => weekMap[weeks[c.dataIndex]].days + '/7 ngày có trong kỳ' } } },
-        scales:{ x:{ grid:{display:false}, ticks:{color:cc.tick} }, y:{ beginAtZero:true, grid:{color:cc.grid}, ticks:{precision:0, color:cc.tick} } } },
-    });
-  } else {
-    showD2ChartEmpty('d2AnWeek', 'Khoảng Từ–Đến quá ngắn để nhóm theo tuần (cần hơn 7 ngày).');
-  }
 }
 
 // ── VietMap GL map: traffic-jam heatmap (ported from dashboard.html's own
@@ -923,10 +633,10 @@ async function loadMapWindowData() {
     try {
       const qs = new URLSearchParams({ year: toDate.slice(0,4), from: fromDate, to: toDate });
       const list = await apiFetch('/api/incidents?' + qs.toString()) || [];
-      const catSel = document.getElementById('d2Cat')?.value || '';
+      // No Loại filter on this page anymore (the incident-statistics panel
+      // was removed) — the map's own event layer always shows every category.
       pts = list.filter(i => i.lat && i.lng && i.time &&
-        new Date(i.time) >= _mapFrom && new Date(i.time) <= _mapTo &&
-        (!catSel || incidentBucket(i.category) === catSel));
+        new Date(i.time) >= _mapFrom && new Date(i.time) <= _mapTo);
     } catch (e) { /* d2MapCount below reports 0 — Incidents tab missing, etc. */ }
     updateD2MapIncidents(pts);
     pts.forEach(p => bounds.push([p.lng, p.lat]));
@@ -1590,28 +1300,17 @@ async function loadAll() {
     document.getElementById('d2Content').innerHTML = '<div class="d2-empty" style="margin-top:3rem">⛔ Bạn không có quyền truy cập Dashboard 03.</div>';
     return;
   }
-  initIncidentFilterDefaults();
   tickClock();
   setInterval(tickClock, 1000);
-
-  // app.js's theme toggle (#btnTheme, sidebar footer) just flips the
-  // data-theme attribute — it has no event of its own, and Chart.js text
-  // colors are baked in at render time, so without this a theme switch
-  // would leave every chart's ticks/legend in the OLD theme's colors
-  // until the next 60s auto-refresh happened to redraw them.
-  const themeBtn = document.getElementById('btnTheme');
-  if (themeBtn) themeBtn.addEventListener('click', () => { renderIncidentAnalytics(); });
 
   await loadTtiAppearance();
   initD2Map();
   await loadAll();
-  loadD2TimeSlotLabels().then(loadIncidents);
 
   // Live: no manual refresh-interval picker — just keep polling so new
   // scan/collection data appears on its own, same cadence dashboard.html
   // itself already auto-refreshes on.
   setInterval(loadAll, LIVE_REFRESH_MS);
-  setInterval(loadIncidents, LIVE_REFRESH_MS);
 })();
 </script>
 </body>
