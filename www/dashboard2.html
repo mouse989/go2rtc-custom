@@ -994,6 +994,80 @@ function d2CategoryIconSrc(category) {
   return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
 
+// ── Incident points are a native GL layer (d2-incidents-bg + d2-incidents-
+// icon), not a DOM Marker per incident — DOM markers on this page were
+// found to visibly drift from their true lat/lng when zooming (worse the
+// further out you go), the same root cause www/trafficinsight.html's own
+// "Sự cố GT" layer hit and fixed the same way: a GL layer is painted by the
+// map's own GPU canvas, so it can never fall out of sync with the basemap
+// the way a JS-repositioned DOM element can on a page with other polling/
+// rendering work competing for the main thread. See trafficinsight.html's
+// "Marker position convention" comment for the fuller writeup. ──────────
+const D2_INC_CIRCLE_PX = 26, D2_INC_ICON_PX = 18;
+let _d2IncidentIconIds = new Set(); // category icon ids already map.addImage()'d
+// d2RenderFallbackIcon draws the generic "❗ on a gray circle" marker (same
+// look the old DOM fallback gave) onto an offscreen canvas at sizePx*dpr —
+// map.addImage accepts that directly (with {pixelRatio:dpr}), no network
+// round-trip or style "glyphs" URL needed (a symbol layer's text-field
+// does need one, and silently no-ops without it — canvas avoids the risk).
+function d2RenderFallbackIcon(sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#6b7280';
+  ctx.beginPath();
+  ctx.arc(px / 2, px / 2, px / 2 - dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${14 * dpr}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('!', px / 2, px / 2 + dpr);
+  return ctx.getImageData(0, 0, px, px);
+}
+// d2ResizeIconToCanvas fits an admin-uploaded category icon (uploaded at
+// whatever resolution the admin had on hand) onto a sizePx*dpr canvas,
+// "object-fit:contain" style, so every category renders at the same size.
+function d2ResizeIconToCanvas(image, sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  const iw = image.width || image.naturalWidth || px;
+  const ih = image.height || image.naturalHeight || px;
+  const scale = Math.min(px / iw, px / ih);
+  const dw = iw * scale, dh = ih * scale;
+  ctx.drawImage(image, (px - dw) / 2, (px - dh) / 2, dw, dh);
+  return ctx.getImageData(0, 0, px, px);
+}
+function d2CategoryIconId(category) { return 'd2-cat-icon:' + category; }
+// loadD2IncidentCategoryImages loads every category's admin-uploaded icon
+// (if any) into the map's image sprite once each, keyed by category+
+// updated_at so a re-upload (which changes d2CategoryIconSrc's cache-bust
+// param) registers a fresh image instead of reusing the stale one.
+function loadD2IncidentCategoryImages() {
+  if (!_mapInited) return;
+  Object.values(_d2CategoryIcons).forEach(ci => {
+    if (!ci.content_type) return;
+    const id = d2CategoryIconId(ci.category);
+    const cacheKey = id + ':' + (ci.updated_at || '');
+    if (_d2IncidentIconIds.has(cacheKey)) return;
+    const dpr = window.devicePixelRatio || 1;
+    _map.loadImage(d2CategoryIconSrc(ci.category)).then(res => {
+      if (!res || !res.data) return;
+      if (_map.hasImage(id)) _map.removeImage(id);
+      _map.addImage(id, d2ResizeIconToCanvas(res.data, D2_INC_ICON_PX, dpr), { pixelRatio: dpr });
+      _d2IncidentIconIds.add(cacheKey);
+    }).catch(() => { /* category just falls back to the ❗ glyph */ });
+  });
+}
+function d2IncidentPopupHtml(p) {
+  return `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px;color:#1a1a1a">` +
+    (p.time ? `<b style="color:#0b1422">${new Date(p.time).toLocaleString('vi-VN')}</b><br>` : '') +
+    escH(p.content||'') + (p.unit ? `<br><i>${escH(p.unit)}</i>` : '') + `</div>`;
+}
+
 async function initD2Map() {
   // Visible to every user, not just admin — the panel now also holds the
   // Hiển thị (events/heatmap) toggles and the always-on follow-scan status,
@@ -1015,6 +1089,7 @@ async function initD2Map() {
     _map.on('load', () => {
       _mapInited = true;
       addJamLayers();
+      addD2IncidentLayers();
       applyHeatmapCfg();
       refreshMapWindow();
     });
@@ -1395,51 +1470,62 @@ async function resetHeatmapCfg() {
   applyHeatmapCfg();
 }
 
-// ── Incident markers (DOM, admin-configured icon/color per category) ────
-// No-ops if the map isn't ready yet — loadMapWindowData only ever runs
-// after initD2Map's 'load' handler fires (it's the thing that calls it
-// the first time), so this guard exists purely for defense, not as a
-// pending-replay queue.
-//
-// Marker position convention (project-wide — see map.html's commit "Fix
-// Traffic Event/AI Event markers appearing to drift from their true
-// position when zoomed out", and the longer note in trafficinsight.html
-// near its own incident-marker code): el.style.cssText below already sets
-// the element's size BEFORE constructing the Marker, which is the main
-// fix — but always also re-run setLngLat() once more right after addTo(),
-// once the element is actually attached with its final size, as a second
-// line of defense. For a point set that's purely for display (no
-// per-marker DOM/hover content), prefer a native GL layer instead (see
-// `jams-dot` above) — it's painted in lockstep with the basemap every
-// frame and categorically cannot drift; DOM Markers are for points that
-// need real per-marker interactivity, like the click-to-popup below.
-let _d2IncMarkers = [];
+// ── Incident markers — native GL layer (d2-incidents-bg + d2-incidents-
+// icon), not DOM Markers. DOM markers here used to visibly drift from
+// their true lat/lng when zooming out, the same issue www/trafficinsight.
+// html's own incident layer hit and fixed the same way: a GL layer is
+// painted by the map's own GPU canvas in lockstep with the basemap, so it
+// cannot fall out of sync the way a JS-repositioned DOM element can.
+// Click-to-popup still works fine on a GL layer (map.on('click', layerId,
+// ...) + the feature's own properties) — it was never a reason to keep
+// DOM Markers, see addD2IncidentLayers below.
+function addD2IncidentLayers() {
+  if (!_map) return;
+  _map.addSource('d2-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  _map.addLayer({
+    id: 'd2-incidents-bg', type: 'circle', source: 'd2-incidents',
+    paint: {
+      'circle-radius': D2_INC_CIRCLE_PX / 2,
+      'circle-color': ['get', 'color'],
+      'circle-stroke-width': 2, 'circle-stroke-color': 'rgba(255,255,255,.85)',
+    },
+  });
+  const dpr = window.devicePixelRatio || 1;
+  _map.addImage('d2-fallback-icon', d2RenderFallbackIcon(D2_INC_CIRCLE_PX, dpr), { pixelRatio: dpr });
+  _map.addLayer({
+    id: 'd2-incidents-icon', type: 'symbol', source: 'd2-incidents',
+    layout: {
+      'icon-image': ['case', ['get', 'hasIcon'], ['get', 'iconId'], 'd2-fallback-icon'],
+      'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+    },
+  });
+  _map.on('click', 'd2-incidents-bg', e => {
+    const p = e.features[0].properties;
+    new vietmapgl.Popup({ closeButton: false, maxWidth: '220px' })
+      .setLngLat(e.lngLat).setHTML(d2IncidentPopupHtml(p)).addTo(_map);
+  });
+  _map.on('mouseenter', 'd2-incidents-bg', () => _map.getCanvas().style.cursor = 'pointer');
+  _map.on('mouseleave', 'd2-incidents-bg', () => _map.getCanvas().style.cursor = '');
+}
+
+// updateD2MapIncidents replaces the d2-incidents source's data wholesale —
+// no per-marker diffing needed, the GL layer just redraws from whatever
+// GeoJSON is handed to it.
 function updateD2MapIncidents(pts) {
   if (!_map || !_mapInited) return;
-  try {
-    _d2IncMarkers.forEach(m => m.remove());
-    _d2IncMarkers = pts.map(i => {
-      const ci = _d2CategoryIcons[i.category];
-      const bg = (ci && ci.color) || '#6b7280';
-      const html = (ci && ci.content_type)
-        ? `<img src="${d2CategoryIconSrc(i.category)}" alt="" style="width:18px;height:18px;object-fit:contain;display:block;pointer-events:none">`
-        : '❗';
-      const el = document.createElement('div');
-      el.style.cssText = `width:26px;height:26px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;border:2px solid rgba(255,255,255,.85);box-shadow:0 2px 6px rgba(0,0,0,.5)`;
-      el.innerHTML = html;
-      el.title = [i.category, i.content, i.unit].filter(Boolean).join(' — ');
-      el.addEventListener('click', () => {
-        const html2 = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px;color:#1a1a1a">` +
-          (i.time ? `<b style="color:#0b1422">${new Date(i.time).toLocaleString('vi-VN')}</b><br>` : '') +
-          escH(i.content||'') + (i.unit ? `<br><i>${escH(i.unit)}</i>` : '') + `</div>`;
-        new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat([i.lng, i.lat]).setHTML(html2).addTo(_map);
-      });
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]);
-      marker.addTo(_map);
-      marker.setLngLat([i.lng, i.lat]);
-      return marker;
-    });
-  } catch(_) {}
+  loadD2IncidentCategoryImages();
+  const features = (pts || []).map(i => {
+    const ci = _d2CategoryIcons[i.category];
+    const hasIcon = !!(ci && ci.content_type);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [i.lng, i.lat] },
+      properties: {
+        category: i.category || '', content: i.content || '', unit: i.unit || '', time: i.time || '',
+        color: (ci && ci.color) || '#6b7280', hasIcon, iconId: hasIcon ? d2CategoryIconId(i.category) : '',
+      },
+    };
+  });
+  _map.getSource('d2-incidents')?.setData({ type: 'FeatureCollection', features });
 }
 
 // ── Render: header summary + status pills ───────────────────────────────
