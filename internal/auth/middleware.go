@@ -249,6 +249,12 @@ var tabExtraPaths = map[string][]string{
 	// original Dashboard) — same extra-path list since it reads the exact
 	// same backend data, just under its own permission.
 	TabDashboard2: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
+	// TabDashboard3 is a separate grant again, independent of both
+	// TabDashboard and TabDashboard2 (Dashboard 03 started as a trimmed
+	// clone of Dashboard 02 but is expected to grow its own content later,
+	// for a possibly different audience) — same extra-path list for now
+	// since today it reads the exact same backend data.
+	TabDashboard3: {"/api/dashboard", "/api/heatmap-cfg", "/api/traveltime/appearance", "/api/traveltime/forecast", "/api/vietmap/route", "/api/traffic/data", "/api/trafficflow/hourly"},
 	TabLog:        {"/api/log"},
 	TabConfig:     {"/api/config", "/api/restart"},
 	TabCounting:   {"/api/counting"},
