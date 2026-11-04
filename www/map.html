@@ -421,8 +421,7 @@ body.sb-collapsed           { --map-left:0; }
   /* transform is NOT transitioned — vietmapgl.Marker sets this same
      element's transform to position it on the map (pan/zoom/drag), and a
      CSS transition on it would animate/lag every map movement instead of
-     tracking it exactly, same fix as .te-marker/.aie-marker/.tf-marker/
-     .stn-marker-wrap below. */
+     tracking it exactly, same fix as .stn-marker-wrap below. */
   transition:background .15s;
 }
 .cam-marker-wrap:hover { transform:scale(1.2); }
@@ -462,72 +461,22 @@ body.sb-collapsed           { --map-left:0; }
 .stn-marker-wrap:hover { transform:scale(1.12); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 .stn-marker-wrap.stn-placing { outline:2px dashed #fff; cursor:crosshair; }
 
-/* ── Traffic Event layer markers (recent incident bubbles) ──────
-   Icon + background color are admin-configured PER CATEGORY VALUE via
-   internal/incidents/category_icons.go (Admin → 🚨 Sự cố GT tab) — fetched
-   once as a category→{icon,color} map (see loadTeCategoryIcons) and looked
-   up by inc.category in teMarkerContentFor. Category is free text, so
-   nothing here may hardcode a specific category string ("Đông xe", "Va
-   chạm", …) to recognize; any category with no admin-configured icon/color
-   falls back to .te-marker-khac (generic gray ❗), same fallback regardless
-   of what the unmapped category's text actually is. */
-.te-marker {
-  position:relative; width:30px; height:30px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  font-size:15px; line-height:1; cursor:pointer;
-  border:2px solid rgba(255,255,255,.92); box-shadow:0 2px 8px rgba(0,0,0,.55);
-  /* transform is NOT transitioned — see .cam-marker-wrap's comment above.
-     margin-left/margin-top ARE — that's how applyEventBubbleOverlapAvoidance's
-     camera-nudge animates smoothly without touching transform. */
-  transition:box-shadow .15s, margin-left .2s, margin-top .2s;
-}
-.te-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
-.te-marker-khac     { background:#6b7280; } /* fallback: no icon/color configured for this category */
-.te-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
-.te-sev-badge {
-  position:absolute; top:-5px; right:-5px; min-width:15px; height:15px; padding:0 2px;
-  border-radius:50%; background:#111827; color:#fff; font-size:.62rem; font-weight:800;
-  display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,.85);
-}
-
-/* ── AI Event layer markers (OMNIA/FPT VDS push) ─────────────────
-   Same bubble mechanics as .te-marker, distinct cyan border so the two
-   independent layers read apart at a glance; icon mapping is admin-
-   configured server-side (internal/aievent/categories.go) rather than a
-   fixed per-category list, so unmapped/unmatched events fall back to a
-   generic gray ❓ instead of ❗ (Traffic Event's fallback) to signal
-   "unclassified AI source", not "unrecognized category". */
-.aie-marker {
-  position:relative; width:30px; height:30px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  font-size:15px; line-height:1; cursor:pointer;
-  border:2px solid #22d3ee; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  /* transform is NOT transitioned — see .cam-marker-wrap's comment above;
-     margin-left/margin-top ARE — see .te-marker's comment above. */
-  transition:box-shadow .15s, margin-left .2s, margin-top .2s;
-  background:#6b7280;
-}
-.aie-marker:hover { transform:scale(1.15); box-shadow:0 3px 14px rgba(0,0,0,.7); }
-.aie-marker-img { width:20px; height:20px; object-fit:contain; display:block; pointer-events:none; }
-/* Same badge mechanics/position as .te-sev-badge (Traffic Event's severity
-   number), but a fixed "AI" label instead of a number — AI Event records
-   have no severity field to show, this badge's job is purely to mark the
-   bubble's source (AI-pushed vs. Traffic Event's crowd-sourced/manual
-   severity) at a glance, since the two layers can both be on at once and
-   use similar icon artwork for overlapping categories. */
-.aie-badge {
-  position:absolute; top:-5px; right:-5px; min-width:17px; height:15px; padding:0 3px;
-  border-radius:7px; background:#0e7490; color:#fff; font-size:.58rem; font-weight:800;
-  letter-spacing:.02em;
-  display:flex; align-items:center; justify-content:center; border:1px solid rgba(255,255,255,.85);
-}
+/* Traffic Event (Sự cố GT), AI Event and Đo đếm lưu lượng bubbles are now
+   native GL layers (te-incidents-icon/aie-events-icon/tf-sensors-icon —
+   see teComposeIcon/aieComposeIcon/tfComposeIcon), not DOM markers, so
+   they need no CSS of their own anymore — their whole look (background,
+   border, icon, severity/"AI" badge) is baked directly onto the canvas
+   image each one registers via map.addImage. This was switched from DOM
+   markers specifically because they drifted from their true lat/lng when
+   zooming out; a GL layer is painted by the map's own GPU canvas and
+   cannot fall out of sync with the basemap the same way. */
 
 /* ── AI Event image preview box ("Xem trước"-style, no LIVE badge) ───
    Same floating-box mechanics/size as .snap-preview (always shown near
-   the marker while the layer is on, no separate toggle) but cyan-bordered
-   to match .aie-marker, and intentionally has no live/blinking badge —
-   these are static attachment snapshots from the source push, not a
-   live camera feed. */
+   the bubble while the layer is on, no separate toggle) but cyan-bordered
+   to match the AI Event bubble layer's own cyan ring, and intentionally
+   has no live/blinking badge — these are static attachment snapshots from
+   the source push, not a live camera feed. */
 .aie-preview {
   position:absolute;
   width:148px;
@@ -552,32 +501,6 @@ body.sb-collapsed           { --map-left:0; }
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   background:rgba(0,0,0,.55);
 }
-
-/* ── Hawkwise traffic-flow layer markers ─────────────────────────
-   Own subsystem from .stn-marker-wrap (counting Station) per the user's
-   explicit instruction, but shaped identically to it (same pill shape) —
-   purple-bordered and colored by Hawkwise's own traffic_status field (vs.
-   Trạm đo's configurable-threshold color) so the two independently-
-   toggleable layers still read apart at a glance. Unlike Trạm đo, this
-   layer DOES participate in applyEventBubbleOverlapAvoidance's
-   camera-overlap nudge + leader line (a sensor is routinely installed
-   right at a camera's spot) — see that function's doc comment for how the
-   margin-based nudge avoids the earlier instant-pop "jump" a plain
-   marker.setOffset() produced. */
-.tf-marker {
-  border:2px solid #a78bfa;
-  border-radius:14px; min-width:40px; height:26px;
-  display:flex; align-items:center; justify-content:center;
-  padding:0 8px; gap:3px;
-  font-size:11px; font-weight:700; color:#fff;
-  cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.55);
-  /* transform is NOT transitioned — see .cam-marker-wrap's comment above;
-     margin-left/margin-top ARE — see .te-marker's comment above. */
-  white-space:nowrap; transition:box-shadow .15s, margin-left .2s, margin-top .2s;
-  font-family:system-ui,-apple-system,Arial,sans-serif;
-  background:#6b7280; /* traffic_status unknown/null fallback */
-}
-.tf-marker:hover { transform:scale(1.12); box-shadow:0 3px 14px rgba(0,0,0,.7); }
 
 /* ── Station / type edit panels ─────────────────────────────── */
 #stnPanel, #stnTypePanel {
@@ -968,13 +891,7 @@ body.sb-collapsed           { --map-left:0; }
 </div>
 
 <!-- ── Overlay container ──────────────────────────────────────── -->
-<div id="mapOverlays">
-  <!-- Leader lines connecting a camera-overlap-nudged event bubble back to
-       its true lat/lng — see applyEventBubbleOverlapAvoidance(). Shares
-       #mapOverlays' exact box (and therefore map.project()'s pixel space)
-       with the PiP preview windows below it. -->
-  <svg id="eventBubbleLeadersSvg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none"></svg>
-</div>
+<div id="mapOverlays"></div>
 
 <!-- ── Edit panel ────────────────────────────────────────────── -->
 <div id="editPanel">
@@ -1531,18 +1448,23 @@ let _searchHits  = [];
 let _searchCenter = null; // [lng, lat]
 let _searchMode = false, _editMode = false, _editingID = null;
 let _incidentAddMode = false; // "Traffic Event" layer on: right-click opens the add modal, pre-filled with that point's lat/lng
-let _teMarkers = {};      // incident id -> { marker, el } — the layer's live bubble markers
-let _tePollTimer = null;  // setInterval handle refreshing _teMarkers while the layer is on
+// _teFeatures/_aieFeatures/_tfFeatures hold the last-fetched GeoJSON feature
+// list for each layer — the layers themselves are native GL layers (see
+// "Event bubble layers" below), so these arrays exist purely so
+// rebuildMapLayers can restore each source's data after a style change
+// (style.load wipes every custom source) without re-fetching from the API.
+let _teFeatures = [];
+let _tePollTimer = null;  // setInterval handle refreshing the layer while it's on
 // ── AI Event layer ("🤖 AI Event" toggle) state ──
 let _aiEventMode = false;       // layer on: shows AI-source event bubbles + image previews
-let _aiEventMarkers = {};       // record_id -> { marker, el } — bubble markers
+let _aieFeatures = [];
 let _aiEventPreviews = new Map(); // record_id -> { el, img, lon, lat } — floating image preview boxes
 let _aiEventPollTimer = null;   // setInterval handle refreshing the above while the layer is on
 let _aiEventImgDenied = false;  // true once the user has declined device verification this session (avoid re-prompting every poll)
 // ── Hawkwise traffic-flow layer ("📊 Đo đếm lưu lượng" toggle) state — own
 // subsystem from the "📊 Trạm đo" counting Station layer, per plan §4.1 ──
 let _trafficFlowMode = false;     // layer on: shows per-sensor volume/traffic_status bubbles
-let _trafficFlowMarkers = {};     // sensor_id -> { marker, el, lon, lat }
+let _tfFeatures = [];
 let _trafficFlowPollTimer = null; // setInterval handle while the layer is on
 // ── 3D view ("🧊 3D" toggle) state ──
 const MAP_3D_PITCH = 55;        // degrees; VietMap/MapLibre docs call >60 "experimental, may render incorrectly"
@@ -1729,8 +1651,10 @@ function rebuildMapLayers() {
   // Clean up any existing custom layers/sources
   const LAYERS = ['clusters','unclustered-point',
                   'search-circle-fill','search-circle-line','search-center-dot',
-                  'map-jams-dot','map-jams-heat'];
-  const SOURCES = ['cameras','search-circle','search-center','map-jams'];
+                  'map-jams-dot','map-jams-heat',
+                  'te-incidents-icon','aie-events-icon','tf-sensors-icon'];
+  const SOURCES = ['cameras','search-circle','search-center','map-jams',
+                    'te-incidents','aie-events','tf-sensors'];
   LAYERS.forEach(id  => { try { if (map.getLayer(id))   map.removeLayer(id);   } catch(_){} });
   SOURCES.forEach(id => { try { if (map.getSource(id))  map.removeSource(id);  } catch(_){} });
 
@@ -1794,6 +1718,40 @@ function rebuildMapLayers() {
   const camVis = _camerasVisible ? 'visible' : 'none';
   map.setLayoutProperty('clusters', 'visibility', camVis);
   map.setLayoutProperty('unclustered-point', 'visibility', camVis);
+
+  // Event bubble layers (Traffic Event / AI Event / Đo đếm lưu lượng) — one
+  // GeoJSON source + one symbol layer each, icon-image driven by whatever
+  // was last baked for that feature (see teComposeIcon/aieComposeIcon/
+  // tfComposeIcon and their ensure*Icon callers). Restored from
+  // _teFeatures/_aieFeatures/_tfFeatures (not re-fetched) since a style
+  // change wipes the source same as everything else here, but the data
+  // itself hasn't gone stale.
+  map.addSource('te-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: _teFeatures } });
+  map.addLayer({
+    id: 'te-incidents-icon', type: 'symbol', source: 'te-incidents',
+    layout: { 'icon-image': ['get', 'iconId'], 'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+  });
+  map.addSource('aie-events', { type: 'geojson', data: { type: 'FeatureCollection', features: _aieFeatures } });
+  map.addLayer({
+    id: 'aie-events-icon', type: 'symbol', source: 'aie-events',
+    layout: { 'icon-image': ['get', 'iconId'], 'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+  });
+  map.addSource('tf-sensors', { type: 'geojson', data: { type: 'FeatureCollection', features: _tfFeatures } });
+  map.addLayer({
+    id: 'tf-sensors-icon', type: 'symbol', source: 'tf-sensors',
+    layout: { 'icon-image': ['get', 'iconId'], 'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+  });
+  map.setLayoutProperty('te-incidents-icon', 'visibility', _incidentAddMode ? 'visible' : 'none');
+  map.setLayoutProperty('aie-events-icon', 'visibility', _aiEventMode ? 'visible' : 'none');
+  map.setLayoutProperty('tf-sensors-icon', 'visibility', _trafficFlowMode ? 'visible' : 'none');
+  // The icons these layers reference were baked onto the PREVIOUS style's
+  // image sprite, which setStyle() just wiped — re-bake (and re-fetch each
+  // incident's admin-uploaded category icon, cheap thanks to
+  // teCategoryImage's own promise cache) before the layers above draw a
+  // blank/fallback frame.
+  if (_teFeatures.length && _incidentAddMode) loadActiveIncidents();
+  if (_aieFeatures.length && _aiEventMode) loadActiveAIEvents();
+  if (_tfFeatures.length && _trafficFlowMode) loadActiveTrafficFlow();
 
   // Search circle sources/layers
   if (!map.getSource('search-circle')) map.addSource('search-circle', { type:'geojson', data: emptyFC() });
@@ -1971,10 +1929,6 @@ async function initMap(apiKey) {
   // Snapshot preview thumbnails — same throttled render hook (no-op unless enabled)
   map.on('render', schedulePreviewUpdate);
   map.on('render', scheduleAIEventPreviewUpdate);
-  // Event-bubble camera-overlap nudge + leader lines — same throttled
-  // render hook; screen-pixel proximity to a camera icon changes with
-  // every zoom/pan even though no bubble's real lat/lng ever changes.
-  map.on('render', scheduleEventBubbleRefresh);
 
   // Click events are registered once (survive style change)
   map.on('click', 'clusters', async e => {
@@ -2012,8 +1966,37 @@ async function initMap(apiKey) {
     openModal(id);
   });
 
+  // Traffic Event / AI Event / Đo đếm lưu lượng bubble layers: click shows
+  // the same toast the old DOM markers' own click listener did, built from
+  // the clicked feature's own properties. Cursor handling is unconditional
+  // pointer-on-hover (unlike the shared unclustered-point/clusters hover
+  // logic above, which suppresses pointer during edit/draw modes) — these
+  // three layers were always just a display+toast, never an edit target,
+  // same as the DOM markers' plain CSS cursor:pointer before them.
+  [['te-incidents-icon', p => [p.category + (p.severity ? ' • Mức độ ' + p.severity : ''), p.content, p.unit]],
+   ['aie-events-icon',   p => [p.category_label, p.description, p.source_processor]],
+   ['tf-sensors-icon',   p => [p.label, 'Lưu lượng: ' + tfFmtNum(p.total),
+                                p.traffic_status ? 'Trạng thái: ' + p.traffic_status : '',
+                                p.avg_speed ? 'Tốc độ TB: ' + tfFmtNum(Math.round(p.avg_speed)) : '']],
+  ].forEach(([layerId, tipParts]) => {
+    map.on('click', layerId, e => {
+      const tip = tipParts(e.features[0].properties).filter(Boolean).join(' — ');
+      if (typeof toast === 'function') toast(tip, 'info');
+    });
+    map.on('mouseenter', layerId, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', layerId, () => map.getCanvas().style.cursor =
+      (_regionDrawing || _routeMode || _gisFeatureDrawing || _incidentAddMode || _searchMode) ? 'crosshair' : '');
+  });
+
   map.on('click', e => {
-    const layers = ['unclustered-point','clusters'];
+    // te-incidents-icon/aie-events-icon/tf-sensors-icon: these have their
+    // own click handlers (toast/popup, see loadActiveIncidents etc.) — a
+    // GL layer's click sits directly on the map canvas, unlike the old DOM
+    // markers (whose own click handler's e.stopPropagation() kept this
+    // handler from ever seeing it), so without this exclusion a bubble
+    // click would ALSO run whatever draw/search/edit mode is active below
+    // (e.g. adding a route point) at that same spot.
+    const layers = ['unclustered-point','clusters','te-incidents-icon','aie-events-icon','tf-sensors-icon'];
     if (map.queryRenderedFeatures(e.point, { layers }).length > 0) return;
     if (_regionDrawing) { addRegionPoint(e.lngLat); return; }
     if (_routeMode) { addRoutePoint(e.lngLat); return; }
@@ -3074,14 +3057,15 @@ document.getElementById('btnIncidentAdd').addEventListener('click', function() {
   _incidentAddMode = turningOn;
   this.classList.toggle('active', _incidentAddMode);
   if (map) map.getCanvas().style.cursor = _incidentAddMode ? 'crosshair' : '';
+  if (map && map.getLayer('te-incidents-icon')) map.setLayoutProperty('te-incidents-icon', 'visibility', _incidentAddMode ? 'visible' : 'none');
   if (turningOn) {
     loadTeCategoryIcons().then(loadActiveIncidents);
     if (_tePollTimer) clearInterval(_tePollTimer);
     _tePollTimer = setInterval(loadActiveIncidents, 10000); // keep bubbles fresh as events age out of the window
   } else {
     if (_tePollTimer) { clearInterval(_tePollTimer); _tePollTimer = null; }
-    Object.keys(_teMarkers).forEach(id => { _teMarkers[id].marker.remove(); removeEventBubbleLeader('te:' + id); });
-    _teMarkers = {};
+    _teFeatures = [];
+    map.getSource('te-incidents')?.setData({ type: 'FeatureCollection', features: [] });
   }
 });
 
@@ -3102,6 +3086,7 @@ document.getElementById('btnAIEvent').addEventListener('click', function() {
   const turningOn = !_aiEventMode;
   _aiEventMode = turningOn;
   this.classList.toggle('active', _aiEventMode);
+  if (map && map.getLayer('aie-events-icon')) map.setLayoutProperty('aie-events-icon', 'visibility', _aiEventMode ? 'visible' : 'none');
   if (turningOn) {
     _aiEventImgDenied = false; // give the step-up prompt a fresh chance each time the layer is turned on
     loadActiveAIEvents();
@@ -3109,8 +3094,8 @@ document.getElementById('btnAIEvent').addEventListener('click', function() {
     _aiEventPollTimer = setInterval(loadActiveAIEvents, 10000); // keep bubbles/previews fresh as events age out of the window
   } else {
     if (_aiEventPollTimer) { clearInterval(_aiEventPollTimer); _aiEventPollTimer = null; }
-    Object.keys(_aiEventMarkers).forEach(id => { _aiEventMarkers[id].marker.remove(); removeEventBubbleLeader('aie:' + id); });
-    _aiEventMarkers = {};
+    _aieFeatures = [];
+    map.getSource('aie-events')?.setData({ type: 'FeatureCollection', features: [] });
     clearAIEventPreviews();
   }
 });
@@ -3122,14 +3107,16 @@ document.getElementById('btnTrafficFlow').addEventListener('click', function() {
   const turningOn = !_trafficFlowMode;
   _trafficFlowMode = turningOn;
   this.classList.toggle('active', _trafficFlowMode);
+  if (map && map.getLayer('tf-sensors-icon')) map.setLayoutProperty('tf-sensors-icon', 'visibility', _trafficFlowMode ? 'visible' : 'none');
   if (turningOn) {
     loadActiveTrafficFlow();
     if (_trafficFlowPollTimer) clearInterval(_trafficFlowPollTimer);
     _trafficFlowPollTimer = setInterval(loadActiveTrafficFlow, 15000); // ~5-min push cycle; 15s keeps bubbles reasonably fresh without hammering the API
   } else {
     if (_trafficFlowPollTimer) { clearInterval(_trafficFlowPollTimer); _trafficFlowPollTimer = null; }
-    Object.keys(_trafficFlowMarkers).forEach(id => { _trafficFlowMarkers[id].marker.remove(); removeEventBubbleLeader('tf:' + id); });
-    _trafficFlowMarkers = {};
+    pruneTfIcons(new Set());
+    _tfFeatures = [];
+    map.getSource('tf-sensors')?.setData({ type: 'FeatureCollection', features: [] });
   }
 });
 
@@ -3551,123 +3538,12 @@ document.getElementById('incAddModalClose').addEventListener('click', closeMapIn
 document.getElementById('incAddCancel').addEventListener('click', closeMapIncidentModal);
 document.getElementById('incAddSave').addEventListener('click', saveMapIncident);
 
-// ── Event-bubble camera-overlap avoidance + leader line ─────────────────
-// Shared by all three bubble layers (Traffic Event, AI Event, Đo đếm lưu
-// lượng). Each bubble's true geographic position always stays exactly at
-// its real lat/lng — marker.setLngLat is the only thing that ever sets it,
-// never altered for layout reasons. When that position renders within
-// EVENT_CAM_OVERLAP_PX screen pixels of a camera icon, the bubble is
-// visually nudged aside a little, and a short thin solid leader line is
-// drawn from the true point to the nudged bubble so the real location is
-// never ambiguous. Re-applied on every render frame (pan/zoom/rotate),
-// since how close two points render in SCREEN pixels changes with zoom
-// even though neither point's lngLat changed.
-//
-// The nudge is applied via margin-left/margin-top on the marker's own
-// element, NOT marker.setOffset()/transform: vietmapgl.Marker repositions
-// a marker by writing a fresh `transform` to this same element on every
-// map move, with no CSS transition on `transform` (see .te-marker's CSS
-// comment — that transition caused bubbles to visibly glide/lag behind
-// the map). margin is a different CSS property, laid out BEFORE transform
-// is applied on top, so it combines additively with the library's own
-// positioning without touching it — and CAN have its own short transition,
-// so crossing the overlap threshold reads as a small, smooth, deliberate
-// nudge instead of an instant, jarring pop (the "nhảy" a plain
-// marker.setOffset() produced when first tried for Đo đếm lưu lượng).
-const EVENT_CAM_OVERLAP_PX = 22;   // bubble nudges aside once its true screen position is this close to a camera icon
-const EVENT_CAM_NUDGE = [14, -14]; // small fixed screen-pixel nudge (up-right), independent of zoom
-let _eventBubbleLeaders = new Map(); // "layer:id" -> SVGLineElement
-let _evbRefreshPending = false;
-
-// Every real plotted camera's current screen position — real cameras only
-// (_locations filtered to ones with an active stream, matching how the
-// base "cameras" GeoJSON layer itself is built, see buildCamerasGeoJSON),
-// not every known location (unplaced cameras aren't drawn on the map at
-// all). Computed once per refresh pass (scheduleEventBubbleRefresh) and
-// shared across every bubble's check that pass, rather than re-projecting
-// the same few hundred cameras once per bubble — matters during a
-// pan/zoom gesture re-running this every animation frame.
-function cameraPixelPositions() {
-  if (!map || !Array.isArray(_locations)) return [];
-  const out = [];
-  for (const loc of _locations) {
-    if (!_streamByID[loc.id] || loc.lat == null || loc.lon == null) continue;
-    out.push(map.project([loc.lon, loc.lat]));
-  }
-  return out;
-}
-
-function nearestPixelDist(px, py, camPix) {
-  let best = Infinity;
-  for (const p of camPix) {
-    const d = Math.hypot(p.x - px, p.y - py);
-    if (d < best) best = d;
-  }
-  return best;
-}
-
-// Call once per marker whenever its true lon/lat is (re)set, and again on
-// every map 'move' (see scheduleEventBubbleRefresh) — never changes the
-// marker's lngLat, only its element's margin (the nudge) and the leader
-// line. el is the marker's own DOM element — callers already have it from
-// their own {marker, el} entry, no need to go through the Marker object at
-// all here. camPix is optional — omitted on the infrequent (poll-triggered)
-// call sites, where computing it fresh each time is cheap;
-// scheduleEventBubbleRefresh passes one shared array computed once for the
-// whole per-frame pass.
-function applyEventBubbleOverlapAvoidance(key, el, lon, lat, camPix) {
-  if (!map) return;
-  const pix = camPix || cameraPixelPositions();
-  const truePt = map.project([lon, lat]);
-  const overlapping = nearestPixelDist(truePt.x, truePt.y, pix) < EVENT_CAM_OVERLAP_PX;
-
-  el.style.marginLeft = overlapping ? EVENT_CAM_NUDGE[0] + 'px' : '0';
-  el.style.marginTop  = overlapping ? EVENT_CAM_NUDGE[1] + 'px' : '0';
-
-  if (!overlapping) {
-    removeEventBubbleLeader(key);
-    return;
-  }
-  let line = _eventBubbleLeaders.get(key);
-  if (!line) {
-    line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('stroke', 'rgba(255,255,255,.9)');
-    line.setAttribute('stroke-width', '1.2');
-    document.getElementById('eventBubbleLeadersSvg').appendChild(line);
-    _eventBubbleLeaders.set(key, line);
-  }
-  line.setAttribute('x1', truePt.x);
-  line.setAttribute('y1', truePt.y);
-  line.setAttribute('x2', truePt.x + EVENT_CAM_NUDGE[0]);
-  line.setAttribute('y2', truePt.y + EVENT_CAM_NUDGE[1]);
-}
-
-function removeEventBubbleLeader(key) {
-  const line = _eventBubbleLeaders.get(key);
-  if (line) { line.remove(); _eventBubbleLeaders.delete(key); }
-}
-
-// Re-applies overlap avoidance for every currently-shown bubble across all
-// three layers — throttled to one pass per animation frame so a drag/zoom
-// gesture (many rapid 'move' events) doesn't recompute repeatedly per frame.
-function scheduleEventBubbleRefresh() {
-  if (_evbRefreshPending) return;
-  _evbRefreshPending = true;
-  requestAnimationFrame(() => {
-    _evbRefreshPending = false;
-    const camPix = cameraPixelPositions();
-    Object.entries(_teMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('te:' + id, e.el, e.lon, e.lat, camPix));
-    Object.entries(_aiEventMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('aie:' + id, e.el, e.lon, e.lat, camPix));
-    Object.entries(_trafficFlowMarkers || {}).forEach(([id, e]) => applyEventBubbleOverlapAvoidance('tf:' + id, e.el, e.lon, e.lat, camPix));
-  });
-}
-
 // ── Traffic Event layer: recent-incident bubble markers ────────────────
 // _teCategoryIcons caches GET /api/incidents/category-icons (category ->
 // {content_type,color,width,height}) — loaded once when the layer turns
 // on (see btnIncidentAdd's click handler) so every poll's marker render
 // doesn't re-fetch it. A category with no entry here, or an entry with no
-// content_type, has no custom icon; teMarkerContentFor falls back to the
+// content_type, has no custom icon; teComposeIcon falls back to the
 // same generic marker for it regardless of what that category's text is.
 let _teCategoryIcons = {};
 
@@ -3688,25 +3564,100 @@ function teCategoryIconSrc(category) {
   return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
 
+// ── Shared canvas-icon helpers (Traffic Event, AI Event, Đo đếm lưu
+// lượng — all three bubble layers below bake their full marker, background
+// + icon/glyph + badge, onto one canvas and register it once via
+// map.addImage, instead of a DOM element. A GL symbol layer's text-field
+// needs the style to declare a "glyphs" URL and silently no-ops without
+// one (verified against the real vietmapgl bundle, same finding
+// trafficinsight.html's own incident layer already documents) — baking
+// text onto the canvas directly sidesteps that risk entirely, for however
+// a marker's badge/number needs to appear. ──────────────────────────────
+function mapRoundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+// Draws image centered inside a px×px box, "object-fit:contain" style
+// (scaled to fit, aspect ratio kept, never cropped) — same convention
+// every per-category icon upload across this app already follows.
+function mapDrawContain(ctx, image, cx, cy, boxPx) {
+  const iw = image.width || image.naturalWidth || boxPx;
+  const ih = image.height || image.naturalHeight || boxPx;
+  const scale = Math.min(boxPx / iw, boxPx / ih);
+  const dw = iw * scale, dh = ih * scale;
+  ctx.drawImage(image, cx - dw / 2, cy - dh / 2, dw, dh);
+}
+
 // Icon/color are whatever the admin configured for inc.category in
 // Admin → 🚨 Sự cố GT (internal/incidents/category_icons.go) — never a
 // hardcoded match on the category's text.
-function teMarkerContentFor(inc) {
+const TE_CIRCLE_PX = 30, TE_ICON_PX = 20, TE_CANVAS_PX = TE_CIRCLE_PX + 8; // +8 margin for the severity badge's overhang
+let _teCategoryImagePromises = {}; // "category:updated_at" -> Promise<admin-uploaded icon image|null>
+let _teIconIds = new Set();        // composite icon keys already map.addImage()'d
+function teCategoryImage(category) {
+  const ci = _teCategoryIcons[category];
+  if (!ci || !ci.content_type) return Promise.resolve(null);
+  const cacheKey = category + ':' + (ci.updated_at || '');
+  if (!_teCategoryImagePromises[cacheKey]) {
+    _teCategoryImagePromises[cacheKey] = map.loadImage(teCategoryIconSrc(category))
+      .then(res => (res && res.data) || null).catch(() => null);
+  }
+  return _teCategoryImagePromises[cacheKey];
+}
+function teIconKey(category, severity, updatedAt) {
+  return 'te-icon:' + category + ':' + severity + ':' + (updatedAt || '');
+}
+function teComposeIcon(baseImg, color, severity, dpr) {
+  const px = TE_CANVAS_PX * dpr, c = px / 2, r = (TE_CIRCLE_PX / 2) * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color || '#6b7280';
+  ctx.beginPath(); ctx.arc(c, c, r - dpr, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 2 * dpr; ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.stroke();
+  if (baseImg) {
+    mapDrawContain(ctx, baseImg, c, c, TE_ICON_PX * dpr);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${15 * dpr}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('!', c, c + dpr);
+  }
+  if (severity > 0) {
+    const bx = c + r * .78, by = c - r * .78, br = 7.5 * dpr;
+    ctx.fillStyle = '#111827';
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = dpr; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 ${9 * dpr}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(severity), bx, by + .5 * dpr);
+  }
+  return ctx.getImageData(0, 0, px, px);
+}
+async function ensureTeIcon(inc) {
   const ci = _teCategoryIcons[inc.category];
-  if (ci && ci.content_type) {
-    return { cls: '', bg: ci.color || '#6b7280', html: `<img class="te-marker-img" src="${teCategoryIconSrc(inc.category)}" alt="">` };
-  }
-  if (ci && ci.color) {
-    return { cls: '', bg: ci.color, html: '❗' };
-  }
-  return { cls: 'te-marker-khac', bg: '', html: '❗' };
+  const severity = inc.severity || 0;
+  const key = teIconKey(inc.category, severity, ci?.updated_at);
+  if (_teIconIds.has(key) && map.hasImage(key)) return key;
+  const baseImg = await teCategoryImage(inc.category);
+  const dpr = window.devicePixelRatio || 1;
+  const data = teComposeIcon(baseImg, ci && ci.color, severity, dpr);
+  if (map.hasImage(key)) map.removeImage(key);
+  map.addImage(key, data, { pixelRatio: dpr });
+  _teIconIds.add(key);
+  return key;
 }
 
 // Fetches incidents within the admin-configured time window (server-side
-// filtered, see internal/incidents/api.go's handleActive) and syncs
-// _teMarkers to match: updates markers still in range, adds new ones, and
-// removes ones that aged out since the last poll. Called on layer-on, every
-// 10s while the layer stays on, right after a successful quick-add, and
+// filtered, see internal/incidents/api.go's handleActive) and replaces the
+// te-incidents source's data wholesale — called on layer-on, every 10s
+// while the layer stays on, right after a successful quick-add, and
 // whenever the tab regains visibility (see the visibilitychange listener).
 async function loadActiveIncidents() {
   if (!_incidentAddMode || !map) return;
@@ -3715,75 +3666,88 @@ async function loadActiveIncidents() {
   catch (e) { return; } // keep showing the last-known set rather than clearing on a transient failure
   if (!Array.isArray(list)) return;
 
-  const seen = new Set();
-  list.forEach(inc => {
-    seen.add(inc.id);
-    const { cls, bg, html } = teMarkerContentFor(inc);
-    const sevBadge = inc.severity ? `<span class="te-sev-badge">${inc.severity}</span>` : '';
-    const tip = [
-      inc.category + (inc.severity ? ' • Mức độ ' + inc.severity : ''),
-      inc.content, inc.unit,
-    ].filter(Boolean).join('\n');
-
-    let entry = _teMarkers[inc.id];
-    if (!entry) {
-      const el = document.createElement('div');
-      // className (carries width/height) MUST be set before constructing the
-      // Marker, not after — vietmapgl's anchor:'center' centering reads the
-      // element's size at that point; an unstyled 0×0 div bakes in a wrong
-      // (zero) center offset that stays off by a fixed SCREEN-pixel amount
-      // from then on. A fixed pixel error is negligible zoomed in (few
-      // meters) but drifts far from the real point zoomed out (many meters) —
-      // exactly the symptom this fixes.
-      el.className = 'te-marker ' + cls;
-      el.style.background = bg;
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        if (typeof toast === 'function') toast(el.title.replace(/\n/g, ' — '), 'info');
-      });
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([inc.lng, inc.lat]);
-      marker.addTo(map);
-      // Re-set once more now that el is actually attached to the map (with
-      // its real, final size) — belt-and-suspenders in case anything about
-      // the center-offset calculation above still used a stale measurement.
-      marker.setLngLat([inc.lng, inc.lat]);
-      entry = _teMarkers[inc.id] = { marker, el, lon: inc.lng, lat: inc.lat };
-    }
-    entry.lon = inc.lng;
-    entry.lat = inc.lat;
-    entry.el.className = 'te-marker ' + cls;
-    entry.el.style.background = bg;
-    entry.el.innerHTML = html + sevBadge;
-    entry.el.title = tip;
-    applyEventBubbleOverlapAvoidance('te:' + inc.id, entry.el, inc.lng, inc.lat);
-  });
-  // Drop markers for incidents that aged out of the window since the last poll.
-  Object.keys(_teMarkers).forEach(id => {
-    if (!seen.has(id)) { _teMarkers[id].marker.remove(); removeEventBubbleLeader('te:' + id); delete _teMarkers[id]; }
-  });
+  _teFeatures = await Promise.all(list.map(async inc => {
+    const iconId = await ensureTeIcon(inc);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [inc.lng, inc.lat] },
+      properties: {
+        category: inc.category || '', severity: inc.severity || 0,
+        content: inc.content || '', unit: inc.unit || '', iconId,
+      },
+    };
+  }));
+  map.getSource('te-incidents')?.setData({ type: 'FeatureCollection', features: _teFeatures });
 }
 document.getElementById('incAddModalBackdrop').addEventListener('click', e => { if (e.target === e.currentTarget) closeMapIncidentModal(); });
 
-// ── AI Event layer: bubble markers + image previews (OMNIA/FPT VDS push) ──
+// ── AI Event layer: GL bubble layer + image previews (OMNIA/FPT VDS push) ──
 // Icon file for a given icon key reported by GET /api/aievent/active (see
 // internal/aievent/categories.go's ValidIconKeys — the mapping itself is
 // admin-configured server-side, this is just "which artwork for which
-// key", same 4 files the Traffic Event layer already ships).
-function aieMarkerContentFor(ev) {
-  switch (ev.icon) {
-    case 'dong':    return { html: '<img class="aie-marker-img" src="traffic-jam.png" alt="">' };
-    case 'vachaam': return { html: '<img class="aie-marker-img" src="va-cham.png" alt="">' };
-    case 'ngap':    return { html: '<img class="aie-marker-img" src="ngap-nuoc.png" alt="">' };
-    case 'xesc':    return { html: '<img class="aie-marker-img" src="xe-su-co.png" alt="">' };
-    default:        return { html: '❓' }; // unmapped/unclassified — see .aie-marker's comment
+// key", same 4 files the Traffic Event layer already ships). Each of the 5
+// possible icons (4 keys + the unmapped/unclassified fallback) is baked
+// once — cyan ring + gray background + the artwork + a fixed "AI" badge —
+// and reused for every event sharing that icon; nothing here varies per
+// event the way the Traffic Event layer's severity badge does.
+const AIE_CIRCLE_PX = 30, AIE_ICON_PX = 20, AIE_CANVAS_PX = AIE_CIRCLE_PX + 8;
+const AIE_ICON_FILES = { dong: 'traffic-jam.png', vachaam: 'va-cham.png', ngap: 'ngap-nuoc.png', xesc: 'xe-su-co.png' };
+let _aieIconImagePromises = {}; // file -> Promise<image|null>
+let _aieIconIds = new Set();    // composite icon keys already map.addImage()'d
+function aieIconKey(icon) { return 'aie-icon:' + (AIE_ICON_FILES[icon] ? icon : 'unknown'); }
+function aieComposeIcon(baseImg, dpr) {
+  const px = AIE_CANVAS_PX * dpr, c = px / 2, r = (AIE_CIRCLE_PX / 2) * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#6b7280';
+  ctx.beginPath(); ctx.arc(c, c, r - dpr, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#22d3ee'; ctx.stroke();
+  if (baseImg) {
+    mapDrawContain(ctx, baseImg, c, c, AIE_ICON_PX * dpr);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${15 * dpr}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('?', c, c + dpr);
   }
+  // "AI" badge — pill shape, same top-right overhang as the Traffic Event
+  // layer's severity badge.
+  const bw = 16 * dpr, bh = 13 * dpr, bx = c + r * .78 - bw / 2, by = c - r * .78 - bh / 2;
+  mapRoundRectPath(ctx, bx, by, bw, bh, bh / 2);
+  ctx.fillStyle = '#0e7490'; ctx.fill();
+  ctx.lineWidth = dpr; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = `800 ${8 * dpr}px sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('AI', bx + bw / 2, by + bh / 2 + .5 * dpr);
+  return ctx.getImageData(0, 0, px, px);
+}
+async function ensureAieIcon(icon) {
+  const key = aieIconKey(icon);
+  if (_aieIconIds.has(key) && map.hasImage(key)) return key;
+  const file = AIE_ICON_FILES[icon];
+  let baseImg = null;
+  if (file) {
+    if (!_aieIconImagePromises[file]) {
+      _aieIconImagePromises[file] = map.loadImage(file).then(res => (res && res.data) || null).catch(() => null);
+    }
+    baseImg = await _aieIconImagePromises[file];
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const data = aieComposeIcon(baseImg, dpr);
+  if (map.hasImage(key)) map.removeImage(key);
+  map.addImage(key, data, { pixelRatio: dpr });
+  _aieIconIds.add(key);
+  return key;
 }
 
 // Fetches events within the admin-configured AI Event time window
-// (internal/aievent/api.go's handleActive) and syncs both the bubble
-// markers and the floating image previews to match — same "diff against
-// last-known set" approach as loadActiveIncidents, applied to two parallel
-// collections (_aiEventMarkers, _aiEventPreviews) instead of one.
+// (internal/aievent/api.go's handleActive) and replaces the aie-events
+// source's data wholesale, same spirit as loadActiveIncidents — plus syncs
+// the floating image previews, which stay DOM (they show real per-event
+// photos, genuinely need per-marker content) and position themselves
+// independently via map.project() on each event's own lon/lat, not via
+// this layer's markers.
 async function loadActiveAIEvents() {
   if (!_aiEventMode || !map) return;
   let list;
@@ -3791,50 +3755,34 @@ async function loadActiveAIEvents() {
   catch (e) { return; } // keep showing the last-known set rather than clearing on a transient failure
   if (!Array.isArray(list)) return;
 
-  const seen = new Set();
   const withImages = [];
-  list.forEach(ev => {
-    seen.add(ev.record_id);
-    const { html } = aieMarkerContentFor(ev);
-    const tip = [ev.category_label, ev.description, ev.source_processor].filter(Boolean).join('\n');
-
-    let entry = _aiEventMarkers[ev.record_id];
-    if (!entry) {
-      const el = document.createElement('div');
-      el.className = 'aie-marker';
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        if (typeof toast === 'function') toast(el.title.replace(/\n/g, ' — '), 'info');
-      });
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([ev.lng, ev.lat]);
-      marker.addTo(map);
-      // Re-set once more now that el is actually attached to the map (with
-      // its real, final size) — belt-and-suspenders in case anything about
-      // the center-offset calculation above still used a stale measurement.
-      marker.setLngLat([ev.lng, ev.lat]);
-      entry = _aiEventMarkers[ev.record_id] = { marker, el, lon: ev.lng, lat: ev.lat };
-    }
-    entry.lon = ev.lng;
-    entry.lat = ev.lat;
-    entry.el.innerHTML = html + '<span class="aie-badge">AI</span>';
-    entry.el.title = tip;
-    applyEventBubbleOverlapAvoidance('aie:' + ev.record_id, entry.el, ev.lng, ev.lat);
-
+  _aieFeatures = await Promise.all(list.map(async ev => {
+    const iconId = await ensureAieIcon(ev.icon);
     if (ev.image_paths && ev.image_paths.length) withImages.push(ev);
-  });
-  // Drop markers for events that aged out of the window since the last poll.
-  Object.keys(_aiEventMarkers).forEach(id => {
-    if (!seen.has(id)) { _aiEventMarkers[id].marker.remove(); removeEventBubbleLeader('aie:' + id); delete _aiEventMarkers[id]; }
-  });
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [ev.lng, ev.lat] },
+      properties: {
+        category_label: ev.category_label || '', description: ev.description || '',
+        source_processor: ev.source_processor || '', iconId,
+      },
+    };
+  }));
+  map.getSource('aie-events')?.setData({ type: 'FeatureCollection', features: _aieFeatures });
 
   await syncAIEventPreviews(withImages);
 }
 
-// ── Hawkwise traffic-flow layer: per-sensor volume/traffic_status bubbles ──
+// ── Hawkwise traffic-flow layer: per-sensor volume/traffic_status pills ──
 // Fetches GET /api/trafficflow/latest (internal/trafficflow/api.go's
 // handleLatest) — already filtered server-side to mapped+enabled Sensor
-// records only — and syncs marker elements to match, same
-// "diff against last-known set" approach as loadActiveAIEvents.
+// records only — and replaces the tf-sensors source's data wholesale, same
+// GL-layer approach as the other two bubble layers above. Unlike those,
+// the pill's TEXT (the volume total) changes on nearly every poll, so each
+// pill is baked under a key that includes its own text (tfIconKey) instead
+// of a small fixed set of icons — pruneTfIcons removes any previously-
+// baked pill image no longer referenced by the current data, so the
+// registered-image set stays bounded by "currently visible sensors", not
+// "every total ever seen this session".
 const TF_STATUS_COLOR = {
   FreeFlow: '#22c55e',
   HeavyTraffic: '#f59e0b',
@@ -3843,6 +3791,41 @@ const TF_STATUS_COLOR = {
 
 function tfFmtNum(n) { return typeof n === 'number' ? n.toLocaleString('vi-VN') : '—'; }
 
+const TF_PILL_W = 60, TF_PILL_H = 26;
+let _tfIconIds = new Set(); // "tf-icon:<color>:<text>" keys currently registered
+function tfIconKey(color, text) { return 'tf-icon:' + color + ':' + text; }
+function tfComposeIcon(color, text, dpr) {
+  const w = TF_PILL_W * dpr, h = TF_PILL_H * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  mapRoundRectPath(ctx, dpr, dpr, w - 2 * dpr, h - 2 * dpr, (h - 2 * dpr) / 2);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#a78bfa'; ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = `700 ${11 * dpr}px system-ui, -apple-system, Arial, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, h / 2 + .5 * dpr);
+  return ctx.getImageData(0, 0, w, h);
+}
+function ensureTfIcon(color, text) {
+  const key = tfIconKey(color, text);
+  if (_tfIconIds.has(key) && map.hasImage(key)) return key;
+  const dpr = window.devicePixelRatio || 1;
+  const data = tfComposeIcon(color, text, dpr);
+  if (map.hasImage(key)) map.removeImage(key);
+  map.addImage(key, data, { pixelRatio: dpr });
+  _tfIconIds.add(key);
+  return key;
+}
+function pruneTfIcons(neededKeys) {
+  _tfIconIds.forEach(key => {
+    if (neededKeys.has(key)) return;
+    try { map.removeImage(key); } catch (_) {}
+    _tfIconIds.delete(key);
+  });
+}
+
 async function loadActiveTrafficFlow() {
   if (!_trafficFlowMode || !map) return;
   let list;
@@ -3850,37 +3833,21 @@ async function loadActiveTrafficFlow() {
   catch (e) { return; } // keep showing the last-known set rather than clearing on a transient failure
   if (!Array.isArray(list)) return;
 
-  const seen = new Set();
-  list.forEach(s => {
-    seen.add(s.sensor_id);
+  const neededKeys = new Set();
+  _tfFeatures = list.map(s => {
     const color = TF_STATUS_COLOR[s.traffic_status] || '#6b7280';
-    const tipParts = [s.label, 'Lưu lượng: ' + tfFmtNum(s.total)];
-    if (s.traffic_status) tipParts.push('Trạng thái: ' + s.traffic_status);
-    if (s.avg_speed) tipParts.push('Tốc độ TB: ' + tfFmtNum(Math.round(s.avg_speed)));
-    const tip = tipParts.join('\n');
-
-    let entry = _trafficFlowMarkers[s.sensor_id];
-    if (!entry) {
-      const el = document.createElement('div');
-      el.className = 'tf-marker';
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        if (typeof toast === 'function') toast(el.title.replace(/\n/g, ' — '), 'info');
-      });
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([s.lon, s.lat]);
-      marker.addTo(map);
-      marker.setLngLat([s.lon, s.lat]);
-      entry = _trafficFlowMarkers[s.sensor_id] = { marker, el, lon: s.lon, lat: s.lat };
-    }
-    entry.el.style.background = color;
-    entry.el.textContent = tfFmtNum(s.total);
-    entry.el.title = tip;
-    applyEventBubbleOverlapAvoidance('tf:' + s.sensor_id, entry.el, s.lon, s.lat);
+    const iconId = ensureTfIcon(color, tfFmtNum(s.total));
+    neededKeys.add(iconId);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+      properties: {
+        label: s.label || '', total: s.total ?? null,
+        traffic_status: s.traffic_status || '', avg_speed: s.avg_speed ?? null, iconId,
+      },
+    };
   });
-  // Drop markers for sensors no longer reported (unmapped/disabled since the last poll).
-  Object.keys(_trafficFlowMarkers).forEach(id => {
-    if (!seen.has(id)) { _trafficFlowMarkers[id].marker.remove(); removeEventBubbleLeader('tf:' + id); delete _trafficFlowMarkers[id]; }
-  });
+  pruneTfIcons(neededKeys);
+  map.getSource('tf-sensors')?.setData({ type: 'FeatureCollection', features: _tfFeatures });
 }
 
 // ── AI Event image previews ("Xem trước"-style floating box, no LIVE badge) ──
@@ -3899,8 +3866,11 @@ function buildAIEventPreviewEl(ev) {
   el.querySelector('img').src = aiEventImageURL(ev.image_paths[0]);
   el.addEventListener('click', e => {
     e.stopPropagation();
-    const entry = _aiEventMarkers[ev.record_id];
-    if (entry) entry.el.click(); // same tooltip toast as clicking the bubble underneath
+    // Same toast the bubble underneath shows on click (see the
+    // aie-events-icon click handler) — there's no DOM element to forward
+    // the click to anymore now that layer is a GL layer, so build it here.
+    const tip = [ev.category_label, ev.description, ev.source_processor].filter(Boolean).join(' — ');
+    if (typeof toast === 'function') toast(tip, 'info');
   });
   return el;
 }
