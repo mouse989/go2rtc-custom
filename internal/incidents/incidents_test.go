@@ -128,6 +128,7 @@ func resetIncidentsStore(t *testing.T) {
 	mu.Lock()
 	years = map[int]map[string]*Incident{}
 	dataDir = t.TempDir()
+	metaData = meta{Categories: defaultCategories, Units: defaultUnits}
 	mu.Unlock()
 }
 
@@ -218,6 +219,58 @@ func TestActiveListIgnoresAgeOnlyEndTime(t *testing.T) {
 	}
 	if ids[noCoord.ID] {
 		t.Error("an incident with no coordinates should never be active (nothing to place on the map)")
+	}
+}
+
+// TestMigrateLegacyEndTimesClosesPreexistingIncidentsOnce is the regression
+// test for the data backfill that must ship alongside EndTime: without it,
+// every incident recorded before this feature existed would read as
+// EndTime==nil and suddenly show as "still open" forever on the map. The
+// migration must close every such incident exactly once, must not touch one
+// created after the flag flips (that one's open-ness is real, not a gap in
+// old data), and must not move an EndTime that migration already set.
+func TestMigrateLegacyEndTimesClosesPreexistingIncidentsOnce(t *testing.T) {
+	resetIncidentsStore(t)
+
+	legacy := baseIncident()
+	legacy.Lat, legacy.Lng = 10.1, 106.1
+	if err := Create(legacy, "u"); err != nil {
+		t.Fatalf("Create (legacy): %v", err)
+	}
+
+	migrateLegacyEndTimesIfNeeded()
+
+	legacyAfter, ok := Get(legacy.Time.Year(), legacy.ID)
+	if !ok {
+		t.Fatal("legacy incident disappeared after migration")
+	}
+	if legacyAfter.EndTime == nil {
+		t.Fatal("migration should have closed the pre-existing incident")
+	}
+	if !legacyAfter.EndTime.Equal(legacyAfter.Time) {
+		t.Errorf("migrated EndTime = %v, want it to equal Time (%v) — no better estimate exists", legacyAfter.EndTime, legacyAfter.Time)
+	}
+	if legacyAfter.EndedBy != migratedEndedBy {
+		t.Errorf("migrated EndedBy = %q, want %q", legacyAfter.EndedBy, migratedEndedBy)
+	}
+	if !metaData.EndTimeMigrated {
+		t.Error("EndTimeMigrated flag should be set after migration runs")
+	}
+
+	// An incident created after the flag flips must stay open — migration
+	// running again (e.g. on the next server restart) must be a no-op.
+	fresh := baseIncident()
+	fresh.Lat, fresh.Lng = 10.2, 106.2
+	if err := Create(fresh, "u"); err != nil {
+		t.Fatalf("Create (fresh): %v", err)
+	}
+	migrateLegacyEndTimesIfNeeded()
+	freshAfter, ok := Get(fresh.Time.Year(), fresh.ID)
+	if !ok {
+		t.Fatal("fresh incident disappeared after re-running migration")
+	}
+	if freshAfter.EndTime != nil {
+		t.Error("a second migration run must not close an incident created after the flag flipped")
 	}
 }
 

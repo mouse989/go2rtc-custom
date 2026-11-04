@@ -82,6 +82,10 @@ type meta struct {
 	Categories []string `json:"categories"`
 	Units      []string `json:"units"`
 	Locations  []string `json:"locations"` // most-used locations, capped
+	// EndTimeMigrated guards migrateLegacyEndTimesIfNeeded — flips to true
+	// the first time it runs (on the first startup after EndTime shipped)
+	// and is never reset, so the one-time backfill never repeats.
+	EndTimeMigrated bool `json:"end_time_migrated,omitempty"`
 }
 
 var defaultCategories = []string{"Đông xe", "Va chạm", "Sự cố khác"}
@@ -110,6 +114,7 @@ func Init() {
 	loadMeta()
 	initTimeSlots()
 	initCategoryIcons()
+	migrateLegacyEndTimesIfNeeded()
 
 	// Eagerly load the current year so first request is fast.
 	_ = loadYear(time.Now().Year())
@@ -142,6 +147,7 @@ func loadMeta() {
 			metaData.Units = m.Units
 		}
 		metaData.Locations = m.Locations
+		metaData.EndTimeMigrated = m.EndTimeMigrated
 	}
 }
 
@@ -455,6 +461,57 @@ func ActiveList() ([]*Incident, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
 	return out, nil
+}
+
+// migratedEndedBy marks an incident's EndedBy as having been closed by the
+// one-time legacy backfill below, not by a person.
+const migratedEndedBy = "hệ thống"
+
+// migrateLegacyEndTimesIfNeeded runs once, the first time this build starts
+// after the EndTime/ActiveList feature shipped. Before that feature, "is
+// this incident still on the map" was answered by a rolling time window, not
+// by an explicit EndTime — every incident ever recorded therefore has
+// EndTime == nil, indistinguishable from a genuinely-still-open incident.
+// Left alone, ActiveList would suddenly treat the entire historical backlog
+// as open forever. This closes every then-existing incident (EndTime = its
+// own Time — the data gives no better estimate of when it actually ended)
+// exactly once, gated by metaData.EndTimeMigrated so it never re-runs and
+// never touches incidents created after the flag flips, which are correctly
+// left open until someone uses the new "✓ kết thúc" button.
+func migrateLegacyEndTimesIfNeeded() {
+	mu.Lock()
+	defer mu.Unlock()
+	if metaData.EndTimeMigrated {
+		return
+	}
+	total := 0
+	for _, year := range ListYears() {
+		if err := loadYearLocked(year); err != nil {
+			log.Error().Err(err).Int("year", year).Msg("[incidents] end-time migration: cannot load year")
+			continue
+		}
+		changed := false
+		for _, in := range years[year] {
+			if in.EndTime != nil {
+				continue
+			}
+			t := in.Time
+			in.EndTime = &t
+			in.EndedBy = migratedEndedBy
+			changed = true
+			total++
+		}
+		if changed {
+			if err := saveYearLocked(year); err != nil {
+				log.Error().Err(err).Int("year", year).Msg("[incidents] end-time migration: cannot save year")
+			}
+		}
+	}
+	metaData.EndTimeMigrated = true
+	saveMetaLocked()
+	if total > 0 {
+		log.Info().Int("closed", total).Msg("[incidents] end-time migration: closed pre-existing incidents")
+	}
 }
 
 // RecomputeAllTimeSlots reloads every saved year and, for every incident:
