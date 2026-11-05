@@ -1197,20 +1197,24 @@ async function loadMapWindowData() {
   const bounds = [];
 
   if (_mapShowEvents) {
-    const fromDate = vnDateStr(_mapFrom), toDate = vnDateStr(_mapTo);
     let pts = [];
     try {
-      const qs = new URLSearchParams({ year: toDate.slice(0,4), from: fromDate, to: toDate });
-      const list = await apiFetch('/api/incidents?' + qs.toString()) || [];
+      // /api/incidents/active — same endpoint and semantics map.html's own
+      // "🚨 Sự cố GT" layer uses: every incident with a coordinate that
+      // hasn't been marked ended yet, with NO time-window filtering at all
+      // (an incident no longer "ages out" of the map after _mapFrom/_mapTo —
+      // it stays until someone uses incidents.html's "✓ kết thúc" button,
+      // however old it is). The Loại filter (#d2Cat) still applies client-
+      // side — unlike the time window, that one's a deliberate user choice,
+      // not something the incident's own lifecycle should override.
+      const list = await apiFetch('/api/incidents/active') || [];
       const catSel = document.getElementById('d2Cat')?.value || '';
-      pts = list.filter(i => i.lat && i.lng && i.time &&
-        new Date(i.time) >= _mapFrom && new Date(i.time) <= _mapTo &&
-        (!catSel || incidentBucket(i.category) === catSel));
+      pts = catSel ? list.filter(i => incidentBucket(i.category) === catSel) : list;
     } catch (e) { /* d2MapCount below reports 0 — Incidents tab missing, etc. */ }
     updateD2MapIncidents(pts);
     pts.forEach(p => bounds.push([p.lng, p.lat]));
     const cEl = document.getElementById('d2MapCount');
-    if (cEl) cEl.textContent = `(${pts.length} sự cố trong khung giờ)`;
+    if (cEl) cEl.textContent = `(${pts.length} sự cố chưa kết thúc)`;
   } else {
     updateD2MapIncidents([]);
     const cEl = document.getElementById('d2MapCount');
