@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS observed_sensors (
 	source_uuid   TEXT PRIMARY KEY,
 	hardware_uuid TEXT NOT NULL DEFAULT '',
 	address       TEXT NOT NULL DEFAULT '',
+	source_name   TEXT NOT NULL DEFAULT '',
+	hardware_name TEXT NOT NULL DEFAULT '',
 	reported_lat  REAL,
 	reported_lng  REAL,
 	count         INTEGER NOT NULL,
@@ -127,10 +129,16 @@ func initDB(dir string) error {
 	if _, err := db.Exec("ALTER TABLE push_log ADD COLUMN source_uuid TEXT NOT NULL DEFAULT ''"); err != nil && !isDuplicateColumnErr(err) {
 		return fmt.Errorf("migrate push_log.source_uuid: %w", err)
 	}
-	// observed_sensors.address — same backfill reasoning as above, added
-	// after this table's initial release.
+	// observed_sensors.address/source_name/hardware_name — same backfill
+	// reasoning as above, added after this table's initial release.
 	if _, err := db.Exec("ALTER TABLE observed_sensors ADD COLUMN address TEXT NOT NULL DEFAULT ''"); err != nil && !isDuplicateColumnErr(err) {
 		return fmt.Errorf("migrate observed_sensors.address: %w", err)
+	}
+	if _, err := db.Exec("ALTER TABLE observed_sensors ADD COLUMN source_name TEXT NOT NULL DEFAULT ''"); err != nil && !isDuplicateColumnErr(err) {
+		return fmt.Errorf("migrate observed_sensors.source_name: %w", err)
+	}
+	if _, err := db.Exec("ALTER TABLE observed_sensors ADD COLUMN hardware_name TEXT NOT NULL DEFAULT ''"); err != nil && !isDuplicateColumnErr(err) {
+		return fmt.Errorf("migrate observed_sensors.hardware_name: %w", err)
 	}
 	if _, err := db.Exec(pushLogSourceIndexSchema); err != nil {
 		return fmt.Errorf("apply push_log.source_uuid index: %w", err)

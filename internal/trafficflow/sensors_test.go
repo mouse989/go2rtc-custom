@@ -82,9 +82,9 @@ func TestDeleteSensor(t *testing.T) {
 func TestObserveSensorTracksCountAndCoordinates(t *testing.T) {
 	setupTestDB(t)
 	lat, lng := 10.123, 106.456
-	observeSensor("cam-1", "hw-1", "", &lat, &lng)
-	observeSensor("cam-1", "hw-1", "", &lat, &lng)
-	observeSensor("cam-2", "", "", nil, nil)
+	observeSensor("cam-1", "hw-1", "", "", "", &lat, &lng)
+	observeSensor("cam-1", "hw-1", "", "", "", &lat, &lng)
+	observeSensor("cam-2", "", "", "", "", nil, nil)
 
 	list := ListObservedSensors()
 	if len(list) != 2 {
@@ -110,7 +110,7 @@ func TestObserveSensorTracksCountAndCoordinates(t *testing.T) {
 
 func TestObserveSensorIgnoresEmptySourceUUID(t *testing.T) {
 	setupTestDB(t)
-	observeSensor("", "", "", nil, nil)
+	observeSensor("", "", "", "", "", nil, nil)
 	if len(ListObservedSensors()) != 0 {
 		t.Error("expected an empty source_uuid to be ignored, not recorded")
 	}

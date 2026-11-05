@@ -1482,6 +1482,7 @@ rtsp:
             <thead><tr>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên hiển thị</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">source_uuid</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên phần cứng (hệ thống gửi)</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ (hệ thống gửi)</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tọa độ</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Trạng thái</th>
@@ -1506,6 +1507,7 @@ rtsp:
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
             <thead><tr>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">source_uuid</th>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tên phần cứng (hệ thống gửi)</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Địa chỉ (hệ thống gửi)</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Tọa độ hệ thống gửi</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Số lần</th>
@@ -1881,9 +1883,9 @@ rtsp:
         <label>hardware_uuid (tham khảo, không bắt buộc)</label>
         <input type="text" id="sensor-hardware-uuid" class="input" autocomplete="off">
       </div>
-      <div class="form-group" id="sensor-address-row" style="display:none">
-        <label>Địa chỉ hệ thống gửi (tham khảo — để đối chiếu khi đặt tên hiển thị)</label>
-        <div id="sensor-address-display" style="padding:.5rem .7rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);font-size:.82rem;color:var(--text-muted)"></div>
+      <div class="form-group" id="sensor-ref-row" style="display:none">
+        <label>Thông tin hệ thống gửi (tham khảo — để đối chiếu khi đặt tên hiển thị)</label>
+        <div id="sensor-ref-display" style="padding:.5rem .7rem;border-radius:6px;background:var(--surface2);border:1px solid var(--border);font-size:.82rem;color:var(--text-muted);line-height:1.6"></div>
       </div>
       <div class="form-group">
         <label>Tên hiển thị</label>
@@ -4104,25 +4106,26 @@ let _sensorsData = [];
 
 async function loadSensorsTab() {
   const tbody = document.getElementById('sensorsTbody');
-  tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
   try {
     _sensorsData = await apiFetch('/api/trafficflow/sensors') || [];
     renderSensorsTable();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
   }
 }
 
 function renderSensorsTable() {
   const tbody = document.getElementById('sensorsTbody');
   if (!_sensorsData.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Chưa có điểm đo nào được gán.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Chưa có điểm đo nào được gán.</td></tr>';
     return;
   }
   tbody.innerHTML = _sensorsData.map(sn => `
     <tr>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(sn.label)}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.78rem">${esc(sn.source_uuid)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${sn.hardware_name ? esc(sn.hardware_name) : '—'}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${sn.address ? esc(sn.address) : '—'}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem">${sn.lat.toFixed(5)}, ${sn.lon.toFixed(5)}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${sn.enabled ? '<span style="color:#4ade80">✓ Đang bật</span>' : '<span style="color:var(--text-muted)">✗ Đã tắt</span>'}</td>
@@ -4139,7 +4142,7 @@ function openAddSensor(prefill) {
   document.getElementById('sensor-id').value = '';
   document.getElementById('sensor-source-uuid').value = prefill && prefill.source_uuid || '';
   document.getElementById('sensor-hardware-uuid').value = prefill && prefill.hardware_uuid || '';
-  _setSensorAddressDisplay(prefill && prefill.address || '');
+  _setSensorRefDisplay(prefill && prefill.hardware_name || '', prefill && prefill.address || '');
   document.getElementById('sensor-label').value = '';
   document.getElementById('sensor-lat').value = prefill && prefill.reported_lat != null ? prefill.reported_lat : '';
   document.getElementById('sensor-lon').value = prefill && prefill.reported_lng != null ? prefill.reported_lng : '';
@@ -4158,7 +4161,7 @@ function openEditSensor(id) {
   document.getElementById('sensor-id').value = sn.id;
   document.getElementById('sensor-source-uuid').value = sn.source_uuid;
   document.getElementById('sensor-hardware-uuid').value = sn.hardware_uuid || '';
-  _setSensorAddressDisplay(sn.address || '');
+  _setSensorRefDisplay(sn.hardware_name || '', sn.address || '');
   document.getElementById('sensor-label').value = sn.label;
   document.getElementById('sensor-lat').value = sn.lat;
   document.getElementById('sensor-lon').value = sn.lon;
@@ -4167,13 +4170,17 @@ function openEditSensor(id) {
   _loadVietmapGL(() => _initSensorMap(sn.lat, sn.lon));
 }
 
-// Shows/hides the read-only "Địa chỉ hệ thống gửi" reference row — never a
-// submitted form field (sensors.go looks this up live from observed_sensors
-// by source_uuid on every read, so storing a copy here would just go stale).
-function _setSensorAddressDisplay(address) {
-  const row = document.getElementById('sensor-address-row');
-  if (!address) { row.style.display = 'none'; return; }
-  document.getElementById('sensor-address-display').textContent = address;
+// Shows/hides the read-only "Thông tin hệ thống gửi" reference row — never
+// submitted form fields (sensors.go looks these up live from
+// observed_sensors by source_uuid on every read, so storing a copy here
+// would just go stale).
+function _setSensorRefDisplay(hardwareName, address) {
+  const row = document.getElementById('sensor-ref-row');
+  const parts = [];
+  if (hardwareName) parts.push(`<div><b style="color:var(--text)">Tên phần cứng:</b> ${esc(hardwareName)}</div>`);
+  if (address) parts.push(`<div><b style="color:var(--text)">Địa chỉ:</b> ${esc(address)}</div>`);
+  if (!parts.length) { row.style.display = 'none'; return; }
+  document.getElementById('sensor-ref-display').innerHTML = parts.join('');
   row.style.display = '';
 }
 
@@ -4279,12 +4286,12 @@ let _observedSensorsData = [];
 
 async function loadObservedSensorsTab() {
   const tbody = document.getElementById('observedSensorsTbody');
-  tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
   try {
     _observedSensorsData = await apiFetch('/api/trafficflow/observed-sensors') || [];
     renderObservedSensorsTable();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -4293,7 +4300,7 @@ function renderObservedSensorsTable() {
   const mappedUUIDs = new Set(_sensorsData.map(sn => sn.source_uuid));
   const rows = _observedSensorsData.filter(o => !mappedUUIDs.has(o.source_uuid));
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Không có source_uuid nào chưa gán.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Không có source_uuid nào chưa gán.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(o => {
@@ -4301,6 +4308,7 @@ function renderObservedSensorsTable() {
     return `
     <tr>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-family:monospace;font-size:.78rem">${esc(o.source_uuid)}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${o.hardware_name ? esc(o.hardware_name) : '—'}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${o.address ? esc(o.address) : '—'}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem">${o.reported_lat != null ? o.reported_lat.toFixed(5) + ', ' + o.reported_lng.toFixed(5) : '—'}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.count}</td>
@@ -4524,7 +4532,9 @@ function loadTestPushFlowTemplate() {
       end_time: '2026-10-13 08:05:00',
       camera: {
         source_uuid: 'TEST_CAM_001',
+        source_name: 'Stream 1 (test)',
         hardware_uuid: 'HW-TEST-001',
+        hardware_name: '097_CauKinh (test)',
         address: 'Ngã tư Hàng Xanh (test)',
         longitude: 106.688,
         latitude: 10.78393,

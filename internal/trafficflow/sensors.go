@@ -34,11 +34,14 @@ type Sensor struct {
 	Lon          float64   `json:"lon"`
 	Enabled      bool      `json:"enabled"` // false = hide from the map layer; data keeps being stored
 	CreatedAt    time.Time `json:"created_at"`
-	// Address is NOT stored on this row — it's looked up live from
-	// observed_sensors (keyed by SourceUUID) on every read, so it always
-	// reflects Hawkwise's most recently pushed camera.address, for the
-	// admin to cross-check against Label without it silently going stale.
-	Address string `json:"address,omitempty"`
+	// Address/SourceName/HardwareName are NOT stored on this row — they're
+	// looked up live from observed_sensors (keyed by SourceUUID) on every
+	// read, so they always reflect Hawkwise's most recently pushed
+	// camera.{address,source_name,hardware_name}, for the admin to
+	// cross-check against Label without going stale.
+	Address      string `json:"address,omitempty"`
+	SourceName   string `json:"source_name,omitempty"`
+	HardwareName string `json:"hardware_name,omitempty"`
 }
 
 // ObservedSensor is one distinct source_uuid seen in incoming pushes,
@@ -46,8 +49,10 @@ type Sensor struct {
 type ObservedSensor struct {
 	SourceUUID   string    `json:"source_uuid"`
 	HardwareUUID string    `json:"hardware_uuid,omitempty"`
-	Address      string    `json:"address,omitempty"`      // Hawkwise's own camera.address from the most recent push, reference only
-	ReportedLat  *float64  `json:"reported_lat,omitempty"` // Hawkwise's own camera.latitude from the most recent push
+	Address      string    `json:"address,omitempty"`       // Hawkwise's own camera.address from the most recent push, reference only
+	SourceName   string    `json:"source_name,omitempty"`   // Hawkwise's own camera.source_name from the most recent push, reference only
+	HardwareName string    `json:"hardware_name,omitempty"` // Hawkwise's own camera.hardware_name from the most recent push, reference only
+	ReportedLat  *float64  `json:"reported_lat,omitempty"`  // Hawkwise's own camera.latitude from the most recent push
 	ReportedLng  *float64  `json:"reported_lng,omitempty"`
 	Count        int       `json:"count"`
 	FirstSeen    time.Time `json:"first_seen"`
@@ -59,22 +64,24 @@ type ObservedSensor struct {
 // Hawkwise actually sent" view stays complete even after sensors are mapped.
 // Implemented as a single UPSERT (INSERT ... ON CONFLICT DO UPDATE) — one
 // indexed write, not a read-modify-write-whole-file cycle.
-func observeSensor(sourceUUID, hardwareUUID, address string, lat, lng *float64) {
+func observeSensor(sourceUUID, hardwareUUID, address, sourceName, hardwareName string, lat, lng *float64) {
 	if sourceUUID == "" {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := db.Exec(`
-		INSERT INTO observed_sensors (source_uuid, hardware_uuid, address, reported_lat, reported_lng, count, first_seen, last_seen)
-		VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+		INSERT INTO observed_sensors (source_uuid, hardware_uuid, address, source_name, hardware_name, reported_lat, reported_lng, count, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
 		ON CONFLICT(source_uuid) DO UPDATE SET
 			hardware_uuid = CASE WHEN excluded.hardware_uuid != '' THEN excluded.hardware_uuid ELSE observed_sensors.hardware_uuid END,
 			address       = CASE WHEN excluded.address       != '' THEN excluded.address       ELSE observed_sensors.address       END,
+			source_name   = CASE WHEN excluded.source_name   != '' THEN excluded.source_name   ELSE observed_sensors.source_name   END,
+			hardware_name = CASE WHEN excluded.hardware_name != '' THEN excluded.hardware_name ELSE observed_sensors.hardware_name END,
 			reported_lat  = CASE WHEN excluded.reported_lat  IS NOT NULL THEN excluded.reported_lat  ELSE observed_sensors.reported_lat  END,
 			reported_lng  = CASE WHEN excluded.reported_lng  IS NOT NULL THEN excluded.reported_lng  ELSE observed_sensors.reported_lng  END,
 			count         = observed_sensors.count + 1,
 			last_seen     = excluded.last_seen
-	`, sourceUUID, hardwareUUID, address, nullFloat(lat), nullFloat(lng), now, now)
+	`, sourceUUID, hardwareUUID, address, sourceName, hardwareName, nullFloat(lat), nullFloat(lng), now, now)
 	if err != nil {
 		log.Warn().Err(err).Str("source_uuid", sourceUUID).Msg("[trafficflow] observeSensor failed (continuing)")
 	}
@@ -84,7 +91,7 @@ func observeSensor(sourceUUID, hardwareUUID, address string, lat, lng *float64) 
 // seen first.
 func ListObservedSensors() []ObservedSensor {
 	rows, err := db.Query(`
-		SELECT source_uuid, hardware_uuid, address, reported_lat, reported_lng, count, first_seen, last_seen
+		SELECT source_uuid, hardware_uuid, address, source_name, hardware_name, reported_lat, reported_lng, count, first_seen, last_seen
 		FROM observed_sensors ORDER BY last_seen DESC
 	`)
 	if err != nil {
@@ -98,7 +105,7 @@ func ListObservedSensors() []ObservedSensor {
 		var o ObservedSensor
 		var lat, lng sql.NullFloat64
 		var firstSeen, lastSeen string
-		if err := rows.Scan(&o.SourceUUID, &o.HardwareUUID, &o.Address, &lat, &lng, &o.Count, &firstSeen, &lastSeen); err != nil {
+		if err := rows.Scan(&o.SourceUUID, &o.HardwareUUID, &o.Address, &o.SourceName, &o.HardwareName, &lat, &lng, &o.Count, &firstSeen, &lastSeen); err != nil {
 			continue
 		}
 		o.ReportedLat = floatPtr(lat)
@@ -125,25 +132,26 @@ func ListSensors() []Sensor {
 		if err != nil {
 			continue
 		}
-		sn.Address = observedAddressFor(sn.SourceUUID)
+		sn.Address, sn.SourceName, sn.HardwareName = observedExtrasFor(sn.SourceUUID)
 		out = append(out, sn)
 	}
 	return out
 }
 
-// observedAddressFor looks up the most recently pushed camera.address for
-// sourceUUID from observed_sensors (an indexed lookup on its primary key),
-// for display alongside an admin-managed Sensor mapping — never stored on
-// the Sensor row itself (see Sensor.Address's doc comment).
-func observedAddressFor(sourceUUID string) string {
+// observedExtrasFor looks up the most recently pushed
+// camera.{address,source_name,hardware_name} for sourceUUID from
+// observed_sensors (an indexed lookup on its primary key), for display
+// alongside an admin-managed Sensor mapping — never stored on the Sensor
+// row itself (see Sensor.Address's doc comment).
+func observedExtrasFor(sourceUUID string) (address, sourceName, hardwareName string) {
 	if sourceUUID == "" {
-		return ""
+		return "", "", ""
 	}
-	var address string
-	if err := db.QueryRow(`SELECT address FROM observed_sensors WHERE source_uuid = ?`, sourceUUID).Scan(&address); err != nil {
-		return ""
+	if err := db.QueryRow(`SELECT address, source_name, hardware_name FROM observed_sensors WHERE source_uuid = ?`, sourceUUID).
+		Scan(&address, &sourceName, &hardwareName); err != nil {
+		return "", "", ""
 	}
-	return address
+	return address, sourceName, hardwareName
 }
 
 // scanSensor scans one row from a query selecting exactly
@@ -168,7 +176,7 @@ func GetSensorBySourceUUID(sourceUUID string) (*Sensor, bool) {
 	if err != nil {
 		return nil, false
 	}
-	sn.Address = observedAddressFor(sn.SourceUUID)
+	sn.Address, sn.SourceName, sn.HardwareName = observedExtrasFor(sn.SourceUUID)
 	return &sn, true
 }
 
@@ -199,7 +207,7 @@ func CreateSensor(sn Sensor) (*Sensor, error) {
 		return nil, err
 	}
 	cp := sn
-	cp.Address = observedAddressFor(cp.SourceUUID)
+	cp.Address, cp.SourceName, cp.HardwareName = observedExtrasFor(cp.SourceUUID)
 	return &cp, nil
 }
 

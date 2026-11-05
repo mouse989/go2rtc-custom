@@ -99,7 +99,9 @@ type hawkwisePush struct {
 		EndTime       string `json:"end_time"`
 		Camera        struct {
 			SourceUUID   string   `json:"source_uuid"`
+			SourceName   *string  `json:"source_name"`
 			HardwareUUID string   `json:"hardware_uuid"`
+			HardwareName *string  `json:"hardware_name"`
 			Address      *string  `json:"address"`
 			Longitude    *float64 `json:"longitude"`
 			Latitude     *float64 `json:"latitude"`
@@ -273,7 +275,15 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 		if req.General.Camera.Address != nil {
 			address = *req.General.Camera.Address
 		}
-		observeSensor(req.General.Camera.SourceUUID, req.General.Camera.HardwareUUID, address,
+		sourceName := ""
+		if req.General.Camera.SourceName != nil {
+			sourceName = *req.General.Camera.SourceName
+		}
+		hardwareName := ""
+		if req.General.Camera.HardwareName != nil {
+			hardwareName = *req.General.Camera.HardwareName
+		}
+		observeSensor(req.General.Camera.SourceUUID, req.General.Camera.HardwareUUID, address, sourceName, hardwareName,
 			req.General.Camera.Latitude, req.General.Camera.Longitude)
 	}
 
