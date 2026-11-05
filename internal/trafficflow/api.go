@@ -100,6 +100,7 @@ type hawkwisePush struct {
 		Camera        struct {
 			SourceUUID   string   `json:"source_uuid"`
 			HardwareUUID string   `json:"hardware_uuid"`
+			Address      *string  `json:"address"`
 			Longitude    *float64 `json:"longitude"`
 			Latitude     *float64 `json:"latitude"`
 		} `json:"camera"`
@@ -268,7 +269,11 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 	// registry's job is "what has Hawkwise ever sent", same as
 	// internal/aievent's ObserveCategory.
 	if !dryRun {
-		observeSensor(req.General.Camera.SourceUUID, req.General.Camera.HardwareUUID,
+		address := ""
+		if req.General.Camera.Address != nil {
+			address = *req.General.Camera.Address
+		}
+		observeSensor(req.General.Camera.SourceUUID, req.General.Camera.HardwareUUID, address,
 			req.General.Camera.Latitude, req.General.Camera.Longitude)
 	}
 
