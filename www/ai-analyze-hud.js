@@ -645,7 +645,19 @@ function renderAIStatsPanel(result) {
 
 // ── Boot ─────────────────────────────────────────────────────────────
 (function initAIAnalyzeHUD() {
-  const start = () => { ensureAIHUDMounted(); resetAIOverlay(); loadClassColors(); };
+  const start = () => {
+    ensureAIHUDMounted();
+    resetAIOverlay();
+    // Same AllowAIAnalyze/AllowAIWatch check resetAIOverlay() already uses
+    // to hide the button — without it, this fetch fires on every page load
+    // for every logged-in user (even those who never touch AI Analyze),
+    // gets blocked by the server's own permission check, and trips a
+    // "cố truy cập tài nguyên không được cấp quyền" security alert for
+    // perfectly ordinary page views.
+    const allowed = (typeof canAIAnalyze === 'function' && canAIAnalyze()) ||
+                     (typeof canAIWatch === 'function' && canAIWatch());
+    if (allowed) loadClassColors();
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 })();
