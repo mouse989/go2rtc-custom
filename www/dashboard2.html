@@ -437,6 +437,9 @@ let _map = null, _mapInited = false;
 // never "every incident in the currently selected date range" (which,
 // over a week/month filter, was the whole point's worth of markers).
 let _mapShowEvents = true, _mapShowHeat = true;
+// Last non-empty jam-point set from the auto-sliding "theo chu kỳ quét"
+// window — see loadMapWindowData's heat branch for why this exists.
+let _lastJamPts = [];
 let _mapFrom = null, _mapTo = null; // Date objects
 // _mapFollowScan: true (the default, for every user) means the window keeps
 // sliding to match the configured traffic-jam scan interval (_trafficIntervalMin)
@@ -1216,10 +1219,22 @@ async function loadMapWindowData() {
 
   if (_mapShowHeat) {
     const jamPts = await fetchJamPointsInWindow(_mapFrom, _mapTo);
-    updateJamData(jamPts);
-    jamPts.forEach(p => bounds.push([p.lng, p.lat]));
+    // The auto-sliding "theo chu kỳ quét" window coming back empty almost
+    // always means a scan is mid-flight — the previous scan's points just
+    // aged out of the window, the next one hasn't landed in the daily scan
+    // file yet (that file write happens once the whole scan completes) —
+    // not that congestion genuinely vanished for a whole interval. Keep
+    // showing the last known non-empty scan through that ~1-minute gap
+    // instead of flashing the heatmap blank every cycle. A user-picked
+    // custom window has no such "in-flight" excuse — a genuinely empty
+    // result there is shown as-is, not papered over.
+    const ptsToShow = (jamPts.length > 0 || !_mapFollowScan) ? jamPts : _lastJamPts;
+    updateJamData(ptsToShow);
+    if (jamPts.length > 0) _lastJamPts = jamPts;
+    ptsToShow.forEach(p => bounds.push([p.lng, p.lat]));
   } else {
     updateJamData([]);
+    _lastJamPts = [];
   }
 
   if (_map && _mapInited && bounds.length) {
