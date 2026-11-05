@@ -10,30 +10,41 @@ func approxEqual(a, b, tol float64) bool {
 	return d <= tol
 }
 
-// TC-01 (SPEC-ITS-TRAFFIC-ANALYSIS-01 §7): free-flow night traffic — TTI
-// must land exactly at 1.0 and Z at 0.0, the only one of the doc's 5 worked
-// examples that is actually self-consistent with its own stated formula
-// when checked by hand (see TestSpecTableTC04IsNotSelfConsistent below for
-// why the others aren't used as literal assertions here).
-func TestSpecTC01FreeFlow(t *testing.T) {
+// Free-flow traffic (speed == freeFlow) must land exactly at TTI 1.0 and
+// classify as the best LOS band.
+func TestComputeFlowFreeFlow(t *testing.T) {
 	cfg := defaultConfig()
 	res := cfg.ComputeFlow(13.88, 13.88, 0.0)
 	if res.TTIRaw != 1.0 {
 		t.Errorf("TTIRaw = %v, want 1.0", res.TTIRaw)
 	}
-	if res.Z != 0.0 {
-		t.Errorf("Z = %v, want 0.0", res.Z)
-	}
 	if res.LOS.Label != "A" {
-		t.Errorf("LOS = %q, want A (Z=0 is the lowest band)", res.LOS.Label)
+		t.Errorf("LOS = %q, want A (TTI 1.0 is the lowest band)", res.LOS.Label)
 	}
 }
 
-// TC-05: speed=0 must never divide by zero or panic, and must land in the
-// worst LOS band (the spec only asserts "no error, TTI max, Level 5" —
-// not an exact number, since the real guarantee being tested is fault
-// tolerance, not a specific value).
-func TestSpecTC05ZeroSpeedNoPanic(t *testing.T) {
+// Moderate real-world congestion (~27 km/h on a typical VN arterial,
+// TTI≈1.6) must NOT land in the worst LOS tier — the exact case that
+// motivated dropping the old BPR-inverse Z estimate, which (at its
+// originally specified constants) classified this as LOS F. Per HCM's own
+// Urban Streets speed-ratio bands (A≥85%/B67–85%/C51–67%/D39–51%/E29–39%/
+// F<29% of free-flow speed, i.e. TTI = 1/ratio), TTI≈1.6 is LOS C.
+func TestComputeFlowModerateCongestionIsNotWorstTier(t *testing.T) {
+	cfg := defaultConfig()
+	// speed=26.9km/h=7.47m/s, freeFlow matching TTI≈1.61 (≈12.03m/s), JF
+	// left at 0 so TTIFused reduces to a weighted blend still near TTIRaw.
+	res := cfg.ComputeFlow(7.47, 12.03, 4.0)
+	if res.TTIRaw < 1.55 || res.TTIRaw > 1.65 {
+		t.Fatalf("test setup: TTIRaw = %v, want ~1.61", res.TTIRaw)
+	}
+	if res.LOS.Label == "F" || res.LOS.Label == "E" {
+		t.Errorf("LOS = %q for TTI≈1.6, want a moderate band (B/C/D), not the worst tiers", res.LOS.Label)
+	}
+}
+
+// speed=0 must never divide by zero or panic, and must land in the worst
+// LOS band — a stalled/fully-jammed reading.
+func TestComputeFlowZeroSpeedNoPanic(t *testing.T) {
 	cfg := defaultConfig()
 	res := cfg.ComputeFlow(0.0, 8.0, 10.0)
 	if res.TTIRaw <= 0 {
@@ -41,22 +52,6 @@ func TestSpecTC05ZeroSpeedNoPanic(t *testing.T) {
 	}
 	if res.LOS.Label != "F" {
 		t.Errorf("LOS = %q, want F (worst band) for a stalled/fully-jammed reading", res.LOS.Label)
-	}
-}
-
-// The doc's own TC-02/03/04 worked examples do not reproduce under the
-// formulas as literally stated in §3.1-3.3 and the §5.2 Python reference
-// (hand-verified: e.g. TC-04's inputs give TTI_fused≈6.41 → Z≈2.95 under
-// alpha=0.50/beta=2.20, not the table's "TTI:6.36, Z_est:1.80") — most
-// likely an authoring error in the illustrative table, not a different
-// intended formula. This test pins that the *formula itself* (not the
-// table) is what's implemented, so a future "fix" blindly matching the
-// table's numbers doesn't silently break the documented math.
-func TestSpecTableTC04IsNotSelfConsistent(t *testing.T) {
-	cfg := defaultConfig()
-	res := cfg.ComputeFlow(0.83, 5.28, 9.2)
-	if approxEqual(res.Z, 1.80, 0.05) {
-		t.Fatalf("Z = %v happens to match the doc table's 1.80 — re-check whether the table was fixed upstream; if so, update this test's expectation instead of deleting it", res.Z)
 	}
 }
 
@@ -78,11 +73,10 @@ func TestEstimateTTIFromJF(t *testing.T) {
 }
 
 // EstimateTTIFromJF and ImpliedJFFromTTI are meant to be exact inverses of
-// each other per the doc's "⟺" in §3.2 — the strongest check available
-// given the suspect worked-example table above. Near JF≈0 the mapping's
-// derivative is steep, so round3's 3-decimal rounding on the intermediate
-// TTI is amplified on the way back — a real property of this formula, not
-// a bug — hence the looser tolerance at the low end.
+// each other (JF ≈ 10·sqrt(1-1/TTI) ⟺ TTI = 1/(1-(JF/10)²)). Near JF≈0 the
+// mapping's derivative is steep, so round3's 3-decimal rounding on the
+// intermediate TTI is amplified on the way back — a real property of this
+// formula, not a bug — hence the looser tolerance at the low end.
 func TestTTIJFRoundTrip(t *testing.T) {
 	cases := []struct {
 		jf  float64
@@ -96,19 +90,6 @@ func TestTTIJFRoundTrip(t *testing.T) {
 		if !approxEqual(back, c.jf, c.tol) {
 			t.Errorf("round-trip jf=%v -> tti=%v -> jf=%v, want ~%v (tol %v)", c.jf, tti, back, c.jf, c.tol)
 		}
-	}
-}
-
-func TestInferZ(t *testing.T) {
-	if z := InferZ(1.0, 0.5, 2.2); z != 0 {
-		t.Errorf("InferZ(1.0) = %v, want 0", z)
-	}
-	if z := InferZ(0.5, 0.5, 2.2); z != 0 {
-		t.Errorf("InferZ(<1.0) = %v, want 0", z)
-	}
-	// TTI = 1 + alpha*Z^beta with Z=1 exactly: TTI = 1.5.
-	if z := InferZ(1.5, 0.5, 2.2); !approxEqual(z, 1.0, 0.01) {
-		t.Errorf("InferZ(1.5, alpha=0.5, beta=2.2) = %v, want ~1.0", z)
 	}
 }
 
@@ -141,19 +122,21 @@ func TestDetectBottleneck(t *testing.T) {
 	}
 }
 
+// Boundaries are HCM Exhibit 15-2's A–F speed-ratio bands converted to
+// TTI (A<1.18, B 1.18–1.49, C 1.49–1.96, D 1.96–2.56, E 2.56–3.45, F>3.45).
 func TestClassifyLOSBoundaries(t *testing.T) {
 	levels := defaultLOSLevels()
 	cases := []struct {
-		pct  float64
+		tti  float64
 		want string
 	}{
-		{0, "A"}, {34.9, "A"}, {35, "B"}, {49.9, "B"}, {50, "C"},
-		{74.9, "C"}, {75, "D"}, {89.9, "D"}, {90, "E"}, {99.9, "E"},
-		{100, "F"}, {500, "F"},
+		{1.0, "A"}, {1.17, "A"}, {1.18, "B"}, {1.48, "B"}, {1.49, "C"},
+		{1.95, "C"}, {1.96, "D"}, {2.55, "D"}, {2.56, "E"}, {3.44, "E"},
+		{3.45, "F"}, {10.0, "F"},
 	}
 	for _, c := range cases {
-		if got := ClassifyLOS(c.pct, levels).Label; got != c.want {
-			t.Errorf("ClassifyLOS(%v) = %q, want %q", c.pct, got, c.want)
+		if got := ClassifyLOS(c.tti, levels).Label; got != c.want {
+			t.Errorf("ClassifyLOS(%v) = %q, want %q", c.tti, got, c.want)
 		}
 	}
 }
@@ -162,23 +145,24 @@ func TestClassifyLOSBoundaries(t *testing.T) {
 // stale config file hand-edited) must not break classification.
 func TestClassifyLOSTolerateUnsortedInput(t *testing.T) {
 	shuffled := []LOSLevel{
-		{Label: "F", ZMinPercent: 105},
-		{Label: "A", ZMinPercent: 0},
-		{Label: "C", ZMinPercent: 45},
+		{Label: "F", TTIMin: 3.45},
+		{Label: "A", TTIMin: 1.0},
+		{Label: "C", TTIMin: 1.49},
 	}
-	if got := ClassifyLOS(50, shuffled).Label; got != "C" {
+	if got := ClassifyLOS(1.7, shuffled).Label; got != "C" {
 		t.Errorf("ClassifyLOS with unsorted levels = %q, want C", got)
 	}
 }
 
 func TestComputeRouteLeg(t *testing.T) {
 	cfg := defaultConfig()
-	res := cfg.ComputeRouteLeg(1.0)
-	if res.Z != 0 || res.LOS.Label != "A" {
-		t.Errorf("ComputeRouteLeg(1.0) = %+v, want Z=0, LOS=A", res)
+	if got := cfg.ComputeRouteLeg(1.0).Label; got != "A" {
+		t.Errorf("ComputeRouteLeg(1.0) = %q, want A", got)
 	}
-	res2 := cfg.ComputeRouteLeg(2.45) // real sample TTI from this session's segment_capture_db_test.go fixture
-	if res2.Z <= 0 {
-		t.Errorf("ComputeRouteLeg(2.45).Z = %v, want > 0", res2.Z)
+	if got := cfg.ComputeRouteLeg(1.61).Label; got != "C" {
+		t.Errorf("ComputeRouteLeg(1.61) = %q, want C (moderate congestion, not the worst tier)", got)
+	}
+	if got := cfg.ComputeRouteLeg(4.0).Label; got != "F" {
+		t.Errorf("ComputeRouteLeg(4.0) = %q, want F", got)
 	}
 }

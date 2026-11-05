@@ -121,42 +121,156 @@ func TestRowToIncidentParsesSeverityAndCoordinates(t *testing.T) {
 	}
 }
 
-// TestActiveWindowToleratesClockSkew is the regression test for the map's
-// "🚨 Traffic Event" layer appearing to delay newly-created incidents: an
-// incident's Time is set by the browser that created it, so if its clock
-// runs even a little ahead of the server's, the incident's Time lands
-// after the server's own "now" and used to be excluded by handleActive's
-// To-bound until the server's clock caught up. activeWindow's grace period
-// must absorb that without letting a wildly wrong Time (a multi-hour typo,
-// say) count as "active" indefinitely.
-func TestActiveWindowToleratesClockSkew(t *testing.T) {
-	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+// resetIncidentsStore points the package's in-memory store at a fresh temp
+// dir so tests don't collide with each other or the real data dir.
+func resetIncidentsStore(t *testing.T) {
+	t.Helper()
+	mu.Lock()
+	years = map[int]map[string]*Incident{}
+	dataDir = t.TempDir()
+	metaData = meta{Categories: defaultCategories, Units: defaultUnits}
+	mu.Unlock()
+}
 
-	from, to := activeWindow(now, 10)
-	if !from.Equal(now.Add(-12 * time.Minute)) {
-		t.Errorf("from = %v, want %v (10 min window + 2 min grace)", from, now.Add(-12*time.Minute))
+// TestEndIncidentSetsEndTimeAndIsIdempotent is the regression test for the
+// incidents.html table's green "✓" button: ending an incident must record
+// EndTime (and who did it), and ending an already-ended incident again must
+// not clobber the original EndTime (guards against a double-click/retry
+// silently moving the recorded end time forward).
+func TestEndIncidentSetsEndTimeAndIsIdempotent(t *testing.T) {
+	resetIncidentsStore(t)
+	in := baseIncident()
+	in.Lat, in.Lng = 10.776, 106.700
+	if err := Create(in, "creator"); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
-	if !to.Equal(now.Add(2 * time.Minute)) {
-		t.Errorf("to = %v, want %v (2 min grace)", to, now.Add(2*time.Minute))
+	year := in.Time.Year()
+
+	ended, err := EndIncident(year, in.ID, "closer")
+	if err != nil {
+		t.Fatalf("EndIncident: %v", err)
+	}
+	if ended.EndTime == nil {
+		t.Fatal("EndTime should be set after EndIncident")
+	}
+	if ended.EndedBy != "closer" {
+		t.Errorf("EndedBy = %q, want closer", ended.EndedBy)
+	}
+	firstEnd := *ended.EndTime
+
+	// Ending again must be a no-op, not move the end time.
+	again, err := EndIncident(year, in.ID, "someone-else")
+	if err != nil {
+		t.Fatalf("EndIncident (second call): %v", err)
+	}
+	if again.EndTime == nil || !again.EndTime.Equal(firstEnd) {
+		t.Errorf("EndTime changed on second EndIncident call: %v -> %v", firstEnd, again.EndTime)
+	}
+	if again.EndedBy != "closer" {
+		t.Errorf("EndedBy changed on second EndIncident call: got %q, want closer", again.EndedBy)
 	}
 
-	// A client clock 90s ahead of the server's must not get excluded.
-	clientAheadTime := now.Add(90 * time.Second)
-	if clientAheadTime.After(to) {
-		t.Errorf("incident Time %v (90s client clock skew) should fall within [%v, %v]", clientAheadTime, from, to)
+	if _, err := EndIncident(year, "no-such-id", "x"); err != errNotFound {
+		t.Errorf("EndIncident on unknown id = %v, want errNotFound", err)
+	}
+}
+
+// TestActiveListIgnoresAgeOnlyEndTime is the regression test for the map's
+// "🚨 Traffic Event" layer: unlike every other layer, an unresolved incident
+// must keep showing however old it is, and must disappear the moment it's
+// ended — there is no rolling time window anymore.
+func TestActiveListIgnoresAgeOnlyEndTime(t *testing.T) {
+	resetIncidentsStore(t)
+
+	veryOld := baseIncident()
+	veryOld.Time = time.Now().In(vnLocation).AddDate(-1, 0, 0)
+	veryOld.Lat, veryOld.Lng = 10.1, 106.1
+	if err := Create(veryOld, "u"); err != nil {
+		t.Fatalf("Create (old, unresolved): %v", err)
 	}
 
-	// 0 (admin hasn't configured a window) falls back to the 10-minute default.
-	fromDefault, toDefault := activeWindow(now, 0)
-	if !fromDefault.Equal(from) || !toDefault.Equal(to) {
-		t.Errorf("windowMin=0 should behave like windowMin=10, got from=%v to=%v", fromDefault, toDefault)
+	ended := baseIncident()
+	ended.Lat, ended.Lng = 10.2, 106.2
+	if err := Create(ended, "u"); err != nil {
+		t.Fatalf("Create (ended): %v", err)
+	}
+	if _, err := EndIncident(ended.Time.Year(), ended.ID, "u"); err != nil {
+		t.Fatalf("EndIncident: %v", err)
 	}
 
-	// A Time hours in the future (a real typo, not clock skew) must still
-	// fall outside the window — the grace period bounds the damage.
-	wayFuture := now.Add(3 * time.Hour)
-	if !wayFuture.After(to) {
-		t.Errorf("incident Time %v (3h in the future) should fall outside the window (to=%v)", wayFuture, to)
+	noCoord := baseIncident()
+	if err := Create(noCoord, "u"); err != nil {
+		t.Fatalf("Create (no coord): %v", err)
+	}
+
+	list, err := ActiveList()
+	if err != nil {
+		t.Fatalf("ActiveList: %v", err)
+	}
+	ids := map[string]bool{}
+	for _, in := range list {
+		ids[in.ID] = true
+	}
+	if !ids[veryOld.ID] {
+		t.Error("a year-old unresolved incident with coordinates should still be active")
+	}
+	if ids[ended.ID] {
+		t.Error("an ended incident should not be active, regardless of recency")
+	}
+	if ids[noCoord.ID] {
+		t.Error("an incident with no coordinates should never be active (nothing to place on the map)")
+	}
+}
+
+// TestMigrateLegacyEndTimesClosesPreexistingIncidentsOnce is the regression
+// test for the data backfill that must ship alongside EndTime: without it,
+// every incident recorded before this feature existed would read as
+// EndTime==nil and suddenly show as "still open" forever on the map. The
+// migration must close every such incident exactly once, must not touch one
+// created after the flag flips (that one's open-ness is real, not a gap in
+// old data), and must not move an EndTime that migration already set.
+func TestMigrateLegacyEndTimesClosesPreexistingIncidentsOnce(t *testing.T) {
+	resetIncidentsStore(t)
+
+	legacy := baseIncident()
+	legacy.Lat, legacy.Lng = 10.1, 106.1
+	if err := Create(legacy, "u"); err != nil {
+		t.Fatalf("Create (legacy): %v", err)
+	}
+
+	migrateLegacyEndTimesIfNeeded()
+
+	legacyAfter, ok := Get(legacy.Time.Year(), legacy.ID)
+	if !ok {
+		t.Fatal("legacy incident disappeared after migration")
+	}
+	if legacyAfter.EndTime == nil {
+		t.Fatal("migration should have closed the pre-existing incident")
+	}
+	if !legacyAfter.EndTime.Equal(legacyAfter.Time) {
+		t.Errorf("migrated EndTime = %v, want it to equal Time (%v) — no better estimate exists", legacyAfter.EndTime, legacyAfter.Time)
+	}
+	if legacyAfter.EndedBy != migratedEndedBy {
+		t.Errorf("migrated EndedBy = %q, want %q", legacyAfter.EndedBy, migratedEndedBy)
+	}
+	if !metaData.EndTimeMigrated {
+		t.Error("EndTimeMigrated flag should be set after migration runs")
+	}
+
+	// An incident created after the flag flips must stay open — migration
+	// running again (e.g. on the next server restart) must be a no-op.
+	fresh := baseIncident()
+	fresh.Lat, fresh.Lng = 10.2, 106.2
+	if err := Create(fresh, "u"); err != nil {
+		t.Fatalf("Create (fresh): %v", err)
+	}
+	migrateLegacyEndTimesIfNeeded()
+	freshAfter, ok := Get(fresh.Time.Year(), fresh.ID)
+	if !ok {
+		t.Fatal("fresh incident disappeared after re-running migration")
+	}
+	if freshAfter.EndTime != nil {
+		t.Error("a second migration run must not close an incident created after the flag flipped")
 	}
 }
 

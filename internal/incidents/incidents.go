@@ -52,6 +52,15 @@ type Incident struct {
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedBy           string    `json:"updated_by,omitempty"`
 	UpdatedAt           time.Time `json:"updated_at,omitempty"`
+	// EndTime: when the incident was marked resolved (nil = still ongoing).
+	// A *time.Time, not time.Time: encoding/json's omitempty never omits a
+	// zero-value struct, so a plain time.Time field would always serialize
+	// (as "0001-01-01T00:00:00Z"), making it truthy in JS even when unset.
+	// Set only via EndIncident, from the incidents.html "✓ kết thúc" button —
+	// map.html's "🚨 Sự cố giao thông" layer uses this (not a rolling time
+	// window) to decide whether an incident still shows on the map.
+	EndTime *time.Time `json:"end_time,omitempty"`
+	EndedBy string     `json:"ended_by,omitempty"`
 }
 
 // Time-slot windows (Khung giờ) are admin-configurable — see timeslots.go for
@@ -73,6 +82,10 @@ type meta struct {
 	Categories []string `json:"categories"`
 	Units      []string `json:"units"`
 	Locations  []string `json:"locations"` // most-used locations, capped
+	// EndTimeMigrated guards migrateLegacyEndTimesIfNeeded — flips to true
+	// the first time it runs (on the first startup after EndTime shipped)
+	// and is never reset, so the one-time backfill never repeats.
+	EndTimeMigrated bool `json:"end_time_migrated,omitempty"`
 }
 
 var defaultCategories = []string{"Đông xe", "Va chạm", "Sự cố khác"}
@@ -101,6 +114,7 @@ func Init() {
 	loadMeta()
 	initTimeSlots()
 	initCategoryIcons()
+	migrateLegacyEndTimesIfNeeded()
 
 	// Eagerly load the current year so first request is fast.
 	_ = loadYear(time.Now().Year())
@@ -133,6 +147,7 @@ func loadMeta() {
 			metaData.Units = m.Units
 		}
 		metaData.Locations = m.Locations
+		metaData.EndTimeMigrated = m.EndTimeMigrated
 	}
 }
 
@@ -388,6 +403,115 @@ func Delete(year int, id string) error {
 	}
 	delete(years[year], id)
 	return saveYearLocked(year)
+}
+
+// EndIncident marks an incident resolved, recording the current time as its
+// EndTime. A no-op (returns the incident unchanged, no error) if it was
+// already ended, so a double-click/retry can't clobber the original end time.
+func EndIncident(year int, id, username string) (*Incident, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	if err := loadYearLocked(year); err != nil {
+		return nil, err
+	}
+	in, ok := years[year][id]
+	if !ok {
+		return nil, errNotFound
+	}
+	if in.EndTime != nil {
+		return in, nil
+	}
+	now := time.Now().In(vnLocation)
+	in.EndTime = &now
+	in.EndedBy = username
+	if err := saveYearLocked(year); err != nil {
+		return nil, err
+	}
+	return in, nil
+}
+
+// ActiveList returns every incident that has a coordinate and has not been
+// marked ended, across all years — for map.html's "🚨 Sự cố giao thông"
+// layer, which (unlike every other map layer) must keep showing an incident
+// indefinitely as long as it's unresolved, regardless of how old it is.
+func ActiveList() ([]*Incident, error) {
+	yearList := ListYears()
+	mu.Lock()
+	for _, y := range yearList {
+		if err := loadYearLocked(y); err != nil {
+			mu.Unlock()
+			return nil, err
+		}
+	}
+	mu.Unlock()
+
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]*Incident, 0, 16)
+	for _, y := range yearList {
+		for _, in := range years[y] {
+			if in.EndTime != nil {
+				continue
+			}
+			if in.Lat == 0 && in.Lng == 0 {
+				continue // no coordinate, nothing to place on the map
+			}
+			out = append(out, in)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	return out, nil
+}
+
+// migratedEndedBy marks an incident's EndedBy as having been closed by the
+// one-time legacy backfill below, not by a person.
+const migratedEndedBy = "hệ thống"
+
+// migrateLegacyEndTimesIfNeeded runs once, the first time this build starts
+// after the EndTime/ActiveList feature shipped. Before that feature, "is
+// this incident still on the map" was answered by a rolling time window, not
+// by an explicit EndTime — every incident ever recorded therefore has
+// EndTime == nil, indistinguishable from a genuinely-still-open incident.
+// Left alone, ActiveList would suddenly treat the entire historical backlog
+// as open forever. This closes every then-existing incident (EndTime = its
+// own Time — the data gives no better estimate of when it actually ended)
+// exactly once, gated by metaData.EndTimeMigrated so it never re-runs and
+// never touches incidents created after the flag flips, which are correctly
+// left open until someone uses the new "✓ kết thúc" button.
+func migrateLegacyEndTimesIfNeeded() {
+	mu.Lock()
+	defer mu.Unlock()
+	if metaData.EndTimeMigrated {
+		return
+	}
+	total := 0
+	for _, year := range ListYears() {
+		if err := loadYearLocked(year); err != nil {
+			log.Error().Err(err).Int("year", year).Msg("[incidents] end-time migration: cannot load year")
+			continue
+		}
+		changed := false
+		for _, in := range years[year] {
+			if in.EndTime != nil {
+				continue
+			}
+			t := in.Time
+			in.EndTime = &t
+			in.EndedBy = migratedEndedBy
+			changed = true
+			total++
+		}
+		if changed {
+			if err := saveYearLocked(year); err != nil {
+				log.Error().Err(err).Int("year", year).Msg("[incidents] end-time migration: cannot save year")
+			}
+		}
+	}
+	metaData.EndTimeMigrated = true
+	saveMetaLocked()
+	if total > 0 {
+		log.Info().Int("closed", total).Msg("[incidents] end-time migration: closed pre-existing incidents")
+	}
 }
 
 // RecomputeAllTimeSlots reloads every saved year and, for every incident:

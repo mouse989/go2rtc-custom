@@ -75,6 +75,10 @@ table.inc-table { min-width:920px; }
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       Dashboard 02
     </a>
+    <a href="/dashboard3.html" class="nav-item" data-tab-require="dashboard3" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 03
+    </a>
     <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
       Counting
@@ -173,7 +177,7 @@ table.inc-table { min-width:920px; }
             <th style="width:80px" title="Thuộc 28 vị trí có nguy cơ ùn tắc giao thông">⚠️ 28 điểm</th>
             <th style="width:110px">Khung giờ</th>
             <th style="width:140px">Ghi chú</th>
-            <th style="width:90px"></th>
+            <th style="width:116px"></th>
           </tr></thead>
           <tbody id="incBody"><tr><td colspan="10" class="inc-empty">Đang tải…</td></tr></tbody>
         </table>
@@ -492,6 +496,9 @@ function renderTable(list) {
       <td>${esc(inc.note || '')}</td>
       <td class="inc-actions">
         <button class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Sửa" onclick="openEditModal(${i})">✎</button>
+        ${inc.end_time
+          ? `<span style="display:inline-block;padding:2px 7px;color:var(--green);background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);border-radius:var(--radius)" title="Đã kết thúc lúc ${esc(fmtDateTime(inc.end_time))}${inc.ended_by ? ' bởi ' + esc(inc.ended_by) : ''}">✓</span>`
+          : `<button class="btn btn-sm" style="padding:2px 7px;color:var(--green);background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.35)" title="Kết thúc sự cố" onclick="endIncident(${i})">✓</button>`}
         <button class="btn btn-danger btn-sm" style="padding:2px 7px" title="Xoá" onclick="deleteIncident(${i})">✕</button>
       </td>
     </tr>`).join('');
@@ -580,6 +587,18 @@ async function saveIncident() {
     msg.textContent = 'Lỗi: ' + e.message;
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function endIncident(i) {
+  const inc = currentList[i];
+  if (!confirm('Bạn muốn kết thúc sự kiện này?')) return;
+  const year = new Date(inc.time).getFullYear();
+  try {
+    await apiFetch(`/api/incidents/end?year=${year}&id=${encodeURIComponent(inc.id)}`, { method: 'POST' });
+    await applyFilters();
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
   }
 }
 

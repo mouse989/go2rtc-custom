@@ -59,12 +59,14 @@ func TestRecordAndFetchRouteSegments(t *testing.T) {
 	}
 }
 
-// TestRecordRouteSegmentsPopulatesZLOS pins that internal/trafficmetrics
-// (SPEC-ITS-TRAFFIC-ANALYSIS-01's TTI-only Z/LOS path, ComputeRouteLeg) is
-// actually wired into recordRouteSegments' insert. testLegs()'s leg[1] has
-// TTI=1.0 (free flow) so must classify as the lowest LOS band (Z=0); leg[0]
-// has TTI=1.5 so must classify higher.
-func TestRecordRouteSegmentsPopulatesZLOS(t *testing.T) {
+// TestRecordRouteSegmentsPopulatesLOS pins that internal/trafficmetrics
+// (TTI-only LOS path, ComputeRouteLeg — classified per HCM Urban Streets
+// speed-ratio bands) is actually wired into recordRouteSegments' insert.
+// testLegs()'s leg[1] has TTI=1.0 (free flow) so must classify as the
+// lowest LOS band (A); leg[0] has TTI=1.5 so must classify as C (moderate
+// congestion, not the worst tier — the exact case that motivated removing
+// the old BPR-inverse Z estimate).
+func TestRecordRouteSegmentsPopulatesLOS(t *testing.T) {
 	resetSegmentCaptureDB(t)
 	if err := recordRouteSegments("r1", "Test Route", time.Now(), testLegs()); err != nil {
 		t.Fatalf("recordRouteSegments: %v", err)
@@ -80,11 +82,11 @@ func TestRecordRouteSegmentsPopulatesZLOS(t *testing.T) {
 	if len(legs) != 2 {
 		t.Fatalf("got %d legs, want 2", len(legs))
 	}
-	if legs[1].Z != 0 || legs[1].LOSLabel == "" {
-		t.Errorf("free-flow leg (TTI=1.0) = %+v, want Z=0 and a non-empty LOS label", legs[1])
+	if legs[1].LOSLabel != "A" {
+		t.Errorf("free-flow leg (TTI=1.0) LOSLabel = %q, want A", legs[1].LOSLabel)
 	}
-	if legs[0].Z <= 0 || legs[0].LOSLabel == "" || legs[0].LOSColor == "" {
-		t.Errorf("congested leg (TTI=1.5) = %+v, want Z>0, LOS label/color populated", legs[0])
+	if legs[0].LOSLabel != "C" || legs[0].LOSColor == "" {
+		t.Errorf("congested leg (TTI=1.5) = %+v, want LOSLabel=C (not the worst tier), color populated", legs[0])
 	}
 
 	all, err := LatestRouteSegments()

@@ -240,11 +240,11 @@ func TestRecordFlowScanSkipsWhenCaptureDBNotInitialized(t *testing.T) {
 }
 
 // TestRecordFlowScanPopulatesMetricsColumns pins that internal/trafficmetrics
-// (SPEC-ITS-TRAFFIC-ANALYSIS-01's TTI/Z/LOS derivation) is actually wired
-// into recordFlowScan's insert, not just migrated as empty/default columns.
-// realSampleJSON's second result has 3 subSegments whose jamFactor spans
-// 9.1/3.9/9.1 (5.2 apart) — well past the default bottleneck threshold
-// (3.0), so its own result row (sub_index=-1) must come back flagged.
+// (TTI/LOS derivation) is actually wired into recordFlowScan's insert, not
+// just migrated as empty/default columns. realSampleJSON's second result
+// has 3 subSegments whose jamFactor spans 9.1/3.9/9.1 (5.2 apart) — well
+// past the default bottleneck threshold (3.0), so its own result row
+// (sub_index=-1) must come back flagged.
 func TestRecordFlowScanPopulatesMetricsColumns(t *testing.T) {
 	resetFlowCaptureDB(t)
 	results, sourceUpdated, err := parseFlowResults([]byte(realSampleJSON))
@@ -256,7 +256,7 @@ func TestRecordFlowScanPopulatesMetricsColumns(t *testing.T) {
 	}
 
 	rows, err := flowCaptureDB.Query(`
-		SELECT result_index, sub_index, tti_raw, tti_fused, z_est, z_percent, los_label, los_color, bottleneck_detected
+		SELECT result_index, sub_index, tti_raw, tti_fused, los_label, los_color, bottleneck_detected
 		FROM flow_segments ORDER BY result_index, sub_index`)
 	if err != nil {
 		t.Fatalf("query: %v", err)
@@ -264,15 +264,15 @@ func TestRecordFlowScanPopulatesMetricsColumns(t *testing.T) {
 	defer rows.Close()
 
 	type row struct {
-		resultIdx, subIdx         int
-		ttiRaw, ttiFused, z, zPct float64
-		losLabel, losColor        string
-		bottleneck                bool
+		resultIdx, subIdx  int
+		ttiRaw, ttiFused   float64
+		losLabel, losColor string
+		bottleneck         bool
 	}
 	var got []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.resultIdx, &r.subIdx, &r.ttiRaw, &r.ttiFused, &r.z, &r.zPct, &r.losLabel, &r.losColor, &r.bottleneck); err != nil {
+		if err := rows.Scan(&r.resultIdx, &r.subIdx, &r.ttiRaw, &r.ttiFused, &r.losLabel, &r.losColor, &r.bottleneck); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
 		got = append(got, r)

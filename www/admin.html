@@ -146,6 +146,10 @@ tr:hover td { background:var(--surface2); }
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       Dashboard 02
     </a>
+    <a href="/dashboard3.html" class="nav-item" data-tab-require="dashboard3" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 03
+    </a>
     <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
       Counting
@@ -519,42 +523,31 @@ tr:hover td { background:var(--surface2); }
 
       <div class="card" style="max-width:560px;margin-top:1rem">
         <div style="padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)">
-          <h3 style="font-size:.95rem;font-weight:700">🚦 Hệ số thông hành (Z) &amp; Mức phục vụ (LOS)</h3>
+          <h3 style="font-size:.95rem;font-weight:700">🚦 Mức phục vụ (LOS)</h3>
         </div>
         <div style="padding:1.1rem 1.25rem;display:flex;flex-direction:column;gap:.9rem">
           <p style="font-size:.78rem;color:var(--text-muted);margin:0">
-            Hằng số hiệu chuẩn suy diễn hệ số sử dụng khả năng thông hành Z (TCVN) từ TTI/JamFactor, và 6 mức phục
-            vụ LOS (A–F) phân theo % của Z. Dùng ở Flow Capture (tô màu theo LOS) và các trang tổng hợp báo cáo.
+            6 mức phục vụ LOS (A–F) phân loại trực tiếp theo TTI, theo chuẩn HCM (Highway Capacity Manual) cho
+            đường đô thị — không qua công thức suy diễn hệ số thông hành Z nữa (đã bỏ: không có dữ liệu đếm lưu
+            lượng xe thật để hiệu chuẩn, và công thức cũ phân loại sai TTI vừa phải vào mức tệ nhất). Dùng ở
+            Flow Capture (tô màu theo LOS) và các trang tổng hợp báo cáo.
           </p>
 
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.7rem .9rem;font-size:.74rem;line-height:1.7;color:var(--text-muted)">
             <div style="font-weight:700;color:var(--text);margin-bottom:.3rem">📐 Công thức đang dùng</div>
             <div><b>Dữ liệu quét (Flow Capture)</b> — có sẵn speed, freeFlow, JamFactor:</div>
-            <code style="display:block;white-space:pre-wrap;word-break:break-word">1) TTI_tốc_độ  = freeFlow / speed
-2) TTI_từ_JF   = 1 / (1 − (JamFactor/10)²)
+            <code style="display:block;white-space:pre-wrap;word-break:break-word">1) TTI_tốc_độ   = freeFlow / speed
+2) TTI_từ_JF    = 1 / (1 − (JamFactor/10)²)
 3) TTI_hợp_nhất = w1 × TTI_tốc_độ + w2 × TTI_từ_JF
-4) Z           = ((TTI_hợp_nhất − 1) / α) ^ (1/β)
-5) Z%          = Z × 100
-6) LOS         = mức A–F có "Z tối thiểu (%)" lớn nhất mà vẫn ≤ Z% (bảng dưới)</code>
+4) LOS          = mức A–F có "TTI tối thiểu" lớn nhất mà vẫn ≤ TTI_hợp_nhất (bảng dưới)</code>
             <div style="margin-top:.5rem"><b>Tuyến TTI giám sát (Travel Time)</b> — không có JamFactor riêng từng đoạn:</div>
-            <code style="display:block;white-space:pre-wrap;word-break:break-word">Z = ((TTI − 1) / α) ^ (1/β)   (bỏ qua bước TTI_từ_JF/hợp_nhất ở trên, dùng thẳng TTI đo được)
-Z%, LOS tính như bước 5–6 ở trên</code>
+            <code style="display:block;white-space:pre-wrap;word-break:break-word">LOS tra thẳng theo TTI đo được (bỏ qua bước TTI_từ_JF/hợp_nhất ở trên)</code>
             <div style="margin-top:.5rem"><b>2 cờ cảnh báo riêng</b> (chỉ tính được cho dữ liệu quét, không áp dụng cho tuyến TTI):</div>
             <code style="display:block;white-space:pre-wrap;word-break:break-word">Bất thường   = |JamFactor thực tế − JamFactor suy từ TTI_tốc_độ| > "Ngưỡng bất thường"
 Nghẽn đầu nút = (JF lớn nhất − JF nhỏ nhất giữa các đoạn con) ≥ "Ngưỡng nghẽn đầu nút"</code>
           </div>
 
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem">
-            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
-              Alpha (α)
-              <input type="number" id="losAlphaInput" step="0.01" min="0.01"
-                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
-            </label>
-            <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
-              Beta (β)
-              <input type="number" id="losBetaInput" step="0.01" min="0.01"
-                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text)">
-            </label>
             <label style="font-size:.75rem;color:var(--text-muted);display:flex;flex-direction:column;gap:.25rem">
               Trọng số TTI thô (w1)
               <input type="number" id="losW1Input" step="0.01" min="0"
@@ -578,12 +571,12 @@ Nghẽn đầu nút = (JF lớn nhất − JF nhỏ nhất giữa các đoạn c
           </div>
 
           <div>
-            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:.4rem">6 mức LOS (A–F) — Z tối thiểu (%), màu, hành động gợi ý</div>
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:.4rem">6 mức LOS (A–F) — TTI tối thiểu, màu, hành động gợi ý</div>
             <div id="losLevelRows" style="display:flex;flex-direction:column;gap:.4rem"></div>
           </div>
 
           <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
-            <button class="btn btn-primary btn-sm" onclick="saveLOSConfig()">💾 Lưu cấu hình Z/LOS</button>
+            <button class="btn btn-primary btn-sm" onclick="saveLOSConfig()">💾 Lưu cấu hình LOS</button>
             <button class="btn btn-ghost btn-sm" onclick="resetLOSConfig()">↺ Khôi phục mặc định</button>
             <span id="losSaveMsg" style="font-size:.8rem;color:var(--green);align-self:center;display:none">✓ Đã lưu</span>
           </div>
@@ -2206,6 +2199,7 @@ Camera-P1-01,192.168.3.10,Camera IP</pre>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="map"> Map</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="dashboard"> Dashboard</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="dashboard2"> Dashboard 02</label>
+          <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="dashboard3"> Dashboard 03</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="counting"> Counting &amp; Annotate</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="monitor"> Monitor</label>
           <label class="tab-perm-chip"><input type="checkbox" name="userTab" value="log"> Logs</label>
@@ -2935,33 +2929,43 @@ async function saveJfColorStops() {
   }
 }
 
-// ── Z (hệ số thông hành) / LOS (mức phục vụ) calibration — admin-edited
-// constants read from GET/PUT /api/trafficmetrics/config (internal/
-// trafficmetrics, SPEC-ITS-TRAFFIC-ANALYSIS-01). Mirrors the JF color
-// scale editor's own pattern above, just with a fixed 6-row (A–F) table
-// instead of an addable/removable stop list — the spec defines exactly
-// 6 LOS levels, so rows are edited in place, never added/removed.
+// ── LOS (mức phục vụ) calibration — admin-edited constants read from
+// GET/PUT /api/trafficmetrics/config (internal/trafficmetrics). Mirrors
+// the JF color scale editor's own pattern above, just with a fixed 6-row
+// (A–F) table instead of an addable/removable stop list. LOS boundaries
+// are HCM (Highway Capacity Manual) Exhibit 15-2's Urban Streets
+// speed-ratio bands (A≥85%/B67–85%/C51–67%/D39–51%/E29–39%/F<29% of
+// free-flow speed) converted to TTI = 1/ratio — replaced an earlier
+// BPR-inverse "Z" (volume-to-capacity) estimate with no real
+// traffic-volume data to calibrate it against.
 const LOS_DEFAULT_CONFIG = {
-  alpha: 0.50, beta: 2.20, fusionWeightTTI: 0.65, fusionWeightJF: 0.35,
+  fusionWeightTTI: 0.65, fusionWeightJF: 0.35,
   bottleneckJFSpread: 3.0, anomalyJFDelta: 2.5,
   losLevels: [
-    { label: 'A', zMinPercent: 0,   color: '#00E676', action: 'Duy trì điều khiển thông thường; giữ chu kỳ đèn tối ưu, duy trì làn sóng xanh' },
-    { label: 'B', zMinPercent: 35,  color: '#64DD17', action: 'Giám sát định kỳ; chuẩn bị kịch bản cao điểm' },
-    { label: 'C', zMinPercent: 50,  color: '#8BC34A', action: 'Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm' },
-    { label: 'D', zMinPercent: 75,  color: '#FFC107', action: 'Tăng nhẹ pha xanh trục chính; cảnh báo vận tốc chậm trên VMS' },
-    { label: 'E', zMinPercent: 90,  color: '#FF9800', action: 'Ngưỡng tới hạn! Kích hoạt thuật toán thích ứng (Adaptive Green); khuyến cáo lộ trình phụ' },
-    { label: 'F', zMinPercent: 100, color: '#D50000', action: 'Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)' },
+    { label: 'A', ttiMin: 1.00, color: '#00E676', action: 'Duy trì điều khiển thông thường; giữ chu kỳ đèn tối ưu, duy trì làn sóng xanh' },
+    { label: 'B', ttiMin: 1.18, color: '#64DD17', action: 'Giám sát định kỳ; chuẩn bị kịch bản cao điểm' },
+    { label: 'C', ttiMin: 1.49, color: '#8BC34A', action: 'Giám sát điểm dừng đón trả khách; chuẩn bị kịch bản cao điểm' },
+    { label: 'D', ttiMin: 1.96, color: '#FFC107', action: 'Tăng nhẹ pha xanh trục chính; cảnh báo vận tốc chậm trên VMS' },
+    { label: 'E', ttiMin: 2.56, color: '#FF9800', action: 'Ngưỡng tới hạn! Kích hoạt thuật toán thích ứng (Adaptive Green); khuyến cáo lộ trình phụ' },
+    { label: 'F', ttiMin: 3.45, color: '#D50000', action: 'Dòng sụp đổ! Điều độ viên can thiệp; xả nghẽn cưỡng bức; ngăn chặn tràn ngược (spillback)' },
   ],
 };
 let _losConfig = null;
 
 function renderLOSConstantInputs(c) {
-  document.getElementById('losAlphaInput').value = c.alpha;
-  document.getElementById('losBetaInput').value = c.beta;
   document.getElementById('losW1Input').value = c.fusionWeightTTI;
   document.getElementById('losW2Input').value = c.fusionWeightJF;
   document.getElementById('losBottleneckInput').value = c.bottleneckJFSpread;
   document.getElementById('losAnomalyInput').value = c.anomalyJFDelta;
+}
+
+// ttiToPctLabel — the % of free-flow speed a TTI value corresponds to
+// (= 100/TTI, the same variable HCM's own Exhibit 15-2 classifies LOS
+// on), shown next to each TTI input purely as a reference for the admin —
+// not a separately editable/stored field.
+function ttiToPctLabel(tti) {
+  const t = parseFloat(tti);
+  return (t > 0) ? '≈' + (100 / t).toFixed(0) + '%' : '';
 }
 
 function renderLOSRows() {
@@ -2969,10 +2973,10 @@ function renderLOSRows() {
   box.innerHTML = (_losConfig.losLevels || []).map((lv, i) => `
     <div style="display:flex;align-items:center;gap:.5rem">
       <span style="width:18px;font-weight:700;font-size:.82rem;color:${esc(lv.color)}">${esc(lv.label)}</span>
-      <input type="number" min="0" step="1" value="${lv.zMinPercent}"
-             oninput="updateLOSRow(${i}, 'zMinPercent', this.value)" title="Z tối thiểu (%)"
-             style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
-      <span style="font-size:.72rem;color:var(--text-muted)">%</span>
+      <input type="number" min="0" step="0.01" value="${lv.ttiMin}"
+             oninput="updateLOSRow(${i}, 'ttiMin', this.value)" title="TTI tối thiểu"
+             style="width:68px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+      <span id="losPctHint${i}" title="% tốc độ còn lại so với thông thoáng, tương đương TTI này" style="font-size:.72rem;color:var(--text-muted);width:42px">${ttiToPctLabel(lv.ttiMin)}</span>
       <input type="color" value="${esc(lv.color)}" oninput="updateLOSRow(${i}, 'color', this.value)"
              style="width:38px;height:30px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer">
       <input type="text" value="${esc(lv.action)}" oninput="updateLOSRow(${i}, 'action', this.value)" placeholder="Hành động gợi ý"
@@ -2980,8 +2984,12 @@ function renderLOSRows() {
     </div>`).join('');
 }
 function updateLOSRow(i, field, value) {
-  _losConfig.losLevels[i][field] = field === 'zMinPercent' ? (parseFloat(value) || 0) : value;
+  _losConfig.losLevels[i][field] = field === 'ttiMin' ? (parseFloat(value) || 0) : value;
   if (field === 'color') renderLOSRows();
+  if (field === 'ttiMin') {
+    const hint = document.getElementById('losPctHint' + i);
+    if (hint) hint.textContent = ttiToPctLabel(value);
+  }
 }
 async function loadLOSConfig() {
   try {
@@ -3000,8 +3008,6 @@ function resetLOSConfig() {
 }
 async function saveLOSConfig() {
   const c = {
-    alpha: parseFloat(document.getElementById('losAlphaInput').value) || 0,
-    beta: parseFloat(document.getElementById('losBetaInput').value) || 0,
     fusionWeightTTI: parseFloat(document.getElementById('losW1Input').value) || 0,
     fusionWeightJF: parseFloat(document.getElementById('losW2Input').value) || 0,
     bottleneckJFSpread: parseFloat(document.getElementById('losBottleneckInput').value) || 0,
@@ -3017,7 +3023,7 @@ async function saveLOSConfig() {
     msg.style.display = '';
     setTimeout(() => { msg.style.display = 'none'; }, 2500);
   } catch (e) {
-    alert('Lưu cấu hình Z/LOS thất bại: ' + e.message);
+    alert('Lưu cấu hình LOS thất bại: ' + e.message);
   }
 }
 

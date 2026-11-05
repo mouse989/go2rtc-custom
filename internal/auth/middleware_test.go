@@ -107,6 +107,28 @@ func TestUserCanAccessPathDashboard2IsIndependentOfDashboard(t *testing.T) {
 	}
 }
 
+// TestUserCanAccessPathDashboard3IsIndependentOfDashboard2 mirrors
+// TestUserCanAccessPathDashboard2IsIndependentOfDashboard above, one grant
+// further: TabDashboard3 (dashboard3.html) is its own permission, separate
+// from both TabDashboard and TabDashboard2, even though it reads the same
+// backend paths today.
+func TestUserCanAccessPathDashboard3IsIndependentOfDashboard2(t *testing.T) {
+	d3Only := &User{Role: RoleViewer, Tabs: []string{TabDashboard3}}
+	for _, p := range []string{"/api/dashboard/summary", "/api/traffic/data?file=2026-10-15.json", "/api/trafficflow/hourly", "/api/traveltime/forecast"} {
+		if !userCanAccessPath(d3Only, p) {
+			t.Fatalf("a viewer with only TabDashboard3 should reach %s", p)
+		}
+	}
+	d2Only := &User{Role: RoleViewer, Tabs: []string{TabDashboard2}}
+	if userCanAccessPath(d2Only, "/api/dashboard/summary") == false {
+		t.Fatal("sanity check: TabDashboard2 should still reach /api/dashboard/summary on its own")
+	}
+	neither := &User{Role: RoleViewer, Tabs: []string{TabMap}}
+	if userCanAccessPath(neither, "/api/dashboard/summary") {
+		t.Fatal("a viewer with none of TabDashboard/TabDashboard2/TabDashboard3 must not reach /api/dashboard/summary")
+	}
+}
+
 // TestUserCanAccessPathAIAnalyze mirrors TestUserCanAccessPathMapRoute
 // above, for the AI Analyze feature's own permission.
 func TestUserCanAccessPathAIAnalyze(t *testing.T) {

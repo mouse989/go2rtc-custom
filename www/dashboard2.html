@@ -144,6 +144,10 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       Dashboard 02
     </a>
+    <a href="/dashboard3.html" class="nav-item" data-tab-require="dashboard3" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 03
+    </a>
     <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
       Counting
@@ -433,6 +437,9 @@ let _map = null, _mapInited = false;
 // never "every incident in the currently selected date range" (which,
 // over a week/month filter, was the whole point's worth of markers).
 let _mapShowEvents = true, _mapShowHeat = true;
+// Last non-empty jam-point set from the auto-sliding "theo chu kỳ quét"
+// window — see loadMapWindowData's heat branch for why this exists.
+let _lastJamPts = [];
 let _mapFrom = null, _mapTo = null; // Date objects
 // _mapFollowScan: true (the default, for every user) means the window keeps
 // sliding to match the configured traffic-jam scan interval (_trafficIntervalMin)
@@ -448,6 +455,15 @@ let _primaryDate = '', _primaryLogs = null, _histDate = '', _histLogs = [];
 let _abnormalRoutes = [];
 let _weekChart = null;
 const LIVE_REFRESH_MS = 60000; // same cadence as dashboard.html's own auto-refresh
+
+// ── Route-detail modal — ported from dashboard.html's own openRouteDetail
+// (see that file for the fuller comments on this mechanism). ──
+let _fcChart = null;
+let _fcMode = 'time';   // 'time' | 'delay' | 'tti' — chart unit in the route detail
+let _fcRouteId = null;
+let _fcMap = null;
+let _fcMapApiKey = null; // cached vietmap_api_key so every open doesn't re-fetch /api/settings
+let _fcMapMarkers = [];
 
 function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
 function primaryTTILogs(tt) { return (_primaryDate && _primaryDate !== todayISO()) ? (_primaryLogs || []) : (tt.todayLogs || []); }
@@ -981,6 +997,80 @@ function d2CategoryIconSrc(category) {
   return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' + (ci?.updated_at || '');
 }
 
+// ── Incident points are a native GL layer (d2-incidents-bg + d2-incidents-
+// icon), not a DOM Marker per incident — DOM markers on this page were
+// found to visibly drift from their true lat/lng when zooming (worse the
+// further out you go), the same root cause www/trafficinsight.html's own
+// "Sự cố GT" layer hit and fixed the same way: a GL layer is painted by the
+// map's own GPU canvas, so it can never fall out of sync with the basemap
+// the way a JS-repositioned DOM element can on a page with other polling/
+// rendering work competing for the main thread. See trafficinsight.html's
+// "Marker position convention" comment for the fuller writeup. ──────────
+const D2_INC_CIRCLE_PX = 26, D2_INC_ICON_PX = 18;
+let _d2IncidentIconIds = new Set(); // category icon ids already map.addImage()'d
+// d2RenderFallbackIcon draws the generic "❗ on a gray circle" marker (same
+// look the old DOM fallback gave) onto an offscreen canvas at sizePx*dpr —
+// map.addImage accepts that directly (with {pixelRatio:dpr}), no network
+// round-trip or style "glyphs" URL needed (a symbol layer's text-field
+// does need one, and silently no-ops without it — canvas avoids the risk).
+function d2RenderFallbackIcon(sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#6b7280';
+  ctx.beginPath();
+  ctx.arc(px / 2, px / 2, px / 2 - dpr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${14 * dpr}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('!', px / 2, px / 2 + dpr);
+  return ctx.getImageData(0, 0, px, px);
+}
+// d2ResizeIconToCanvas fits an admin-uploaded category icon (uploaded at
+// whatever resolution the admin had on hand) onto a sizePx*dpr canvas,
+// "object-fit:contain" style, so every category renders at the same size.
+function d2ResizeIconToCanvas(image, sizePx, dpr) {
+  const px = sizePx * dpr;
+  const canvas = document.createElement('canvas');
+  canvas.width = px; canvas.height = px;
+  const ctx = canvas.getContext('2d');
+  const iw = image.width || image.naturalWidth || px;
+  const ih = image.height || image.naturalHeight || px;
+  const scale = Math.min(px / iw, px / ih);
+  const dw = iw * scale, dh = ih * scale;
+  ctx.drawImage(image, (px - dw) / 2, (px - dh) / 2, dw, dh);
+  return ctx.getImageData(0, 0, px, px);
+}
+function d2CategoryIconId(category) { return 'd2-cat-icon:' + category; }
+// loadD2IncidentCategoryImages loads every category's admin-uploaded icon
+// (if any) into the map's image sprite once each, keyed by category+
+// updated_at so a re-upload (which changes d2CategoryIconSrc's cache-bust
+// param) registers a fresh image instead of reusing the stale one.
+function loadD2IncidentCategoryImages() {
+  if (!_mapInited) return;
+  Object.values(_d2CategoryIcons).forEach(ci => {
+    if (!ci.content_type) return;
+    const id = d2CategoryIconId(ci.category);
+    const cacheKey = id + ':' + (ci.updated_at || '');
+    if (_d2IncidentIconIds.has(cacheKey)) return;
+    const dpr = window.devicePixelRatio || 1;
+    _map.loadImage(d2CategoryIconSrc(ci.category)).then(res => {
+      if (!res || !res.data) return;
+      if (_map.hasImage(id)) _map.removeImage(id);
+      _map.addImage(id, d2ResizeIconToCanvas(res.data, D2_INC_ICON_PX, dpr), { pixelRatio: dpr });
+      _d2IncidentIconIds.add(cacheKey);
+    }).catch(() => { /* category just falls back to the ❗ glyph */ });
+  });
+}
+function d2IncidentPopupHtml(p) {
+  return `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px;color:#1a1a1a">` +
+    (p.time ? `<b style="color:#0b1422">${new Date(p.time).toLocaleString('vi-VN')}</b><br>` : '') +
+    escH(p.content||'') + (p.unit ? `<br><i>${escH(p.unit)}</i>` : '') + `</div>`;
+}
+
 async function initD2Map() {
   // Visible to every user, not just admin — the panel now also holds the
   // Hiển thị (events/heatmap) toggles and the always-on follow-scan status,
@@ -1002,6 +1092,7 @@ async function initD2Map() {
     _map.on('load', () => {
       _mapInited = true;
       addJamLayers();
+      addD2IncidentLayers();
       applyHeatmapCfg();
       refreshMapWindow();
     });
@@ -1106,20 +1197,24 @@ async function loadMapWindowData() {
   const bounds = [];
 
   if (_mapShowEvents) {
-    const fromDate = vnDateStr(_mapFrom), toDate = vnDateStr(_mapTo);
     let pts = [];
     try {
-      const qs = new URLSearchParams({ year: toDate.slice(0,4), from: fromDate, to: toDate });
-      const list = await apiFetch('/api/incidents?' + qs.toString()) || [];
+      // /api/incidents/active — same endpoint and semantics map.html's own
+      // "🚨 Sự cố GT" layer uses: every incident with a coordinate that
+      // hasn't been marked ended yet, with NO time-window filtering at all
+      // (an incident no longer "ages out" of the map after _mapFrom/_mapTo —
+      // it stays until someone uses incidents.html's "✓ kết thúc" button,
+      // however old it is). The Loại filter (#d2Cat) still applies client-
+      // side — unlike the time window, that one's a deliberate user choice,
+      // not something the incident's own lifecycle should override.
+      const list = await apiFetch('/api/incidents/active') || [];
       const catSel = document.getElementById('d2Cat')?.value || '';
-      pts = list.filter(i => i.lat && i.lng && i.time &&
-        new Date(i.time) >= _mapFrom && new Date(i.time) <= _mapTo &&
-        (!catSel || incidentBucket(i.category) === catSel));
+      pts = catSel ? list.filter(i => incidentBucket(i.category) === catSel) : list;
     } catch (e) { /* d2MapCount below reports 0 — Incidents tab missing, etc. */ }
     updateD2MapIncidents(pts);
     pts.forEach(p => bounds.push([p.lng, p.lat]));
     const cEl = document.getElementById('d2MapCount');
-    if (cEl) cEl.textContent = `(${pts.length} sự cố trong khung giờ)`;
+    if (cEl) cEl.textContent = `(${pts.length} sự cố chưa kết thúc)`;
   } else {
     updateD2MapIncidents([]);
     const cEl = document.getElementById('d2MapCount');
@@ -1128,10 +1223,22 @@ async function loadMapWindowData() {
 
   if (_mapShowHeat) {
     const jamPts = await fetchJamPointsInWindow(_mapFrom, _mapTo);
-    updateJamData(jamPts);
-    jamPts.forEach(p => bounds.push([p.lng, p.lat]));
+    // The auto-sliding "theo chu kỳ quét" window coming back empty almost
+    // always means a scan is mid-flight — the previous scan's points just
+    // aged out of the window, the next one hasn't landed in the daily scan
+    // file yet (that file write happens once the whole scan completes) —
+    // not that congestion genuinely vanished for a whole interval. Keep
+    // showing the last known non-empty scan through that ~1-minute gap
+    // instead of flashing the heatmap blank every cycle. A user-picked
+    // custom window has no such "in-flight" excuse — a genuinely empty
+    // result there is shown as-is, not papered over.
+    const ptsToShow = (jamPts.length > 0 || !_mapFollowScan) ? jamPts : _lastJamPts;
+    updateJamData(ptsToShow);
+    if (jamPts.length > 0) _lastJamPts = jamPts;
+    ptsToShow.forEach(p => bounds.push([p.lng, p.lat]));
   } else {
     updateJamData([]);
+    _lastJamPts = [];
   }
 
   if (_map && _mapInited && bounds.length) {
@@ -1382,51 +1489,62 @@ async function resetHeatmapCfg() {
   applyHeatmapCfg();
 }
 
-// ── Incident markers (DOM, admin-configured icon/color per category) ────
-// No-ops if the map isn't ready yet — loadMapWindowData only ever runs
-// after initD2Map's 'load' handler fires (it's the thing that calls it
-// the first time), so this guard exists purely for defense, not as a
-// pending-replay queue.
-//
-// Marker position convention (project-wide — see map.html's commit "Fix
-// Traffic Event/AI Event markers appearing to drift from their true
-// position when zoomed out", and the longer note in trafficinsight.html
-// near its own incident-marker code): el.style.cssText below already sets
-// the element's size BEFORE constructing the Marker, which is the main
-// fix — but always also re-run setLngLat() once more right after addTo(),
-// once the element is actually attached with its final size, as a second
-// line of defense. For a point set that's purely for display (no
-// per-marker DOM/hover content), prefer a native GL layer instead (see
-// `jams-dot` above) — it's painted in lockstep with the basemap every
-// frame and categorically cannot drift; DOM Markers are for points that
-// need real per-marker interactivity, like the click-to-popup below.
-let _d2IncMarkers = [];
+// ── Incident markers — native GL layer (d2-incidents-bg + d2-incidents-
+// icon), not DOM Markers. DOM markers here used to visibly drift from
+// their true lat/lng when zooming out, the same issue www/trafficinsight.
+// html's own incident layer hit and fixed the same way: a GL layer is
+// painted by the map's own GPU canvas in lockstep with the basemap, so it
+// cannot fall out of sync the way a JS-repositioned DOM element can.
+// Click-to-popup still works fine on a GL layer (map.on('click', layerId,
+// ...) + the feature's own properties) — it was never a reason to keep
+// DOM Markers, see addD2IncidentLayers below.
+function addD2IncidentLayers() {
+  if (!_map) return;
+  _map.addSource('d2-incidents', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  _map.addLayer({
+    id: 'd2-incidents-bg', type: 'circle', source: 'd2-incidents',
+    paint: {
+      'circle-radius': D2_INC_CIRCLE_PX / 2,
+      'circle-color': ['get', 'color'],
+      'circle-stroke-width': 2, 'circle-stroke-color': 'rgba(255,255,255,.85)',
+    },
+  });
+  const dpr = window.devicePixelRatio || 1;
+  _map.addImage('d2-fallback-icon', d2RenderFallbackIcon(D2_INC_CIRCLE_PX, dpr), { pixelRatio: dpr });
+  _map.addLayer({
+    id: 'd2-incidents-icon', type: 'symbol', source: 'd2-incidents',
+    layout: {
+      'icon-image': ['case', ['get', 'hasIcon'], ['get', 'iconId'], 'd2-fallback-icon'],
+      'icon-size': 1, 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+    },
+  });
+  _map.on('click', 'd2-incidents-bg', e => {
+    const p = e.features[0].properties;
+    new vietmapgl.Popup({ closeButton: false, maxWidth: '220px' })
+      .setLngLat(e.lngLat).setHTML(d2IncidentPopupHtml(p)).addTo(_map);
+  });
+  _map.on('mouseenter', 'd2-incidents-bg', () => _map.getCanvas().style.cursor = 'pointer');
+  _map.on('mouseleave', 'd2-incidents-bg', () => _map.getCanvas().style.cursor = '');
+}
+
+// updateD2MapIncidents replaces the d2-incidents source's data wholesale —
+// no per-marker diffing needed, the GL layer just redraws from whatever
+// GeoJSON is handed to it.
 function updateD2MapIncidents(pts) {
   if (!_map || !_mapInited) return;
-  try {
-    _d2IncMarkers.forEach(m => m.remove());
-    _d2IncMarkers = pts.map(i => {
-      const ci = _d2CategoryIcons[i.category];
-      const bg = (ci && ci.color) || '#6b7280';
-      const html = (ci && ci.content_type)
-        ? `<img src="${d2CategoryIconSrc(i.category)}" alt="" style="width:18px;height:18px;object-fit:contain;display:block;pointer-events:none">`
-        : '❗';
-      const el = document.createElement('div');
-      el.style.cssText = `width:26px;height:26px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;border:2px solid rgba(255,255,255,.85);box-shadow:0 2px 6px rgba(0,0,0,.5)`;
-      el.innerHTML = html;
-      el.title = [i.category, i.content, i.unit].filter(Boolean).join(' — ');
-      el.addEventListener('click', () => {
-        const html2 = `<div style="font-family:sans-serif;font-size:.78rem;line-height:1.5;max-width:200px;color:#1a1a1a">` +
-          (i.time ? `<b style="color:#0b1422">${new Date(i.time).toLocaleString('vi-VN')}</b><br>` : '') +
-          escH(i.content||'') + (i.unit ? `<br><i>${escH(i.unit)}</i>` : '') + `</div>`;
-        new vietmapgl.Popup({closeButton:false, maxWidth:'220px'}).setLngLat([i.lng, i.lat]).setHTML(html2).addTo(_map);
-      });
-      const marker = new vietmapgl.Marker({ element: el, anchor: 'center' }).setLngLat([i.lng, i.lat]);
-      marker.addTo(_map);
-      marker.setLngLat([i.lng, i.lat]);
-      return marker;
-    });
-  } catch(_) {}
+  loadD2IncidentCategoryImages();
+  const features = (pts || []).map(i => {
+    const ci = _d2CategoryIcons[i.category];
+    const hasIcon = !!(ci && ci.content_type);
+    return {
+      type: 'Feature', geometry: { type: 'Point', coordinates: [i.lng, i.lat] },
+      properties: {
+        category: i.category || '', content: i.content || '', unit: i.unit || '', time: i.time || '',
+        color: (ci && ci.color) || '#6b7280', hasIcon, iconId: hasIcon ? d2CategoryIconId(i.category) : '',
+      },
+    };
+  });
+  _map.getSource('d2-incidents')?.setData({ type: 'FeatureCollection', features });
 }
 
 // ── Render: header summary + status pills ───────────────────────────────
@@ -1705,7 +1823,7 @@ function renderTTIChart(routes, primaryLogs, histLogs) {
 
     return `<div class="d2-tti-row" id="d2TtiRow-${escH(r.id)}">
       <div class="d2-tti-label">
-        <div style="display:flex;align-items:center;gap:.25rem">${trendArrow(trend)}${abnMark}<span class="d2-tti-rname" title="${escH(r.name)}">${escH(r.name)}</span></div>
+        <div style="display:flex;align-items:center;gap:.25rem">${trendArrow(trend)}${abnMark}<span class="d2-tti-rname" title="Bấm để xem chi tiết & dự báo: ${escH(r.name)}" onclick="openRouteDetail('${escH(r.id)}')">${escH(r.name)}</span></div>
       </div>
       <div class="d2-tti-bars">
         <div class="d2-tti-bar d2-tti-bar-today">${todayBar}</div>
@@ -1742,6 +1860,290 @@ function renderTtiLegend() {
   html += `<span><span class="d2-tti-legend-dot" style="background:${nd};border:1px solid var(--border)"></span>Không có dữ liệu</span>`;
   html += `<span><span class="d2-tti-legend-dot" style="background-color:#64748b" class="d2-tti-forecast"></span>Dự báo</span>`;
   el.innerHTML = html;
+}
+
+function slotHHMM(i) { const m = i * SLOT_MIN; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
+
+function openRouteDetail(routeId) {
+  const tt = (_sum || {}).travelTime || {};
+  const r = (tt.routes || []).find(x => x.id === routeId);
+  if (!r) return;
+  const todaySlots = buildSlots(primaryTTILogs(tt), routeId);
+  const baseSlots  = baselineSlots(routeId);
+  const sf         = _forecast.byRoute[routeId];
+  const curSlot    = slotOfTs(new Date().toISOString());
+
+  let ov = document.getElementById('fcOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'fcOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px';
+    ov.addEventListener('click', e => { if (e.target === ov) closeRouteDetail(); });
+    ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:880px;width:100%;max-height:92vh;overflow:auto;padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <h3 id="fcTitle" style="margin:0;font-size:1rem;flex:1"></h3>
+        <button onclick="closeRouteDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:.25rem .6rem;font-size:1rem">✕</button>
+      </div>
+      <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
+      <div id="fcMapWrap" style="height:200px;border-radius:8px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border)">
+        <div id="fcMap" style="width:100%;height:100%"></div>
+      </div>
+      <div id="fcModes" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div style="position:relative;height:340px"><canvas id="fcCanvas"></canvas></div>
+      <div id="fcNote" style="font-size:.72rem;color:var(--text-muted);margin-top:10px;line-height:1.5"></div>
+    </div>`;
+    document.body.appendChild(ov);
+  }
+  ov.style.display = 'flex';
+  document.getElementById('fcTitle').textContent = '📈 ' + (r.name || routeId);
+  _fcRouteId = routeId;
+  renderRouteDetailMap(r);
+
+  // Free-flow (no-traffic) travel time: TTI = actual / free-flow, so any TTI
+  // converts to minutes as TTI × free-flow. Taken as the median baseSec of
+  // the route's measurements (today first, else the comparison day).
+  const baseSecOf = logs => {
+    const v = (logs || []).filter(e => e.routeId === routeId && e.baseSec > 0).map(e => e.baseSec).sort((x, y) => x - y);
+    return v.length ? v[Math.floor(v.length / 2)] : 0;
+  };
+  const freeSec = baseSecOf(tt.todayLogs) || baseSecOf(_histLogs);
+  const hasMin  = freeSec > 0;
+  const toSec   = tti => (tti != null && hasMin) ? tti * freeSec : null;
+
+  const labels = [], tti = { actual: [], profile: [], fcast: [], lo: [], hi: [] }, actualSec = [];
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    labels.push(slotHHMM(i));
+    const t = todaySlots[i];
+    tti.actual.push(t ? t.tti : null);
+    actualSec.push(t ? (t.dur || toSec(t.tti)) : null); // real measured duration when logged
+    tti.profile.push(baseSlots && baseSlots[i] ? baseSlots[i].tti : null);
+    const p = sf && sf.bySlot && sf.bySlot[i];
+    tti.fcast.push(p ? p.tti : null); tti.lo.push(p ? p.lo : null); tti.hi.push(p ? p.hi : null);
+  }
+  if (curSlot >= 0 && tti.actual[curSlot] != null) tti.fcast[curSlot] = tti.actual[curSlot]; // join lines
+
+  const curSlotData = todaySlots[curSlot] || null;
+  const cur     = curSlotData ? curSlotData.tti : (r.latestTTI || 0);
+  const curSec  = curSlotData && curSlotData.dur ? curSlotData.dur : toSec(cur);
+  const curDelay = curSlotData ? curSlotData.delay : (r.latestDelaySec || (hasMin && cur ? (cur - 1) * freeSec : null));
+  const p15     = sf && sf.bySlot && sf.bySlot[curSlot + 1];
+  const p60     = sf && sf.bySlot && sf.bySlot[curSlot + slotsFor(60)];
+  const baseNow = baseSlots ? avgSlotAround(baseSlots, curSlot) : null;
+
+  const stat = (lbl, val, color, sub) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem;min-width:132px;flex:1">
+    <div style="font-size:.64rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+    <div style="font-weight:800;font-size:1.05rem;color:${color || 'var(--text)'}">${val}</div>
+    ${sub ? `<div style="font-size:.7rem;color:var(--text-muted);margin-top:.1rem">${sub}</div>` : ''}</div>`;
+  const delayTxt = sec => sec == null ? '—' : (sec >= 0 ? '+' : '') + fmtMinSec(sec);
+  // Forecast card: minutes as the headline, TTI + delay as the detail line.
+  const fcCard = (lbl, p) => {
+    if (!p) return stat(lbl, '—');
+    if (!hasMin) return stat(lbl, `${p.tti.toFixed(2)} [${p.lo.toFixed(2)}–${p.hi.toFixed(2)}]`, ttiColor(p.tti));
+    return stat(lbl, fmtMinSec(toSec(p.tti)), ttiColor(p.tti),
+      `khoảng ${fmtMinSec(toSec(p.lo)).replace(' phút', '')}–${fmtMinSec(toSec(p.hi))} · trễ ${delayTxt(toSec(p.tti) - freeSec)} · TTI ${p.tti.toFixed(2)}`);
+  };
+  // Route length: its own card (not just a side note) — km is the plainest
+  // way to picture "how long is this road", right next to the time cards.
+  const lenCard = r.latestLengthM
+    ? stat('Chiều dài tuyến', (r.latestLengthM / 1000).toFixed(1).replace('.', ',') + ' km', '',
+        freeSec ? `~${fmtMinSec(freeSec)} khi đường thông thoáng` : '')
+    : '';
+  // Tốc độ TB hiện tại: derived from the same length/duration already shown
+  // above (length ÷ current travel time), not a separate data source — km/h
+  // is a plainer read than the raw TTI ratio for most people. freeSpeedKmh
+  // (length ÷ free-flow time) is the sub-line for context, same pairing
+  // "Thời gian đi hiện tại" already does against freeSec.
+  const curSpeedKmh  = (r.latestLengthM > 0 && curSec > 0)  ? r.latestLengthM / curSec * 3.6  : null;
+  const freeSpeedKmh = (r.latestLengthM > 0 && freeSec > 0) ? r.latestLengthM / freeSec * 3.6 : null;
+  const speedCard = curSpeedKmh != null
+    ? stat('Tốc độ TB hiện tại', curSpeedKmh.toFixed(1).replace('.', ',') + ' km/h', ttiColor(cur),
+        freeSpeedKmh != null ? `thông thoáng ~${freeSpeedKmh.toFixed(0)} km/h` : '')
+    : '';
+  document.getElementById('fcStats').innerHTML = lenCard + speedCard + (hasMin
+    ? stat('Thời gian đi hiện tại', fmtMinSec(curSec), ttiColor(cur), `TTI ${cur ? cur.toFixed(2) : '—'}`) +
+      stat('Trễ hiện tại', delayTxt(curDelay), ttiColor(cur), `so với khi đường thông thoáng (${fmtMinSec(freeSec)})`) +
+      stat('Bình thường giờ này', baseNow ? fmtMinSec(toSec(baseNow)) : '—', '',
+        baseNow ? `trễ ${delayTxt(toSec(baseNow) - freeSec)} · TTI ${baseNow.toFixed(2)}` : '') +
+      fcCard('Dự báo +' + fmtMin(SLOT_MIN), p15) +
+      fcCard('Dự báo +60′', p60)
+    : stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
+      stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
+      fcCard('Dự báo +' + fmtMin(SLOT_MIN), p15) +
+      fcCard('Dự báo +60′', p60));
+
+  document.getElementById('fcNote').innerHTML = (sf
+    ? `Phương pháp: <b>${sf.method === 'holt-seasonal' ? 'Dự báo' : 'Hồ sơ điển hình (chưa đủ dữ liệu hôm nay)'}</b> · vùng cam mờ = khoảng tin cậy ~80% · đường xám nét đứt = mức bình thường (TB ${_baseline.weeks} tuần cùng thứ).`
+    : 'Chưa có dữ liệu dự báo cho tuyến này.') +
+    (hasMin ? ` Thời gian khi đường thông thoáng: <b>${fmtMinSec(freeSec)}</b>; trễ = thời gian đi − thời gian thông thoáng; mức bình thường/dự báo quy ra phút = TTI × thời gian thông thoáng.` : '');
+
+  // Mode tabs: minutes (default), delay minutes, or raw TTI.
+  const modes = hasMin
+    ? [['time', '⏱ Thời gian đi (phút)'], ['delay', '⏳ Thời gian trễ (phút)'], ['tti', 'TTI']]
+    : [['tti', 'TTI']];
+  if (!modes.some(m => m[0] === _fcMode)) _fcMode = modes[0][0];
+  document.getElementById('fcModes').innerHTML = modes.map(([k, lbl]) =>
+    `<button onclick="_fcMode='${k}';openRouteDetail(_fcRouteId)" style="font-size:.74rem;padding:.22rem .6rem;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${k === _fcMode ? 'var(--accent)' : 'var(--border)'};background:${k === _fcMode ? 'var(--accent)' : 'var(--surface2)'};color:${k === _fcMode ? '#fff' : 'var(--text)'}">${lbl}</button>`).join('');
+
+  const conv = {
+    tti:   { f: v => v, fmt: v => v.toFixed(2), axis: 'TTI' },
+    time:  { f: v => v == null ? null : toSec(v) / 60, fmt: v => fmtMinSec(v * 60), axis: 'Thời gian đi (phút)' },
+    delay: { f: v => v == null ? null : (toSec(v) - freeSec) / 60, fmt: v => (v >= 0 ? '+' : '') + fmtMinSec(v * 60), axis: 'Thời gian trễ (phút)' },
+  }[_fcMode];
+  const series = key => tti[key].map(conv.f);
+  const actualData = _fcMode === 'tti' ? tti.actual
+    : actualSec.map(sec => sec == null ? null : (_fcMode === 'time' ? sec / 60 : (sec - freeSec) / 60));
+  const fcastData = series('fcast');
+  if (curSlot >= 0 && actualData[curSlot] != null) fcastData[curSlot] = actualData[curSlot];
+  const ttiBySet = [tti.lo, tti.hi, tti.profile, tti.actual, tti.fcast]; // dataset order below
+
+  const txt  = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+  const grid = 'rgba(128,128,128,.15)';
+  if (_fcChart) _fcChart.destroy();
+  _fcChart = new Chart(document.getElementById('fcCanvas'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'CI lo', data: series('lo'), borderColor: 'transparent', pointRadius: 0, fill: false },
+      { label: 'Khoảng tin cậy', data: series('hi'), borderColor: 'transparent', backgroundColor: 'rgba(245,158,11,.18)', pointRadius: 0, fill: '-1' },
+      { label: 'Mức bình thường', data: series('profile'), borderColor: '#94a3b8', borderDash: [5,4], borderWidth: 1.5, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Thực tế hôm nay', data: actualData, borderColor: '#2f81f7', borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Dự báo', data: fcastData, borderColor: '#f59e0b', borderDash: [4,3], borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txt, filter: it => it.text !== 'CI lo', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { filter: it => it.dataset.label !== 'CI lo',
+          callbacks: { label: c => {
+            if (c.parsed.y == null) return ` ${c.dataset.label}: —`;
+            let extra = '';
+            const t = (ttiBySet[c.datasetIndex] || [])[c.dataIndex];
+            if (_fcMode !== 'tti' && t != null) extra = ` · TTI ${t.toFixed(2)}`;
+            else if (_fcMode === 'tti' && hasMin && t != null) extra = ` · ${fmtMinSec(toSec(t))} (trễ ${delayTxt(toSec(t) - freeSec)})`;
+            return ` ${c.dataset.label}: ${conv.fmt(c.parsed.y)}${extra}`;
+          } } },
+      },
+      scales: {
+        x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 9, font: { size: 10 } }, grid: { color: grid } },
+        y: { beginAtZero: _fcMode === 'delay', ticks: { color: txt, font: { size: 10 } }, grid: { color: grid }, title: { display: true, text: conv.axis, color: txt } },
+      } },
+  });
+}
+function closeRouteDetail() {
+  const ov = document.getElementById('fcOverlay'); if (ov) ov.style.display = 'none';
+  if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
+}
+
+// Route-detail mini map: shows origin (A), destination (B) and any
+// waypoints, connected by the real road-following path — fetched via the
+// same VietMap Directions proxy map.html's "🛣 Theo tuyến" tool uses, rather
+// than a straight line, so the map matches the actual road the route
+// measures. Falls back to a straight line through origin/waypoints/
+// destination if that call fails (no VietMap key configured, network
+// error, or no route found for these points).
+function parseLatLng(s) {
+  if (!s) return null;
+  const parts = String(s).split(',').map(x => parseFloat(x.trim()));
+  if (parts.length !== 2 || parts.some(isNaN)) return null;
+  return [parts[1], parts[0]]; // -> [lng, lat], vietmapgl's coordinate order
+}
+
+async function renderRouteDetailMap(r) {
+  const wrap = document.getElementById('fcMap');
+  if (!wrap) return;
+
+  const origin = parseLatLng(r.origin);
+  const dest   = parseLatLng(r.destination);
+  const wps    = String(r.waypoints || '').split('|').map(parseLatLng).filter(Boolean);
+  if (!origin || !dest) {
+    document.getElementById('fcMapWrap').style.display = 'none';
+    return;
+  }
+  document.getElementById('fcMapWrap').style.display = '';
+  const straightLine = [origin, ...wps, dest];
+
+  let routeCoords = null, routeBounds = null;
+  try {
+    const params = new URLSearchParams();
+    params.append('point', r.origin); // already "lat,lng", same format the API expects
+    String(r.waypoints || '').split('|').map(s => s.trim()).filter(Boolean).forEach(wp => params.append('point', wp));
+    params.append('point', r.destination);
+    params.set('vehicle', 'car');
+    params.set('points_encoded', 'false');
+    const data = await apiFetch('/api/vietmap/route?' + params.toString());
+    if (data?.error) throw new Error(data.error);
+    const path = data?.paths?.[0];
+    const coords = path?.points?.coordinates ?? path?.points;
+    if (coords && coords.length >= 2) {
+      routeCoords = coords;
+      if (path.bbox) {
+        const [w, s, e, n] = path.bbox;
+        routeBounds = [[w, s], [e, n]];
+      }
+    }
+  } catch (_) { /* fall back to the straight line below */ }
+
+  const line = routeCoords || straightLine;
+
+  const draw = () => {
+    if (!_fcMap.getSource('fcRouteLine')) {
+      _fcMap.addSource('fcRouteLine', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _fcMap.addLayer({ id: 'fcRouteLine', type: 'line', source: 'fcRouteLine',
+        paint: { 'line-color': '#2f81f7', 'line-width': 3, 'line-opacity': .85 } });
+    }
+    _fcMap.getSource('fcRouteLine').setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }],
+    });
+
+    _fcMapMarkers.forEach(m => m.remove());
+    _fcMapMarkers = [];
+    const addMarker = (lngLat, color, label) => {
+      const el = document.createElement('div');
+      el.textContent = label;
+      el.style.cssText = `width:22px;height:22px;border-radius:50%;background:${color};color:#fff;` +
+        'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;' +
+        'border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+      _fcMapMarkers.push(new vietmapgl.Marker({ element: el }).setLngLat(lngLat).addTo(_fcMap));
+    };
+    addMarker(origin, '#22c55e', 'A');
+    wps.forEach(w => addMarker(w, '#94a3b8', ''));
+    addMarker(dest, '#ef4444', 'B');
+
+    try {
+      if (routeBounds) {
+        _fcMap.fitBounds(routeBounds, { padding: 36, maxZoom: 15, duration: 0 });
+      } else {
+        const b = new vietmapgl.LngLatBounds();
+        straightLine.forEach(pt => b.extend(pt));
+        _fcMap.fitBounds(b, { padding: 36, maxZoom: 15, duration: 0 });
+      }
+    } catch (_) {}
+  };
+
+  if (_fcMapApiKey === null) {
+    try {
+      const settings = await apiFetch('/api/settings');
+      _fcMapApiKey = (settings || {}).vietmap_api_key || '';
+    } catch (_) { _fcMapApiKey = ''; }
+  }
+  if (!_fcMapApiKey) {
+    wrap.innerHTML = '<div class="d2-empty">Chưa cấu hình VietMap API Key</div>';
+    return;
+  }
+
+  if (!_fcMap) {
+    _fcMap = new vietmapgl.Map({
+      container: 'fcMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${_fcMapApiKey}`,
+      center: origin, zoom: 12,
+    });
+    _fcMap.addControl(new vietmapgl.NavigationControl({ showCompass: false }), 'top-right');
+    _fcMap.on('load', draw);
+  } else if (_fcMap.isStyleLoaded()) {
+    draw();
+    _fcMap.resize(); // the modal (and #fcMap) may have been display:none since the map was created
+  } else {
+    _fcMap.once('load', draw);
+  }
 }
 
 // ── Orchestration: each fetch is error-isolated so one failing source

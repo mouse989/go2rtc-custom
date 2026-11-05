@@ -14,6 +14,11 @@ const (
 	TabMonitor    = "monitor"    // /monitor.html
 	TabDashboard  = "dashboard"  // /dashboard.html
 	TabDashboard2 = "dashboard2" // /dashboard2.html — independent of TabDashboard, granted separately
+	// TabDashboard3 gates /dashboard3.html — a trimmed clone of Dashboard 02
+	// (same TTI/incident-tiles/heatmap, minus its incident-analytics charts).
+	// Its own grant, independent of TabDashboard2, because planned future
+	// content on this page won't necessarily match Dashboard 02's audience.
+	TabDashboard3 = "dashboard3"
 	TabLog        = "log"        // /log.html
 	TabConfig     = "config"     // /config.html
 	TabAPIDocs    = "api_docs"   // /api-docs.html
@@ -47,7 +52,7 @@ const (
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabDashboard3, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture}
 
 // User represents an application user
 type User struct {
