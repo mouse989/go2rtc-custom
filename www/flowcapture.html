@@ -236,6 +236,12 @@ function fcSortedLosLevels() {
 // HCM's own Exhibit 15-2 classifies LOS on) plus the current band's own
 // %-range, so a reading can be read as "near the top/bottom of its LOS
 // band" instead of just the bare letter.
+// congestionPct/congestionRangeLabel are just pct/rangeLabel read the other
+// way round — "% tốc độ đã mất so với thông thoáng" instead of "% tốc độ
+// còn lại" — same number, inverted (100 - pct), for readers who find "60%
+// kẹt" more intuitive than "40% thông thoáng còn lại". The band itself
+// inverts too: thông thoáng's "better" edge (higher %) is congestion's
+// LOWER edge, so pctBetter/pctWorse swap sides when converted.
 function fcSpeedPercentInfo(tti, losLabel) {
   const pct = tti > 0 ? 100 / tti : 0;
   const sorted = fcSortedLosLevels();
@@ -244,6 +250,8 @@ function fcSpeedPercentInfo(tti, losLabel) {
   return {
     pct,
     rangeLabel: range ? `dải ${losLabel}: ${range.pctWorse.toFixed(0)}–${range.pctBetter.toFixed(0)}%` : '',
+    congestionPct: 100 - pct,
+    congestionRangeLabel: range ? `dải ${losLabel}: ${(100 - range.pctBetter).toFixed(0)}–${(100 - range.pctWorse).toFixed(0)}%` : '',
   };
 }
 
@@ -432,7 +440,8 @@ function fcLinePopupHtml(p) {
       ${p.functionalClass != null ? `<b>Loại đường:</b> ${p.functionalClass}<br>` : ''}
       <b>TTI (hợp nhất):</b> ${(p.ttiFused || 0).toFixed(2)}<br>
       <b>LOS:</b> <span style="color:${escHtml(p.losColor || '#999')}">${escHtml(p.losLabel || '—')}</span>
-      — ${sp.pct.toFixed(0)}% tốc độ thông thoáng${sp.rangeLabel ? ` (${escHtml(sp.rangeLabel)})` : ''}
+      — ${sp.pct.toFixed(0)}% tốc độ thông thoáng${sp.rangeLabel ? ` (${escHtml(sp.rangeLabel)})` : ''}<br>
+      <span style="color:#666;font-size:.72rem">↳ ${sp.congestionPct.toFixed(0)}% tỷ lệ kẹt${sp.congestionRangeLabel ? ` (${escHtml(sp.congestionRangeLabel)})` : ''}</span>
     </div>
     ${flags.length ? `<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">${flags.map(escHtml).join('<br>')}</div>` : ''}
   </div>`;
@@ -527,17 +536,20 @@ async function buildRouteSegmentsGeoJSON(routes) {
 
 function fcRoutePopupHtml(p) {
   const speedKmh = p.durationSec > 0 ? (p.lengthM / 1000) / (p.durationSec / 3600) : 0;
+  const freeFlowKmh = p.baseSec > 0 ? (p.lengthM / 1000) / (p.baseSec / 3600) : 0;
   const sp = fcSpeedPercentInfo(p.tti, p.losLabel);
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:180px;color:#1a1a1a">
     <div style="font-size:.92rem;font-weight:700">${escHtml(p.routeName)}</div>
     <div style="color:#333;font-size:.78rem">Đoạn ${p.legIndex + 1} · ${p.lengthM.toFixed(0)} m</div>
     <div style="margin-top:.3rem;font-size:.8rem">
       <b>TTI:</b> ${p.tti.toFixed(2)}<br>
-      <b>Tốc độ:</b> ${speedKmh.toFixed(1)} km/h<br>
-      <b>Thời gian đi:</b> ${(p.durationSec / 60).toFixed(1)} phút (nền: ${(p.baseSec / 60).toFixed(1)} phút)<br>
+      <b>Tốc độ hiện tại:</b> ${speedKmh.toFixed(1)} km/h<br>
+      <b>Tốc độ free flow:</b> ${freeFlowKmh.toFixed(1)} km/h<br>
+      <b>Thời gian đi:</b> ${(p.durationSec / 60).toFixed(1)} phút (free flow: ${(p.baseSec / 60).toFixed(1)} phút)<br>
       <b>Trễ do kẹt xe:</b> ${(p.delaySec / 60).toFixed(1)} phút<br>
       <b>LOS:</b> <span style="color:${escHtml(p.losColor || '#999')}">${escHtml(p.losLabel || '—')}</span>
-      — ${sp.pct.toFixed(0)}% tốc độ thông thoáng${sp.rangeLabel ? ` (${escHtml(sp.rangeLabel)})` : ''}
+      — ${sp.pct.toFixed(0)}% tốc độ thông thoáng${sp.rangeLabel ? ` (${escHtml(sp.rangeLabel)})` : ''}<br>
+      <span style="color:#666;font-size:.72rem">↳ ${sp.congestionPct.toFixed(0)}% tỷ lệ kẹt${sp.congestionRangeLabel ? ` (${escHtml(sp.congestionRangeLabel)})` : ''}</span>
     </div>
     ${p.geomApprox ? '<div style="margin-top:.4rem;font-size:.7rem;color:#b45309">⚠ Không dò được tuyến đường thực tế cho đoạn này — tạm hiển thị bằng đường thẳng nối 2 điểm.</div>' : ''}
   </div>`;
