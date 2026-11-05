@@ -497,8 +497,8 @@ function renderTable(list) {
       <td class="inc-actions">
         <button class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Sửa" onclick="openEditModal(${i})">✎</button>
         ${inc.end_time
-          ? `<span style="display:inline-block;padding:2px 7px;color:#4ade80" title="Đã kết thúc lúc ${esc(fmtDateTime(inc.end_time))}${inc.ended_by ? ' bởi ' + esc(inc.ended_by) : ''}">✓</span>`
-          : `<button class="btn btn-sm" style="padding:2px 7px;color:#4ade80;border-color:#4ade80" title="Kết thúc sự cố" onclick="endIncident(${i})">✓</button>`}
+          ? `<span style="display:inline-block;padding:2px 7px;color:var(--green);background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);border-radius:var(--radius)" title="Đã kết thúc lúc ${esc(fmtDateTime(inc.end_time))}${inc.ended_by ? ' bởi ' + esc(inc.ended_by) : ''}">✓</span>`
+          : `<button class="btn btn-sm" style="padding:2px 7px;color:var(--green);background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.35)" title="Kết thúc sự cố" onclick="endIncident(${i})">✓</button>`}
         <button class="btn btn-danger btn-sm" style="padding:2px 7px" title="Xoá" onclick="deleteIncident(${i})">✕</button>
       </td>
     </tr>`).join('');
