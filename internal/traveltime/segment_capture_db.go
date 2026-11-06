@@ -290,11 +290,21 @@ type RouteSegments struct {
 // capture — the data source for www/flowcapture.html's "tuyến TTI đang
 // theo dõi" layer. A route never yet scanned (or scanned before this
 // store existed) simply doesn't appear; it isn't an error.
+//
+// LOSLabel/LOSColor are recomputed here from the CURRENT trafficmetrics
+// config, not read from the leg's own persisted columns — this is "latest"
+// data shown live on the map, so it must track an admin's LOS threshold
+// edits immediately, the same way resultsToGeometry (flowcapture_page_api.go,
+// the sibling "ambient" layer) already recomputes live rather than trusting
+// its own persisted los_label/los_color. The persisted columns stay as the
+// historical record of what was classified at capture time; getRouteSegmentLegs
+// has no other, date-scoped caller that would need that frozen value.
 func LatestRouteSegments() ([]RouteSegments, error) {
 	metas, err := latestRouteSegmentScans()
 	if err != nil {
 		return nil, err
 	}
+	metricsCfg := trafficmetrics.GetConfig()
 	out := make([]RouteSegments, 0, len(metas))
 	for _, m := range metas {
 		legs, err := getRouteSegmentLegs(m.ID)
@@ -303,10 +313,11 @@ func LatestRouteSegments() ([]RouteSegments, error) {
 		}
 		rs := RouteSegments{RouteID: m.RouteID, RouteName: m.RouteName, ScannedAt: m.ScannedAt}
 		for _, l := range legs {
+			los := metricsCfg.ComputeRouteLeg(l.TTI)
 			rs.Segments = append(rs.Segments, RouteSegmentDetail{
 				LegIndex: l.LegIndex, FromLat: l.FromLat, FromLng: l.FromLng, ToLat: l.ToLat, ToLng: l.ToLng,
 				LengthM: l.LengthM, DurationSec: l.DurationSec, BaseSec: l.BaseSec, DelaySec: l.DelaySec, TTI: l.TTI,
-				LOSLabel: l.LOSLabel, LOSColor: l.LOSColor,
+				LOSLabel: los.Label, LOSColor: los.Color,
 			})
 		}
 		out = append(out, rs)
