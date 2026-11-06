@@ -637,7 +637,7 @@ async function initFcMap() {
       _fcMap.addLayer({
         id: 'fc-routes-line', type: 'line', source: 'fc-routes',
         layout: { 'line-cap': 'round', 'line-join': 'round', visibility: routesVisible },
-        paint: { 'line-color': jfColorExpression(), 'line-width': 2.5, 'line-opacity': 1 },
+        paint: { 'line-color': jfColorExpression(), 'line-width': 3.5, 'line-opacity': 1 },
       });
       _fcMap.on('click', 'fc-routes-line', e => {
         const p = e.features[0].properties;
