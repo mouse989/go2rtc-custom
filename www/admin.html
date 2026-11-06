@@ -2872,7 +2872,7 @@ function renderJfColorRows() {
              style="width:64px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
       <input type="color" value="${esc(s.color)}" oninput="updateJfColorRow(${i}, 'color', this.value)"
              style="width:42px;height:30px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer">
-      <code style="font-size:.74rem;color:var(--text-muted);flex:1">${esc(s.color)}</code>
+      <code id="jfColorCode${i}" style="font-size:.74rem;color:var(--text-muted);flex:1">${esc(s.color)}</code>
       <button class="btn btn-ghost btn-sm" onclick="removeJfColorRow(${i})" title="Xoá điểm mốc" ${_jfColorRows.length<=2?'disabled':''}>🗑</button>
     </div>`).join('');
   renderJfColorGradientPreview();
@@ -2887,11 +2887,18 @@ function renderJfColorGradientPreview() {
 }
 function updateJfColorRow(i, field, value) {
   _jfColorRows[i][field] = field === 'value' ? parseFloat(value) || 0 : value;
-  // Re-render on color change too (keeps the <code> label and preview in
-  // sync) but not on every keystroke of the value field — that would
-  // steal focus mid-type since renderJfColorRows() replaces the inputs.
-  if (field === 'color') renderJfColorRows();
-  else renderJfColorGradientPreview();
+  // Never call renderJfColorRows() here — a type="color" input fires
+  // 'input' continuously while its native picker is open (every drag
+  // inside the picker, not just on close), so a full innerHTML rebuild
+  // would replace that very <input> mid-interaction and close the picker
+  // right under the user's cursor. Patch the <code> label in place instead
+  // (same reasoning for the value field: a rebuild here would also steal
+  // focus mid-keystroke).
+  if (field === 'color') {
+    const code = document.getElementById('jfColorCode' + i);
+    if (code) code.textContent = value;
+  }
+  renderJfColorGradientPreview();
 }
 function addJfColorRow() {
   const last = _jfColorRows[_jfColorRows.length - 1];
@@ -2980,7 +2987,7 @@ function renderLOSRows() {
   const box = document.getElementById('losLevelRows');
   box.innerHTML = (_losConfig.losLevels || []).map((lv, i) => `
     <div style="display:flex;align-items:center;gap:.5rem">
-      <span style="width:18px;font-weight:700;font-size:.82rem;color:${esc(lv.color)}">${esc(lv.label)}</span>
+      <span id="losLabelSpan${i}" style="width:18px;font-weight:700;font-size:.82rem;color:${esc(lv.color)}">${esc(lv.label)}</span>
       <input type="number" min="0" step="0.01" value="${lv.ttiMin}"
              oninput="updateLOSRow(${i}, 'ttiMin', this.value)" title="TTI tối thiểu"
              style="width:68px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
@@ -2993,7 +3000,17 @@ function renderLOSRows() {
 }
 function updateLOSRow(i, field, value) {
   _losConfig.losLevels[i][field] = field === 'ttiMin' ? (parseFloat(value) || 0) : value;
-  if (field === 'color') renderLOSRows();
+  // Never call renderLOSRows() here — a type="color" input fires 'input'
+  // continuously while its native picker is open (every drag inside the
+  // picker, not just on close), so a full innerHTML rebuild would replace
+  // that very <input> mid-interaction and close the picker right under the
+  // user's cursor. Patch the label span's color in place instead (same
+  // reasoning for ttiMin/action: a rebuild there would steal focus
+  // mid-keystroke too, which is why those were already patched in place).
+  if (field === 'color') {
+    const label = document.getElementById('losLabelSpan' + i);
+    if (label) label.style.color = value;
+  }
   if (field === 'ttiMin') {
     const hint = document.getElementById('losPctHint' + i);
     if (hint) hint.textContent = ttiToPctLabel(value);
