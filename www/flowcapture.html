@@ -156,6 +156,7 @@
         </div>
       </h3>
       <div class="fc-stat-strip" id="fcStatStrip"><div class="fc-empty">Đang tải...</div></div>
+      <div id="fcRegionStatus" style="font-size:.72rem;color:var(--text-muted);margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.4rem .9rem"></div>
       <div id="fcMap" style="margin-top:.8rem"></div>
       <div class="fc-jf-legend" id="fcGradientLegend">
         <span id="fcLegendMinLbl">0</span>
@@ -311,6 +312,7 @@ function renderFcStats(latest, routes) {
   const avgJf = results.length ? (results.reduce((s, r) => s + r.jamFactor, 0) / results.length) : 0;
   const newest = regions.reduce((a, b) => (a.scannedAt > b.scannedAt ? a : b));
   asOf.textContent = 'Cập nhật lúc ' + fmtFcTime(newest.scannedAt);
+  renderFcRegionStatus(regions, newest);
 
   const tiles = [
     { lbl: 'Số khu vực có dữ liệu', val: regions.length, color: '#60a5fa' },
@@ -325,6 +327,35 @@ function renderFcStats(latest, routes) {
       <div class="fc-stat-lbl">${x.lbl}</div>
       <div class="fc-stat-val">${x.val}</div>
     </div>`).join('');
+}
+
+// renderFcRegionStatus — the single "Cập nhật lúc" label above is the
+// NEWEST scan across every region, which reads as "everything is fresh"
+// even when one region's own scan has stopped updating (its own
+// fetchTrafficForRegion call failing every cycle, in runScan() —
+// internal/traffic/monitor.go just logs a warning and skips that region,
+// it never clears or flags the old data already in flow_scans). That
+// stuck region's last-successful segments then keep being drawn on the
+// map, scan after scan, looking exactly like "these same jam points never
+// change" while OTHER regions' points do. This per-region breakdown makes
+// that visible: any region whose own scannedAt lags the overall newest by
+// more than 30 minutes (2× the default 15-minute interval, generous
+// enough not to flag ordinary stagger between regions scanned back-to-back
+// in the same cycle) is called out — check "Nhật ký" on traffic.html's
+// Traffic Monitor admin tool for that region's own fetch/parse error.
+function renderFcRegionStatus(regions, newest) {
+  const el = document.getElementById('fcRegionStatus');
+  if (!el) return;
+  const newestMs = new Date(newest.scannedAt).getTime();
+  const staleMs = 30 * 60 * 1000;
+  const sorted = regions.slice().sort((a, b) => new Date(a.scannedAt) - new Date(b.scannedAt));
+  el.innerHTML = sorted.map(r => {
+    const ageMs = newestMs - new Date(r.scannedAt).getTime();
+    const stale = ageMs > staleMs;
+    const style = stale ? 'color:#f87171;font-weight:600' : '';
+    const flag = stale ? ' ⚠ có thể đang treo' : '';
+    return `<span style="${style}" title="${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}">${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}${flag}</span>`;
+  }).join('');
 }
 
 // ── Geometry → GeoJSON lines (split at subSegment boundaries) ────────────
