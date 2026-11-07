@@ -343,6 +343,19 @@ function renderFcStats(latest, routes) {
 // enough not to flag ordinary stagger between regions scanned back-to-back
 // in the same cycle) is called out — check "Nhật ký" on traffic.html's
 // Traffic Monitor admin tool for that region's own fetch/parse error.
+//
+// Also shows sourceUpdated (Vietmap's OWN "data as of" timestamp for that
+// bbox response, distinct from scannedAt — when WE polled) right next to
+// it, specifically for the "one exact road is red on every single refresh"
+// symptom: a region can poll on schedule (scannedAt advances every cycle,
+// proving the HTTP call is really happening — ruling out a stuck region)
+// while Vietmap's own traffic engine hasn't recomputed that bbox at all
+// (sourceUpdated frozen) — our data would be byte-identical scan after
+// scan not because of a bug on this side, but because the upstream
+// source genuinely hasn't changed. Refresh this page a few times and
+// watch whether sourceUpdated moves for the region that road is in; if it
+// never does while scannedAt keeps advancing, that road's JamFactor is
+// stale AT THE SOURCE, not cached/duplicated here.
 function renderFcRegionStatus(regions, newest) {
   const el = document.getElementById('fcRegionStatus');
   if (!el) return;
@@ -354,7 +367,9 @@ function renderFcRegionStatus(regions, newest) {
     const stale = ageMs > staleMs;
     const style = stale ? 'color:#f87171;font-weight:600' : '';
     const flag = stale ? ' ⚠ có thể đang treo' : '';
-    return `<span style="${style}" title="${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}">${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}${flag}</span>`;
+    const srcText = r.sourceUpdated ? ` (nguồn: ${escHtml(fmtFcTime(r.sourceUpdated))})` : '';
+    const label = `${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}${srcText}${flag}`;
+    return `<span style="${style}" title="Lần hệ thống này tự quét: ${escHtml(fmtFcTime(r.scannedAt))}\nLần Vietmap tự báo đã cập nhật dữ liệu: ${r.sourceUpdated ? escHtml(fmtFcTime(r.sourceUpdated)) : '—'}">${label}</span>`;
   }).join('');
 }
 
