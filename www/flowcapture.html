@@ -418,7 +418,7 @@ function buildFcGeoJSON(geo) {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: pts.map(p => [p.lng, p.lat]) },
         properties: {
-          jf: r.jamFactor, subLabel: 'cả tuyến',
+          jf: r.jamFactor, subLabel: 'cả tuyến', description: r.description || '',
           lengthM: r.lengthM, speedKmh: r.speedKmh, freeFlowKmh: r.freeFlowKmh,
           confidence: r.confidence, functionalClass, resultIndex: ri,
           ttiFused: r.ttiFused, ttiJfEquiv: ttiToJfEquivalent(r.ttiFused),
@@ -438,7 +438,11 @@ function buildFcGeoJSON(geo) {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: coords.map(([lat, lng]) => [lng, lat]) },
         properties: {
-          jf: ss.jamFactor, subLabel: 'đoạn ' + (si + 1),
+          // ss (a subSegment) has no description of its own — it's one
+          // piece of the parent result r, which only names the whole road
+          // once (see flowGeometryResult.Description in
+          // flowcapture_page_api.go).
+          jf: ss.jamFactor, subLabel: 'đoạn ' + (si + 1), description: r.description || '',
           lengthM: ss.lengthM, speedKmh: ss.speedKmh, freeFlowKmh: ss.freeFlowKmh,
           confidence: ss.confidence, functionalClass, resultIndex: ri,
           ttiFused: ss.ttiFused, ttiJfEquiv: ttiToJfEquivalent(ss.ttiFused),
@@ -460,9 +464,19 @@ function fcLinePopupHtml(p) {
   if (p.anomaly) flags.push('⚠ JF và TTI không nhất quán (có thể số liệu nhiễu)');
   if (p.bottleneck) flags.push('⚠ Nghi ngờ nghẽn đầu nút (JF lệch nhiều giữa các đoạn con)');
   const sp = fcSpeedPercentInfo(p.ttiFused, p.losLabel);
+  // p.description is the road's own name from Vietmap (location.description
+  // in the raw API response) — buildFcGeoJSON used to drop it entirely, so
+  // every single-segment result's popup here showed only "cả tuyến" with
+  // no way to tell which real road it was, making genuinely different
+  // roads look like "the same segment always on the map". Title = the real
+  // name when Vietmap sent one; subLabel moves to the line below (same
+  // "Đoạn N · length m" shape fcRoutePopupHtml already uses) — only a road
+  // Vietmap itself left unnamed falls back to subLabel as the title.
+  const title = p.description ? escHtml(p.description) : escHtml(p.subLabel);
+  const subLine = p.description ? `${escHtml(p.subLabel)} · ${p.lengthM.toFixed(0)} m` : `${p.lengthM.toFixed(0)} m`;
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:170px;color:#1a1a1a">
-    <div style="font-size:.92rem;font-weight:700">${escHtml(p.subLabel)}</div>
-    <div style="color:#333;font-size:.78rem">${p.lengthM.toFixed(0)} m</div>
+    <div style="font-size:.92rem;font-weight:700">${title}</div>
+    <div style="color:#333;font-size:.78rem">${subLine}</div>
     <div style="margin-top:.3rem;font-size:.8rem">
       <b>JamFactor:</b> ${p.jf.toFixed(1)}<br>
       <b>Tốc độ:</b> ${p.speedKmh.toFixed(1)} km/h<br>
