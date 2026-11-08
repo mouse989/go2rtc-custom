@@ -363,9 +363,32 @@ func listFlowSegments(scanID int64) ([]FlowSegmentRow, error) {
 // meaningful way to split what the map displays, so the map always shows
 // every region's own latest capture together rather than making the
 // viewer pick one.
+//
+// GROUP BY region_name on its own has no idea a region was ever renamed,
+// disabled, or deleted from Config.Regions — flow_scans keeps every row
+// forever (FlowCaptureRetentionDays governs cleanup by AGE, not by
+// whether the region that produced a row is still configured), so a
+// region's last scan under its old name stays "latest" for that name
+// indefinitely and keeps being merged into this map, however old, next to
+// whatever the CURRENTLY configured regions are capturing right now. That
+// surfaced as roads that "never change" on the map even while an admin's
+// own scan log (listFlowScans, unfiltered by region) showed every real,
+// current scan returning only a handful of results — the map was quietly
+// including a ghost region's large, stale capture from before it was
+// renamed/removed. Restrict to region names in the CURRENT, enabled
+// config so a retired region's old data stops being treated as live.
 func latestFlowScanPerRegion() ([]FlowScanSummary, error) {
 	if flowCaptureDB == nil {
 		return nil, nil
+	}
+	activeNames := map[string]bool{}
+	for _, r := range getConfig().Regions {
+		if r.Enabled {
+			activeNames[r.Name] = true
+		}
+	}
+	if len(activeNames) == 0 {
+		return []FlowScanSummary{}, nil
 	}
 	rows, err := flowCaptureDB.Query(`
 		SELECT s.id, s.region_name, s.scanned_at, s.source_updated, s.raw_bytes, s.result_count
@@ -382,6 +405,9 @@ func latestFlowScanPerRegion() ([]FlowScanSummary, error) {
 		var s FlowScanSummary
 		if err := rows.Scan(&s.ID, &s.RegionName, &s.ScannedAt, &s.SourceUpdated, &s.RawBytes, &s.ResultCount); err != nil {
 			return nil, err
+		}
+		if !activeNames[s.RegionName] {
+			continue
 		}
 		out = append(out, s)
 	}
