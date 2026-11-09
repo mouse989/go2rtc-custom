@@ -50,9 +50,10 @@ type Integration struct {
 }
 
 type integrationStore struct {
-	mu           sync.RWMutex
-	path         string
-	integrations map[string]*Integration // by ID
+	mu              sync.RWMutex
+	path            string
+	integrations    map[string]*Integration // by ID
+	lastUsageSaveAt time.Time               // throttles ValidateIntegrationKey's best-effort persist — see its own comment
 }
 
 var istore *integrationStore
@@ -132,6 +133,11 @@ func (s *integrationStore) load() error {
 // noticed, or a backup copy itself happens to be mid-rotation.
 var integrationBackupSuffixes = []string{".bak.0", ".bak.1", ".bak.2"}
 
+// usageStampSaveInterval throttles how often ValidateIntegrationKey's
+// LastUsedAt/LastUsedIP touch actually gets persisted — see its own
+// comment for why.
+const usageStampSaveInterval = 60 * time.Second
+
 func (s *integrationStore) backupPaths() []string {
 	paths := make([]string, len(integrationBackupSuffixes))
 	for i, suf := range integrationBackupSuffixes {
@@ -146,12 +152,33 @@ func (s *integrationStore) backupPaths() []string {
 // happened yet) is not an error, and a rotation failure never fails the
 // save itself — this is a safety net on top of a save that already
 // succeeded, not a precondition for it.
+//
+// The newest slot (.bak.0) is written via temp+rename, same as s.path in
+// saveLocked() — NOT a plain os.WriteFile. This used to be the one place
+// still writing non-atomically even after that fix: load()'s recovery path
+// exists precisely because a crash mid-write can corrupt a file, and this
+// function runs a plain WriteFile on .bak.0 every single successful save,
+// so a crash landing in that narrow window corrupted the very backup meant
+// to recover from it. Worse, a corrupted .bak.0 then gets *rotated into*
+// .bak.1 on the next successful save (ordinary os.Rename, which is atomic
+// and doesn't re-corrupt it, but also doesn't un-corrupt it), and from
+// there into .bak.2 — so a single bad crash could, over a few more
+// save/crash cycles, poison every rotating backup in turn and leave
+// load()'s recovery with nothing valid to recover from. On an integration
+// path that calls saveLocked() per validated push (see
+// ValidateIntegrationKey), that window gets hit often enough to explain
+// repeated "corrupt again after every restart" reports even with the
+// atomic main-file write already in place.
 func (s *integrationStore) rotateBackups(data []byte) {
 	paths := s.backupPaths()
 	for i := len(paths) - 1; i > 0; i-- {
 		_ = os.Rename(paths[i-1], paths[i])
 	}
-	_ = os.WriteFile(paths[0], data, 0644)
+	tmp := paths[0] + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, paths[0])
 }
 
 // recoverFromBackupLocked tries each rotating backup, newest first, and
@@ -395,7 +422,20 @@ func ValidateIntegrationKey(path, key, remoteIP string) (*Integration, bool) {
 		}
 		in.LastUsedAt = time.Now()
 		in.LastUsedIP = remoteIP
-		_ = istore.saveLocked() // best-effort — a failed usage-stamp write never blocks the push itself
+		// Persisting this on every validated call would mean a full disk
+		// write (temp+rename plus backup rotation) per push — fine for an
+		// occasional integration, but a live feed pushing every few seconds
+		// turns that into a near-continuous stream of saves, each one a
+		// window for a crash to land mid-write (see rotateBackups' own
+		// comment for what that caused in practice). LastUsedAt/IP are
+		// display-only, not anything that needs to survive every single
+		// crash, so throttle how often this best-effort stamp actually
+		// hits disk; the in-memory value above is always current regardless
+		// of this, and a normal shutdown still gets the latest one written.
+		if time.Since(istore.lastUsageSaveAt) > usageStampSaveInterval {
+			istore.lastUsageSaveAt = time.Now()
+			_ = istore.saveLocked() // best-effort — a failed usage-stamp write never blocks the push itself
+		}
 		cp := *in
 		return &cp, true
 	}

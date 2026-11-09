@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setupIntegrationsTest(t *testing.T) {
@@ -358,5 +359,93 @@ func TestSaveLockedWritesAtomicallyAndCleansUpTempFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "OMNIA") {
 		t.Fatalf("expected the saved file to contain the new integration, got: %s", data)
+	}
+}
+
+// rotateBackups() used to write the newest backup slot (.bak.0) with a
+// plain os.WriteFile — not atomic. A crash mid-write there could corrupt
+// .bak.0, which then gets rotated (still corrupt) into .bak.1 and .bak.2 on
+// later saves, eventually leaving load()'s recovery with nothing valid to
+// fall back to even though the live file itself was always written
+// atomically. It must now go through the same temp+rename pattern
+// saveLocked() uses for the live file: no stray .tmp file left behind, and
+// every backup slot holding valid JSON.
+func TestRotateBackupsWritesNewestSlotAtomicallyAndCleansUpTempFile(t *testing.T) {
+	setupIntegrationsTest(t)
+	if _, _, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push"); err != nil {
+		t.Fatalf("CreateIntegration: %v", err)
+	}
+	// A second save exercises the actual rotation (.bak.0 -> .bak.1), not
+	// just the first-ever write into an empty slot.
+	if _, _, err := CreateIntegration("FPT VDS", "/api/trafficflow/fpt/v1/push"); err != nil {
+		t.Fatalf("CreateIntegration: %v", err)
+	}
+
+	entries, err := os.ReadDir(filepath.Dir(istore.path))
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("expected no leftover .tmp file after backup rotation, found %s", e.Name())
+		}
+	}
+
+	for _, suffix := range []string{".bak.0", ".bak.1"} {
+		data, err := os.ReadFile(istore.path + suffix)
+		if err != nil {
+			t.Fatalf("read %s: %v", istore.path+suffix, err)
+		}
+		var list []*Integration
+		if err := json.Unmarshal(data, &list); err != nil {
+			t.Fatalf("%s is not valid JSON: %v", suffix, err)
+		}
+	}
+}
+
+// ValidateIntegrationKey updates LastUsedAt/IP in memory on every call, but
+// must throttle how often that actually gets persisted to disk — a live
+// push feed calling this every few seconds would otherwise turn into a
+// near-continuous stream of saves, each one another window for a crash to
+// land mid-write (see rotateBackups' own fix for what that caused). Two
+// validations in quick succession should only actually hit disk once.
+func TestValidateIntegrationKeyThrottlesUsageStampPersistence(t *testing.T) {
+	setupIntegrationsTest(t)
+	_, key, err := CreateIntegration("OMNIA", "/api/aievent/omnia/v1/push")
+	if err != nil {
+		t.Fatalf("CreateIntegration: %v", err)
+	}
+	// Force the throttle window to look like it last fired long ago, so
+	// the very first validation below is the one allowed through to disk.
+	istore.lastUsageSaveAt = time.Time{}
+
+	if _, ok := ValidateIntegrationKey("/api/aievent/omnia/v1/push", key, "1.1.1.1"); !ok {
+		t.Fatal("expected the first validation to succeed")
+	}
+	diskAfterFirst, err := os.ReadFile(istore.path)
+	if err != nil {
+		t.Fatalf("read after first validation: %v", err)
+	}
+	if !strings.Contains(string(diskAfterFirst), "1.1.1.1") {
+		t.Fatalf("expected the first validation's IP to be persisted, got: %s", diskAfterFirst)
+	}
+
+	if _, ok := ValidateIntegrationKey("/api/aievent/omnia/v1/push", key, "2.2.2.2"); !ok {
+		t.Fatal("expected the second validation to succeed")
+	}
+	id := ListIntegrations()[0].ID
+	found, ok := GetIntegration(id)
+	if !ok || found.LastUsedIP != "2.2.2.2" {
+		t.Fatalf("expected in-memory LastUsedIP to update immediately to 2.2.2.2, got %+v", found)
+	}
+	diskAfterSecond, err := os.ReadFile(istore.path)
+	if err != nil {
+		t.Fatalf("read after second validation: %v", err)
+	}
+	if strings.Contains(string(diskAfterSecond), "2.2.2.2") {
+		t.Fatal("expected the second validation's IP to be throttled, not yet persisted to disk")
+	}
+	if !strings.Contains(string(diskAfterSecond), "1.1.1.1") {
+		t.Fatal("expected the file to still hold the first validation's already-persisted IP")
 	}
 }

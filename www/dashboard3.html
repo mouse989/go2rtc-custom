@@ -357,6 +357,12 @@ let _fcRouteId = null;
 let _fcMap = null;
 let _fcMapApiKey = null; // cached vietmap_api_key so every open doesn't re-fetch /api/settings
 let _fcMapMarkers = [];
+// Camera/incident modules on the route-detail modal — same matching math as
+// route-camera-view.html's standalone page (toXYkm/nearestOnPolyline below),
+// against the same route geometry the mini-map already computes.
+let _fcRouteLineCoords = null;
+let _fcCamLocByID = {}, _fcCamStreamByID = {}, _fcCamDataLoaded = false, _fcCamHits = [], _fcCamRevealed = false;
+let _fcAllIncidents = [], _fcIncidentDataLoaded = false, _fcIncidentAccessDenied = false, _fcIncidentHits = [];
 
 function baselineSlots(routeId) { return _baseline.byRoute[routeId] || null; }
 
@@ -1280,21 +1286,44 @@ function openRouteDetail(routeId) {
     ov.id = 'fcOverlay';
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px';
     ov.addEventListener('click', e => { if (e.target === ov) closeRouteDetail(); });
-    ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:880px;width:100%;max-height:92vh;overflow:auto;padding:16px 18px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+    ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:1480px;width:100%;height:88vh;max-height:88vh;padding:16px 18px;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-shrink:0">
         <h3 id="fcTitle" style="margin:0;font-size:1rem;flex:1"></h3>
         <button onclick="openRouteCameraView()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;padding:.25rem .6rem;font-size:.78rem;white-space:nowrap">🔎 Xem chi tiết</button>
         <button onclick="closeRouteDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:.25rem .6rem;font-size:1rem">✕</button>
       </div>
-      <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
-      <div id="fcMapWrap" style="height:200px;border-radius:8px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border)">
-        <div id="fcMap" style="width:100%;height:100%"></div>
+      <div style="display:grid;grid-template-columns:1.75fr 1fr;gap:16px;flex:1;min-height:0;overflow:hidden">
+        <div style="overflow:auto;min-height:0">
+          <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
+          <div id="fcMapWrap" style="height:200px;border-radius:8px;overflow:hidden;margin-bottom:12px;border:1px solid var(--border)">
+            <div id="fcMap" style="width:100%;height:100%"></div>
+          </div>
+          <div id="fcModes" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+          <div style="position:relative;height:340px"><canvas id="fcCanvas"></canvas></div>
+          <div id="fcNote" style="font-size:.72rem;color:var(--text-muted);margin-top:10px;line-height:1.5"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;min-height:0;overflow:hidden">
+          <div style="display:flex;flex-direction:column;min-height:0;flex:2 1 0">
+            <div style="display:flex;flex-direction:column;gap:.3rem;flex-shrink:0">
+              <h4 style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0">📷 Camera dọc tuyến</h4>
+              <div style="display:flex;align-items:center;gap:6px;font-size:.7rem;color:var(--text-muted);flex-wrap:wrap">
+                Bán kính (m): <input type="number" id="fcCamWidthNum" min="10" max="2000" step="10" value="100" style="width:60px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:.15rem .35rem">
+                <button id="fcCamWidthApply" style="font-size:.68rem;padding:.2rem .5rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-family:inherit">Áp dụng</button>
+                <button id="fcCamRefreshBtn" style="font-size:.68rem;padding:.2rem .5rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-family:inherit">🔄 Làm mới</button>
+              </div>
+            </div>
+            <div id="fcCamGrid" style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:.4rem;margin-top:.3rem"><div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Đang tải…</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;min-height:0;flex:1 1 0;border-top:1px solid var(--border);padding-top:.4rem;margin-top:.4rem">
+            <h4 style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0;flex-shrink:0">🚨 Sự cố giao thông</h4>
+            <div id="fcIncidentList" style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:.4rem;margin-top:.3rem"><div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Đang tải…</div></div>
+          </div>
+        </div>
       </div>
-      <div id="fcModes" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
-      <div style="position:relative;height:340px"><canvas id="fcCanvas"></canvas></div>
-      <div id="fcNote" style="font-size:.72rem;color:var(--text-muted);margin-top:10px;line-height:1.5"></div>
     </div>`;
     document.body.appendChild(ov);
+    document.getElementById('fcCamWidthApply').onclick = () => { loadAndRenderFcCameras(); loadAndRenderFcIncidents(); };
+    document.getElementById('fcCamRefreshBtn').onclick = () => { if (_fcCamRevealed) renderFcCameraGrid(); };
   }
   ov.style.display = 'flex';
   document.getElementById('fcTitle').textContent = '📈 ' + (r.name || routeId);
@@ -1430,6 +1459,159 @@ function openRouteDetail(routeId) {
       } },
   });
 }
+// ── Cameras & active incidents along the route (ported from map.html's
+// "Theo tuyến" corridor tool / route-camera-view.html) ──────────────────
+function toXYkm(lat, lng, refLat) {
+  return [lng * 111.32 * Math.cos(refLat * Math.PI / 180), lat * 111.32];
+}
+function projectOnSegmentKm(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return { t, dist: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) };
+}
+function nearestOnPolyline(lat, lng, coords) {
+  if (!coords || coords.length < 2) return null;
+  const refLat = coords[0][1];
+  const [px, py] = toXYkm(lat, lng, refLat);
+  let best = null, cum = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lng1, lat1] = coords[i], [lng2, lat2] = coords[i + 1];
+    const [ax, ay] = toXYkm(lat1, lng1, refLat);
+    const [bx, by] = toXYkm(lat2, lng2, refLat);
+    const segLen = Math.hypot(bx - ax, by - ay);
+    const { t, dist } = projectOnSegmentKm(px, py, ax, ay, bx, by);
+    const along = cum + t * segLen;
+    if (!best || dist < best.dist) best = { dist, along };
+    cum += segLen;
+  }
+  return best;
+}
+function fcCamLabel(loc, id, s) {
+  if (!loc) return id;
+  if (canSeeCamNames()) return loc.label || (s && s.name) || loc.name || id;
+  return loc.label || id;
+}
+
+async function loadAndRenderFcCameras() {
+  const grid = document.getElementById('fcCamGrid');
+  if (!grid || !_fcRouteLineCoords) return;
+  grid.innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Đang tải danh sách camera…</div>';
+  if (!_fcCamDataLoaded) {
+    const [streams, locs] = await Promise.all([
+      apiFetch('/api/proxy/streams').catch(() => []),
+      apiFetch('/api/camera-locations').catch(() => []),
+    ]);
+    (Array.isArray(streams) ? streams : []).forEach(s => { _fcCamStreamByID[s.id] = s; });
+    (Array.isArray(locs) ? locs : []).forEach(l => { _fcCamLocByID[l.id] = l; });
+    _fcCamDataLoaded = true;
+  }
+  const widthNum = document.getElementById('fcCamWidthNum');
+  const widthM = parseFloat(widthNum && widthNum.value) || 100;
+  const widthKm = Math.max(0.01, widthM / 1000);
+  _fcCamHits = Object.keys(_fcCamLocByID)
+    .filter(id => _fcCamStreamByID[id])
+    .map(id => {
+      const loc = _fcCamLocByID[id];
+      const m = nearestOnPolyline(loc.lat, loc.lon, _fcRouteLineCoords);
+      return m ? { id, dist: m.dist, along: m.along } : null;
+    })
+    .filter(m => m && m.dist <= widthKm)
+    .sort((a, b) => a.along - b.along);
+  // Don't make users who aren't actually gated click through a lock screen
+  // first — same as map.html's showSnapshot, which calls this transparently.
+  if (!_fcCamRevealed && !needsDeviceVerification('cam_snapshot')) {
+    _fcCamRevealed = await ensureDeviceVerified('cam_snapshot');
+  }
+  renderFcCameraGrid();
+}
+
+function renderFcCameraGrid() {
+  const grid = document.getElementById('fcCamGrid');
+  if (!grid) return;
+  if (!_fcCamHits.length) {
+    grid.innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Không có camera nào trong phạm vi đã chọn dọc tuyến.</div>';
+    return;
+  }
+  if (!_fcCamRevealed) {
+    grid.innerHTML = `<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span>🔒 ${_fcCamHits.length} camera dọc tuyến — cần xác minh thiết bị để xem ảnh.</span>
+      <button id="fcCamRevealBtn" style="font-size:.72rem;padding:.25rem .6rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-family:inherit">👁 Hiện ảnh camera</button>
+    </div>`;
+    document.getElementById('fcCamRevealBtn').onclick = async () => {
+      if (!(await ensureDeviceVerified('cam_snapshot'))) return;
+      _fcCamRevealed = true; renderFcCameraGrid();
+    };
+    return;
+  }
+  grid.innerHTML = _fcCamHits.map((h, i) => {
+    const loc = _fcCamLocByID[h.id], s = _fcCamStreamByID[h.id];
+    const name = fcCamLabel(loc, h.id, s);
+    const km = h.along.toFixed(2).replace('.', ',');
+    const dm = Math.round(h.dist * 1000);
+    return `<div style="display:flex;gap:.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0">
+      <img src="${s.frame_url}&_t=${Date.now()}" alt="${name}" style="width:96px;height:66px;object-fit:cover;display:block;background:#111;flex-shrink:0">
+      <div style="padding:.3rem .4rem .3rem 0;min-width:0;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:.74rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#${i + 1} ${name}</div>
+        <div style="font-size:.62rem;color:var(--text-muted);margin-top:.1rem">~${km} km từ đầu tuyến · cách tuyến ${dm} m</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadAndRenderFcIncidents() {
+  const list = document.getElementById('fcIncidentList');
+  if (!list || !_fcRouteLineCoords) return;
+  list.innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Đang tải…</div>';
+  if (!_fcIncidentDataLoaded) {
+    try {
+      const data = await apiFetch('/api/incidents/active');
+      _fcAllIncidents = Array.isArray(data) ? data : [];
+    } catch (_) {
+      _fcIncidentAccessDenied = true;
+      _fcAllIncidents = [];
+    }
+    _fcIncidentDataLoaded = true;
+  }
+  const widthNum = document.getElementById('fcCamWidthNum');
+  const widthM = parseFloat(widthNum && widthNum.value) || 100;
+  const widthKm = Math.max(0.01, widthM / 1000);
+  _fcIncidentHits = _fcAllIncidents
+    .filter(inc => inc.lat && inc.lng)
+    .map(inc => {
+      const m = nearestOnPolyline(inc.lat, inc.lng, _fcRouteLineCoords);
+      return m ? { inc, dist: m.dist, along: m.along } : null;
+    })
+    .filter(m => m && m.dist <= widthKm)
+    .sort((a, b) => a.along - b.along);
+  renderFcIncidentList();
+}
+
+function renderFcIncidentList() {
+  const list = document.getElementById('fcIncidentList');
+  if (!list) return;
+  if (_fcIncidentAccessDenied) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Không có quyền xem dữ liệu sự cố giao thông.</div>';
+    return;
+  }
+  if (!_fcIncidentHits.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Không có sự cố giao thông đang diễn ra dọc tuyến.</div>';
+    return;
+  }
+  list.innerHTML = _fcIncidentHits.map(h => {
+    const inc = h.inc;
+    const timeStr = inc.time ? new Date(inc.time).toLocaleString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+    const dm = Math.round(h.dist * 1000);
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid #ef4444;border-radius:6px;padding:.35rem .5rem;flex-shrink:0">
+      <div style="font-size:.72rem;font-weight:700;color:#ef4444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🚨 ${inc.category || 'Sự cố'}</div>
+      ${inc.location ? `<div style="font-size:.66rem;color:var(--text);margin-top:.1rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${inc.location}</div>` : ''}
+      <div style="font-size:.6rem;color:var(--text-muted);margin-top:.1rem">${timeStr}${timeStr ? ' · ' : ''}cách tuyến ${dm} m</div>
+      ${inc.content ? `<div style="font-size:.62rem;color:var(--text-muted);margin-top:.15rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${inc.content}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 function closeRouteDetail() {
   const ov = document.getElementById('fcOverlay'); if (ov) ov.style.display = 'none';
   if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
@@ -1490,6 +1672,8 @@ async function renderRouteDetailMap(r) {
   const wps    = String(r.waypoints || '').split('|').map(parseLatLng).filter(Boolean);
   if (!origin || !dest) {
     document.getElementById('fcMapWrap').style.display = 'none';
+    document.getElementById('fcCamGrid').innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Không xác định được tuyến đường để tìm camera.</div>';
+    document.getElementById('fcIncidentList').innerHTML = '<div style="color:var(--text-muted);font-size:.74rem;padding:8px 0">Không xác định được tuyến đường để tìm sự cố.</div>';
     return;
   }
   document.getElementById('fcMapWrap').style.display = '';
@@ -1517,6 +1701,9 @@ async function renderRouteDetailMap(r) {
   } catch (_) { /* fall back to the straight line below */ }
 
   const line = routeCoords || straightLine;
+  _fcRouteLineCoords = line;
+  loadAndRenderFcCameras();
+  loadAndRenderFcIncidents();
 
   const draw = () => {
     if (!_fcMap.getSource('fcRouteLine')) {
