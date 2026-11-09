@@ -1129,16 +1129,27 @@ function updateRouteStatus(tt) {
   if (_forecast.weeks > 0 && tiers.length) {
     const curSlot = slotOfTs(new Date().toISOString());
     const worst = tiers[tiers.length-1];
-    let degrade15 = 0, worst15 = null;
+    // Must count exactly what renderTTIChart's own "🔮" forecast rows show
+    // below — routes NOT already at the worst tier whose +5′ forecast
+    // reaches it — not "any route whose tier gets one notch worse,
+    // whichever tier that lands on". The old version counted every such
+    // degradation (e.g. Thông thoáng → Bình thường) yet always labeled the
+    // chip "→ {worst tier reached by any of them}", so a chip reading
+    // "24 tuyến → Tắc nghẽn" could easily have single digits of those 24
+    // actually heading to Tắc nghẽn — the other rows degrading to some
+    // milder tier instead, inflating the count against a label implying
+    // they all shared that one destination.
+    const congestedNowIds = new Set(
+      all.filter(r => r.latestTTI > 0 && ttiTier(r.latestTTI) === worst).map(r => r.id)
+    );
+    let willJam5 = 0;
     all.forEach(r => {
-      if (!(r.latestTTI > 0)) return;
+      if (congestedNowIds.has(r.id)) return;
       const sf = _forecast.byRoute[r.id];
       const p15 = sf && sf.bySlot && sf.bySlot[curSlot+1];
-      if (!p15) return;
-      const curIdx = tiers.indexOf(ttiTier(r.latestTTI)), futIdx = tiers.indexOf(ttiTier(p15.tti));
-      if (futIdx > curIdx) { degrade15++; if (!worst15 || futIdx > tiers.indexOf(worst15)) worst15 = tiers[futIdx]; }
+      if (p15 && ttiTier(p15.tti) === worst) willJam5++;
     });
-    if (degrade15 > 0) chips.push(`<span class="d2-rs-chip" style="border-color:${worst15.color};color:${worst15.color}">🔮 +${fmtMin(SLOT_MIN)}: ${degrade15} tuyến → ${escH(worst15.label||'')}</span>`);
+    if (willJam5 > 0) chips.push(`<span class="d2-rs-chip" style="border-color:${worst.color};color:${worst.color}">🔮 +${fmtMin(SLOT_MIN)}: ${willJam5} tuyến → ${escH(worst.label||'')}</span>`);
     let willJam = 0;
     all.forEach(r => {
       const sf = _forecast.byRoute[r.id];
