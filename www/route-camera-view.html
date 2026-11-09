@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera dọc tuyến – UTMC</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+body { background:var(--bg); color:var(--text); }
+.rcv-wrap { max-width:960px; margin:0 auto; padding:16px; }
+.rcv-header { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.rcv-header h2 { margin:0; font-size:1.15rem; flex:1; }
+.rcv-back { font-size:.78rem; color:var(--text-muted); text-decoration:none; border:1px solid var(--border); border-radius:6px; padding:.3rem .6rem; white-space:nowrap; }
+#rcvStats { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+#rcvMapWrap { height:260px; border-radius:8px; overflow:hidden; margin-bottom:14px; border:1px solid var(--border); }
+#rcvMap { width:100%; height:100%; }
+#rcvModes { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.rcv-chart-wrap { position:relative; height:320px; margin-bottom:10px; }
+#rcvNote { font-size:.72rem; color:var(--text-muted); margin-bottom:24px; line-height:1.5; }
+.rcv-cam-section { border-top:1px solid var(--border); padding-top:16px; }
+.rcv-cam-section h3 { font-size:.85rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin:0 0 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.rcv-cam-controls { display:flex; align-items:center; gap:8px; font-size:.75rem; color:var(--text-muted); margin-left:auto; font-weight:400; text-transform:none; letter-spacing:0; }
+.rcv-cam-controls input { width:70px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); padding:.15rem .4rem; }
+.rcv-cam-controls button { font-size:.72rem; padding:.22rem .6rem; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text); cursor:pointer; font-family:inherit; }
+.rcv-cam-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+.rcv-cam-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+.rcv-cam-card img { width:100%; height:130px; object-fit:cover; display:block; background:#111; }
+.rcv-cam-meta { padding:.45rem .6rem; }
+.rcv-cam-name { font-size:.78rem; font-weight:700; }
+.rcv-cam-sub { font-size:.66rem; color:var(--text-muted); margin-top:.15rem; }
+.rcv-empty { color:var(--text-muted); font-size:.82rem; padding:12px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div class="rcv-wrap">
+  <div class="rcv-header">
+    <a href="dashboard3.html" class="rcv-back">← Dashboard 03</a>
+    <h2 id="rcvTitle">📈 Tuyến đường</h2>
+  </div>
+  <div id="rcvStats"></div>
+  <div id="rcvMapWrap"><div id="rcvMap"></div></div>
+  <div id="rcvModes"></div>
+  <div class="rcv-chart-wrap"><canvas id="rcvCanvas"></canvas></div>
+  <div id="rcvNote"></div>
+
+  <div class="rcv-cam-section">
+    <h3>📷 Camera dọc tuyến
+      <span class="rcv-cam-controls">
+        Bán kính dò (m): <input type="number" id="rcvWidthNum" min="10" max="2000" step="10" value="100">
+        <button id="rcvWidthApply">Áp dụng</button>
+        <button id="rcvRefreshBtn">🔄 Làm mới ảnh</button>
+      </span>
+    </h3>
+    <div id="rcvCamGrid" class="rcv-cam-grid"><div class="rcv-empty">Đang tải…</div></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+<script>
+// Standalone companion to dashboard3.html's route-detail modal (opened by
+// its "📷 Xem camera" button). Renders the same stats/chart/mini-map from a
+// sessionStorage snapshot (set by dashboard3.html at click time, so this
+// page never re-fetches/recomputes the heavier forecast/baseline series),
+// plus the cameras located along the route — reusing map.html's "Theo
+// tuyến" proximity/ordering math (toXYkm/projectOnSegmentKm/nearestOnPolyline)
+// against the same route geometry drawn on the mini-map.
+
+let _rcvPayload = null;
+let _rMode = 'time', _rChart = null;
+let _rMap = null, _rMapApiKey = null, _rMapMarkers = [];
+let _routeLineCoords = null;
+
+let _ttiAppearance = null;
+const _ttiDefault = {
+  tiers: [
+    {maxTTI:1.2,  color:'#22c55e', label:'Thông thoáng'},
+    {maxTTI:1.35, color:'#84cc16', label:'Bình thường'},
+    {maxTTI:1.5,  color:'#f59e0b', label:'Chậm'},
+    {maxTTI:0,    color:'#ef4444', label:'Tắc nghẽn'},
+  ],
+  noDataColor:'#334155',
+};
+function _getTiers() { return (_ttiAppearance||_ttiDefault).tiers||[]; }
+function ttiTier(v) {
+  if (!v || v <= 0) return null;
+  const tiers = _getTiers();
+  for (let i = 0; i < tiers.length - 1; i++) if (v < tiers[i].maxTTI) return tiers[i];
+  return tiers[tiers.length-1] || null;
+}
+function ttiColor(v) { const t = ttiTier(v); return t ? t.color : ''; }
+function fmtMin(m) { return m % 60 === 0 ? (m / 60) + 'h' : m + '′'; }
+function fmtMinSec(sec) {
+  if (sec == null || isNaN(sec)) return '—';
+  const m = sec / 60;
+  return (Math.abs(m) >= 10 ? Math.round(m) : m.toFixed(1)).toString().replace('.', ',') + ' phút';
+}
+function slotHHMM(i, slotMin) { const m = i * slotMin; return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
+function avgSlotAround(slots, idx, slotMin) {
+  const w = Math.max(1, Math.round(15 / slotMin)); let sum = 0, n = 0;
+  for (let j = idx-w; j <= idx+w; j++) if (j >= 0 && j < slots.length && slots[j]) { sum += slots[j].tti; n++; }
+  return n ? sum/n : null;
+}
+
+function renderStatsAndChart() {
+  const p = _rcvPayload;
+  const { r, todaySlots, baseSlots, sf, freeSec, baselineWeeks, slotMin, totalSlots } = p;
+  const now = new Date();
+  const curSlot = Math.floor((now.getHours()*60 + now.getMinutes()) / slotMin);
+  const hasMin = freeSec > 0;
+  const toSec = tti => (tti != null && hasMin) ? tti * freeSec : null;
+
+  const labels = [], tti = { actual: [], profile: [], fcast: [], lo: [], hi: [] }, actualSec = [];
+  for (let i = 0; i < totalSlots; i++) {
+    labels.push(slotHHMM(i, slotMin));
+    const t = todaySlots[i];
+    tti.actual.push(t ? t.tti : null);
+    actualSec.push(t ? (t.dur || toSec(t.tti)) : null);
+    tti.profile.push(baseSlots && baseSlots[i] ? baseSlots[i].tti : null);
+    const fp = sf && sf.bySlot && sf.bySlot[i];
+    tti.fcast.push(fp ? fp.tti : null); tti.lo.push(fp ? fp.lo : null); tti.hi.push(fp ? fp.hi : null);
+  }
+  if (curSlot >= 0 && tti.actual[curSlot] != null) tti.fcast[curSlot] = tti.actual[curSlot];
+
+  const curSlotData = todaySlots[curSlot] || null;
+  const cur      = curSlotData ? curSlotData.tti : (r.latestTTI || 0);
+  const curSec   = curSlotData && curSlotData.dur ? curSlotData.dur : toSec(cur);
+  const curDelay = curSlotData ? curSlotData.delay : (r.latestDelaySec || (hasMin && cur ? (cur - 1) * freeSec : null));
+  const p15      = sf && sf.bySlot && sf.bySlot[curSlot + 1];
+  const p60      = sf && sf.bySlot && sf.bySlot[curSlot + Math.max(1, Math.round(60 / slotMin))];
+  const baseNow  = baseSlots ? avgSlotAround(baseSlots, curSlot, slotMin) : null;
+
+  const stat = (lbl, val, color, sub) => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem;min-width:132px;flex:1">
+    <div style="font-size:.64rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">${lbl}</div>
+    <div style="font-weight:800;font-size:1.05rem;color:${color || 'var(--text)'}">${val}</div>
+    ${sub ? `<div style="font-size:.7rem;color:var(--text-muted);margin-top:.1rem">${sub}</div>` : ''}</div>`;
+  const delayTxt = sec => sec == null ? '—' : (sec >= 0 ? '+' : '') + fmtMinSec(sec);
+  const fcCard = (lbl, fp) => {
+    if (!fp) return stat(lbl, '—');
+    if (!hasMin) return stat(lbl, `${fp.tti.toFixed(2)} [${fp.lo.toFixed(2)}–${fp.hi.toFixed(2)}]`, ttiColor(fp.tti));
+    return stat(lbl, fmtMinSec(toSec(fp.tti)), ttiColor(fp.tti),
+      `khoảng ${fmtMinSec(toSec(fp.lo)).replace(' phút', '')}–${fmtMinSec(toSec(fp.hi))} · trễ ${delayTxt(toSec(fp.tti) - freeSec)} · TTI ${fp.tti.toFixed(2)}`);
+  };
+  const lenCard = r.latestLengthM
+    ? stat('Chiều dài tuyến', (r.latestLengthM / 1000).toFixed(1).replace('.', ',') + ' km', '',
+        freeSec ? `~${fmtMinSec(freeSec)} khi đường thông thoáng` : '')
+    : '';
+  const curSpeedKmh  = (r.latestLengthM > 0 && curSec > 0)  ? r.latestLengthM / curSec * 3.6  : null;
+  const freeSpeedKmh = (r.latestLengthM > 0 && freeSec > 0) ? r.latestLengthM / freeSec * 3.6 : null;
+  const speedCard = curSpeedKmh != null
+    ? stat('Tốc độ TB hiện tại', curSpeedKmh.toFixed(1).replace('.', ',') + ' km/h', ttiColor(cur),
+        freeSpeedKmh != null ? `thông thoáng ~${freeSpeedKmh.toFixed(0)} km/h` : '')
+    : '';
+  document.getElementById('rcvStats').innerHTML = lenCard + speedCard + (hasMin
+    ? stat('Thời gian đi hiện tại', fmtMinSec(curSec), ttiColor(cur), `TTI ${cur ? cur.toFixed(2) : '—'}`) +
+      stat('Trễ hiện tại', delayTxt(curDelay), ttiColor(cur), `so với khi đường thông thoáng (${fmtMinSec(freeSec)})`) +
+      stat('Bình thường giờ này', baseNow ? fmtMinSec(toSec(baseNow)) : '—', '',
+        baseNow ? `trễ ${delayTxt(toSec(baseNow) - freeSec)} · TTI ${baseNow.toFixed(2)}` : '') +
+      fcCard('Dự báo +' + fmtMin(slotMin), p15) +
+      fcCard('Dự báo +60′', p60)
+    : stat('TTI hiện tại', cur ? cur.toFixed(2) : '—', ttiColor(cur)) +
+      stat('Bình thường giờ này', baseNow ? baseNow.toFixed(2) : '—') +
+      fcCard('Dự báo +' + fmtMin(slotMin), p15) +
+      fcCard('Dự báo +60′', p60));
+
+  document.getElementById('rcvNote').innerHTML = (sf
+    ? `Phương pháp: <b>${sf.method === 'holt-seasonal' ? 'Dự báo' : 'Hồ sơ điển hình (chưa đủ dữ liệu hôm nay)'}</b> · vùng cam mờ = khoảng tin cậy ~80% · đường xám nét đứt = mức bình thường (TB ${baselineWeeks} tuần cùng thứ).`
+    : 'Chưa có dữ liệu dự báo cho tuyến này.') +
+    (hasMin ? ` Thời gian khi đường thông thoáng: <b>${fmtMinSec(freeSec)}</b>; trễ = thời gian đi − thời gian thông thoáng; mức bình thường/dự báo quy ra phút = TTI × thời gian thông thoáng.` : '');
+
+  const modes = hasMin
+    ? [['time', '⏱ Thời gian đi (phút)'], ['delay', '⏳ Thời gian trễ (phút)'], ['tti', 'TTI']]
+    : [['tti', 'TTI']];
+  if (!modes.some(m => m[0] === _rMode)) _rMode = modes[0][0];
+  document.getElementById('rcvModes').innerHTML = modes.map(([k, lbl]) =>
+    `<button onclick="_rMode='${k}';renderStatsAndChart()" style="font-size:.74rem;padding:.22rem .6rem;border-radius:6px;cursor:pointer;font-family:inherit;border:1px solid ${k === _rMode ? 'var(--accent)' : 'var(--border)'};background:${k === _rMode ? 'var(--accent)' : 'var(--surface2)'};color:${k === _rMode ? '#fff' : 'var(--text)'}">${lbl}</button>`).join('');
+
+  const conv = {
+    tti:   { f: v => v, fmt: v => v.toFixed(2), axis: 'TTI' },
+    time:  { f: v => v == null ? null : toSec(v) / 60, fmt: v => fmtMinSec(v * 60), axis: 'Thời gian đi (phút)' },
+    delay: { f: v => v == null ? null : (toSec(v) - freeSec) / 60, fmt: v => (v >= 0 ? '+' : '') + fmtMinSec(v * 60), axis: 'Thời gian trễ (phút)' },
+  }[_rMode];
+  const series = key => tti[key].map(conv.f);
+  const actualData = _rMode === 'tti' ? tti.actual
+    : actualSec.map(sec => sec == null ? null : (_rMode === 'time' ? sec / 60 : (sec - freeSec) / 60));
+  const fcastData = series('fcast');
+  if (curSlot >= 0 && actualData[curSlot] != null) fcastData[curSlot] = actualData[curSlot];
+  const ttiBySet = [tti.lo, tti.hi, tti.profile, tti.actual, tti.fcast];
+
+  const txt  = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+  const grid = 'rgba(128,128,128,.15)';
+  if (_rChart) _rChart.destroy();
+  _rChart = new Chart(document.getElementById('rcvCanvas'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'CI lo', data: series('lo'), borderColor: 'transparent', pointRadius: 0, fill: false },
+      { label: 'Khoảng tin cậy', data: series('hi'), borderColor: 'transparent', backgroundColor: 'rgba(245,158,11,.18)', pointRadius: 0, fill: '-1' },
+      { label: 'Mức bình thường', data: series('profile'), borderColor: '#94a3b8', borderDash: [5,4], borderWidth: 1.5, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Thực tế hôm nay', data: actualData, borderColor: '#2f81f7', borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+      { label: 'Dự báo', data: fcastData, borderColor: '#f59e0b', borderDash: [4,3], borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txt, filter: it => it.text !== 'CI lo', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { filter: it => it.dataset.label !== 'CI lo',
+          callbacks: { label: c => {
+            if (c.parsed.y == null) return ` ${c.dataset.label}: —`;
+            let extra = '';
+            const t = (ttiBySet[c.datasetIndex] || [])[c.dataIndex];
+            if (_rMode !== 'tti' && t != null) extra = ` · TTI ${t.toFixed(2)}`;
+            else if (_rMode === 'tti' && hasMin && t != null) extra = ` · ${fmtMinSec(toSec(t))} (trễ ${delayTxt(toSec(t) - freeSec)})`;
+            return ` ${c.dataset.label}: ${conv.fmt(c.parsed.y)}${extra}`;
+          } } },
+      },
+      scales: {
+        x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 9, font: { size: 10 } }, grid: { color: grid } },
+        y: { beginAtZero: _rMode === 'delay', ticks: { color: txt, font: { size: 10 } }, grid: { color: grid }, title: { display: true, text: conv.axis, color: txt } },
+      } },
+  });
+}
+
+// ── Mini map (ported from dashboard3.html's renderRouteDetailMap) ──────
+function parseLatLng(s) {
+  if (!s) return null;
+  const parts = String(s).split(',').map(x => parseFloat(x.trim()));
+  if (parts.length !== 2 || parts.some(isNaN)) return null;
+  return [parts[1], parts[0]]; // -> [lng, lat], vietmapgl's coordinate order
+}
+
+async function renderMap(r) {
+  const wrap = document.getElementById('rcvMap');
+  if (!wrap) return;
+
+  const origin = parseLatLng(r.origin);
+  const dest   = parseLatLng(r.destination);
+  const wps    = String(r.waypoints || '').split('|').map(parseLatLng).filter(Boolean);
+  if (!origin || !dest) {
+    document.getElementById('rcvMapWrap').style.display = 'none';
+    document.getElementById('rcvCamGrid').innerHTML = '<div class="rcv-empty">Không xác định được tuyến đường để tìm camera.</div>';
+    return;
+  }
+  document.getElementById('rcvMapWrap').style.display = '';
+  const straightLine = [origin, ...wps, dest];
+
+  let routeCoords = null, routeBounds = null;
+  try {
+    const params = new URLSearchParams();
+    params.append('point', r.origin);
+    String(r.waypoints || '').split('|').map(s => s.trim()).filter(Boolean).forEach(wp => params.append('point', wp));
+    params.append('point', r.destination);
+    params.set('vehicle', 'car');
+    params.set('points_encoded', 'false');
+    const data = await apiFetch('/api/vietmap/route?' + params.toString());
+    if (data?.error) throw new Error(data.error);
+    const path = data?.paths?.[0];
+    const coords = path?.points?.coordinates ?? path?.points;
+    if (coords && coords.length >= 2) {
+      routeCoords = coords;
+      if (path.bbox) {
+        const [w, s, e, n] = path.bbox;
+        routeBounds = [[w, s], [e, n]];
+      }
+    }
+  } catch (_) { /* fall back to the straight line below */ }
+
+  const line = routeCoords || straightLine;
+  _routeLineCoords = line;
+  loadAndRenderCameras();
+
+  const draw = () => {
+    if (!_rMap.getSource('rcvRouteLine')) {
+      _rMap.addSource('rcvRouteLine', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      _rMap.addLayer({ id: 'rcvRouteLine', type: 'line', source: 'rcvRouteLine',
+        paint: { 'line-color': '#2f81f7', 'line-width': 3, 'line-opacity': .85 } });
+    }
+    _rMap.getSource('rcvRouteLine').setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }],
+    });
+
+    _rMapMarkers.forEach(m => m.remove());
+    _rMapMarkers = [];
+    const addMarker = (lngLat, color, label) => {
+      const el = document.createElement('div');
+      el.textContent = label;
+      el.style.cssText = `width:22px;height:22px;border-radius:50%;background:${color};color:#fff;` +
+        'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;' +
+        'border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+      _rMapMarkers.push(new vietmapgl.Marker({ element: el }).setLngLat(lngLat).addTo(_rMap));
+    };
+    addMarker(origin, '#22c55e', 'A');
+    wps.forEach(w => addMarker(w, '#94a3b8', ''));
+    addMarker(dest, '#ef4444', 'B');
+
+    try {
+      if (routeBounds) {
+        _rMap.fitBounds(routeBounds, { padding: 36, maxZoom: 15, duration: 0 });
+      } else {
+        const b = new vietmapgl.LngLatBounds();
+        straightLine.forEach(pt => b.extend(pt));
+        _rMap.fitBounds(b, { padding: 36, maxZoom: 15, duration: 0 });
+      }
+    } catch (_) {}
+  };
+
+  if (_rMapApiKey === null) {
+    try {
+      const settings = await apiFetch('/api/settings');
+      _rMapApiKey = (settings || {}).vietmap_api_key || '';
+    } catch (_) { _rMapApiKey = ''; }
+  }
+  if (!_rMapApiKey) {
+    wrap.innerHTML = '<div class="rcv-empty">Chưa cấu hình VietMap API Key</div>';
+    return;
+  }
+
+  if (!_rMap) {
+    _rMap = new vietmapgl.Map({
+      container: 'rcvMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${_rMapApiKey}`,
+      center: origin, zoom: 12,
+    });
+    _rMap.addControl(new vietmapgl.NavigationControl({ showCompass: false }), 'top-right');
+    _rMap.on('load', draw);
+  } else if (_rMap.isStyleLoaded()) {
+    draw();
+    _rMap.resize();
+  } else {
+    _rMap.once('load', draw);
+  }
+}
+
+// ── Cameras along the route (ported from map.html's "Theo tuyến" tool) ──
+function toXYkm(lat, lng, refLat) {
+  return [lng * 111.32 * Math.cos(refLat * Math.PI / 180), lat * 111.32];
+}
+function projectOnSegmentKm(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return { t, dist: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) };
+}
+function nearestOnPolyline(lat, lng, coords) {
+  if (!coords || coords.length < 2) return null;
+  const refLat = coords[0][1];
+  const [px, py] = toXYkm(lat, lng, refLat);
+  let best = null, cum = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lng1, lat1] = coords[i], [lng2, lat2] = coords[i + 1];
+    const [ax, ay] = toXYkm(lat1, lng1, refLat);
+    const [bx, by] = toXYkm(lat2, lng2, refLat);
+    const segLen = Math.hypot(bx - ax, by - ay);
+    const { t, dist } = projectOnSegmentKm(px, py, ax, ay, bx, by);
+    const along = cum + t * segLen;
+    if (!best || dist < best.dist) best = { dist, along };
+    cum += segLen;
+  }
+  return best;
+}
+function camLabel(loc, id, s) {
+  if (!loc) return id;
+  if (canSeeCamNames()) return loc.label || (s && s.name) || loc.name || id;
+  return loc.label || id;
+}
+
+let _camLocByID = {}, _camStreamByID = {}, _camDataLoaded = false, _camHits = [], _camRevealed = false;
+
+async function loadAndRenderCameras() {
+  const grid = document.getElementById('rcvCamGrid');
+  if (!_routeLineCoords) return;
+  grid.innerHTML = '<div class="rcv-empty">Đang tải danh sách camera…</div>';
+  if (!_camDataLoaded) {
+    const [streams, locs] = await Promise.all([
+      apiFetch('/api/proxy/streams').catch(() => []),
+      apiFetch('/api/camera-locations').catch(() => []),
+    ]);
+    (Array.isArray(streams) ? streams : []).forEach(s => { _camStreamByID[s.id] = s; });
+    (Array.isArray(locs) ? locs : []).forEach(l => { _camLocByID[l.id] = l; });
+    _camDataLoaded = true;
+  }
+  const widthM = parseFloat(document.getElementById('rcvWidthNum').value) || 100;
+  const widthKm = Math.max(0.01, widthM / 1000);
+  _camHits = Object.keys(_camLocByID)
+    .filter(id => _camStreamByID[id])
+    .map(id => {
+      const loc = _camLocByID[id];
+      const m = nearestOnPolyline(loc.lat, loc.lon, _routeLineCoords);
+      return m ? { id, dist: m.dist, along: m.along } : null;
+    })
+    .filter(m => m && m.dist <= widthKm)
+    .sort((a, b) => a.along - b.along);
+  // Don't make users who aren't actually gated click through a lock screen
+  // first — same as map.html's showSnapshot, which calls this transparently
+  // on click rather than showing a separate "verify" step for every viewer.
+  if (!_camRevealed && !needsDeviceVerification('cam_snapshot')) {
+    _camRevealed = await ensureDeviceVerified('cam_snapshot');
+  }
+  renderCameraGrid();
+}
+
+function renderCameraGrid() {
+  const grid = document.getElementById('rcvCamGrid');
+  if (!_camHits.length) {
+    grid.innerHTML = '<div class="rcv-empty">Không có camera nào trong phạm vi đã chọn dọc tuyến.</div>';
+    return;
+  }
+  if (!_camRevealed) {
+    grid.innerHTML = `<div class="rcv-empty">
+      <span>🔒 ${_camHits.length} camera dọc tuyến — cần xác minh thiết bị để xem ảnh.</span>
+      <button id="rcvRevealBtn" style="font-size:.78rem;padding:.3rem .7rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-family:inherit">👁 Hiện ảnh camera</button>
+    </div>`;
+    document.getElementById('rcvRevealBtn').onclick = async () => {
+      if (!(await ensureDeviceVerified('cam_snapshot'))) return;
+      _camRevealed = true; renderCameraGrid();
+    };
+    return;
+  }
+  grid.innerHTML = _camHits.map((h, i) => {
+    const loc = _camLocByID[h.id], s = _camStreamByID[h.id];
+    const name = camLabel(loc, h.id, s);
+    const km = h.along.toFixed(2).replace('.', ',');
+    const dm = Math.round(h.dist * 1000);
+    return `<div class="rcv-cam-card">
+      <img src="${s.frame_url}&_t=${Date.now()}" alt="${name}">
+      <div class="rcv-cam-meta">
+        <div class="rcv-cam-name">#${i + 1} ${name}</div>
+        <div class="rcv-cam-sub">~${km} km từ đầu tuyến · cách tuyến ${dm} m</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────
+(async function () {
+  await initApp('dashboard3');
+
+  const params = new URLSearchParams(location.search);
+  const routeId = params.get('routeId') || '';
+  let payload = null;
+  try { payload = JSON.parse(sessionStorage.getItem('rcv_' + routeId) || 'null'); } catch (_) {}
+  if (!routeId || !payload) {
+    document.querySelector('.rcv-wrap').innerHTML =
+      '<div class="rcv-empty">Không có dữ liệu tuyến đường. Vui lòng mở lại từ Dashboard 03 (nhấn "📷 Xem camera" trong modal chi tiết tuyến).</div>';
+    return;
+  }
+  _rcvPayload = payload;
+  if (payload.ttiAppearance) _ttiAppearance = payload.ttiAppearance;
+  _rMode = payload.fcMode || 'time';
+
+  document.getElementById('rcvTitle').textContent = '📈 ' + (payload.r.name || routeId);
+  renderStatsAndChart();
+  renderMap(payload.r);
+
+  document.getElementById('rcvWidthApply').onclick = () => loadAndRenderCameras();
+  document.getElementById('rcvRefreshBtn').onclick = () => { if (_camRevealed) renderCameraGrid(); };
+})();
+</script>
+</body>
+</html>

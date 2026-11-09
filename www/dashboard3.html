@@ -1283,6 +1283,7 @@ function openRouteDetail(routeId) {
     ov.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:880px;width:100%;max-height:92vh;overflow:auto;padding:16px 18px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <h3 id="fcTitle" style="margin:0;font-size:1rem;flex:1"></h3>
+        <button onclick="openRouteCameraView()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;padding:.25rem .6rem;font-size:.78rem;white-space:nowrap">📷 Xem camera</button>
         <button onclick="closeRouteDetail()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);cursor:pointer;padding:.25rem .6rem;font-size:1rem">✕</button>
       </div>
       <div id="fcStats" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
@@ -1432,6 +1433,37 @@ function openRouteDetail(routeId) {
 function closeRouteDetail() {
   const ov = document.getElementById('fcOverlay'); if (ov) ov.style.display = 'none';
   if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
+}
+
+// "📷 Xem camera" on the route-detail modal: opens a standalone page in a
+// new tab with the same stats/chart/mini-map plus the cameras located along
+// this route. Rather than have that page re-fetch and recompute the heavier
+// forecast/baseline series from scratch, we snapshot the values this modal
+// already computed into sessionStorage (same-origin, so the new tab can
+// read it) and let the new page render purely from that.
+function openRouteCameraView() {
+  const routeId = _fcRouteId;
+  if (!routeId) return;
+  const tt = (_sum || {}).travelTime || {};
+  const r = (tt.routes || []).find(x => x.id === routeId);
+  if (!r) return;
+  const todaySlots = buildSlots(tt.todayLogs || [], routeId);
+  const baseSlots  = baselineSlots(routeId);
+  const sf         = _forecast.byRoute[routeId];
+  const baseSecOf = logs => {
+    const v = (logs || []).filter(e => e.routeId === routeId && e.baseSec > 0).map(e => e.baseSec).sort((x, y) => x - y);
+    return v.length ? v[Math.floor(v.length / 2)] : 0;
+  };
+  const payload = {
+    routeId, r, todaySlots, baseSlots, sf,
+    freeSec: baseSecOf(tt.todayLogs),
+    baselineWeeks: _baseline.weeks,
+    slotMin: SLOT_MIN, totalSlots: TOTAL_SLOTS,
+    fcMode: _fcMode,
+    ttiAppearance: _ttiAppearance,
+  };
+  try { sessionStorage.setItem('rcv_' + routeId, JSON.stringify(payload)); } catch (_) {}
+  window.open('route-camera-view.html?routeId=' + encodeURIComponent(routeId), '_blank');
 }
 
 // Route-detail mini map: shows origin (A), destination (B) and any
