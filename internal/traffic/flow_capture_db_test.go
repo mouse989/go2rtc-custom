@@ -19,6 +19,24 @@ func resetFlowCaptureDB(t *testing.T) {
 	})
 }
 
+// setTestRegions sets cfg.Regions for latestFlowScanPerRegion's duration
+// (it only returns scans for currently-enabled, currently-configured
+// region names), restoring whatever cfg.Regions held before once the test
+// ends — cfg is package-level state shared across every test in this
+// package, never left dirty for one that runs after.
+func setTestRegions(t *testing.T, regions []Region) {
+	t.Helper()
+	cfgMu.Lock()
+	prev := cfg.Regions
+	cfg.Regions = regions
+	cfgMu.Unlock()
+	t.Cleanup(func() {
+		cfgMu.Lock()
+		cfg.Regions = prev
+		cfgMu.Unlock()
+	})
+}
+
 func TestRecordAndListFlowScan(t *testing.T) {
 	resetFlowCaptureDB(t)
 
@@ -130,6 +148,14 @@ func TestLatestFlowScanPerRegion(t *testing.T) {
 	if err := recordFlowScan("Region B", bTime, sourceUpdated, 1, []byte(realSampleJSON), results); err != nil {
 		t.Fatalf("recordFlowScan (B): %v", err)
 	}
+
+	// Both regions must be enabled in the CURRENT config — a scan's own
+	// region_name alone is no longer enough (see
+	// TestLatestFlowScanPerRegionExcludesGhostRegions for why).
+	setTestRegions(t, []Region{
+		{Name: "Region A", Enabled: true, Coords: [][2]float64{{10, 106}}},
+		{Name: "Region B", Enabled: true, Coords: [][2]float64{{10, 107}}},
+	})
 
 	latest, err := latestFlowScanPerRegion()
 	if err != nil {

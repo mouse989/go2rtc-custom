@@ -156,6 +156,7 @@
         </div>
       </h3>
       <div class="fc-stat-strip" id="fcStatStrip"><div class="fc-empty">Đang tải...</div></div>
+      <div id="fcRegionStatus" style="font-size:.72rem;color:var(--text-muted);margin-top:.4rem;display:flex;flex-wrap:wrap;gap:.4rem .9rem"></div>
       <div id="fcMap" style="margin-top:.8rem"></div>
       <div class="fc-jf-legend" id="fcGradientLegend">
         <span id="fcLegendMinLbl">0</span>
@@ -311,6 +312,7 @@ function renderFcStats(latest, routes) {
   const avgJf = results.length ? (results.reduce((s, r) => s + r.jamFactor, 0) / results.length) : 0;
   const newest = regions.reduce((a, b) => (a.scannedAt > b.scannedAt ? a : b));
   asOf.textContent = 'Cập nhật lúc ' + fmtFcTime(newest.scannedAt);
+  renderFcRegionStatus(regions, newest);
 
   const tiles = [
     { lbl: 'Số khu vực có dữ liệu', val: regions.length, color: '#60a5fa' },
@@ -325,6 +327,50 @@ function renderFcStats(latest, routes) {
       <div class="fc-stat-lbl">${x.lbl}</div>
       <div class="fc-stat-val">${x.val}</div>
     </div>`).join('');
+}
+
+// renderFcRegionStatus — the single "Cập nhật lúc" label above is the
+// NEWEST scan across every region, which reads as "everything is fresh"
+// even when one region's own scan has stopped updating (its own
+// fetchTrafficForRegion call failing every cycle, in runScan() —
+// internal/traffic/monitor.go just logs a warning and skips that region,
+// it never clears or flags the old data already in flow_scans). That
+// stuck region's last-successful segments then keep being drawn on the
+// map, scan after scan, looking exactly like "these same jam points never
+// change" while OTHER regions' points do. This per-region breakdown makes
+// that visible: any region whose own scannedAt lags the overall newest by
+// more than 30 minutes (2× the default 15-minute interval, generous
+// enough not to flag ordinary stagger between regions scanned back-to-back
+// in the same cycle) is called out — check "Nhật ký" on traffic.html's
+// Traffic Monitor admin tool for that region's own fetch/parse error.
+//
+// Also shows sourceUpdated (Vietmap's OWN "data as of" timestamp for that
+// bbox response, distinct from scannedAt — when WE polled) right next to
+// it, specifically for the "one exact road is red on every single refresh"
+// symptom: a region can poll on schedule (scannedAt advances every cycle,
+// proving the HTTP call is really happening — ruling out a stuck region)
+// while Vietmap's own traffic engine hasn't recomputed that bbox at all
+// (sourceUpdated frozen) — our data would be byte-identical scan after
+// scan not because of a bug on this side, but because the upstream
+// source genuinely hasn't changed. Refresh this page a few times and
+// watch whether sourceUpdated moves for the region that road is in; if it
+// never does while scannedAt keeps advancing, that road's JamFactor is
+// stale AT THE SOURCE, not cached/duplicated here.
+function renderFcRegionStatus(regions, newest) {
+  const el = document.getElementById('fcRegionStatus');
+  if (!el) return;
+  const newestMs = new Date(newest.scannedAt).getTime();
+  const staleMs = 30 * 60 * 1000;
+  const sorted = regions.slice().sort((a, b) => new Date(a.scannedAt) - new Date(b.scannedAt));
+  el.innerHTML = sorted.map(r => {
+    const ageMs = newestMs - new Date(r.scannedAt).getTime();
+    const stale = ageMs > staleMs;
+    const style = stale ? 'color:#f87171;font-weight:600' : '';
+    const flag = stale ? ' ⚠ có thể đang treo' : '';
+    const srcText = r.sourceUpdated ? ` (nguồn: ${escHtml(fmtFcTime(r.sourceUpdated))})` : '';
+    const label = `${escHtml(r.regionName)}: ${escHtml(fmtFcTime(r.scannedAt))}${srcText}${flag}`;
+    return `<span style="${style}" title="Lần hệ thống này tự quét: ${escHtml(fmtFcTime(r.scannedAt))}\nLần Vietmap tự báo đã cập nhật dữ liệu: ${r.sourceUpdated ? escHtml(fmtFcTime(r.sourceUpdated)) : '—'}">${label}</span>`;
+  }).join('');
 }
 
 // ── Geometry → GeoJSON lines (split at subSegment boundaries) ────────────
@@ -387,7 +433,7 @@ function buildFcGeoJSON(geo) {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: pts.map(p => [p.lng, p.lat]) },
         properties: {
-          jf: r.jamFactor, subLabel: 'cả tuyến',
+          jf: r.jamFactor, subLabel: 'cả tuyến', description: r.description || '',
           lengthM: r.lengthM, speedKmh: r.speedKmh, freeFlowKmh: r.freeFlowKmh,
           confidence: r.confidence, functionalClass, resultIndex: ri,
           ttiFused: r.ttiFused, ttiJfEquiv: ttiToJfEquivalent(r.ttiFused),
@@ -407,7 +453,11 @@ function buildFcGeoJSON(geo) {
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: coords.map(([lat, lng]) => [lng, lat]) },
         properties: {
-          jf: ss.jamFactor, subLabel: 'đoạn ' + (si + 1),
+          // ss (a subSegment) has no description of its own — it's one
+          // piece of the parent result r, which only names the whole road
+          // once (see flowGeometryResult.Description in
+          // flowcapture_page_api.go).
+          jf: ss.jamFactor, subLabel: 'đoạn ' + (si + 1), description: r.description || '',
           lengthM: ss.lengthM, speedKmh: ss.speedKmh, freeFlowKmh: ss.freeFlowKmh,
           confidence: ss.confidence, functionalClass, resultIndex: ri,
           ttiFused: ss.ttiFused, ttiJfEquiv: ttiToJfEquivalent(ss.ttiFused),
@@ -429,9 +479,19 @@ function fcLinePopupHtml(p) {
   if (p.anomaly) flags.push('⚠ JF và TTI không nhất quán (có thể số liệu nhiễu)');
   if (p.bottleneck) flags.push('⚠ Nghi ngờ nghẽn đầu nút (JF lệch nhiều giữa các đoạn con)');
   const sp = fcSpeedPercentInfo(p.ttiFused, p.losLabel);
+  // p.description is the road's own name from Vietmap (location.description
+  // in the raw API response) — buildFcGeoJSON used to drop it entirely, so
+  // every single-segment result's popup here showed only "cả tuyến" with
+  // no way to tell which real road it was, making genuinely different
+  // roads look like "the same segment always on the map". Title = the real
+  // name when Vietmap sent one; subLabel moves to the line below (same
+  // "Đoạn N · length m" shape fcRoutePopupHtml already uses) — only a road
+  // Vietmap itself left unnamed falls back to subLabel as the title.
+  const title = p.description ? escHtml(p.description) : escHtml(p.subLabel);
+  const subLine = p.description ? `${escHtml(p.subLabel)} · ${p.lengthM.toFixed(0)} m` : `${p.lengthM.toFixed(0)} m`;
   return `<div style="font-family:sans-serif;line-height:1.6;min-width:170px;color:#1a1a1a">
-    <div style="font-size:.92rem;font-weight:700">${escHtml(p.subLabel)}</div>
-    <div style="color:#333;font-size:.78rem">${p.lengthM.toFixed(0)} m</div>
+    <div style="font-size:.92rem;font-weight:700">${title}</div>
+    <div style="color:#333;font-size:.78rem">${subLine}</div>
     <div style="margin-top:.3rem;font-size:.8rem">
       <b>JamFactor:</b> ${p.jf.toFixed(1)}<br>
       <b>Tốc độ:</b> ${p.speedKmh.toFixed(1)} km/h<br>
