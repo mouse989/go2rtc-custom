@@ -42,20 +42,38 @@ var ValidIconKeys = map[string]bool{
 	"xesc":    true, // xe-su-co.png
 }
 
+// categorySource namespaces (typeId, subtypeId) rules/observations by push
+// source, so an OMNIA typeId and a Hawkwise ai_flow_code that happen to
+// share the same number never collide into the same rule/icon — each
+// source has its own typeId/subtypeId numbering, assigned independently by
+// that vendor. "" is OMNIA (the original source, before this field
+// existed — every rule/observation written before this change has an
+// empty Source on disk and is treated as OMNIA for backward compatibility,
+// no migration needed). "hawkwise" is Hawkwise's AI-flow events (see
+// hawkwise.go) — there TypeID holds general.ai_flow_code and SubtypeID is
+// always nil (Hawkwise has no subtype concept), so matching always goes
+// through ResolveIcon's wildcard branch for that source.
+const (
+	CategorySourceOMNIA    = ""
+	CategorySourceHawkwise = "hawkwise"
+)
+
 // CategoryRule maps a source category to a display label + icon.
 // SubtypeID == nil means "match any subtype of TypeID" (checked only after
 // an exact TypeID+SubtypeID rule fails to match — see ResolveIcon).
 type CategoryRule struct {
 	ID        string `json:"id"`
+	Source    string `json:"source,omitempty"` // see categorySource consts above
 	TypeID    int    `json:"type_id"`
 	SubtypeID *int   `json:"subtype_id,omitempty"`
 	Label     string `json:"label"`
 	Icon      string `json:"icon"`
 }
 
-// ObservedCategory is one distinct (typeId, subtypeId) combination seen in
-// incoming pushes, auto-maintained by ObserveCategory.
+// ObservedCategory is one distinct (source, typeId, subtypeId) combination
+// seen in incoming pushes, auto-maintained by ObserveCategory.
 type ObservedCategory struct {
+	Source      string    `json:"source,omitempty"`
 	TypeID      int       `json:"type_id"`
 	SubtypeID   int       `json:"subtype_id"`
 	RecordType  string    `json:"record_type,omitempty"`
@@ -63,6 +81,13 @@ type ObservedCategory struct {
 	Count       int       `json:"count"`
 	FirstSeen   time.Time `json:"first_seen"`
 	LastSeen    time.Time `json:"last_seen"`
+	// SampleRawJSON holds the most recent full raw push body for this
+	// combination — only populated for sources (Hawkwise today) whose wire
+	// schema isn't fully understood yet, so an admin can inspect real
+	// field values on the GUI (see docs/hawkwise-ai-flow-events-plan.md §5)
+	// instead of guessing or asking the vendor ahead of time. OMNIA's shape
+	// is already fully documented, so this stays empty for Source=="".
+	SampleRawJSON string `json:"sample_raw_json,omitempty"`
 }
 
 type categoryStore struct {
@@ -70,7 +95,7 @@ type categoryStore struct {
 	rulesF   string
 	obsF     string
 	rules    map[string]*CategoryRule     // by ID
-	observed map[string]*ObservedCategory // by "typeId:subtypeId"
+	observed map[string]*ObservedCategory // by "source:typeId:subtypeId"
 }
 
 var cstore *categoryStore
@@ -132,7 +157,7 @@ func (s *categoryStore) loadObserved() error {
 		return err
 	}
 	for _, o := range list {
-		s.observed[observedKey(o.TypeID, o.SubtypeID)] = o
+		s.observed[observedKey(o.Source, o.TypeID, o.SubtypeID)] = o
 	}
 	return nil
 }
@@ -150,20 +175,25 @@ func (s *categoryStore) saveObservedLocked() error {
 	return os.WriteFile(s.obsF, data, 0644)
 }
 
-func observedKey(typeID, subtypeID int) string { return fmt.Sprintf("%d:%d", typeID, subtypeID) }
+func observedKey(source string, typeID, subtypeID int) string {
+	return fmt.Sprintf("%s:%d:%d", source, typeID, subtypeID)
+}
 
-// ObserveCategory records one sighting of (typeID, subtypeID) — called on
-// every push, regardless of whether a CategoryRule already matches it, so
-// the "what has OMNIA actually sent" view stays complete even after rules
-// are configured.
-func ObserveCategory(typeID, subtypeID int, recordType, description string) {
+// ObserveCategory records one sighting of (source, typeID, subtypeID) —
+// called on every push, regardless of whether a CategoryRule already
+// matches it, so the "what has this source actually sent" view stays
+// complete even after rules are configured. sampleRawJSON is kept only for
+// sources whose wire schema isn't fully understood yet (see
+// ObservedCategory.SampleRawJSON) — pass "" for a source (OMNIA) that
+// doesn't need it.
+func ObserveCategory(source string, typeID, subtypeID int, recordType, description, sampleRawJSON string) {
 	now := time.Now()
 	cstore.mu.Lock()
 	defer cstore.mu.Unlock()
-	key := observedKey(typeID, subtypeID)
+	key := observedKey(source, typeID, subtypeID)
 	o, ok := cstore.observed[key]
 	if !ok {
-		o = &ObservedCategory{TypeID: typeID, SubtypeID: subtypeID, FirstSeen: now}
+		o = &ObservedCategory{Source: source, TypeID: typeID, SubtypeID: subtypeID, FirstSeen: now}
 		cstore.observed[key] = o
 	}
 	o.Count++
@@ -173,6 +203,9 @@ func ObserveCategory(typeID, subtypeID int, recordType, description string) {
 	}
 	if description != "" {
 		o.Description = description
+	}
+	if sampleRawJSON != "" {
+		o.SampleRawJSON = sampleRawJSON
 	}
 	_ = cstore.saveObservedLocked() // best-effort — never blocks ingestion on a write failure
 }
@@ -203,14 +236,14 @@ func ListCategoryRules() []CategoryRule {
 }
 
 // CreateCategoryRule adds a new mapping rule.
-func CreateCategoryRule(typeID int, subtypeID *int, label, icon string) (*CategoryRule, error) {
+func CreateCategoryRule(source string, typeID int, subtypeID *int, label, icon string) (*CategoryRule, error) {
 	if label == "" {
 		return nil, errAIEvent("label required")
 	}
 	if !ValidIconKeys[icon] {
 		return nil, errAIEvent("unknown icon key")
 	}
-	r := &CategoryRule{ID: randSuffix() + randSuffix(), TypeID: typeID, SubtypeID: subtypeID, Label: label, Icon: icon}
+	r := &CategoryRule{ID: randSuffix() + randSuffix(), Source: source, TypeID: typeID, SubtypeID: subtypeID, Label: label, Icon: icon}
 	cstore.mu.Lock()
 	defer cstore.mu.Unlock()
 	cstore.rules[r.ID] = r
@@ -223,7 +256,7 @@ func CreateCategoryRule(typeID int, subtypeID *int, label, icon string) (*Catego
 }
 
 // UpdateCategoryRule replaces an existing rule's fields.
-func UpdateCategoryRule(id string, typeID int, subtypeID *int, label, icon string) (*CategoryRule, error) {
+func UpdateCategoryRule(id, source string, typeID int, subtypeID *int, label, icon string) (*CategoryRule, error) {
 	if label == "" {
 		return nil, errAIEvent("label required")
 	}
@@ -236,7 +269,7 @@ func UpdateCategoryRule(id string, typeID int, subtypeID *int, label, icon strin
 	if !ok {
 		return nil, errAIEventNotFound
 	}
-	r.TypeID, r.SubtypeID, r.Label, r.Icon = typeID, subtypeID, label, icon
+	r.Source, r.TypeID, r.SubtypeID, r.Label, r.Icon = source, typeID, subtypeID, label, icon
 	if err := cstore.saveRulesLocked(); err != nil {
 		return nil, err
 	}
@@ -256,15 +289,21 @@ func DeleteCategoryRule(id string) error {
 	return cstore.saveRulesLocked()
 }
 
-// ResolveIcon finds the best-matching rule for (typeID, subtypeID): an
-// exact TypeID+SubtypeID rule first, then a TypeID-only wildcard rule
+// ResolveIcon finds the best-matching rule for (source, typeID, subtypeID):
+// an exact TypeID+SubtypeID rule first, then a TypeID-only wildcard rule
 // (SubtypeID == nil), else matched=false (caller falls back to a generic
-// marker — see www/map.html's teMarkerContentFor-style default).
-func ResolveIcon(typeID, subtypeID int) (label, icon string, matched bool) {
+// marker — see www/map.html's teMarkerContentFor-style default). Only
+// rules from the same Source are considered — see the categorySource
+// consts' doc comment for why source and typeId/subtypeId together are the
+// real key.
+func ResolveIcon(source string, typeID, subtypeID int) (label, icon string, matched bool) {
 	cstore.mu.Lock()
 	defer cstore.mu.Unlock()
 	var wildcard *CategoryRule
 	for _, r := range cstore.rules {
+		if r.Source != source {
+			continue
+		}
 		if r.TypeID != typeID {
 			continue
 		}

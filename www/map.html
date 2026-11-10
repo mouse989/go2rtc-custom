@@ -768,6 +768,14 @@ body.sb-collapsed           { --map-left:0; }
       <button class="map-btn" id="btnAIEvent" style="display:none" title="Bật để xem sự cố AI (OMNIA/FPT VDS...) gần đây trên bản đồ">
         🤖 AI Event
       </button>
+      <!-- Evidence-image previews are their own opt-in switch, default OFF —
+           showing them triggers a device-verification step-up and pulls
+           photos onto the screen, which the layer's bubble markers alone
+           don't need; the admin turns this on only when actually wanted. -->
+      <label id="aieImgToggleRow" style="display:none;align-items:center;gap:.4rem;font-size:.72rem;color:var(--text-muted);padding:.1rem .4rem .35rem 1.7rem;cursor:pointer;user-select:none">
+        <input type="checkbox" id="aieShowImages" style="width:14px;height:14px;margin:0">
+        Hiện ảnh minh chứng
+      </label>
       <!-- Traffic: shown only for admin or users with allow_traffic / allow_traffic_live -->
       <button class="map-btn" id="btnTraffic" style="display:none">
         <svg viewBox="0 0 20 20" fill="currentColor" width="14"><path d="M8 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm7 0a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM5 3h1l1.5 7h7L16 5H7" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="6.5" cy="16.5" r="1.5" fill="currentColor"/><circle cx="13.5" cy="16.5" r="1.5" fill="currentColor"/><path d="M3 5h2M5 3l1.5 7h7L15 5H5z" fill="currentColor"/></svg>
@@ -1461,6 +1469,12 @@ let _aieFeatures = [];
 let _aiEventPreviews = new Map(); // record_id -> { el, img, lon, lat } — floating image preview boxes
 let _aiEventPollTimer = null;   // setInterval handle refreshing the above while the layer is on
 let _aiEventImgDenied = false;  // true once the user has declined device verification this session (avoid re-prompting every poll)
+// Evidence-image previews are opt-in, default OFF — turning the AI Event
+// layer on shows only the bubble markers until this is explicitly checked.
+// Persisted per-browser so the choice sticks across sessions, same
+// convention as the sidebar-collapsed/theme toggles.
+const AIE_SHOW_IMAGES_KEY = 'map_aie_show_images';
+let _aiEventShowImages = localStorage.getItem(AIE_SHOW_IMAGES_KEY) === '1';
 // ── Hawkwise traffic-flow layer ("📊 Đo đếm lưu lượng" toggle) state — own
 // subsystem from the "📊 Trạm đo" counting Station layer, per plan §4.1 ──
 let _trafficFlowMode = false;     // layer on: shows per-sensor volume/traffic_status bubbles
@@ -3100,6 +3114,20 @@ document.getElementById('btnAIEvent').addEventListener('click', function() {
   }
 });
 
+// Default OFF (see AIE_SHOW_IMAGES_KEY above) — checking this is the only
+// thing that triggers the device-verification step-up and starts pulling
+// evidence photos onto the screen; the bubble markers never need it.
+document.getElementById('aieShowImages').addEventListener('change', function() {
+  _aiEventShowImages = this.checked;
+  localStorage.setItem(AIE_SHOW_IMAGES_KEY, _aiEventShowImages ? '1' : '0');
+  if (_aiEventShowImages) {
+    _aiEventImgDenied = false; // give the step-up prompt a fresh chance now that it's explicitly wanted
+    if (_aiEventMode) loadActiveAIEvents();
+  } else {
+    clearAIEventPreviews();
+  }
+});
+
 // Independent layer from "📊 Trạm đo" (counting Station) and from every
 // other map tool — same passive-display-layer convention as 🤖 AI Event
 // above, intentionally left out of exitOtherMapModes().
@@ -3769,7 +3797,10 @@ async function loadActiveAIEvents() {
   }));
   map.getSource('aie-events')?.setData({ type: 'FeatureCollection', features: _aieFeatures });
 
-  await syncAIEventPreviews(withImages);
+  // Evidence-photo previews are opt-in (see AIE_SHOW_IMAGES_KEY) — skip the
+  // device-verification step-up and the floating preview boxes entirely
+  // unless the admin has explicitly checked "Hiện ảnh minh chứng".
+  await syncAIEventPreviews(_aiEventShowImages ? withImages : []);
 }
 
 // ── Hawkwise traffic-flow layer: per-sensor volume/traffic_status pills ──
@@ -6195,6 +6226,8 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   }
   if (canMapAIEvent()) {
     document.getElementById('btnAIEvent').style.display = '';
+    document.getElementById('aieImgToggleRow').style.display = 'flex';
+    document.getElementById('aieShowImages').checked = _aiEventShowImages;
   }
   if (canMapTrafficFlow()) {
     document.getElementById('btnTrafficFlow').style.display = '';
