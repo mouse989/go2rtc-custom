@@ -310,14 +310,22 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 	// bodyBytes into its own struct rather than reusing req.Details, which
 	// for a non-density trigger_code is just zero-valued garbage.
 	if req.General.TriggerCode != "" && req.General.TriggerCode != "AdvancedTrafficDensity" {
-		if err := handleHawkwiseAIFlowPush(bodyBytes, integration.Name); err != nil {
+		// AppSettings.HawkwiseAIFlowDisabled: an admin-configurable kill
+		// switch for the AI-flow half of this endpoint — see its own doc
+		// comment. The push is still accepted (200 OK, still logged below)
+		// either way; when disabled, it's just never handed to
+		// internal/aievent, so nothing gets parsed/stored/shown.
+		note := strings.TrimSpace(recoveredNote)
+		if auth.GetSettings().HawkwiseAIFlowDisabled {
+			note = strings.TrimSpace("AI-flow event received but not processed (disabled in settings)" + recoveredNote)
+		} else if err := handleHawkwiseAIFlowPush(bodyBytes, integration.Name); err != nil {
 			valid := true
 			logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusInternalServerError, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "AI-flow ingest failed: " + err.Error() + recoveredNote, SourceUUID: req.General.Camera.SourceUUID})
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to store AI-flow event", "")
 			return
 		}
 		valid := true
-		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: strings.TrimSpace(recoveredNote), SourceUUID: req.General.Camera.SourceUUID})
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: note, SourceUUID: req.General.Camera.SourceUUID})
 		writeJSON(w, http.StatusOK, pushResponse{Status: "ok", EventID: req.General.EventID, ReceivedAt: time.Now().Format(time.RFC3339)})
 		return
 	}

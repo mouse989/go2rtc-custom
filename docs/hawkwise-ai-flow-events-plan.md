@@ -120,6 +120,15 @@ Thứ tự ưu tiên theo mức độ cấp bách (mục 1 chặn mất dữ li�
 
 ---
 
+## Bổ sung sau triển khai (2026-11-10): công tắc bật/tắt xử lý
+
+Theo yêu cầu thêm của bạn: vì Hawkwise gửi cả 2 loại bản tin (đếm lưu lượng + AI-flow) qua **cùng 1 đường dẫn**, không thể tắt riêng bằng cách chặn kết nối/đổi key — thêm 1 cấu hình admin **`hawkwise_ai_flow_disabled`** (`internal/auth/settings.go`, mặc định `false` = đang bật, giữ nguyên hành vi hiện có):
+
+- **Bật (mặc định)**: hành vi y hệt phần triển khai ở trên.
+- **Tắt**: `handlePush` vẫn nhận bản tin AI-flow, vẫn trả `200 OK` bình thường (Hawkwise không báo lỗi/gửi lại) và vẫn ghi vào Push Log (kèm ghi chú "not processed (disabled in settings)") — nhưng **không gọi sang `internal/aievent`**: không parse, không tạo `AIEvent`, không ghi `ObservedCategory`, không hiện trên bản đồ. Luồng đếm lưu lượng (`AdvancedTrafficDensity`) và luồng OMNIA/FPT VDS hoàn toàn không bị ảnh hưởng bởi công tắc này.
+- **UI**: tab "Settings" chung của admin, ngay dưới mục "Thời gian lưu dữ liệu Đo đếm lưu lượng" — 1 ô tick "Nhận, lưu và hiển thị trên AI Event".
+- **Kiểm thử thực tế**: tắt công tắc → gửi bản tin AbnormalStop thật → xác nhận HTTP 200, Push Log có ghi chú "not processed", `/api/aievent/active` và `/api/aievent/observed-categories` không có entry mới. Bật lại → gửi bản tin khác → xác nhận xuất hiện ngay trên `/api/aievent/active` với đầy đủ dữ liệu. Playwright xác nhận UI: tick mặc định bật, bỏ tick + lưu + tải lại trang thì trạng thái vẫn giữ đúng.
+
 ## Triển khai thực tế (2026-11-10) — cả 7 bước ở mục 7
 
 - **`internal/aievent/categories.go`**: thêm `Source` vào `CategoryRule`/`ObservedCategory` + hằng số `CategorySourceOMNIA`/`CategorySourceHawkwise`; `ObservedCategory` thêm `SampleRawJSON`. `observedKey`/`ObserveCategory`/`ResolveIcon`/`CreateCategoryRule`/`UpdateCategoryRule` đều nhận thêm `source` để OMNIA và Hawkwise không bao giờ đụng số với nhau dù trùng typeId/ai_flow_code.

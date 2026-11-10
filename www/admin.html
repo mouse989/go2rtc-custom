@@ -402,6 +402,16 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Sự cố AI từ Hawkwise (AbnormalStop...)</label>
+            <label class="tab-perm-chip"><input type="checkbox" id="hawkwiseAiFlowEnabled" checked> Nhận, lưu và hiển thị trên "AI Event"</label>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Hawkwise gửi cả 2 loại bản tin (đếm lưu lượng và sự cố AI rời rạc như AbnormalStop) qua <b>cùng 1 đường dẫn</b> —
+              không thể chặn riêng từng loại ở mức kết nối. Tắt mục này: máy chủ vẫn nhận bản tin sự cố AI và trả lời bình
+              thường (Hawkwise không bị lỗi/gửi lại), nhưng sẽ <b>không lưu, không xử lý, không hiển thị</b> lên bản đồ — dữ
+              liệu đếm lưu lượng (và luồng OMNIA/FPT VDS riêng) hoàn toàn không bị ảnh hưởng.
+            </p>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Giới hạn phiên xem video mặc định (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="viewLimitInput" min="1" step="1" value="15"
@@ -2804,6 +2814,7 @@ async function loadSettings() {
     document.getElementById('trafficFlowRetentionUnlimited').checked = tfRetention === -1;
     document.getElementById('trafficFlowRetentionInput').value = (tfRetention && tfRetention > 0) ? tfRetention : 30;
     document.getElementById('trafficFlowRetentionInput').disabled = tfRetention === -1;
+    document.getElementById('hawkwiseAiFlowEnabled').checked = !s.hawkwise_ai_flow_disabled;
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
@@ -3188,6 +3199,7 @@ async function saveSettings() {
   const aiEventImageRetention = parseInt(document.getElementById('aiEventImageRetentionInput').value, 10) || 4;
   const trafficFlowRetentionUnlimited = document.getElementById('trafficFlowRetentionUnlimited').checked;
   const trafficFlowRetention = trafficFlowRetentionUnlimited ? -1 : (parseInt(document.getElementById('trafficFlowRetentionInput').value, 10) || 30);
+  const hawkwiseAiFlowDisabled = !document.getElementById('hawkwiseAiFlowEnabled').checked;
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
@@ -3213,6 +3225,7 @@ async function saveSettings() {
     event_window_minutes: eventWindow,
     ai_event_image_retention_hours: aiEventImageRetention,
     traffic_flow_retention_days: trafficFlowRetention,
+    hawkwise_ai_flow_disabled: hawkwiseAiFlowDisabled,
     default_view_limit_minutes: viewLimit,
     login_hour_range_enabled: loginHourRangeEnabled,
     login_hour_start: loginHourStart,

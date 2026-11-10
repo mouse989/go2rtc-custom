@@ -141,6 +141,23 @@ type AppSettings struct {
 	// this used to be a hardcoded Go constant.
 	TrafficFlowRetentionDays int `json:"traffic_flow_retention_days"`
 
+	// HawkwiseAIFlowDisabled: Hawkwise sends two different kinds of message
+	// to the SAME push endpoint (/api/trafficdata/hawkwise/v1/flow-push) —
+	// periodic density/counting data and discrete AI-flow events (e.g.
+	// "AbnormalStop") — distinguished only by general.trigger_code inside
+	// the body, not by path or Integration key (see
+	// docs/hawkwise-ai-flow-events-plan.md). There's no connection-level
+	// way to turn off just the AI-flow half, so this is a processing-level
+	// switch instead: the push is still accepted and returns 200 OK either
+	// way (Hawkwise's retry logic never sees a difference), but when this
+	// is true, internal/trafficflow's handler skips calling into
+	// internal/aievent entirely for an AI-flow message — nothing is parsed
+	// into an AIEvent, stored, or shown on the map. Density messages are
+	// never affected by this setting. Inverted so the zero value (false)
+	// keeps today's behavior (processing enabled) — same convention as
+	// StationsLayerDefaultOff above.
+	HawkwiseAIFlowDisabled bool `json:"hawkwise_ai_flow_disabled"`
+
 	// JamColorStops: admin-customized JF color scale (see JamColorStop
 	// above). Empty/nil → every page falls back to jamColorDefaultStops
 	// (jam_color.go) — GET /api/jam-color-cfg always resolves this for the
