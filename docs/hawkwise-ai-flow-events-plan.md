@@ -89,11 +89,11 @@ Bản tin mẫu chỉ có 1 sự kiện (`AbnormalStop`) — không đủ để 
 
 ---
 
-## 6. Câu hỏi sản phẩm — cần bạn quyết định (không phải câu hỏi kỹ thuật)
+## 6. Câu hỏi sản phẩm — ĐÃ CHỐT với bạn (2026-11-10)
 
-1. Các sự kiện AI-flow của Hawkwise (AbnormalStop và tương tự) hiển thị **chung 1 layer "🤖 AI Event" với OMNIA** trên bản đồ, hay **tách layer riêng** (vd "🚨 Hawkwise AI Flow") để phân biệt nguồn?
-2. Có cần đẩy các sự kiện này vào sổ **"Sự cố giao thông"** (`internal/incidents`, nơi CSGT xem/xác nhận/xử lý thủ công) để có luồng con người duyệt lại, hay chỉ cần **hiển thị tự động** trên bản đồ như AI Event hiện tại (không ai phải bấm xác nhận gì)?
-3. Dữ liệu biển số/chủ xe có cần **tra cứu/lọc được sau này** (vd "tìm tất cả sự kiện liên quan biển số 98A-277.06") hay hiển thị trong popup khi xem sự kiện là đủ cho nhu cầu hiện tại?
+1. **Hiển thị**: gộp chung layer **"🤖 AI Event"** với OMNIA (không tách layer riêng cho Hawkwise).
+2. **Luồng xử lý**: chỉ hiển thị tự động trên bản đồ, **không** đẩy vào sổ "Sự cố giao thông" — giống hệt cách OMNIA đang chạy, không ai phải xác nhận/thao tác gì.
+3. **Tra cứu dữ liệu phương tiện**: chỉ cần hiển thị trong popup khi xem sự kiện — **không** xây chức năng tìm kiếm/lọc theo biển số/hãng xe riêng. → `VehicleDetail` (mục 4.2) có thể lưu đơn giản (vd 1 blob JSON đính kèm `AIEvent`, không cần field riêng từng cột/chỉ mục tìm kiếm).
 
 ---
 
@@ -114,3 +114,4 @@ Thứ tự ưu tiên theo mức độ cấp bách (mục 1 chặn mất dữ li�
 | Phiên bản | Ngày | Nội dung |
 |---|---|---|
 | 1.0 | 2026-11-10 | Phát hiện ban đầu từ bản tin thật `AbnormalStop`: dữ liệu đang bị mất âm thầm tại endpoint flow-push. Đối chiếu 3 schema, đề xuất 2 phương án định tuyến, liệt kê câu hỏi còn treo. Trạng thái: planning, chưa code. |
+| 1.1 | 2026-11-10 | Chốt 3 câu hỏi sản phẩm (mục 6): gộp layer AI Event, không qua sổ sự cố, không cần tra cứu biển số riêng. Câu hỏi kỹ thuật ở mục 5 (các `trigger_code`/`ai_flow_code` khác, khả năng tải ảnh từ URL Hawkwise...) vẫn còn treo — không chặn việc bắt đầu code Bước 1 (mục 7) vì bước đó chỉ cần lưu nguyên văn, chưa cần parse chi tiết. Trạng thái: planning, chưa code. |
