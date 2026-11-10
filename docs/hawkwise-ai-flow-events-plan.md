@@ -73,19 +73,26 @@ Khuyến nghị: **tái dùng `internal/aievent`** (không tạo phân hệ song
 - Tái dùng được: store theo ngày, dedup theo RecordID, hệ category-rule (admin tự đặt icon/nhãn cho từng loại — ở đây là theo `ai_flow_code`/`ai_flow_name` thay vì `typeId/subtypeId`), layer "🤖 AI Event" trên `map.html`, cơ chế `ObservedCategory` để tự ghi nhận loại `ai_flow_code` mới chưa cấu hình.
 - Người vận hành chỉ cần nhìn **1 chỗ duy nhất** ("AI Event") cho mọi sự kiện AI rời rạc, bất kể từ OMNIA hay Hawkwise — đúng tinh thần "nguồn khác nhau, cùng 1 loại dữ liệu → cùng 1 nơi quản lý" mà hệ Integration Key cũng đang theo (nhiều tích hợp, 1 bảng quản lý).
 
-Vấn đề cần xử lý thêm khi gộp: `AIEvent` hiện tại **không có chỗ chứa** các field nhận diện phương tiện (biển số, hãng, màu, chủ xe, mũ bảo hiểm, vũ khí, quá tải khách) — đây là dữ liệu OMNIA không có nhưng Hawkwise AI-flow có. Đề xuất: thêm 1 trường **tùy chọn** trên `AIEvent`, vd `VehicleDetail *VehicleInfo` (chỉ có giá trị khi nguồn là Hawkwise, OMNIA để `nil` như cũ) — không phá cấu trúc hiện có, không ảnh hưởng OMNIA, chỉ hiển thị thêm trong popup map khi có dữ liệu. Ảnh: Hawkwise gửi **URL** (`evidence.frame_url`, không phải base64 như OMNIA) — đơn giản hơn nhiều (không cần decode/validate/lưu file), nhưng cần xác nhận URL đó (`http://10.12.7.21:9490/...`) **trình duyệt người dùng có truy cập được không** (có thể là địa chỉ nội bộ NVR, chỉ server go2rtc truy cập được chứ không phải máy người xem) — nếu đúng vậy, cần server **proxy tải ảnh hộ** thay vì nhúng thẳng URL vào `<img>`.
+Vấn đề cần xử lý thêm khi gộp: `AIEvent` hiện tại **không có chỗ chứa** các field nhận diện phương tiện (biển số, hãng, màu, chủ xe, mũ bảo hiểm, vũ khí, quá tải khách) — đây là dữ liệu OMNIA không có nhưng Hawkwise AI-flow có. Đề xuất: thêm 1 trường **tùy chọn** trên `AIEvent`, vd `VehicleDetail *VehicleInfo` (chỉ có giá trị khi nguồn là Hawkwise, OMNIA để `nil` như cũ) — không phá cấu trúc hiện có, không ảnh hưởng OMNIA, chỉ hiển thị thêm trong popup map khi có dữ liệu.
+
+**Ảnh minh chứng — ĐÃ XÁC NHẬN (2026-11-10):** các URL (`frame_url`, `body_crop_url`, `identified_crop_url`, `video_url`) **chỉ gọi được từ máy chủ (cùng LAN với Hawkwise/NVR)**, người dùng từ Internet **không** gọi trực tiếp được → bắt buộc server phải **tải hộ**. Cách làm: tái dùng nguyên vẹn hạ tầng ảnh đã có cho OMNIA (`internal/aievent/images.go` — lưu theo `<dataDir>/images/<RecordID>/`, `GET /api/aievent/image` phục vụ lại có gate xác minh thiết bị, `CleanupOldImages` dọn theo thời gian). Khác biệt duy nhất: OMNIA gửi sẵn bytes (base64) trong bản tin, còn Hawkwise AI-flow chỉ gửi URL — nên tại thời điểm ingest, adapter cần **tự `GET` các URL này từ phía server** (server nằm trong LAN nên gọi được) rồi lưu bytes tải về qua đúng `ReplaceImages()` sẵn có, thay vì decode base64. Từ đó trở đi, toàn bộ phần hiển thị/serve ảnh trên `map.html` dùng chung 1 cơ chế cho cả 2 vendor, không cần code thêm đường nào khác. Rủi ro cần lường trước: Hawkwise không đảm bảo giữ ảnh gốc lâu dài trên NVR của họ — nên tải **ngay khi nhận được push**, không trì hoãn, và chấp nhận ảnh trống nếu lần tải đó thất bại (log lại để biết tỉ lệ lỗi, không chặn việc lưu sự kiện).
 
 ---
 
-## 5. Những điều chưa biết — cần xác nhận trước khi chốt thiết kế field-by-field
+## 5. Những điều chưa biết — ĐÃ CHỐT CÁCH XỬ LÝ (2026-11-10): tự thu thập qua GUI, không hỏi vendor trước
 
-Bản tin mẫu chỉ có 1 sự kiện (`AbnormalStop`) — không đủ để suy ra toàn bộ enum. Trước khi code phần adapter cần biết thêm (hỏi đội Hawkwise/Elcom, hoặc chờ gom thêm vài bản tin mẫu thật):
+Bản tin mẫu chỉ có 1 sự kiện (`AbnormalStop`) — không đủ để suy ra toàn bộ enum (`ai_flow_code` còn gì khác, ý nghĩa `event_type`/`object_action`/`event_state`, `profile_object_groups` có cố định không...). Quyết định: **không chặn lại để hỏi đội Hawkwise/Elcom trước** — thay vào đó xây **cơ chế tự quan sát** (đúng mẫu `ObservedCategory` của `internal/aievent` và `ObservedSensor` của `internal/trafficflow` đã có sẵn và đang chạy tốt), để bạn tự thấy dữ liệu thật trên GUI và quyết định tiếp (tự gán cấu hình, hoặc nhờ agent code thêm khi đã hiểu rõ 1 field nào đó).
 
-1. **`ai_flow_code`/`trigger_code` còn những giá trị nào khác** ngoài `AdvancedTrafficDensity` (21=Abnormal Stop)? Hawkwise có tài liệu liệt kê đủ các "luồng AI" (illegal parking, đi ngược chiều, vượt tốc độ, v.v.) mà camera có thể bật không? → quyết định allow-list ban đầu cho Phương án B, và thiết kế category-rule mapping tương tự OMNIA.
-2. **`event_type` (2), `object_action` (0), `event_state` (3)** trong bản tin mẫu — ý nghĩa từng mã số là gì? (`event_state` ở luồng density đã biết null/3/5 = đợt ùn tắc đang diễn ra/kết thúc; ở đây có cùng ý nghĩa không hay là 1 enum khác hoàn toàn cho nhóm AI-flow?)
-3. **`profile_object_groups`** (vd "VEHICLE - NOT REGISTERED") — đây có phải danh sách cố định hay tùy biến theo cấu hình hệ thống Hawkwise? Có cần hiển thị/lọc theo nhóm này không?
-4. **Ảnh (`frame_url`/`body_crop_url`/`identified_crop_url`/`video_url`)** — các URL này server go2rtc có pull được trực tiếp không (cùng mạng nội bộ), hay cần Hawkwise cấp thêm access/token riêng để tải?
-5. **Có cần dedup theo `event_id` giống luồng density không**, hay mỗi bản tin AI-flow luôn là 1 sự kiện mới độc lập (không có khái niệm "cập nhật lại 1 sự kiện đang mở" như OMNIA's `event.created`→`event.terminated`)? Bản tin mẫu có cả `start_time` và `end_time` đã điền sẵn (chênh 5 giây) — gợi ý đây là bản tin **đã hoàn chỉnh ngay từ lần gửi đầu**, không có bước "mở rồi đóng sau" như OMNIA.
+**Thiết kế "Observed Hawkwise AI-flow"** (bảng mới, đi kèm Bước 1 ở mục 7, không phải việc làm sau):
+
+- Mỗi khi nhận 1 bản tin có `trigger_code != "AdvancedTrafficDensity"`, ngoài việc lưu raw JSON (mục 7 bước 1), **upsert 1 dòng** vào bảng quan sát, khoá theo `(trigger_code, ai_flow_code)`:
+  - `TriggerCode`, `AIFlowCode`, `AIFlowName` — để biết tên hiển thị Hawkwise tự đặt.
+  - `FirstSeenAt`, `LastSeenAt`, `Count` — tần suất xuất hiện, giống hệt cách `ObservedCategory` đang theo dõi `(typeId, subtypeId)` của OMNIA.
+  - `SampleRawJSON` — giữ nguyên văn **1 bản tin mẫu gần nhất** của tổ hợp đó (không phải mọi bản tin — tránh phình dữ liệu), để admin bấm xem trực tiếp `event_type`/`object_action`/`event_state`/`profile_object_groups`/... thực tế là gì mà không cần hỏi ai.
+- **Admin UI**: 1 bảng mới trong tab "AI Event" (cạnh bảng "Observed Categories" hiện có), liệt kê các tổ hợp đã thấy + nút "xem bản tin mẫu" (hiện raw JSON formatted) + trạng thái đã cấu hình category-rule hay chưa (giống cột trạng thái "đã gán icon" bên OMNIA observed categories).
+- Khi đã nhìn thấy đủ dữ liệu thật, bạn tự quyết định: tạo category-rule (icon/nhãn hiển thị) ngay trên GUI hiện có — không cần code; hoặc nếu phát hiện 1 field cần xử lý đặc biệt (vd `profile_object_groups` cần hiển thị thành badge riêng, hoặc `event_state` hoá ra có ý nghĩa cần xử lý logic) thì nhờ code thêm đúng phần đó, có dữ liệu mẫu thật trong tay thay vì đoán.
+
+→ Việc này **giải quyết toàn bộ 5 câu hỏi cũ** (ai_flow_code còn gì khác, ý nghĩa event_type/object_action/event_state, profile_object_groups, dedup theo event_id — dedup vẫn áp dụng y hệt OMNIA/density vì `event_id` luôn có mặt, không cần chờ xác nhận gì thêm) mà không cần chặn tiến độ chờ trả lời từ bên thứ ba.
 
 ---
 
@@ -101,11 +108,13 @@ Bản tin mẫu chỉ có 1 sự kiện (`AbnormalStop`) — không đủ để 
 
 Thứ tự ưu tiên theo mức độ cấp bách (mục 1 chặn mất dữ liệu đang diễn ra):
 
-1. **Chặn mất dữ liệu ngay** (Phương án B, mục 4.1): sửa handler `/api/trafficdata/hawkwise/v1/flow-push` để nhận diện `trigger_code != "AdvancedTrafficDensity"` → **lưu tạm nguyên văn** (raw JSON, giống cơ chế `push_log` đã có sẵn trong `internal/trafficflow/pushlog.go`) thay vì để Go âm thầm bỏ field lạ. Việc này **không cần chờ trả lời các câu hỏi ở mục 5-6** — chỉ cần sửa 1 chỗ, đảm bảo từ giờ không còn sự kiện AI-flow nào bị mất, dữ liệu thô vẫn nằm đó chờ xử lý tiếp.
-2. **Mở rộng `AIEvent`** với trường `VehicleDetail` tùy chọn (mục 4.2) + viết adapter parse đúng schema Hawkwise AI-flow (dựa câu trả lời mục 5).
-3. **Nối adapter vào pipeline `aievent.Ingest()`** từ bước phân nhánh ở bước 1 — không tạo endpoint mới trừ khi quyết định đổi sang Phương án A (mục 4.1).
-4. **Admin UI**: mở rộng bảng category-rule hiện có của "AI Event" để nhận cả mapping theo `ai_flow_code`, hoặc thêm cột nguồn (OMNIA/Hawkwise) nếu 2 bên dùng khóa khác nhau (`typeId/subtypeId` vs `ai_flow_code`).
-5. **map.html**: hiển thị thêm block "thông tin phương tiện" trong popup khi `VehicleDetail` có dữ liệu; xử lý ảnh theo kết luận mục 5.4 (proxy tải hộ nếu URL không truy cập được từ trình duyệt người dùng).
+1. **Chặn mất dữ liệu + bắt đầu thu thập** (Phương án B, mục 4.1 + cơ chế quan sát mục 5): sửa handler `/api/trafficdata/hawkwise/v1/flow-push` để nhận diện `trigger_code != "AdvancedTrafficDensity"` → (a) **lưu tạm nguyên văn** (raw JSON, giống cơ chế `push_log` đã có sẵn trong `internal/trafficflow/pushlog.go`) thay vì để Go âm thầm bỏ field lạ, và (b) **upsert vào bảng "Observed Hawkwise AI-flow"** mới (mục 5) để GUI có dữ liệu thật ngay từ bản tin đầu tiên. Việc này **không cần chờ trả lời câu hỏi kỹ thuật nào** — chỉ cần sửa 1 chỗ, đảm bảo từ giờ không còn sự kiện AI-flow nào bị mất, và bạn có GUI để theo dõi dữ liệu thật ngay.
+2. **Admin UI cho bảng quan sát** (mục 5): tab mới cạnh "Observed Categories" hiện có, liệt kê tổ hợp `(trigger_code, ai_flow_code)` đã thấy + xem bản tin mẫu.
+3. **Mở rộng `AIEvent`** với trường `VehicleDetail` tùy chọn (mục 4.2) + viết adapter parse đúng schema Hawkwise AI-flow (dựa dữ liệu thật đã thu thập được ở bước 1-2, không cần đoán).
+4. **Tải ảnh hộ tại thời điểm ingest** (mục 4.2, đã xác nhận LAN-only): gọi `GET` các URL ảnh ngay khi nhận push, lưu qua `internal/aievent/images.go`'s `ReplaceImages()` sẵn có — dùng chung toàn bộ hạ tầng serve/dọn ảnh đã có cho OMNIA, không cần endpoint hay cơ chế hiển thị mới trên `map.html`.
+5. **Nối adapter vào pipeline `aievent.Ingest()`** từ bước phân nhánh ở bước 1 — không tạo endpoint mới trừ khi quyết định đổi sang Phương án A (mục 4.1).
+6. **Category-rule**: mở rộng bảng category-rule hiện có của "AI Event" để nhận cả mapping theo `ai_flow_code`, hoặc thêm cột nguồn (OMNIA/Hawkwise) nếu 2 bên dùng khóa khác nhau (`typeId/subtypeId` vs `ai_flow_code`).
+7. **map.html**: hiển thị thêm block "thông tin phương tiện" trong popup khi `VehicleDetail` có dữ liệu.
 
 ---
 
@@ -115,3 +124,4 @@ Thứ tự ưu tiên theo mức độ cấp bách (mục 1 chặn mất dữ li�
 |---|---|---|
 | 1.0 | 2026-11-10 | Phát hiện ban đầu từ bản tin thật `AbnormalStop`: dữ liệu đang bị mất âm thầm tại endpoint flow-push. Đối chiếu 3 schema, đề xuất 2 phương án định tuyến, liệt kê câu hỏi còn treo. Trạng thái: planning, chưa code. |
 | 1.1 | 2026-11-10 | Chốt 3 câu hỏi sản phẩm (mục 6): gộp layer AI Event, không qua sổ sự cố, không cần tra cứu biển số riêng. Câu hỏi kỹ thuật ở mục 5 (các `trigger_code`/`ai_flow_code` khác, khả năng tải ảnh từ URL Hawkwise...) vẫn còn treo — không chặn việc bắt đầu code Bước 1 (mục 7) vì bước đó chỉ cần lưu nguyên văn, chưa cần parse chi tiết. Trạng thái: planning, chưa code. |
+| 1.2 | 2026-11-10 | Xác nhận ảnh minh chứng chỉ gọi được từ máy chủ (LAN) → bắt buộc server tải hộ, tái dùng hạ tầng ảnh OMNIA. Chốt cách xử lý các câu hỏi kỹ thuật còn treo ở mục 5: không hỏi vendor trước, xây cơ chế "Observed Hawkwise AI-flow" tự thu thập (giống ObservedCategory/ObservedSensor) để admin tự xem GUI và quyết định tiếp. Cập nhật thứ tự 7 bước triển khai. Trạng thái: planning, chưa code. |
