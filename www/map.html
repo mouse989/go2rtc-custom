@@ -3103,7 +3103,7 @@ document.getElementById('btnAIEvent').addEventListener('click', function() {
   if (map && map.getLayer('aie-events-icon')) map.setLayoutProperty('aie-events-icon', 'visibility', _aiEventMode ? 'visible' : 'none');
   if (turningOn) {
     _aiEventImgDenied = false; // give the step-up prompt a fresh chance each time the layer is turned on
-    loadActiveAIEvents();
+    loadTeCategoryIcons().then(loadActiveAIEvents); // AI Event markers borrow Traffic Event's icon/color store — see ensureAieIcon
     if (_aiEventPollTimer) clearInterval(_aiEventPollTimer);
     _aiEventPollTimer = setInterval(loadActiveAIEvents, 10000); // keep bubbles/previews fresh as events age out of the window
   } else {
@@ -3709,25 +3709,27 @@ async function loadActiveIncidents() {
 document.getElementById('incAddModalBackdrop').addEventListener('click', e => { if (e.target === e.currentTarget) closeMapIncidentModal(); });
 
 // ── AI Event layer: GL bubble layer + image previews (OMNIA/FPT VDS push) ──
-// Icon file for a given icon key reported by GET /api/aievent/active (see
-// internal/aievent/categories.go's ValidIconKeys — the mapping itself is
-// admin-configured server-side, this is just "which artwork for which
-// key", same 4 files the Traffic Event layer already ships). Each of the 5
-// possible icons (4 keys + the unmapped/unclassified fallback) is baked
-// once — cyan ring + gray background + the artwork + a fixed "AI" badge —
-// and reused for every event sharing that icon; nothing here varies per
-// event the way the Traffic Event layer's severity badge does.
+// AI Event has no icon store of its own: CategoryRule.icon (reported as
+// each event's "icon" by GET /api/aievent/active — see
+// internal/aievent/categories.go) is the NAME of a Traffic Event category
+// (internal/incidents/category_icons.go) whose admin-uploaded artwork +
+// background color this layer borrows via _teCategoryIcons/teCategoryImage
+// (defined above, in the Traffic Event section) — so "the same kind of
+// thing" always renders with the same icon/color on both layers, admin-
+// configured in one place (Admin → 🚨 Sự cố GT). Only the ring (cyan,
+// fixed) and the "AI" badge stay specific to this layer, by design.
+// _teCategoryIcons must be loaded (see loadTeCategoryIcons()) before this
+// runs — btnAIEvent's click handler loads it itself, independent of
+// whether the Traffic Event layer is on.
 const AIE_CIRCLE_PX = 30, AIE_ICON_PX = 20, AIE_CANVAS_PX = AIE_CIRCLE_PX + 8;
-const AIE_ICON_FILES = { dong: 'traffic-jam.png', vachaam: 'va-cham.png', ngap: 'ngap-nuoc.png', xesc: 'xe-su-co.png' };
-let _aieIconImagePromises = {}; // file -> Promise<image|null>
-let _aieIconIds = new Set();    // composite icon keys already map.addImage()'d
-function aieIconKey(icon) { return 'aie-icon:' + (AIE_ICON_FILES[icon] ? icon : 'unknown'); }
-function aieComposeIcon(baseImg, dpr) {
+let _aieIconIds = new Set(); // composite icon keys already map.addImage()'d
+function aieIconKey(category, updatedAt) { return 'aie-icon:' + (category || '') + ':' + (updatedAt || ''); }
+function aieComposeIcon(baseImg, color, dpr) {
   const px = AIE_CANVAS_PX * dpr, c = px / 2, r = (AIE_CIRCLE_PX / 2) * dpr;
   const canvas = document.createElement('canvas');
   canvas.width = px; canvas.height = px;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#6b7280';
+  ctx.fillStyle = color || '#6b7280';
   ctx.beginPath(); ctx.arc(c, c, r - dpr, 0, Math.PI * 2); ctx.fill();
   ctx.lineWidth = 2 * dpr; ctx.strokeStyle = '#22d3ee'; ctx.stroke();
   if (baseImg) {
@@ -3750,19 +3752,13 @@ function aieComposeIcon(baseImg, dpr) {
   ctx.fillText('AI', bx + bw / 2, by + bh / 2 + .5 * dpr);
   return ctx.getImageData(0, 0, px, px);
 }
-async function ensureAieIcon(icon) {
-  const key = aieIconKey(icon);
+async function ensureAieIcon(category) {
+  const ci = category ? _teCategoryIcons[category] : null;
+  const key = aieIconKey(category, ci?.updated_at);
   if (_aieIconIds.has(key) && map.hasImage(key)) return key;
-  const file = AIE_ICON_FILES[icon];
-  let baseImg = null;
-  if (file) {
-    if (!_aieIconImagePromises[file]) {
-      _aieIconImagePromises[file] = map.loadImage(file).then(res => (res && res.data) || null).catch(() => null);
-    }
-    baseImg = await _aieIconImagePromises[file];
-  }
+  const baseImg = category ? await teCategoryImage(category) : null;
   const dpr = window.devicePixelRatio || 1;
-  const data = aieComposeIcon(baseImg, dpr);
+  const data = aieComposeIcon(baseImg, ci && ci.color, dpr);
   if (map.hasImage(key)) map.removeImage(key);
   map.addImage(key, data, { pixelRatio: dpr });
   _aieIconIds.add(key);

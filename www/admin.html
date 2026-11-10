@@ -1972,8 +1972,11 @@ rtsp:
         <input type="text" id="catrule-label" class="input" required autocomplete="off" placeholder="ví dụ: Va chạm giao thông">
       </div>
       <div class="form-group">
-        <label>Icon</label>
-        <select id="catrule-icon" class="input"></select>
+        <label>Icon <span style="color:var(--text-muted);font-weight:400">(dùng chung kho icon/màu nền của Sự cố GT)</span></label>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <select id="catrule-icon" class="input" onchange="updateCatruleIconPreview()" style="flex:1"></select>
+          <img id="catrule-icon-preview" alt="" style="width:30px;height:30px;object-fit:contain;border-radius:50%;background:var(--surface2);display:none">
+        </div>
       </div>
       <div class="btn-row">
         <button type="button" class="btn btn-secondary" onclick="closeCategoryRuleDlg()">Hủy</button>
@@ -3646,17 +3649,44 @@ async function revokeDeviceBinding(id) {
 //  Observed Categories. See internal/aievent and internal/auth/integrations.go.
 // ════════════════════════════════════════════════════════
 
-const AIEVENT_ICONS = [
-  { key: '',        label: '❓ Mặc định (chưa gán)' },
-  { key: 'dong',    label: '🚗 Đông xe' },
-  { key: 'vachaam', label: '💥 Va chạm' },
-  { key: 'ngap',    label: '🌊 Ngập nước' },
-  { key: 'xesc',    label: '🚧 Xe sự cố' },
-];
+// AI Event has no icon/color store of its own — a CategoryRule's "icon" is
+// the NAME of a Traffic Event category (Admin → 🚨 Sự cố GT,
+// internal/incidents/category_icons.go) whose uploaded artwork + background
+// color the map's AI Event marker borrows (see www/map.html's
+// ensureAieIcon). _teCategoryIconsForAie/_teCategoryNamesForAie are loaded
+// fresh by loadCategoryRulesTab() so the picker below always reflects
+// whatever's currently configured on the Traffic Event side.
+let _teCategoryIconsForAie = {}; // category -> {content_type,color,updated_at}
+let _teCategoryNamesForAie = [];
+
+async function loadTeCategoryNamesForAie() {
+  try {
+    const [icons, meta] = await Promise.all([
+      apiFetch('/api/incidents/category-icons'),
+      apiFetch('/api/incidents/meta'),
+    ]);
+    _teCategoryIconsForAie = {};
+    (icons || []).forEach(ci => { _teCategoryIconsForAie[ci.category] = ci; });
+    const names = new Set([...(meta.categories || []), ...Object.keys(_teCategoryIconsForAie)]);
+    _teCategoryNamesForAie = [...names].sort((a, b) => a.localeCompare(b, 'vi'));
+  } catch (e) { /* keep whatever was cached before */ }
+}
+
+function aieCategoryIconImgUrl(category) {
+  return '/api/incidents/category-icons/image?category=' + encodeURIComponent(category) + '&_=' +
+    (_teCategoryIconsForAie[category]?.updated_at || '');
+}
 
 function aiEventIconLabel(key) {
-  const found = AIEVENT_ICONS.find(i => i.key === (key || ''));
-  return found ? found.label : (key || '—');
+  return key || '❓ Mặc định (chưa gán)';
+}
+
+// Small inline preview so an admin can see which Sự cố GT artwork a rule's
+// icon name currently resolves to, without switching tabs — empty/unmapped
+// shows nothing, same "no custom icon yet" fallback the map itself uses.
+function aiEventIconPreview(key) {
+  if (!key || !_teCategoryIconsForAie[key] || !_teCategoryIconsForAie[key].content_type) return '';
+  return `<img src="${aieCategoryIconImgUrl(key)}" alt="" style="width:20px;height:20px;object-fit:contain;border-radius:4px;background:var(--surface2);vertical-align:middle;margin-right:.35rem">`;
 }
 
 function aiEventFmtTime(iso) {
@@ -3823,7 +3853,11 @@ async function loadCategoryRulesTab() {
   const tbody = document.getElementById('categoryRulesTbody');
   tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
   try {
-    _categoryRulesData = await apiFetch('/api/aievent/category-rules') || [];
+    const [rules] = await Promise.all([
+      apiFetch('/api/aievent/category-rules'),
+      loadTeCategoryNamesForAie(),
+    ]);
+    _categoryRulesData = rules || [];
     renderCategoryRulesTable();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
@@ -3842,7 +3876,7 @@ function renderCategoryRulesTable() {
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${r.type_id}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${r.subtype_id == null ? '<span style="color:var(--text-muted)">mọi subtype</span>' : r.subtype_id}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(r.label)}</td>
-      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(aiEventIconLabel(r.icon))}</td>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${aiEventIconPreview(r.icon)}${esc(aiEventIconLabel(r.icon))}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;gap:.4rem">
         <button class="btn btn-secondary btn-sm" onclick="openEditCategoryRule('${esc(r.id)}')">Sửa</button>
         <button class="btn btn-danger btn-sm" onclick="deleteCategoryRule('${esc(r.id)}')">Xóa</button>
@@ -3852,7 +3886,29 @@ function renderCategoryRulesTable() {
 
 function fillCategoryRuleIconSelect(selected) {
   const sel = document.getElementById('catrule-icon');
-  sel.innerHTML = AIEVENT_ICONS.map(i => `<option value="${esc(i.key)}" ${i.key === (selected || '') ? 'selected' : ''}>${esc(i.label)}</option>`).join('');
+  const options = ['', ..._teCategoryNamesForAie];
+  // A rule saved before this field meant "Sự cố GT category name" (or one
+  // whose chosen category was since deleted there) won't appear in
+  // _teCategoryNamesForAie — keep it selectable rather than silently
+  // dropping the admin's existing choice out of the list.
+  if (selected && !options.includes(selected)) options.push(selected);
+  sel.innerHTML = options.map(name =>
+    `<option value="${esc(name)}" ${name === (selected || '') ? 'selected' : ''}>${esc(name ? name : '❓ Mặc định (chưa gán)')}</option>`
+  ).join('');
+  updateCatruleIconPreview();
+}
+
+function updateCatruleIconPreview() {
+  const key = document.getElementById('catrule-icon').value;
+  const img = document.getElementById('catrule-icon-preview');
+  const ci = key && _teCategoryIconsForAie[key];
+  if (ci && ci.content_type) {
+    img.src = aieCategoryIconImgUrl(key);
+    img.style.background = ci.color || 'var(--surface2)';
+    img.style.display = '';
+  } else {
+    img.style.display = 'none';
+  }
 }
 
 // TypeID means "category.typeId" for OMNIA but "general.ai_flow_code" for

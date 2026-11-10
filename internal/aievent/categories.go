@@ -9,11 +9,16 @@ package aievent
 //     the source system is actually sending before deciding how to map it,
 //     instead of configuring rules blind against undocumented codes.
 //   - CategoryRule: admin-authored, maps a (typeId, subtypeId-or-wildcard)
-//     to a display label + one of the fixed icon keys the Map page already
-//     has artwork for (see www/map.html's teMarkerContentFor — "dong",
-//     "vachaam", "ngap", "xesc"; anything unmapped/unmatched falls back to
-//     a generic marker, same as an unrecognized incidents.html Category
-//     already does there).
+//     to a display label + an icon reference. Icon holds the name of a
+//     Traffic Event category (internal/incidents/category_icons.go) whose
+//     admin-uploaded artwork + background color the AI Event marker borrows
+//     — AI Event has no icon store of its own, so the two marker types
+//     always render the same icon/color for "the same kind of thing" (see
+//     www/map.html's aieComposeIcon, which reuses teCategoryImage/
+//     _teCategoryIcons instead of a separate AI-Event-only image set).
+//     Icon == "" (or a name with nothing configured for it on the Traffic
+//     Event side) falls back to a generic marker, same as an unmapped
+//     Traffic Event category already does there.
 //
 // An event whose category matches no rule is still stored and still shown
 // on the map (with the fallback icon) — never dropped. Rules only affect
@@ -28,19 +33,6 @@ import (
 	"sync"
 	"time"
 )
-
-// ValidIconKeys are the only icon keys a CategoryRule may reference —
-// closed to exactly the artwork www/map.html ships (traffic-jam.png,
-// va-cham.png, ngap-nuoc.png, xe-su-co.png) so a typo in an admin-entered
-// icon key can never silently reference nonexistent artwork; "" means "no
-// specific icon" (the generic fallback marker).
-var ValidIconKeys = map[string]bool{
-	"":        true,
-	"dong":    true, // traffic-jam.png
-	"vachaam": true, // va-cham.png
-	"ngap":    true, // ngap-nuoc.png
-	"xesc":    true, // xe-su-co.png
-}
 
 // categorySource namespaces (typeId, subtypeId) rules/observations by push
 // source, so an OMNIA typeId and a Hawkwise ai_flow_code that happen to
@@ -60,7 +52,11 @@ const (
 
 // CategoryRule maps a source category to a display label + icon.
 // SubtypeID == nil means "match any subtype of TypeID" (checked only after
-// an exact TypeID+SubtypeID rule fails to match — see ResolveIcon).
+// an exact TypeID+SubtypeID rule fails to match — see ResolveIcon). Icon is
+// the name of a Traffic Event category (internal/incidents) to borrow
+// artwork/color from — free text, same as that package's own Category
+// field, no closed set; "" or a name with nothing configured for it yet
+// both mean "no specific icon".
 type CategoryRule struct {
 	ID        string `json:"id"`
 	Source    string `json:"source,omitempty"` // see categorySource consts above
@@ -240,9 +236,6 @@ func CreateCategoryRule(source string, typeID int, subtypeID *int, label, icon s
 	if label == "" {
 		return nil, errAIEvent("label required")
 	}
-	if !ValidIconKeys[icon] {
-		return nil, errAIEvent("unknown icon key")
-	}
 	r := &CategoryRule{ID: randSuffix() + randSuffix(), Source: source, TypeID: typeID, SubtypeID: subtypeID, Label: label, Icon: icon}
 	cstore.mu.Lock()
 	defer cstore.mu.Unlock()
@@ -259,9 +252,6 @@ func CreateCategoryRule(source string, typeID int, subtypeID *int, label, icon s
 func UpdateCategoryRule(id, source string, typeID int, subtypeID *int, label, icon string) (*CategoryRule, error) {
 	if label == "" {
 		return nil, errAIEvent("label required")
-	}
-	if !ValidIconKeys[icon] {
-		return nil, errAIEvent("unknown icon key")
 	}
 	cstore.mu.Lock()
 	defer cstore.mu.Unlock()

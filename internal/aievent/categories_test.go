@@ -62,10 +62,15 @@ func TestResolveIconNoMatch(t *testing.T) {
 	}
 }
 
-func TestCreateCategoryRuleRejectsUnknownIcon(t *testing.T) {
+// Icon is free text (a Traffic Event category name to borrow artwork from,
+// same as internal/incidents' own Category field) — any string is valid,
+// including one with nothing configured for it yet on the Traffic Event
+// side (falls back to the generic marker at render time, never rejected
+// here).
+func TestCreateCategoryRuleAcceptsArbitraryIconName(t *testing.T) {
 	setupCategoryTest(t)
-	if _, err := CreateCategoryRule(CategorySourceOMNIA, 1, nil, "Test", "not-a-real-icon"); err == nil {
-		t.Error("expected an error for an unknown icon key")
+	if _, err := CreateCategoryRule(CategorySourceOMNIA, 1, nil, "Test", "Không tồn tại ở Sự cố GT"); err != nil {
+		t.Errorf("expected an arbitrary icon name to be accepted, got %v", err)
 	}
 }
 
