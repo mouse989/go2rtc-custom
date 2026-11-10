@@ -1401,6 +1401,7 @@ rtsp:
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
             <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Nguồn</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">TypeID</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">SubtypeID</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Nhãn</th>
@@ -1419,11 +1420,14 @@ rtsp:
         </div>
         <div style="padding:.9rem 1.1rem;font-size:.78rem;color:var(--text-muted);line-height:1.5">
           Danh sách tự động ghi nhận mọi (typeId, subtypeId) mà hệ thống đã từng nhận được, kể cả khi chưa có quy tắc
-          gán icon — dùng để biết cần khai báo gán icon cho những loại nào.
+          gán icon — dùng để biết cần khai báo gán icon cho những loại nào. Với nguồn <b>Hawkwise</b> (sự kiện AI-flow
+          rời rạc như AbnormalStop — khác số liệu đếm lưu lượng), nút 👁 hiện bản tin mẫu đầy đủ để kiểm tra các
+          trường chưa rõ nghĩa trước khi khai báo gán icon hoặc nhờ code thêm.
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:.83rem">
             <thead><tr>
+              <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">Nguồn</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">TypeID</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">SubtypeID</th>
               <th style="padding:.45rem .75rem;text-align:left;font-size:.7rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;border-bottom:1px solid var(--border)">RecordType</th>
@@ -1577,7 +1581,8 @@ rtsp:
 
           <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
             <span style="font-size:.75rem;color:var(--text-muted)">Mẫu bản tin:</span>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushFlowTemplate()">📄 AdvancedTrafficDensity</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushFlowTemplate('density')">📄 AdvancedTrafficDensity</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="loadTestPushFlowTemplate('aiflow')">📄 AbnormalStop (AI-flow)</button>
             <label class="tab-perm-chip" style="margin-left:auto"><input type="checkbox" id="tpf-dryrun" checked> ?dry_run=1 (không lưu dữ liệu thật)</label>
             <label class="tab-perm-chip"><input type="checkbox" id="tpf-skiptls"> Bỏ qua xác thực TLS (chứng chỉ tự ký)</label>
           </div>
@@ -1935,9 +1940,16 @@ rtsp:
     <h2 id="categoryRuleDlg-title">Tạo quy tắc gán icon</h2>
     <form id="categoryRuleForm" onsubmit="submitCategoryRule(event)">
       <input type="hidden" id="catrule-id">
+      <div class="form-group">
+        <label>Nguồn</label>
+        <select id="catrule-source" class="input" onchange="updateCatruleTypeIdLabel()">
+          <option value="">OMNIA / FPT VDS</option>
+          <option value="hawkwise">Hawkwise (AI-flow, vd. AbnormalStop)</option>
+        </select>
+      </div>
       <div class="f2">
         <div class="form-group">
-          <label>TypeID</label>
+          <label id="catrule-typeid-label">TypeID</label>
           <input type="number" id="catrule-typeid" class="input" required min="0">
         </div>
         <div class="form-group">
@@ -3792,25 +3804,28 @@ async function submitRevealIntegration(ev) {
 // ── Category Rules ───────────────────────────────────────────────────────
 let _categoryRulesData = [];
 
+function catruleSourceLabel(source) { return source === 'hawkwise' ? 'Hawkwise' : 'OMNIA'; }
+
 async function loadCategoryRulesTab() {
   const tbody = document.getElementById('categoryRulesTbody');
-  tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
   try {
     _categoryRulesData = await apiFetch('/api/aievent/category-rules') || [];
     renderCategoryRulesTable();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
   }
 }
 
 function renderCategoryRulesTable() {
   const tbody = document.getElementById('categoryRulesTbody');
   if (!_categoryRulesData.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="padding:1rem;color:var(--text-muted)">Chưa có quy tắc nào.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:1rem;color:var(--text-muted)">Chưa có quy tắc nào.</td></tr>';
     return;
   }
   tbody.innerHTML = _categoryRulesData.map(r => `
     <tr>
+      <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(catruleSourceLabel(r.source))}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${r.type_id}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${r.subtype_id == null ? '<span style="color:var(--text-muted)">mọi subtype</span>' : r.subtype_id}</td>
       <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(r.label)}</td>
@@ -3827,13 +3842,23 @@ function fillCategoryRuleIconSelect(selected) {
   sel.innerHTML = AIEVENT_ICONS.map(i => `<option value="${esc(i.key)}" ${i.key === (selected || '') ? 'selected' : ''}>${esc(i.label)}</option>`).join('');
 }
 
-function openAddCategoryRule(presetTypeID, presetSubtypeID) {
+// TypeID means "category.typeId" for OMNIA but "general.ai_flow_code" for
+// Hawkwise — same input field, different source field underneath it, so
+// the label swaps to say which one the admin is actually typing.
+function updateCatruleTypeIdLabel() {
+  const source = document.getElementById('catrule-source').value;
+  document.getElementById('catrule-typeid-label').textContent = source === 'hawkwise' ? 'ai_flow_code' : 'TypeID';
+}
+
+function openAddCategoryRule(presetTypeID, presetSubtypeID, presetSource) {
   document.getElementById('categoryRuleDlg-title').textContent = 'Tạo quy tắc gán icon';
   document.getElementById('categoryRuleDlg-btn').textContent = 'Tạo';
   document.getElementById('catrule-id').value = '';
+  document.getElementById('catrule-source').value = presetSource || '';
   document.getElementById('catrule-typeid').value = presetTypeID ?? '';
   document.getElementById('catrule-subtypeid').value = presetSubtypeID ?? '';
   document.getElementById('catrule-label').value = '';
+  updateCatruleTypeIdLabel();
   fillCategoryRuleIconSelect('');
   document.getElementById('categoryRuleDlg').classList.add('open');
 }
@@ -3844,9 +3869,11 @@ function openEditCategoryRule(id) {
   document.getElementById('categoryRuleDlg-title').textContent = 'Sửa quy tắc gán icon';
   document.getElementById('categoryRuleDlg-btn').textContent = 'Lưu';
   document.getElementById('catrule-id').value = r.id;
+  document.getElementById('catrule-source').value = r.source || '';
   document.getElementById('catrule-typeid').value = r.type_id;
   document.getElementById('catrule-subtypeid').value = r.subtype_id == null ? '' : r.subtype_id;
   document.getElementById('catrule-label').value = r.label;
+  updateCatruleTypeIdLabel();
   fillCategoryRuleIconSelect(r.icon);
   document.getElementById('categoryRuleDlg').classList.add('open');
 }
@@ -3856,6 +3883,7 @@ function closeCategoryRuleDlg() { document.getElementById('categoryRuleDlg').cla
 async function submitCategoryRule(ev) {
   ev.preventDefault();
   const id = document.getElementById('catrule-id').value;
+  const source = document.getElementById('catrule-source').value;
   const type_id = parseInt(document.getElementById('catrule-typeid').value, 10);
   const subStr = document.getElementById('catrule-subtypeid').value.trim();
   const subtype_id = subStr === '' ? null : parseInt(subStr, 10);
@@ -3863,10 +3891,10 @@ async function submitCategoryRule(ev) {
   const icon = document.getElementById('catrule-icon').value;
   try {
     if (id) {
-      await apiFetch(`/api/aievent/category-rules/${encodeURIComponent(id)}`, { method: 'PUT', body: { type_id, subtype_id, label, icon } });
+      await apiFetch(`/api/aievent/category-rules/${encodeURIComponent(id)}`, { method: 'PUT', body: { source, type_id, subtype_id, label, icon } });
       toast('Đã lưu quy tắc.', 'success');
     } else {
-      await apiFetch('/api/aievent/category-rules', { method: 'POST', body: { type_id, subtype_id, label, icon } });
+      await apiFetch('/api/aievent/category-rules', { method: 'POST', body: { source, type_id, subtype_id, label, icon } });
       toast('Đã tạo quy tắc.', 'success');
     }
     closeCategoryRuleDlg();
@@ -3884,30 +3912,55 @@ async function deleteCategoryRule(id) {
 }
 
 // ── Observed Categories (read-only auto-registry) ────────────────────────
+let _observedCategoriesData = [];
+
 async function loadObservedCategoriesTab() {
   const tbody = document.getElementById('observedCategoriesTbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" style="padding:1rem;color:var(--text-muted)">Đang tải…</td></tr>';
   try {
-    const list = await apiFetch('/api/aievent/observed-categories') || [];
-    if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="padding:1rem;color:var(--text-muted)">Chưa nhận được sự cố nào.</td></tr>';
+    _observedCategoriesData = await apiFetch('/api/aievent/observed-categories') || [];
+    if (!_observedCategoriesData.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="padding:1rem;color:var(--text-muted)">Chưa nhận được sự cố nào.</td></tr>';
       return;
     }
-    tbody.innerHTML = list.map(o => `
+    tbody.innerHTML = _observedCategoriesData.map((o, idx) => `
       <tr>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(catruleSourceLabel(o.source))}</td>
         <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.type_id}</td>
         <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.subtype_id}</td>
         <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${esc(o.record_type || '—')}</td>
         <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${esc(o.description || '—')}</td>
         <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">${o.count}</td>
         <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--text-muted)">${aiEventFmtTime(o.last_seen)}</td>
-        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border)">
-          <button class="btn btn-secondary btn-sm" onclick="openAddCategoryRule(${o.type_id}, ${o.subtype_id})">Gán icon</button>
+        <td style="padding:.5rem .75rem;border-bottom:1px solid var(--border);display:flex;gap:.4rem">
+          <button class="btn btn-secondary btn-sm" onclick="openAddCategoryRule(${o.type_id}, ${o.subtype_id}, '${esc(o.source || '')}')">Gán icon</button>
+          ${o.sample_raw_json ? `<button class="btn btn-secondary btn-sm" onclick="viewObservedCategorySample(${idx})">👁 Bản tin mẫu</button>` : ''}
         </td>
       </tr>`).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="padding:1rem;color:var(--red)">Không tải được: ${esc(e.message)}</td></tr>`;
   }
+}
+
+// Reuses the same "view raw body" dialog internal/trafficflow's Push Log
+// tab already has (viewPushLogBody/pushLogBodyDlg) — this is the same need
+// (a human reading one raw JSON blob) with a different data source: the
+// most recent full push body internal/aievent kept for this
+// (source, ai_flow_code) combination specifically because its schema isn't
+// fully documented yet (see docs/hawkwise-ai-flow-events-plan.md §5).
+function viewObservedCategorySample(idx) {
+  const o = _observedCategoriesData[idx];
+  if (!o || !o.sample_raw_json) return;
+  document.getElementById('pushLogBodyDlg-title').textContent = 'Bản tin mẫu — ' + catruleSourceLabel(o.source);
+  const metaParts = [
+    `TypeID/ai_flow_code: ${o.type_id} · SubtypeID: ${o.subtype_id}`,
+    `${esc(o.record_type || '—')} · đã thấy ${o.count} lần · lần cuối ${aiEventFmtTime(o.last_seen)}`,
+  ];
+  document.getElementById('pushLogBodyDlg-meta').innerHTML = metaParts.join('<br>');
+  let pretty = o.sample_raw_json;
+  try { pretty = JSON.stringify(JSON.parse(o.sample_raw_json), null, 2); } catch (_) { /* fall back to raw text */ }
+  document.getElementById('pushLogBodyDlg-body').textContent = pretty;
+  document.getElementById('pushLogBodyDlg').classList.add('open');
 }
 
 // ── Test API Push — verbatim from docs/omnia-integration-api-spec.md §12 ──
@@ -4498,6 +4551,7 @@ function togglePushLogGroup(gi) {
 function viewPushLogBody(idx) {
   const e = _pushLogData[idx];
   if (!e) return;
+  document.getElementById('pushLogBodyDlg-title').textContent = 'Bản tin';
   const [authLabel] = PUSH_LOG_AUTH_LABELS[e.auth_result] || [e.auth_result];
   const metaParts = [
     `${aiEventFmtTime(e.received_at)} · ${esc(e.remote_ip || '—')} · HTTP ${e.http_status} · ${esc(authLabel)}`,
@@ -4537,7 +4591,41 @@ async function clearPushLog() {
 
 // ── Test push (reuses the generic /api/aievent/test-push server-side relay) ──
 
-function loadTestPushFlowTemplate() {
+function loadTestPushFlowTemplate(kind) {
+  if (kind === 'aiflow') {
+    // Shaped after the real AbnormalStop push a user reported — see
+    // docs/hawkwise-ai-flow-events-plan.md. trigger_code != "AdvancedTrafficDensity"
+    // routes this to internal/aievent's store instead of a flow_record.
+    document.getElementById('tpf-body').value = JSON.stringify({
+      general: {
+        trigger_code: 'AbnormalStop',
+        event_id: Date.now(),
+        event_id_string: 'TEST-' + Date.now(),
+        severity_level: 1,
+        start_time: '2026-10-13 08:00:00',
+        end_time: '2026-10-13 08:00:05',
+        ai_flow_code: 21,
+        ai_flow_name: 'Abnormal Stop',
+        confident_score: 0.95,
+        camera: {
+          source_uuid: 'TEST_CAM_001',
+          source_name: 'Stream 1 (test)',
+          hardware_uuid: 'HW-TEST-001',
+          hardware_name: '097_CauKinh (test)',
+          address: 'Ngã tư Hàng Xanh (test)',
+          longitude: 106.688,
+          latitude: 10.78393,
+        },
+      },
+      evidence: { frame_url: null, body_crop_url: null, identified_crop_url: null, video_url: null },
+      details: {
+        owner_id: 1, owner_name: 'Test Owner',
+        type: 'car', brand_code: 'TOYOTA', color_code: 'WHITE', name: '98A27706',
+        has_lp_detected: true,
+      },
+    }, null, 2);
+    return;
+  }
   document.getElementById('tpf-body').value = JSON.stringify({
     general: {
       trigger_code: 'AdvancedTrafficDensity',

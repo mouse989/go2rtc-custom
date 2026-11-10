@@ -1,6 +1,8 @@
 # Plan: Bản tin AI-flow rời rạc của Hawkwise (vd. "AbnormalStop") — hiện đang bị mất dữ liệu
 
-**Trạng thái: PLANNING — chưa code.** Phát hiện từ bản tin thật người dùng gửi (sự kiện `AbnormalStop`, `event_id 482559`, camera "Ngã tư Hàng Xanh"): Hawkwise gửi **ít nhất 2 loại bản tin khác nhau** tới cùng 1 endpoint vật lý `/api/trafficdata/hawkwise/v1/flow-push`, nhưng package `internal/trafficflow` hiện tại **chỉ parse đúng 1 loại** (`AdvancedTrafficDensity`, xem `docs/hawkwise-flow-integration-plan.md`). Loại còn lại đang bị **mất dữ liệu âm thầm**.
+**Trạng thái: ĐÃ CODE XONG cả 7 bước (2026-11-10)** — xem mục "Triển khai thực tế" ở cuối file. Giữ lại toàn bộ phần phân tích/kế hoạch bên dưới làm tài liệu tham chiếu cho quyết định kiến trúc.
+
+Phát hiện từ bản tin thật người dùng gửi (sự kiện `AbnormalStop`, `event_id 482559`, camera "Ngã tư Hàng Xanh"): Hawkwise gửi **ít nhất 2 loại bản tin khác nhau** tới cùng 1 endpoint vật lý `/api/trafficdata/hawkwise/v1/flow-push`, nhưng package `internal/trafficflow` hiện tại **chỉ parse đúng 1 loại** (`AdvancedTrafficDensity`, xem `docs/hawkwise-flow-integration-plan.md`). Loại còn lại đang bị **mất dữ liệu âm thầm**.
 
 ---
 
@@ -118,6 +120,18 @@ Thứ tự ưu tiên theo mức độ cấp bách (mục 1 chặn mất dữ li�
 
 ---
 
+## Triển khai thực tế (2026-11-10) — cả 7 bước ở mục 7
+
+- **`internal/aievent/categories.go`**: thêm `Source` vào `CategoryRule`/`ObservedCategory` + hằng số `CategorySourceOMNIA`/`CategorySourceHawkwise`; `ObservedCategory` thêm `SampleRawJSON`. `observedKey`/`ObserveCategory`/`ResolveIcon`/`CreateCategoryRule`/`UpdateCategoryRule` đều nhận thêm `source` để OMNIA và Hawkwise không bao giờ đụng số với nhau dù trùng typeId/ai_flow_code.
+- **`internal/aievent/aievent.go`**: `AIEvent` thêm `CategorySource` và `VehicleDetail` (`json.RawMessage`, giữ nguyên văn object `details` của Hawkwise — không parse thành field riêng, đúng quyết định mục 6.3). Các trường khác tái dùng nguyên vẹn: `RecordType`←`trigger_code`, `CategoryDescription`←`ai_flow_name`, `Description`←tóm tắt phương tiện (biển số/hãng/màu), `SourceProcessor`←tên camera.
+- **`internal/aievent/hawkwise.go`** (mới): `IngestHawkwiseAIFlow()` — điểm vào duy nhất `internal/trafficflow` gọi sang; `describeVehicle()` dựng dòng tóm tắt từ vài field đã rõ nghĩa (`name`/`brand_code`/`color_code`/`type`); `fetchHawkwiseImage()` tải ảnh từ URL (LAN-only, đã xác nhận với bạn) rồi tái dùng `ReplaceImages()` sẵn có — không có đường code ảnh riêng cho Hawkwise.
+- **`internal/trafficflow/hawkwise_ai_flow.go`** (mới): `hawkwiseAIFlowPush` struct (giữ `details` dạng `json.RawMessage`, không ép theo schema density); `buildHawkwiseAIFlowInput()` thuần decode+map field (tách riêng để test được, không đụng tới store); ưu tiên tọa độ Sensor đã admin xác nhận hơn tọa độ Hawkwise tự báo, giống tinh thần mục đếm lưu lượng.
+- **`internal/trafficflow/api.go`**: `handlePush` phân nhánh theo `general.trigger_code` ngay sau bước validate chung (không đổi gì ở nhánh `AdvancedTrafficDensity`); nhánh khác gọi `handleHawkwiseAIFlowPush` thay vì `Ingest(rec)` — chặn đứt việc tạo `flow_record` rỗng như trước.
+- **`www/admin.html`**: bảng Category Rules + Observed Categories thêm cột "Nguồn"; dialog tạo/sửa quy tắc thêm chọn Nguồn (nhãn ô TypeID tự đổi thành "ai_flow_code" khi chọn Hawkwise); nút "👁 Bản tin mẫu" ở Observed Categories tái dùng đúng dialog `pushLogBodyDlg` đã có cho Push Log; thêm mẫu Test Push "AbnormalStop (AI-flow)" cạnh mẫu "AdvancedTrafficDensity" sẵn có.
+- **`www/map.html`: không cần sửa gì** — layer "🤖 AI Event" đã hiển thị `description`/`category_label`/`source_processor` trong toast/preview từ trước; vì bước trên tái dùng đúng các field này nên tóm tắt phương tiện tự động hiện ra, không cần code thêm.
+- **Test**: `internal/aievent/hawkwise_test.go`, `internal/trafficflow/hawkwise_ai_flow_test.go`, mở rộng `internal/aievent/categories_test.go` cho chiều Source. `go build`/`go vet`/`go test` sạch cho cả 2 package.
+- **Kiểm thử thực tế**: dựng server test, tạo Integration cho đường Hawkwise, gửi đúng bản tin `AbnormalStop` mẫu người dùng cung cấp — xác nhận: không sinh `flow_record` rỗng (kể cả sau khi map Sensor), sinh đúng 1 `AIEvent` với `vehicle_detail` đầy đủ + `description` tóm tắt biển số/hãng/màu, `ObservedCategory` ghi nhận đúng `(hawkwise, 21)` kèm bản tin mẫu; tạo quy tắc gán icon qua API thì sự kiện đang "active" đổi icon/nhãn ngay. Gửi lại 1 bản tin `AdvancedTrafficDensity` bình thường để xác nhận nhánh đếm lưu lượng cũ không bị ảnh hưởng — vẫn ra đúng `flow_record`. Playwright xác nhận UI admin hiển thị đúng cột Nguồn và dialog bản tin mẫu.
+
 ## Phụ lục: Lịch sử phiên bản
 
 | Phiên bản | Ngày | Nội dung |
@@ -125,3 +139,4 @@ Thứ tự ưu tiên theo mức độ cấp bách (mục 1 chặn mất dữ li�
 | 1.0 | 2026-11-10 | Phát hiện ban đầu từ bản tin thật `AbnormalStop`: dữ liệu đang bị mất âm thầm tại endpoint flow-push. Đối chiếu 3 schema, đề xuất 2 phương án định tuyến, liệt kê câu hỏi còn treo. Trạng thái: planning, chưa code. |
 | 1.1 | 2026-11-10 | Chốt 3 câu hỏi sản phẩm (mục 6): gộp layer AI Event, không qua sổ sự cố, không cần tra cứu biển số riêng. Câu hỏi kỹ thuật ở mục 5 (các `trigger_code`/`ai_flow_code` khác, khả năng tải ảnh từ URL Hawkwise...) vẫn còn treo — không chặn việc bắt đầu code Bước 1 (mục 7) vì bước đó chỉ cần lưu nguyên văn, chưa cần parse chi tiết. Trạng thái: planning, chưa code. |
 | 1.2 | 2026-11-10 | Xác nhận ảnh minh chứng chỉ gọi được từ máy chủ (LAN) → bắt buộc server tải hộ, tái dùng hạ tầng ảnh OMNIA. Chốt cách xử lý các câu hỏi kỹ thuật còn treo ở mục 5: không hỏi vendor trước, xây cơ chế "Observed Hawkwise AI-flow" tự thu thập (giống ObservedCategory/ObservedSensor) để admin tự xem GUI và quyết định tiếp. Cập nhật thứ tự 7 bước triển khai. Trạng thái: planning, chưa code. |
+| 2.0 | 2026-11-10 | Code xong cả 7 bước theo đúng kế hoạch 1.2 — xem mục "Triển khai thực tế" ở trên cho danh sách file/thiết kế thực tế. Đã build/test/kiểm thử trực tiếp bằng đúng bản tin mẫu người dùng gửi, xác nhận hết mất dữ liệu và không ảnh hưởng luồng đếm lưu lượng cũ. Trạng thái: **đã triển khai**. |

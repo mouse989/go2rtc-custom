@@ -49,6 +49,11 @@ type AIEvent struct {
 	// Source names which Integration (internal/auth) sent this — informational.
 	Source string `json:"source,omitempty"`
 
+	// CategorySource namespaces CategoryTypeID/CategorySubtypeID by which
+	// push source assigned them — see categories.go's categorySource
+	// consts. "" (the zero value) is OMNIA, the original source, so every
+	// event ingested before this field existed is still read correctly.
+	CategorySource      string `json:"category_source,omitempty"`
 	CategoryTypeID      int    `json:"category_type_id"`
 	CategorySubtypeID   int    `json:"category_subtype_id,omitempty"`
 	CategoryDescription string `json:"category_description,omitempty"`
@@ -56,6 +61,16 @@ type AIEvent struct {
 
 	Description     string `json:"description,omitempty"`
 	SourceProcessor string `json:"source_processor,omitempty"` // event.Source.Processor from the push
+
+	// VehicleDetail is the source's own raw per-event detail object, kept
+	// verbatim (not parsed into named fields) — used today by Hawkwise
+	// AI-flow events (hawkwise.go) to carry vehicle/license-plate
+	// recognition data (owner, plate, brand, color, helmet/weapon
+	// detection, ...) whose exact field set isn't fully documented yet
+	// (see docs/hawkwise-ai-flow-events-plan.md §5) and isn't needed
+	// structured — the map popup just displays whatever is present.
+	// OMNIA events leave this nil.
+	VehicleDetail json.RawMessage `json:"vehicle_detail,omitempty"`
 
 	// StartTime is the source's own reported event time. EndTime is the zero
 	// value until the source reports one (typically alongside termination).

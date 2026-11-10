@@ -302,6 +302,26 @@ func handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// general.trigger_code decides which of two completely different message
+	// shapes "details" actually holds — see hawkwise_ai_flow.go's doc
+	// comment. req (decoded above as the density-shaped hawkwisePush) is
+	// only used for this branch's own fields past this point when the
+	// trigger really is density data; the AI-flow branch below re-decodes
+	// bodyBytes into its own struct rather than reusing req.Details, which
+	// for a non-density trigger_code is just zero-valued garbage.
+	if req.General.TriggerCode != "" && req.General.TriggerCode != "AdvancedTrafficDensity" {
+		if err := handleHawkwiseAIFlowPush(bodyBytes, integration.Name); err != nil {
+			valid := true
+			logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusInternalServerError, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: "AI-flow ingest failed: " + err.Error() + recoveredNote, SourceUUID: req.General.Camera.SourceUUID})
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to store AI-flow event", "")
+			return
+		}
+		valid := true
+		logPushAttempt(PushLogEntry{RemoteIP: ip, AuthResult: "ok", Integration: integration.Name, HTTPStatus: http.StatusOK, Body: string(bodyBytes), BodyValidJSON: &valid, ParseError: strings.TrimSpace(recoveredNote), SourceUUID: req.General.Camera.SourceUUID})
+		writeJSON(w, http.StatusOK, pushResponse{Status: "ok", EventID: req.General.EventID, ReceivedAt: time.Now().Format(time.RFC3339)})
+		return
+	}
+
 	rec := &FlowRecord{
 		EventID:       req.General.EventID,
 		EventIDString: req.General.EventIDString,

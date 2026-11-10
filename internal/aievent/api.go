@@ -206,7 +206,7 @@ func handleOmniaPush(w http.ResponseWriter, r *http.Request) {
 		// Logged for both created and terminated pushes, and even when a
 		// CategoryRule already matches it — this registry's job is "what
 		// has the source ever sent", independent of whether it's mapped.
-		ObserveCategory(req.Category.TypeID, req.Category.SubtypeID, req.RecordType, req.Category.Description)
+		ObserveCategory(CategorySourceOMNIA, req.Category.TypeID, req.Category.SubtypeID, req.RecordType, req.Category.Description, "")
 	}
 
 	if dryRun {
@@ -227,6 +227,7 @@ func handleOmniaPush(w http.ResponseWriter, r *http.Request) {
 		RecordType:          req.RecordType,
 		EventCode:           req.EventCode,
 		Source:              integration.Name,
+		CategorySource:      CategorySourceOMNIA,
 		CategoryTypeID:      req.Category.TypeID,
 		CategorySubtypeID:   req.Category.SubtypeID,
 		CategoryDescription: req.Category.Description,
@@ -315,15 +316,16 @@ func checkPushRateLimit(integrationID string) (allowed bool, retryAfterSec int) 
 // ── GET /api/aievent/active ──────────────────────────────────────────────
 
 type activeEventOut struct {
-	RecordID        string   `json:"record_id"`
-	CategoryLabel   string   `json:"category_label"`
-	Icon            string   `json:"icon"` // "" → generic fallback marker (www/map.html)
-	Description     string   `json:"description,omitempty"`
-	SourceProcessor string   `json:"source_processor,omitempty"`
-	Lat             float64  `json:"lat"`
-	Lng             float64  `json:"lng"`
-	ReceivedAt      string   `json:"received_at"`
-	ImagePaths      []string `json:"image_paths,omitempty"`
+	RecordID        string          `json:"record_id"`
+	CategoryLabel   string          `json:"category_label"`
+	Icon            string          `json:"icon"` // "" → generic fallback marker (www/map.html)
+	Description     string          `json:"description,omitempty"`
+	SourceProcessor string          `json:"source_processor,omitempty"`
+	Lat             float64         `json:"lat"`
+	Lng             float64         `json:"lng"`
+	ReceivedAt      string          `json:"received_at"`
+	ImagePaths      []string        `json:"image_paths,omitempty"`
+	VehicleDetail   json.RawMessage `json:"vehicle_detail,omitempty"` // Hawkwise AI-flow only — see AIEvent.VehicleDetail
 }
 
 func requireAIEventViewer(w http.ResponseWriter, r *http.Request) *auth.User {
@@ -357,7 +359,7 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]activeEventOut, 0, len(list))
 	for _, ev := range list {
-		label, icon, matched := ResolveIcon(ev.CategoryTypeID, ev.CategorySubtypeID)
+		label, icon, matched := ResolveIcon(ev.CategorySource, ev.CategoryTypeID, ev.CategorySubtypeID)
 		if !matched {
 			label = ev.CategoryDescription
 			if label == "" {
@@ -369,8 +371,9 @@ func handleActive(w http.ResponseWriter, r *http.Request) {
 			RecordID: ev.RecordID, CategoryLabel: label, Icon: icon,
 			Description: ev.Description, SourceProcessor: ev.SourceProcessor,
 			Lat: ev.Lat, Lng: ev.Lng,
-			ReceivedAt: ev.ReceivedAt.Format(time.RFC3339),
-			ImagePaths: ev.ImagePaths,
+			ReceivedAt:    ev.ReceivedAt.Format(time.RFC3339),
+			ImagePaths:    ev.ImagePaths,
+			VehicleDetail: ev.VehicleDetail,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -411,6 +414,7 @@ func requireAIEventAdmin(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type categoryRuleReq struct {
+	Source    string `json:"source"`
 	TypeID    int    `json:"type_id"`
 	SubtypeID *int   `json:"subtype_id"`
 	Label     string `json:"label"`
@@ -433,7 +437,7 @@ func handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		rule, err := CreateCategoryRule(req.TypeID, req.SubtypeID, req.Label, req.Icon)
+		rule, err := CreateCategoryRule(req.Source, req.TypeID, req.SubtypeID, req.Label, req.Icon)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -450,7 +454,7 @@ func handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		rule, err := UpdateCategoryRule(id, req.TypeID, req.SubtypeID, req.Label, req.Icon)
+		rule, err := UpdateCategoryRule(id, req.Source, req.TypeID, req.SubtypeID, req.Label, req.Icon)
 		if err != nil {
 			status := http.StatusBadRequest
 			if err == errAIEventNotFound {
