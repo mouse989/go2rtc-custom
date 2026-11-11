@@ -412,6 +412,48 @@ tr:hover td { background:var(--surface2); }
             </p>
           </div>
           <div>
+            <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">
+              <input type="checkbox" id="geoBlockEnabled" style="margin-right:.4rem;vertical-align:middle" onchange="onGeoBlockEnabledChange()">
+              Chặn truy cập từ ngoài Việt Nam
+            </label>
+            <p style="font-size:.73rem;color:var(--text-muted);margin:.3rem 0 0">
+              Khi bật: mọi truy cập (kể cả trang đăng nhập) từ địa chỉ IP công cộng không thuộc Việt Nam sẽ bị chặn, hiển thị
+              thông báo "Hiện tại, Platform chưa khả dụng ở khu vực của bạn." Địa chỉ IP nội bộ/riêng tư (LAN, VPN, loopback)
+              không bao giờ bị ảnh hưởng. Nếu chưa có danh sách IP nào (chưa cập nhật/chưa nhập) thì tính năng không chặn ai,
+              kể cả khi đang bật — tránh khoá nhầm toàn bộ truy cập vì thiếu dữ liệu.
+            </p>
+            <div id="geoBlockOptions" style="margin-top:.6rem;padding:.7rem .8rem;background:var(--surface2);border-radius:8px;display:none">
+              <label class="tab-perm-chip">
+                <input type="checkbox" id="geoBlockAutoUpdate" onchange="onGeoBlockAutoUpdateChange()">
+                Tự động cập nhật danh sách IP Việt Nam định kỳ (từ ipdeny.com, cần máy chủ có kết nối internet ra ngoài)
+              </label>
+              <div style="display:flex;align-items:center;gap:.6rem;margin-top:.5rem;flex-wrap:wrap">
+                <span id="geoBlockIntervalLabel" style="font-size:.78rem">Chu kỳ cập nhật:</span>
+                <input type="number" id="geoBlockIntervalInput" min="1" step="1" value="168"
+                       style="width:80px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.35rem .5rem;color:var(--text);font-size:.8rem;box-sizing:border-box">
+                <span id="geoBlockIntervalUnit" style="font-size:.78rem;color:var(--text-muted)">giờ (mặc định: 168 = 1 tuần)</span>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="geoBlockUpdateNow()" id="geoBlockUpdateNowBtn">🔄 Cập nhật ngay</button>
+              </div>
+              <details style="margin-top:.5rem">
+                <summary style="font-size:.76rem;cursor:pointer;color:var(--text-muted)">Nguồn dữ liệu nâng cao (tùy chọn)</summary>
+                <div style="margin-top:.4rem;display:grid;gap:.4rem">
+                  <input type="text" id="geoBlockUrlV4Input" class="input" style="font-size:.78rem"
+                         placeholder="URL danh sách IPv4 (bỏ trống = mặc định ipdeny.com)">
+                  <input type="text" id="geoBlockUrlV6Input" class="input" style="font-size:.78rem"
+                         placeholder="URL danh sách IPv6 (bỏ trống = mặc định ipdeny.com)">
+                </div>
+              </details>
+              <div style="margin-top:.6rem">
+                <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.3rem">
+                  Danh sách IP/CIDR nhập thủ công <span style="color:var(--text-muted);font-weight:400">(luôn được cộng thêm vào danh sách tự động, mỗi dòng 1 dải — vd. 14.160.0.0/12 hoặc 1.2.3.4)</span>
+                </label>
+                <textarea id="geoBlockManualInput" rows="4" placeholder="14.160.0.0/12&#10;1.2.3.4"
+                  style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.5rem;color:var(--text);font-size:.78rem;font-family:monospace;box-sizing:border-box"></textarea>
+              </div>
+              <div id="geoBlockStatus" style="margin-top:.6rem;font-size:.73rem;color:var(--text-muted)"></div>
+            </div>
+          </div>
+          <div>
             <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:.35rem">Giới hạn phiên xem video mặc định (phút)</label>
             <div style="display:flex;align-items:center;gap:.6rem">
               <input type="number" id="viewLimitInput" min="1" step="1" value="15"
@@ -2818,6 +2860,15 @@ async function loadSettings() {
     document.getElementById('trafficFlowRetentionInput').value = (tfRetention && tfRetention > 0) ? tfRetention : 30;
     document.getElementById('trafficFlowRetentionInput').disabled = tfRetention === -1;
     document.getElementById('hawkwiseAiFlowEnabled').checked = !s.hawkwise_ai_flow_disabled;
+    document.getElementById('geoBlockEnabled').checked = !!s.geo_block_enabled;
+    document.getElementById('geoBlockAutoUpdate').checked = !!s.geo_block_auto_update;
+    document.getElementById('geoBlockIntervalInput').value = s.geo_block_update_interval_hours || 168;
+    document.getElementById('geoBlockUrlV4Input').value = s.geo_block_source_url_v4 || '';
+    document.getElementById('geoBlockUrlV6Input').value = s.geo_block_source_url_v6 || '';
+    document.getElementById('geoBlockManualInput').value = (s.geo_block_manual_cidrs || []).join('\n');
+    onGeoBlockEnabledChange();
+    onGeoBlockAutoUpdateChange();
+    if (s.geo_block_enabled) loadGeoBlockStatus();
     document.getElementById('viewLimitInput').value = s.default_view_limit_minutes || 15;
     document.getElementById('loginHourRangeEnabled').checked = !!s.login_hour_range_enabled;
     document.getElementById('loginHourStart').value = s.login_hour_start ?? 6;
@@ -3203,6 +3254,13 @@ async function saveSettings() {
   const trafficFlowRetentionUnlimited = document.getElementById('trafficFlowRetentionUnlimited').checked;
   const trafficFlowRetention = trafficFlowRetentionUnlimited ? -1 : (parseInt(document.getElementById('trafficFlowRetentionInput').value, 10) || 30);
   const hawkwiseAiFlowDisabled = !document.getElementById('hawkwiseAiFlowEnabled').checked;
+  const geoBlockEnabled = document.getElementById('geoBlockEnabled').checked;
+  const geoBlockAutoUpdate = document.getElementById('geoBlockAutoUpdate').checked;
+  const geoBlockInterval = parseInt(document.getElementById('geoBlockIntervalInput').value, 10) || 168;
+  const geoBlockUrlV4 = document.getElementById('geoBlockUrlV4Input').value.trim();
+  const geoBlockUrlV6 = document.getElementById('geoBlockUrlV6Input').value.trim();
+  const geoBlockManualCidrs = document.getElementById('geoBlockManualInput').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
   const viewLimit   = parseInt(document.getElementById('viewLimitInput').value, 10) || 15;
   const loginHourRangeEnabled = document.getElementById('loginHourRangeEnabled').checked;
   const loginHourStart = parseInt(document.getElementById('loginHourStart').value, 10) || 0;
@@ -3229,6 +3287,12 @@ async function saveSettings() {
     ai_event_image_retention_hours: aiEventImageRetention,
     traffic_flow_retention_days: trafficFlowRetention,
     hawkwise_ai_flow_disabled: hawkwiseAiFlowDisabled,
+    geo_block_enabled: geoBlockEnabled,
+    geo_block_auto_update: geoBlockAutoUpdate,
+    geo_block_update_interval_hours: geoBlockInterval,
+    geo_block_source_url_v4: geoBlockUrlV4,
+    geo_block_source_url_v6: geoBlockUrlV6,
+    geo_block_manual_cidrs: geoBlockManualCidrs,
     default_view_limit_minutes: viewLimit,
     login_hour_range_enabled: loginHourRangeEnabled,
     login_hour_start: loginHourStart,
@@ -4951,6 +5015,69 @@ async function addIncidentCategoryIconRow() {
 // of whatever is left in the input while this is checked).
 function onTrafficFlowRetentionUnlimitedChange() {
   document.getElementById('trafficFlowRetentionInput').disabled = document.getElementById('trafficFlowRetentionUnlimited').checked;
+}
+
+// ── Geo-block (chặn truy cập ngoài Việt Nam) ──────────────────────────────
+function onGeoBlockEnabledChange() {
+  const on = document.getElementById('geoBlockEnabled').checked;
+  document.getElementById('geoBlockOptions').style.display = on ? '' : 'none';
+  if (on) loadGeoBlockStatus();
+}
+
+function onGeoBlockAutoUpdateChange() {
+  const on = document.getElementById('geoBlockAutoUpdate').checked;
+  document.getElementById('geoBlockIntervalInput').style.visibility = on ? 'visible' : 'hidden';
+  document.getElementById('geoBlockIntervalLabel').style.visibility = on ? 'visible' : 'hidden';
+  document.getElementById('geoBlockIntervalUnit').style.visibility = on ? 'visible' : 'hidden';
+}
+
+function geoBlockFmtTime(iso) {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    if (d.getFullYear() < 1980) return null; // Go's zero time.Time marshals to a tiny year, not omitted
+    return d.toLocaleString('vi-VN');
+  } catch { return null; }
+}
+
+async function loadGeoBlockStatus() {
+  const el = document.getElementById('geoBlockStatus');
+  el.textContent = 'Đang tải trạng thái…';
+  try {
+    const st = await apiFetch('/api/geoblock/status');
+    const parts = [];
+    if (st.compiled_count > 0) {
+      parts.push(`✓ Đang dùng ${st.v4_count} dải IPv4 + ${st.v6_count} dải IPv6 tự động${st.manual_count ? ` + ${st.manual_count} dải nhập tay` : ''} (tổng ${st.compiled_count} dải sau khi gộp).`);
+    } else {
+      parts.push('⚠ Chưa có danh sách IP nào — tính năng đang KHÔNG chặn ai (fail-open) cho tới khi có dữ liệu.');
+    }
+    const fetchedAt = geoBlockFmtTime(st.fetched_at);
+    if (fetchedAt) parts.push(`Cập nhật tự động gần nhất: ${fetchedAt}.`);
+    if (st.last_error) {
+      const errAt = geoBlockFmtTime(st.last_error_at);
+      parts.push(`⚠ Lỗi cập nhật${errAt ? ' lúc ' + errAt : ''}: ${st.last_error} (vẫn dùng danh sách cũ, không bị xoá).`);
+    }
+    el.innerHTML = parts.map(p => esc(p)).join('<br>');
+  } catch (e) {
+    el.textContent = '✗ Không tải được trạng thái: ' + e.message;
+  }
+}
+
+async function geoBlockUpdateNow() {
+  const btn = document.getElementById('geoBlockUpdateNowBtn');
+  btn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = 'Đang cập nhật…';
+  try {
+    await apiFetch('/api/geoblock/update-now', { method: 'POST' });
+    toast('Đã cập nhật danh sách IP.', 'success');
+  } catch (e) {
+    toast('Cập nhật thất bại: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevText;
+    await loadGeoBlockStatus();
+  }
 }
 
 function onRoleChange() {

@@ -163,6 +163,47 @@ type AppSettings struct {
 	// (jam_color.go) — GET /api/jam-color-cfg always resolves this for the
 	// caller, so no page needs to hold its own copy of the default.
 	JamColorStops []JamColorStop `json:"jam_color_stops,omitempty"`
+
+	// GeoBlockEnabled: when true, every request to the HTTP API/web UI
+	// (see auth.Middleware) is checked against a Vietnam IP-range allow
+	// list before anything else — a request from outside Vietnam (and not
+	// from a private/loopback/CGNAT address, which always bypasses this
+	// check since those have no real-world geography — LAN, VPN, and the
+	// server's own loopback calls are never affected) gets a fixed
+	// "Platform not available in your region" page instead of whatever it
+	// asked for. See geoblock.go. Off by default: the feature needs a
+	// populated IP-range list (auto-fetched or admin-entered) to do
+	// anything — see GeoBlockAutoUpdate/GeoBlockManualCIDRs below — and an
+	// admin should deliberately opt in rather than risk a fresh deploy
+	// silently locking everyone out.
+	GeoBlockEnabled bool `json:"geo_block_enabled"`
+	// GeoBlockAutoUpdate: if true, periodically re-fetch the Vietnam
+	// IPv4/IPv6 CIDR lists from GeoBlockSourceURLv4/v6 (see geoblock.go's
+	// fetch loop) — requires this server itself to have outbound internet
+	// access to those URLs. If false, only GeoBlockManualCIDRs (admin-
+	// maintained by hand) are used — for a deployment with no outbound
+	// internet access, or an admin who wants full manual control of the
+	// list.
+	GeoBlockAutoUpdate bool `json:"geo_block_auto_update"`
+	// GeoBlockUpdateIntervalHours: how often the auto-update fetch re-runs.
+	// 0 → default 168 (weekly) — Vietnam's allocated IP ranges change
+	// rarely enough that daily polling would just be wasted requests.
+	GeoBlockUpdateIntervalHours int `json:"geo_block_update_interval_hours"`
+	// GeoBlockSourceURLv4/v6: a plain-text, one-CIDR-(or bare IP)-per-line
+	// source for Vietnam's IPv4/IPv6 ranges — e.g. ipdeny.com's free,
+	// no-auth-required per-country zone files (the built-in default when
+	// left empty — see defaultGeoBlockSourceURLv4/v6 in geoblock.go).
+	// GeoBlockSourceURLv6 may be left permanently empty to skip IPv6
+	// entirely if this deployment never sees v6 client traffic.
+	GeoBlockSourceURLv4 string `json:"geo_block_source_url_v4,omitempty"`
+	GeoBlockSourceURLv6 string `json:"geo_block_source_url_v6,omitempty"`
+	// GeoBlockManualCIDRs: admin-entered CIDRs (or bare IPs, treated as a
+	// /32 or /128), always merged into the allow-list in addition to
+	// whatever GeoBlockAutoUpdate fetched (or used alone when
+	// GeoBlockAutoUpdate is false) — lets an admin patch a gap in the
+	// auto-fetched list, or allow one extra address/range (e.g. a known
+	// office IP abroad) without waiting on the upstream source to agree.
+	GeoBlockManualCIDRs []string `json:"geo_block_manual_cidrs,omitempty"`
 }
 
 var (
