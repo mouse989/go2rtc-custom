@@ -341,3 +341,60 @@ func TestRecordFlowScanPopulatesMetricsColumns(t *testing.T) {
 		}
 	}
 }
+
+// recordFlowScan must accept a zero-length results slice without error —
+// this is what lets a region whose bbox genuinely has nothing to report
+// (confirmed real case: a less-covered province, valid upstream response,
+// zero results every cycle) still get a fresh flow_scans row every scan,
+// so www/flowcapture.html's "⚠ có thể đang treo" check (scannedAt lagging
+// the newest region by >30min) isn't tripped by a region that's actually
+// scanning fine — see monitor.go's runScan, which used to skip this call
+// entirely when len(results)==0.
+func TestRecordFlowScanAcceptsEmptyResults(t *testing.T) {
+	resetFlowCaptureDB(t)
+	setTestRegions(t, []Region{{Name: "BR VT", Enabled: true, Coords: [][2]float64{{10, 107}}}})
+
+	scannedAt := time.Date(2026, 11, 13, 7, 23, 8, 0, time.UTC)
+	if err := recordFlowScan("BR VT", scannedAt, "2026-11-13T07:22:30Z", 42, []byte(`{"sourceUpdated":"2026-11-13T07:22:30Z","results":[]}`), nil); err != nil {
+		t.Fatalf("recordFlowScan with empty results: %v", err)
+	}
+
+	scans, err := listFlowScans(10)
+	if err != nil {
+		t.Fatalf("listFlowScans: %v", err)
+	}
+	if len(scans) != 1 {
+		t.Fatalf("got %d scans, want 1", len(scans))
+	}
+	if scans[0].ResultCount != 0 {
+		t.Errorf("ResultCount = %d, want 0", scans[0].ResultCount)
+	}
+
+	segs, err := listFlowSegments(scans[0].ID)
+	if err != nil {
+		t.Fatalf("listFlowSegments: %v", err)
+	}
+	if len(segs) != 0 {
+		t.Errorf("expected 0 flow_segments rows for an empty-results scan, got %d", len(segs))
+	}
+
+	// A LATER empty-results scan must still advance "latest" for this
+	// region — proving scannedAt keeps moving every cycle even while the
+	// region keeps reporting nothing, instead of freezing at the last
+	// non-empty scan.
+	later := scannedAt.Add(15 * time.Minute)
+	if err := recordFlowScan("BR VT", later, "2026-11-13T07:37:30Z", 42, []byte(`{"sourceUpdated":"2026-11-13T07:37:30Z","results":[]}`), nil); err != nil {
+		t.Fatalf("recordFlowScan (second empty scan): %v", err)
+	}
+	latest, err := latestFlowScanPerRegion()
+	if err != nil {
+		t.Fatalf("latestFlowScanPerRegion: %v", err)
+	}
+	if len(latest) != 1 {
+		t.Fatalf("got %d regions, want 1", len(latest))
+	}
+	wantScannedAt := later.UTC().Format(time.RFC3339)
+	if latest[0].ScannedAt != wantScannedAt {
+		t.Errorf("latest ScannedAt = %q, want the later empty scan %q (scannedAt must keep advancing)", latest[0].ScannedAt, wantScannedAt)
+	}
+}
