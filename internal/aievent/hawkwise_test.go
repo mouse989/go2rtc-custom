@@ -199,3 +199,182 @@ func TestIngestHawkwiseAIFlowToleratesUnreachableEvidenceURL(t *testing.T) {
 		t.Errorf("expected no images for an unreachable URL, got %v", ev.ImagePaths)
 	}
 }
+
+// backdateHawkwiseRecord directly rewrites a stored record's UpdatedAt —
+// white-box access to this package's own days/index state (same convention
+// setupTest already uses), needed to simulate "this chain went quiet a
+// while ago" without waiting real wall-clock time.
+func backdateHawkwiseRecord(t *testing.T, recordID string, when time.Time) {
+	t.Helper()
+	mu.Lock()
+	defer mu.Unlock()
+	dk, ok := index[recordID]
+	if !ok {
+		t.Fatalf("backdateHawkwiseRecord: %q not indexed", recordID)
+	}
+	ev, ok := days[dk][recordID]
+	if !ok {
+		t.Fatalf("backdateHawkwiseRecord: %q not found in day %q", recordID, dk)
+	}
+	ev.UpdatedAt = when
+}
+
+// Two pushes from the same camera + ai_flow_code + nearby coordinate,
+// close together in time, must collapse into ONE record — the second
+// push's content replaces the first's rather than creating a second
+// marker at the same spot. This is the exact symptom reported: repeated
+// Hawkwise "Đông xe" pushes for one ongoing situation piling up as
+// separate map markers/previews.
+func TestIngestHawkwiseAIFlowMergesRepeatedSituationFromSameCamera(t *testing.T) {
+	setupTest(t)
+	base := HawkwiseAIFlowInput{
+		TriggerCode: "Congestion", AIFlowCode: 30, AIFlowName: "Đông xe",
+		SourceUUID: "cam-nga-tu-1", Lat: 10.123, Lng: 106.456,
+		StartTime: time.Now(), EndTime: time.Now(), RawBody: "{}",
+	}
+
+	first := base
+	first.EventID = 1
+	first.EventIDString = "evt-1"
+	created1, err := IngestHawkwiseAIFlow(first)
+	if err != nil || !created1 {
+		t.Fatalf("first ingest: created=%v err=%v", created1, err)
+	}
+
+	second := base
+	second.EventID = 2
+	second.EventIDString = "evt-2"
+	second.Lat, second.Lng = 10.12305, 106.45598 // a few metres off — same physical camera
+	created2, err := IngestHawkwiseAIFlow(second)
+	if err != nil {
+		t.Fatalf("second ingest: %v", err)
+	}
+	if created2 {
+		t.Error("expected the second push to merge into the first record (created=false), got created=true")
+	}
+
+	if _, ok := Get("hawkwise:evt-1"); !ok {
+		t.Fatal("expected the merged record to still be addressable by the first push's RecordID")
+	}
+	if _, ok := Get("hawkwise:evt-2"); ok {
+		t.Error("expected no separate record under the second push's own RecordID — it should have merged into the first")
+	}
+
+	active, err := ListActive(0)
+	if err != nil {
+		t.Fatalf("ListActive: %v", err)
+	}
+	if len(active) != 1 {
+		t.Fatalf("expected exactly 1 active event after 2 merged pushes, got %d", len(active))
+	}
+	if active[0].EventCode != "evt-2" {
+		t.Errorf("expected the merged record's EventCode to reflect the LATEST push (evt-2), got %q", active[0].EventCode)
+	}
+}
+
+// A different camera (different source_uuid) must never merge, even with
+// the same ai_flow_code and an identical coordinate.
+func TestIngestHawkwiseAIFlowDoesNotMergeDifferentCamera(t *testing.T) {
+	setupTest(t)
+	base := HawkwiseAIFlowInput{
+		AIFlowCode: 30, Lat: 10.123, Lng: 106.456,
+		StartTime: time.Now(), EndTime: time.Now(), RawBody: "{}",
+	}
+	a := base
+	a.EventID, a.EventIDString, a.SourceUUID = 1, "evt-a", "cam-A"
+	if _, err := IngestHawkwiseAIFlow(a); err != nil {
+		t.Fatal(err)
+	}
+	b := base
+	b.EventID, b.EventIDString, b.SourceUUID = 2, "evt-b", "cam-B"
+	created, err := IngestHawkwiseAIFlow(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("expected a different camera's push to create its own record, not merge")
+	}
+	active, _ := ListActive(0)
+	if len(active) != 2 {
+		t.Errorf("expected 2 separate active events for 2 different cameras, got %d", len(active))
+	}
+}
+
+// A coordinate far outside the merge radius must never merge, even from
+// what claims to be the same camera/ai_flow_code — treated as a data
+// inconsistency worth keeping separate rather than silently merging.
+func TestIngestHawkwiseAIFlowDoesNotMergeFarApartCoordinate(t *testing.T) {
+	setupTest(t)
+	base := HawkwiseAIFlowInput{
+		AIFlowCode: 30, SourceUUID: "cam-1",
+		StartTime: time.Now(), EndTime: time.Now(), RawBody: "{}",
+	}
+	a := base
+	a.EventID, a.EventIDString = 1, "evt-a"
+	a.Lat, a.Lng = 10.123, 106.456
+	if _, err := IngestHawkwiseAIFlow(a); err != nil {
+		t.Fatal(err)
+	}
+	b := base
+	b.EventID, b.EventIDString = 2, "evt-b"
+	b.Lat, b.Lng = 10.223, 106.556 // >100m away — well outside hawkwiseMergeRadiusM
+	created, err := IngestHawkwiseAIFlow(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("expected a far-apart coordinate to create its own record, not merge")
+	}
+}
+
+// Once a chain has gone quiet longer than hawkwiseMergeWindow, the next
+// push for the same camera/ai_flow_code/coordinate must start a fresh
+// record rather than reviving the stale one.
+func TestIngestHawkwiseAIFlowDoesNotMergeAfterWindowExpires(t *testing.T) {
+	setupTest(t)
+	base := HawkwiseAIFlowInput{
+		AIFlowCode: 30, SourceUUID: "cam-1", Lat: 10.123, Lng: 106.456,
+		StartTime: time.Now(), EndTime: time.Now(), RawBody: "{}",
+	}
+	a := base
+	a.EventID, a.EventIDString = 1, "evt-a"
+	if _, err := IngestHawkwiseAIFlow(a); err != nil {
+		t.Fatal(err)
+	}
+	backdateHawkwiseRecord(t, "hawkwise:evt-a", time.Now().Add(-(hawkwiseMergeWindow + time.Minute)))
+
+	b := base
+	b.EventID, b.EventIDString = 2, "evt-b"
+	created, err := IngestHawkwiseAIFlow(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("expected a push after the merge window expired to create a new record, not revive the stale one")
+	}
+}
+
+// Hawkwise omitting source_uuid must never merge blind — there is nothing
+// stable to match on, and merging by ai_flow_code + coordinate alone risks
+// conflating two different cameras pointed at the same intersection.
+func TestIngestHawkwiseAIFlowDoesNotMergeWithoutSourceUUID(t *testing.T) {
+	setupTest(t)
+	base := HawkwiseAIFlowInput{
+		AIFlowCode: 30, Lat: 10.123, Lng: 106.456,
+		StartTime: time.Now(), EndTime: time.Now(), RawBody: "{}",
+	}
+	a := base
+	a.EventID, a.EventIDString = 1, "evt-a"
+	if _, err := IngestHawkwiseAIFlow(a); err != nil {
+		t.Fatal(err)
+	}
+	b := base
+	b.EventID, b.EventIDString = 2, "evt-b"
+	created, err := IngestHawkwiseAIFlow(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("expected a push with no source_uuid to never merge")
+	}
+}

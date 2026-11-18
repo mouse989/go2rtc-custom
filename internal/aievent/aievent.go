@@ -62,6 +62,15 @@ type AIEvent struct {
 	Description     string `json:"description,omitempty"`
 	SourceProcessor string `json:"source_processor,omitempty"` // event.Source.Processor from the push
 
+	// CameraSourceUUID is Hawkwise's own stable per-camera identifier
+	// (general.camera.source_uuid) — kept only to heuristically merge
+	// repeated AI-flow pushes describing the same ongoing situation (see
+	// hawkwise.go's findRecentHawkwiseSituation), since Hawkwise's protocol
+	// has no event-lifecycle/situation-grouping concept of its own, unlike
+	// OMNIA's recordId/situationId pair (see that file's package doc
+	// comment). Always empty for OMNIA events.
+	CameraSourceUUID string `json:"camera_source_uuid,omitempty"`
+
 	// VehicleDetail is the source's own raw per-event detail object, kept
 	// verbatim (not parsed into named fields) — used today by Hawkwise
 	// AI-flow events (hawkwise.go) to carry vehicle/license-plate
