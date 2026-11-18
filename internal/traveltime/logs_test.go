@@ -1,11 +1,13 @@
 package traveltime
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func resetLogsState(t *testing.T) {
@@ -17,6 +19,142 @@ func resetLogsState(t *testing.T) {
 	cacheDate = ""
 	cacheData = nil
 	cacheMu.Unlock()
+
+	histCacheMu.Lock()
+	histCache = map[string][]LogEntry{}
+	histCacheOrder = nil
+	histCacheMu.Unlock()
+}
+
+// writeHistoricalDayFile writes a date's day-file directly to disk — same
+// shape appendLogs would have produced, but for a day other than today
+// (appendLogs itself only ever writes todayFile()).
+func writeHistoricalDayFile(t *testing.T, date string, entries []LogEntry) {
+	t.Helper()
+	path := dayFile(date)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create %s: %v", path, err)
+	}
+	defer f.Close()
+	for _, e := range entries {
+		data, _ := json.Marshal(e)
+		f.Write(data)
+		f.Write([]byte("\n"))
+	}
+}
+
+func TestGetLogsCachesHistoricalDayAcrossCalls(t *testing.T) {
+	resetLogsState(t)
+	const date = "2020-06-15" // well in the past relative to any real "today"
+	writeHistoricalDayFile(t, date, []LogEntry{{RouteID: "r1"}, {RouteID: "r2"}})
+
+	got, err := getLogs(date, 0)
+	if err != nil {
+		t.Fatalf("getLogs: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 entries, got %+v", got)
+	}
+
+	// Corrupt the on-disk file so a second read (if it happened) would fail
+	// to parse — proving the second getLogs call is served from histCache,
+	// not disk.
+	if err := os.WriteFile(dayFile(date), []byte("not json\n"), 0644); err != nil {
+		t.Fatalf("corrupt file: %v", err)
+	}
+
+	got2, err := getLogs(date, 0)
+	if err != nil {
+		t.Fatalf("getLogs (second call): %v", err)
+	}
+	if len(got2) != 2 || got2[0].RouteID != "r1" || got2[1].RouteID != "r2" {
+		t.Fatalf("expected cached entries despite corrupted disk file, got %+v", got2)
+	}
+}
+
+func TestGetLogsHistoricalReturnsCopyNotSharedSlice(t *testing.T) {
+	resetLogsState(t)
+	const date = "2020-06-15"
+	writeHistoricalDayFile(t, date, []LogEntry{{RouteID: "r1"}})
+
+	got, err := getLogs(date, 0)
+	if err != nil {
+		t.Fatalf("getLogs: %v", err)
+	}
+	got[0].RouteID = "mutated"
+
+	got2, err := getLogs(date, 0)
+	if err != nil {
+		t.Fatalf("getLogs (second call): %v", err)
+	}
+	if got2[0].RouteID != "r1" {
+		t.Fatalf("mutating a previous getLogs result affected the cache: %+v", got2)
+	}
+}
+
+// A date that is NOT before today (today itself goes through the separate
+// today-cache path; a future-looking date string must never be cached —
+// that file may not exist yet, or may still be incomplete) must always
+// reflect the current on-disk content, never a stale cached answer.
+func TestGetLogsNeverCachesFutureDate(t *testing.T) {
+	resetLogsState(t)
+	future := time.Now().In(loc()).AddDate(1, 0, 0).Format("2006-01-02")
+	writeHistoricalDayFile(t, future, []LogEntry{{RouteID: "first"}})
+
+	got, err := getLogs(future, 0)
+	if err != nil {
+		t.Fatalf("getLogs: %v", err)
+	}
+	if len(got) != 1 || got[0].RouteID != "first" {
+		t.Fatalf("expected 1 entry, got %+v", got)
+	}
+
+	writeHistoricalDayFile(t, future, []LogEntry{{RouteID: "second"}})
+	got2, err := getLogs(future, 0)
+	if err != nil {
+		t.Fatalf("getLogs (second call): %v", err)
+	}
+	if len(got2) != 1 || got2[0].RouteID != "second" {
+		t.Fatalf("expected the updated content (not cached), got %+v", got2)
+	}
+
+	histCacheMu.RLock()
+	_, cached := histCache[future]
+	histCacheMu.RUnlock()
+	if cached {
+		t.Error("a future-looking date must never be cached")
+	}
+}
+
+func TestGetLogsHistoricalCacheEvictsOldestBeyondCap(t *testing.T) {
+	resetLogsState(t)
+	for i := 0; i < histCacheMaxDays+1; i++ {
+		date := fmt.Sprintf("2019-01-%02d", i+1) // 01..61, all comfortably in the past
+		writeHistoricalDayFile(t, date, []LogEntry{{RouteID: date}})
+		if _, err := getLogs(date, 0); err != nil {
+			t.Fatalf("getLogs(%s): %v", date, err)
+		}
+	}
+
+	histCacheMu.RLock()
+	n := len(histCache)
+	_, oldestStillCached := histCache["2019-01-01"]
+	_, newestCached := histCache[fmt.Sprintf("2019-01-%02d", histCacheMaxDays+1)]
+	histCacheMu.RUnlock()
+
+	if n != histCacheMaxDays {
+		t.Errorf("histCache has %d entries, want %d (the cap)", n, histCacheMaxDays)
+	}
+	if oldestStillCached {
+		t.Error("expected the oldest-inserted date to have been evicted")
+	}
+	if !newestCached {
+		t.Error("expected the most recently inserted date to still be cached")
+	}
 }
 
 func TestGetLogsServesTodayFromCacheWithoutRereadingDisk(t *testing.T) {
@@ -152,4 +290,3 @@ func TestConcurrentAppendAndGetLogsRace(t *testing.T) {
 		t.Fatalf("expected all 20 concurrently-appended entries, got %d: %+v", len(got), got)
 	}
 }
-
