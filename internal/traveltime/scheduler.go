@@ -25,6 +25,35 @@ var (
 	}
 )
 
+// defaultCollectConcurrency: see Config.Concurrency's doc comment.
+const defaultCollectConcurrency = 5
+
+// runWithConcurrency calls fn(i) for every i in [0, n), running at most
+// concurrency of them at once, and returns only once all have finished.
+// Each call gets its own i — callers write results into a pre-sized
+// slice/array indexed by i (never appending from inside fn) so concurrent
+// calls never touch the same memory.
+func runWithConcurrency(n, concurrency int, fn func(i int)) {
+	if n == 0 {
+		return
+	}
+	if concurrency <= 0 || concurrency > n {
+		concurrency = n
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			fn(i)
+		}(i)
+	}
+	wg.Wait()
+}
+
 func isRunning() bool {
 	schedMu.Lock()
 	defer schedMu.Unlock()
@@ -127,15 +156,29 @@ func runOnce() {
 	client := &http.Client{Timeout: 15 * time.Second}
 	ctx := context.Background()
 
-	var entries []LogEntry
-	errors := 0
+	cfgMu.RLock()
+	concurrency := cfg.Concurrency
+	cfgMu.RUnlock()
+	if concurrency <= 0 {
+		concurrency = defaultCollectConcurrency
+	}
 
-	for _, r := range routes {
+	// One slot per route, written only by that route's own goroutine
+	// (indices never collide) — collected into entries/errors below in
+	// original route order once every goroutine has finished, same
+	// ordering a sequential loop would have produced. Routes used to be
+	// fetched one at a time; with enough of them, total run time could eat
+	// into (or exceed) the configured interval — see the warning at the
+	// bottom of this function.
+	results := make([]*LogEntry, len(routes))
+	failed := make([]bool, len(routes))
+	runWithConcurrency(len(routes), concurrency, func(i int) {
+		r := routes[i]
 		stats, legs, err := getRouteStats(ctx, client, apiKey, r)
 		if err != nil {
-			errors++
+			failed[i] = true
 			log.Error().Err(err).Str("route", r.Name).Msg("[traveltime] collect failed")
-			continue
+			return
 		}
 		// Per-leg capture (www/flowcapture.html's "tuyến TTI đang theo dõi"
 		// layer) — a separate store from the aggregate log below, so a
@@ -147,7 +190,7 @@ func runOnce() {
 		if wp == "" {
 			wp = "None"
 		}
-		entries = append(entries, LogEntry{
+		results[i] = &LogEntry{
 			Timestamp:   timestamp,
 			RouteID:     r.ID,
 			RouteName:   r.Name,
@@ -159,8 +202,20 @@ func runOnce() {
 			BaseSec:     stats.BaseSec,
 			DelaySec:    stats.DelaySec,
 			TTI:         stats.TTI,
-		})
+		}
 		log.Info().Str("route", r.Name).Float64("tti", stats.TTI).Msg("[traveltime] collected")
+	})
+
+	var entries []LogEntry
+	errors := 0
+	for i, e := range results {
+		if failed[i] {
+			errors++
+			continue
+		}
+		if e != nil {
+			entries = append(entries, *e)
+		}
 	}
 
 	if len(entries) > 0 {

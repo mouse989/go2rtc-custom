@@ -40,6 +40,10 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := validateGeoBlockManualCIDRs(s.GeoBlockManualCIDRs); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := UpdateSettings(s); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -50,6 +54,11 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		if err := initWebAuthn(s.DeviceBindingRPID, "go2rtc", s.DeviceBindingRPOrigins); err != nil {
 			log.Warn().Err(err).Msg("[auth] webauthn relying party re-init failed")
 		}
+		// Recompile the geo-block matcher + re-arm its scheduler so a
+		// toggle/interval/manual-CIDR change takes effect immediately
+		// rather than only after a restart (same reasoning as webauthn
+		// above).
+		geoBlockOnSettingsSaved()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(redactedSettings(s))
 

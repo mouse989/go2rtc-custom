@@ -666,12 +666,24 @@ func runScan() error {
 		// map depends on it having current data, so this is no longer an
 		// opt-in debug toggle. A parse/save failure here is logged and
 		// skipped, never affecting the scan itself.
+		//
+		// recordFlowScan is called even when results is empty (confirmed
+		// real-world case: a region whose bbox genuinely has nothing to
+		// report right now — e.g. a less-covered province — gets a valid
+		// response with zero results every single cycle). It used to be
+		// gated behind len(results) > 0, which meant such a region's
+		// flow_scans row (and therefore its scannedAt/sourceUpdated) froze
+		// at its last non-empty response — indistinguishable from the scan
+		// loop actually having stopped, which is exactly the "⚠ có thể
+		// đang treo" false alarm www/flowcapture.html's renderFcRegionStatus
+		// raises purely from scannedAt lagging the newest region by more
+		// than 30 minutes. recordFlowScan itself already tolerates a
+		// zero-length results slice fine (zero flow_segments rows, scan row
+		// still recorded) — only this call site needed to stop skipping it.
 		if results, sourceUpdated, perr := parseFlowResults(data); perr != nil {
 			addLog("warn", fmt.Sprintf("region %s: flow capture parse error: %v", r.Name, perr))
-		} else if len(results) > 0 {
-			if serr := recordFlowScan(r.Name, regionStart, sourceUpdated, len(data), data, results); serr != nil {
-				addLog("warn", fmt.Sprintf("region %s: flow capture save error: %v", r.Name, serr))
-			}
+		} else if serr := recordFlowScan(r.Name, regionStart, sourceUpdated, len(data), data, results); serr != nil {
+			addLog("warn", fmt.Sprintf("region %s: flow capture save error: %v", r.Name, serr))
 		}
 
 		segs, err := normalizeTrafficData(data)

@@ -356,6 +356,17 @@ function renderFcStats(latest, routes) {
 // watch whether sourceUpdated moves for the region that road is in; if it
 // never does while scannedAt keeps advancing, that road's JamFactor is
 // stale AT THE SOURCE, not cached/duplicated here.
+//
+// A region whose upstream bbox genuinely has nothing to report (confirmed
+// real case: a less-covered province, valid response, zero results every
+// cycle) does NOT trigger this flag — internal/traffic/monitor.go's
+// runScan() calls recordFlowScan unconditionally once parsing succeeds,
+// empty results included, so scannedAt/sourceUpdated keep advancing every
+// cycle even with nothing to draw on the map for that region. Only an
+// actual fetch error (non-nil err from fetchTrafficForRegion — network
+// failure, non-2xx-shaped body that fails to parse, etc.) skips the region
+// entirely and leaves its flow_scans row behind, which is what this flag
+// is for.
 function renderFcRegionStatus(regions, newest) {
   const el = document.getElementById('fcRegionStatus');
   if (!el) return;

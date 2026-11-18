@@ -130,6 +130,11 @@ func Init() {
 
 	startLoginThrottleSweeper()
 
+	// Geo-block (block non-Vietnam IPs) cache + scheduler — non-fatal, the
+	// feature simply stays off/fail-open until a fetch succeeds or an admin
+	// enables it.
+	initGeoBlock(filepath.Dir(usersPath))
+
 	// Login history (non-fatal — just a subdirectory next to users.json)
 	loginHistoryPath := filepath.Join(filepath.Dir(usersPath), "login_history")
 	if usersPath == "users.json" {
@@ -194,6 +199,7 @@ func Init() {
 	registerIntegrationsHandler()
 	registerSubAdminAuditHandler()
 	registerSubAdminHandlers()
+	registerGeoBlockHandler()
 
 	log.Info().Str("users_file", usersPath).Str("secret_file", secretPath).Msg("[auth] ready")
 }

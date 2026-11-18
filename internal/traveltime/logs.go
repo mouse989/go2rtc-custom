@@ -43,7 +43,30 @@ var (
 	cacheMu   sync.RWMutex
 	cacheDate string
 	cacheData []LogEntry
+
+	// histCache mirrors already-closed past days' log files — once a day
+	// has rolled over, appendLogs never writes to that file again, so its
+	// parsed contents are immutable for the rest of this process's life
+	// and can be cached forever instead of re-reading + re-JSON-parsing
+	// the whole file on every call. Forecast() alone reads 4 such
+	// historical day-files on EVERY /api/traveltime/forecast request (one
+	// per same-weekday it averages) — with enough routes × a short
+	// collection interval, a day's file is large enough that doing this
+	// uncached was measured taking well over a second per request.
+	// Capped at histCacheMaxDays distinct dates (FIFO eviction via
+	// histCacheOrder) so a long-running server doesn't accumulate every
+	// historical day it's ever been asked about in memory forever —
+	// Forecast()'s own access pattern only ever needs a rolling ~4-week
+	// window, so this comfortably covers that plus incidental admin/export
+	// lookups of other recent dates.
+	histCacheMu    sync.RWMutex
+	histCache      = map[string][]LogEntry{}
+	histCacheOrder []string
 )
+
+// histCacheMaxDays bounds memory, not correctness — eviction just means
+// the next request for that date re-reads the file once and re-caches it.
+const histCacheMaxDays = 60
 
 var logFileRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.jsonl$`)
 
@@ -157,13 +180,58 @@ func getLogs(date string, limit int) ([]LogEntry, error) {
 		return []LogEntry{}, nil
 	}
 
+	// date < today (lexicographic comparison is valid for "YYYY-MM-DD")
+	// means that day's file is closed forever — safe to cache. A date in
+	// the future (typo, or asking ahead of time) is deliberately NOT
+	// cached: that file may not exist yet, or may still be empty, and
+	// either answer would go stale once real data lands on it.
+	if date < today {
+		histCacheMu.RLock()
+		cached, ok := histCache[date]
+		histCacheMu.RUnlock()
+		if ok {
+			return applyLimit(cloneLogEntries(cached), limit), nil
+		}
+	}
+
 	logsMu.Lock()
-	defer logsMu.Unlock()
 	entries, err := readLogFile(dayFile(date))
+	logsMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return applyLimit(entries, limit), nil
+
+	if date < today {
+		cacheHistoricalDay(date, entries)
+	}
+	return applyLimit(cloneLogEntries(entries), limit), nil
+}
+
+// cloneLogEntries returns a fresh copy — a cached slice must never escape
+// this file directly (same discipline getTodayFromCache already follows
+// for today's cache), since callers across this package (forecast.go,
+// export.go, api.go) only ever read what they get back, never mutate it,
+// but a shared backing array would make that an unenforced assumption
+// instead of a guarantee.
+func cloneLogEntries(src []LogEntry) []LogEntry {
+	out := make([]LogEntry, len(src))
+	copy(out, src)
+	return out
+}
+
+func cacheHistoricalDay(date string, entries []LogEntry) {
+	histCacheMu.Lock()
+	defer histCacheMu.Unlock()
+	if _, exists := histCache[date]; exists {
+		return // another goroutine already cached it while we were reading
+	}
+	histCache[date] = entries
+	histCacheOrder = append(histCacheOrder, date)
+	if len(histCacheOrder) > histCacheMaxDays {
+		oldest := histCacheOrder[0]
+		histCacheOrder = histCacheOrder[1:]
+		delete(histCache, oldest)
+	}
 }
 
 // getTodayFromCache serves today's entries from the in-memory cache that

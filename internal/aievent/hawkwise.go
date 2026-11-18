@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -101,12 +102,30 @@ func describeVehicle(details json.RawMessage) string {
 }
 
 // IngestHawkwiseAIFlow stores in as an AIEvent — same store, dedup, and map
-// layer OMNIA's events use. Dedup key is EventIDString (falls back to the
-// numeric EventID when Hawkwise omits the UUID), which, per the plan doc's
-// own conclusion, is always present and never needs a separate "is this an
-// update to an already-open event" decision the way OMNIA's
-// event.created/event.terminated pair does — each Hawkwise AI-flow push
-// already carries both its own start and end time.
+// layer OMNIA's events use. The natural dedup key is EventIDString (falls
+// back to the numeric EventID when Hawkwise omits the UUID) — each push
+// already carries both its own start and end time, so there's no
+// OMNIA-style event.created/event.terminated pair to track.
+//
+// That natural key is only a good dedup key for a genuinely one-shot
+// detection (e.g. AbnormalStop). It falls apart for a condition Hawkwise's
+// AI model keeps re-evaluating and re-reporting while it persists (e.g.
+// ongoing congestion): Hawkwise has no native "this push continues an
+// earlier situation" signal at all — no situationId, no update/terminate
+// message — so each re-detection gets its own fresh EventIDString even
+// though it describes the same physical situation. Ingested verbatim,
+// that produces a pile of near-duplicate AIEvents at the same spot, all
+// independently "active" within the map's display window — confirmed from
+// a real report of exactly this (several "Đông xe" markers/previews
+// stacked at one intersection).
+//
+// Since Hawkwise gives us nothing authoritative to group by, this merges
+// heuristically instead (see findRecentHawkwiseSituation): a push whose
+// (ai_flow_code, camera source_uuid, coordinate) matches a still-fresh
+// existing Hawkwise record reuses THAT record's RecordID rather than
+// minting a new one, so Ingest's normal update-in-place path (same as
+// OMNIA's recordId re-use) replaces its content — latest wins, one marker
+// per situation, instead of accumulating one per push.
 func IngestHawkwiseAIFlow(in HawkwiseAIFlowInput) (created bool, err error) {
 	// Logged on every push, mapped or not — this registry's job is "what has
 	// Hawkwise's AI-flow side ever sent", same spirit as ObserveCategory's
@@ -117,6 +136,9 @@ func IngestHawkwiseAIFlow(in HawkwiseAIFlowInput) (created bool, err error) {
 	recordID := "hawkwise:" + in.EventIDString
 	if in.EventIDString == "" {
 		recordID = fmt.Sprintf("hawkwise:%d", in.EventID)
+	}
+	if merged, ok := findRecentHawkwiseSituation(in.AIFlowCode, in.SourceUUID, in.Lat, in.Lng, time.Now()); ok {
+		recordID = merged
 	}
 
 	ev := &AIEvent{
@@ -129,6 +151,7 @@ func IngestHawkwiseAIFlow(in HawkwiseAIFlowInput) (created bool, err error) {
 		CategoryDescription: in.AIFlowName,
 		Description:         describeVehicle(in.Details),
 		SourceProcessor:     in.CameraLabel,
+		CameraSourceUUID:    in.SourceUUID,
 		StartTime:           in.StartTime,
 		EndTime:             in.EndTime,
 		Lat:                 in.Lat,
@@ -153,6 +176,91 @@ func IngestHawkwiseAIFlow(in HawkwiseAIFlowInput) (created bool, err error) {
 	}
 
 	return Ingest(ev, false)
+}
+
+// hawkwiseMergeWindow is a SLIDING window measured against a candidate
+// record's own UpdatedAt (its most recent push, not its original
+// ReceivedAt) — so a situation Hawkwise keeps re-reporting every few
+// minutes for hours stays merged into the same one record indefinitely,
+// as long as consecutive pushes never go quiet for longer than this; once
+// a gap exceeds it, the next push correctly starts a fresh record rather
+// than reviving a stale one. Comfortably larger than the ~5-minute push
+// cadence Hawkwise is known to use for a persisting condition, without
+// being so large it risks bridging two genuinely separate occurrences.
+const hawkwiseMergeWindow = 15 * time.Minute
+
+// hawkwiseMergeRadiusM bounds the coordinate check — generous enough to
+// absorb GPS/rounding jitter from what is physically the same fixed
+// camera, tight enough that two different intersections never merge just
+// because they happen to share an ai_flow_code. In practice this is a
+// safety net on top of the CameraSourceUUID match below, which should
+// already guarantee near-identical coordinates for the same camera.
+const hawkwiseMergeRadiusM = 100.0
+
+// findRecentHawkwiseSituation looks for the most recent still-fresh
+// Hawkwise AIEvent from the same camera + ai_flow_code + nearby coordinate
+// as a just-received push, so IngestHawkwiseAIFlow can reuse its RecordID
+// instead of minting a new one (see that function's doc comment for why).
+// sourceUUID == "" (Hawkwise omitted it) never merges — there is nothing
+// stable to match on, and merging by ai_flow_code + coordinate alone risks
+// conflating two different cameras pointed at the same intersection.
+//
+// Not atomic with the Ingest() call that follows a match: two pushes for
+// the same camera arriving within the same instant could both miss each
+// other here and each create their own record. Accepted as a narrow,
+// low-likelihood race (one external system posting at most a few times a
+// minute) rather than adding a second exported lock around both calls.
+func findRecentHawkwiseSituation(aiFlowCode int, sourceUUID string, lat, lng float64, now time.Time) (recordID string, found bool) {
+	if sourceUUID == "" {
+		return "", false
+	}
+	from := now.Add(-hawkwiseMergeWindow)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	dayKeys := map[string]bool{dayKeyFor(now): true, dayKeyFor(from): true}
+	var best *AIEvent
+	for dk := range dayKeys {
+		if err := loadDayLocked(dk); err != nil {
+			continue
+		}
+		for _, ev := range days[dk] {
+			if ev.Status != StatusActive || ev.CategorySource != CategorySourceHawkwise {
+				continue
+			}
+			if ev.CategoryTypeID != aiFlowCode || ev.CameraSourceUUID != sourceUUID {
+				continue
+			}
+			if ev.UpdatedAt.Before(from) {
+				continue // this chain has gone quiet too long — let a new one start
+			}
+			if haversineMeters(ev.Lat, ev.Lng, lat, lng) > hawkwiseMergeRadiusM {
+				continue
+			}
+			if best == nil || ev.UpdatedAt.After(best.UpdatedAt) {
+				best = ev
+			}
+		}
+	}
+	if best == nil {
+		return "", false
+	}
+	return best.RecordID, true
+}
+
+// haversineMeters is a local copy of the same formula
+// internal/traffic/monitor.go's unexported haversine uses — kept
+// self-contained rather than importing internal/traffic (an unrelated
+// module) for 10 lines of math.
+func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadiusM = 6371000.0
+	toRad := func(d float64) float64 { return d * math.Pi / 180 }
+	dLat := toRad(lat2 - lat1)
+	dLng := toRad(lng2 - lng1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(toRad(lat1))*math.Cos(toRad(lat2))*math.Sin(dLng/2)*math.Sin(dLng/2)
+	return earthRadiusM * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
 
 // hawkwiseImageFetchTimeout bounds each evidence-image GET — these URLs are

@@ -106,6 +106,17 @@ func ActiveUserDetails(window time.Duration) []ActiveUserDetail {
 // Middleware wraps an http.Handler with JWT auth + permission checks.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Geo-block (see geoblock.go) runs before anything else, including
+		// public/static paths — a request from outside Vietnam should never
+		// reach even the login page while the feature is enabled. A
+		// private/loopback/CGNAT address (LAN, VPN, this server's own
+		// loopback calls) is always exempt, and the whole check is a no-op
+		// unless an admin has turned it on.
+		if !geoBlockAllows(clientIP(r)) {
+			respondGeoBlocked(w, r)
+			return
+		}
+
 		// Allow public paths (login, logout) and static files without auth
 		if isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
