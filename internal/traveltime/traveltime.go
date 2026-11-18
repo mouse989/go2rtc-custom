@@ -35,6 +35,16 @@ type Config struct {
 	IntervalMin     int           `json:"intervalMin"`     // Scheduler interval in minutes (≥1)
 	Running         bool          `json:"running"`         // Whether the scheduler should auto-start
 	Appearance      TTIAppearance `json:"appearance"`      // TTI chart colour thresholds
+	// Concurrency: how many routes runOnce fetches from the VietMap routing
+	// API at once (≥1). Routes used to be collected one at a time — a run's
+	// total time scaled with route count × upstream latency, which with
+	// enough routes could eat into (or exceed) the configured interval (see
+	// scheduler.go's "collection run took over half the configured
+	// interval" warning). 0 → default 5, the same bound
+	// internal/traffic/monitor.go's enrichPoints already uses for its own
+	// concurrent upstream calls (VietMap reverse-geocoding) — a reasonable
+	// default that hasn't needed tuning there.
+	Concurrency int `json:"concurrency"`
 }
 
 func defaultAppearance() TTIAppearance {
@@ -56,7 +66,7 @@ var (
 )
 
 func defaultConfig() Config {
-	return Config{IntervalMin: 15, Appearance: defaultAppearance()}
+	return Config{IntervalMin: 15, Concurrency: defaultCollectConcurrency, Appearance: defaultAppearance()}
 }
 
 // Init initialises the travel-time module.
@@ -78,6 +88,14 @@ func Init() {
 	// Backfill appearance defaults for configs saved before this field existed.
 	if len(cfg.Appearance.Tiers) == 0 {
 		cfg.Appearance = defaultAppearance()
+	}
+	// Same backfill for Concurrency, saved before that field existed (or
+	// explicitly saved as 0 by an older admin.html build that never sent
+	// it) — runOnce already falls back to defaultCollectConcurrency at the
+	// point of use, but backfilling here too means GET /api/traveltime/config
+	// shows the real value being used instead of a misleading 0.
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = defaultCollectConcurrency
 	}
 
 	routesFile := "travel_routes.json"

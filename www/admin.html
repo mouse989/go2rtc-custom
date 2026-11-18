@@ -1126,6 +1126,16 @@ rtsp:
                   min="1" max="1440" placeholder="…phút">
               </div>
             </div>
+            <div class="form-group" style="margin-bottom:.85rem">
+              <label style="font-size:.8rem">Số tuyến thu thập song song</label>
+              <input type="number" id="tt-concurrency" class="input" min="1" max="50" value="5">
+              <p style="font-size:.72rem;color:var(--text-muted);margin:.3rem 0 0">
+                Trước đây các tuyến được gọi API lần lượt từng tuyến một — nhiều tuyến thì tổng thời gian 1 lần thu thập
+                càng dài, có thể vượt quá chu kỳ cấu hình ở trên (xem cảnh báo "collection run took over half the
+                configured interval" trong log). Tăng số này để gọi nhiều tuyến cùng lúc, rút ngắn tổng thời gian — tăng
+                quá cao có thể bị API traffic.genfast.vn giới hạn tốc độ, nên tăng dần và theo dõi log.
+              </p>
+            </div>
             <div style="font-size:.77rem;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;margin-bottom:.75rem">
               API key dùng chung từ <a href="/admin.html" onclick="showTab('settings')" style="color:var(--accent)">Settings → VietMap API Key</a>
             </div>
@@ -6428,16 +6438,24 @@ async function loadTTConfig() {
     const c = await apiFetch('/api/traveltime/config');
     document.getElementById('tt-gscript').value = c.googleScriptUrl || '';
     ttSetInterval(c.intervalMin || 15);
+    document.getElementById('tt-concurrency').value = c.concurrency || 5;
   } catch (_) {}
 }
 
 async function saveTTConfig() {
-  let running = false;
-  try { running = !!(await apiFetch('/api/traveltime/config')).running; } catch (_) {}
+  // Fetch the current config and overlay only the fields this card edits
+  // (googleScriptUrl/intervalMin/concurrency) — keeps running/appearance
+  // (edited elsewhere: the Scheduler card, the TTI color-tier editor)
+  // exactly as they already were instead of wiping them back to their
+  // zero value, since PUT /api/traveltime/config replaces the whole config
+  // wholesale with whatever body is sent.
+  let current = {};
+  try { current = await apiFetch('/api/traveltime/config'); } catch (_) {}
   const body = {
+    ...current,
     googleScriptUrl: document.getElementById('tt-gscript').value.trim(),
     intervalMin:     ttGetIntervalMin(),
-    running,
+    concurrency:     parseInt(document.getElementById('tt-concurrency').value, 10) || 5,
   };
   try {
     await apiFetch('/api/traveltime/config', {

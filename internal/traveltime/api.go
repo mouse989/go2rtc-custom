@@ -67,13 +67,23 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "read error: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		var newCfg Config
+		// Decode onto the CURRENT config, not a zero-value one — a caller
+		// that only sends the 3 fields admin.html's basic Config card
+		// edits (googleScriptUrl/intervalMin/concurrency) must not wipe
+		// Running or Appearance (edited via separate endpoints/cards) back
+		// to their zero value. Same "start from current, not from zero"
+		// fix internal/auth/api_settings.go's settingsHandler already
+		// applies to the exact same class of whole-object-PUT bug.
+		newCfg := getConfig()
 		if err := json.Unmarshal(body, &newCfg); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if newCfg.IntervalMin <= 0 {
 			newCfg.IntervalMin = 15
+		}
+		if newCfg.Concurrency <= 0 {
+			newCfg.Concurrency = defaultCollectConcurrency
 		}
 		wasRunning := isRunning()
 
