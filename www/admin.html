@@ -1218,6 +1218,62 @@ rtsp:
           </div>
         </div>
 
+        <!-- Row 4: Segment-capture storage (per-month) + legacy migration -->
+        <div class="card" style="padding:1.1rem 1.25rem">
+          <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">
+            Lưu trữ TTI chi tiết từng đoạn (theo tháng)
+          </div>
+          <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 .7rem">
+            Dữ liệu TTI từng đoạn/leg của mỗi tuyến (phục vụ lớp "tuyến TTI đang theo dõi" trên Flow Capture) được lưu
+            riêng theo từng tháng — mỗi tháng 1 file SQLite, không tự xoá. Tách theo tháng để hỏng/mất 1 file chỉ mất
+            dữ liệu 1 tháng thay vì toàn bộ lịch sử, và dễ backup/archive từng file.
+          </p>
+          <div id="segMigrateBox" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:.6rem .8rem;font-size:.8rem;margin-bottom:.8rem"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Tháng</th><th>Dung lượng</th></tr></thead>
+              <tbody id="segMonthsBody">
+                <tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">Đang tải…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:.6rem" onclick="loadSegMonths()">↺ Tải lại</button>
+        </div>
+
+        <!-- Row 5: Tra cứu TTI chi tiết theo đoạn (tháng cũ) -->
+        <div class="card" style="padding:1.1rem 1.25rem">
+          <div style="font-size:.8rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem">
+            Tra cứu TTI chi tiết từng đoạn
+          </div>
+          <div style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:.8rem">
+            <div class="form-group" style="margin:0">
+              <label style="font-size:.78rem">Tháng</label>
+              <select id="segQMonth" class="input" style="width:auto"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label style="font-size:.78rem">Tuyến đường</label>
+              <select id="segQRoute" class="input" style="width:auto;min-width:220px"></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label style="font-size:.78rem">Từ</label>
+              <input type="datetime-local" id="segQFrom" class="input" style="width:auto">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label style="font-size:.78rem">Đến</label>
+              <input type="datetime-local" id="segQTo" class="input" style="width:auto">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="loadSegHistory()">🔍 Tra cứu</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Thời gian quét</th><th>Đoạn</th><th>TTI</th><th>LOS</th><th>Thực tế (s)</th><th>Chuẩn (s)</th><th>Trễ (s)</th></tr></thead>
+              <tbody id="segHistoryBody">
+                <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chọn tháng, tuyến và bấm "🔍 Tra cứu"</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div><!-- /travelTimePane -->
 
       <!-- ══════ INNER: Kỳ nghỉ ══════ -->
@@ -6395,7 +6451,126 @@ let _ttLogs   = [];
 let _ttRegions = []; // admin-managed "khu vực" list a route's tt-route-region select offers — see loadTTRegions
 
 async function loadTTPane() {
-  await Promise.all([loadTTConfig(), loadTTStatus(), loadTTRoutes(), loadTTRegions(), refreshTTLogDates()]);
+  await Promise.all([loadTTConfig(), loadTTStatus(), loadTTRoutes(), loadTTRegions(), refreshTTLogDates(),
+    loadSegMigrateStatus(), loadSegMonths()]);
+}
+
+// ── Segment-capture storage (per-month) + legacy migration ───────────────
+let _segMigrateTimer = null;
+
+async function loadSegMigrateStatus() {
+  let st;
+  try { st = await apiFetch('/api/traveltime/segment-capture/migrate/status'); }
+  catch (e) { document.getElementById('segMigrateBox').textContent = 'Lỗi: ' + e.message; return; }
+
+  const box = document.getElementById('segMigrateBox');
+  if (st.running) {
+    const pct = st.scansTotal > 0 ? Math.round(100 * st.scansDone / st.scansTotal) : 0;
+    box.innerHTML = `⏳ Đang di chuyển dữ liệu cũ… ${st.scansDone}/${st.scansTotal || '?'} (${pct}%)`;
+    if (!_segMigrateTimer) _segMigrateTimer = setInterval(loadSegMigrateStatus, 1500);
+    return;
+  }
+  if (_segMigrateTimer) { clearInterval(_segMigrateTimer); _segMigrateTimer = null; }
+
+  if (st.done && st.error) {
+    box.innerHTML = `⚠ Lần di chuyển gần nhất lỗi: ${esc(st.error)} ` +
+      `<button class="btn btn-secondary btn-sm" onclick="triggerSegMigrate()">Thử lại</button>`;
+    return;
+  }
+  if (st.legacyFileExists) {
+    box.innerHTML = `⚠ Phát hiện file dữ liệu cũ (1 file duy nhất, chưa tách theo tháng). ` +
+      `<button class="btn btn-primary btn-sm" onclick="triggerSegMigrate()">🔄 Di chuyển sang theo tháng</button>` +
+      (st.done ? `<div style="margin-top:.4rem;font-size:.76rem;color:var(--text-muted)">Lần trước: đã di chuyển ${st.scansDone} bản ghi vào ${st.monthsCreated?.length||0} tháng.</div>` : '');
+    return;
+  }
+  box.innerHTML = st.alreadyMigratedOnce
+    ? `✓ Đã di chuyển dữ liệu cũ sang theo tháng (file gốc được giữ lại, đổi tên thành <code>.migrated</code>).`
+    : `✓ Đang lưu trữ theo tháng — không có file cũ nào cần di chuyển.`;
+}
+
+async function triggerSegMigrate() {
+  try {
+    await apiFetch('/api/traveltime/segment-capture/migrate', { method: 'POST' });
+    await loadSegMigrateStatus();
+  } catch (e) { toast('Không bắt đầu được: ' + e.message, 'error'); }
+}
+
+async function loadSegMonths() {
+  let months = [];
+  try { months = await apiFetch('/api/traveltime/segment-capture/months') || []; }
+  catch (e) { document.getElementById('segMonthsBody').innerHTML =
+    `<tr><td colspan="2" style="text-align:center;color:var(--red);padding:1rem">Lỗi: ${esc(e.message)}</td></tr>`; return; }
+
+  const tbody = document.getElementById('segMonthsBody');
+  tbody.innerHTML = months.length
+    ? months.map(m => `<tr><td>${esc(m.monthKey)}</td><td>${(m.sizeKb/1024).toFixed(1)} MB</td></tr>`).join('')
+    : '<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:1rem">Chưa có dữ liệu tháng nào</td></tr>';
+
+  const monthSel = document.getElementById('segQMonth');
+  const prevVal = monthSel.value;
+  monthSel.innerHTML = months.map(m => `<option value="${esc(m.monthKey)}">${esc(m.monthKey)}</option>`).join('');
+  if (months.some(m => m.monthKey === prevVal)) monthSel.value = prevVal;
+
+  populateSegRouteSelect();
+}
+
+function populateSegRouteSelect() {
+  const sel = document.getElementById('segQRoute');
+  const prevVal = sel.value;
+  sel.innerHTML = _ttRoutes.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
+  if (_ttRoutes.some(r => r.id === prevVal)) sel.value = prevVal;
+}
+
+// datetime-local gives local-time "YYYY-MM-DDTHH:MM" with no timezone —
+// convert to the exact RFC3339-UTC-no-fractional-seconds shape scanned_at
+// is stored/compared as (route_segment_scans.scanned_at), so the SQL
+// string >=/<= bound lines up exactly rather than relying on fractional-
+// millisecond lexicographic edge cases.
+function segLocalDateTimeToRFC3339(val) {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d)) return '';
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+async function loadSegHistory() {
+  const month = document.getElementById('segQMonth').value;
+  const routeId = document.getElementById('segQRoute').value;
+  const tbody = document.getElementById('segHistoryBody');
+  if (!month || !routeId) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Chọn tháng và tuyến trước</td></tr>';
+    return;
+  }
+  const from = segLocalDateTimeToRFC3339(document.getElementById('segQFrom').value);
+  const to   = segLocalDateTimeToRFC3339(document.getElementById('segQTo').value);
+  const qs = new URLSearchParams({ month, routeId });
+  if (from) qs.set('from', from);
+  if (to) qs.set('to', to);
+
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Đang tải…</td></tr>';
+  let points;
+  try { points = await apiFetch('/api/traveltime/segment-capture/history?' + qs.toString()); }
+  catch (e) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:1.5rem">Lỗi: ${esc(e.message)}</td></tr>`; return; }
+
+  if (!points || !points.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1.5rem">Không có dữ liệu khớp bộ lọc</td></tr>';
+    return;
+  }
+  const rows = [];
+  points.forEach(pt => {
+    (pt.segments || []).forEach(seg => {
+      rows.push(`<tr>
+        <td>${esc(fmtDateTime(pt.scannedAt))}</td>
+        <td>#${seg.legIndex}</td>
+        <td>${seg.tti.toFixed(2)}</td>
+        <td>${esc(seg.losLabel || '—')}</td>
+        <td>${seg.durationSec}</td>
+        <td>${seg.baseSec}</td>
+        <td>${seg.delaySec}</td>
+      </tr>`);
+    });
+  });
+  tbody.innerHTML = rows.join('');
 }
 
 // TT_ROAD_TYPES mirrors internal/traveltime/regions.go's RoadTypes exactly
@@ -6540,6 +6715,7 @@ async function loadTTRoutes() {
   catch (_) { _ttRoutes = []; }
   renderTTRoutes();
   drawTTOverviewMap(); // not awaited — table renders immediately, map fills in as routes are fetched
+  populateSegRouteSelect(); // keep the segment-capture history query's route dropdown in sync, regardless of load order against loadSegMonths()
 }
 
 function renderTTRoutes() {

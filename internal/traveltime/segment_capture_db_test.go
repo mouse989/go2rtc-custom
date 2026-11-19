@@ -1,22 +1,27 @@
 package traveltime
 
 import (
+	"os"
 	"testing"
 	"time"
 )
 
-func resetSegmentCaptureDB(t *testing.T) {
+func resetSegmentCaptureDB(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	if err := initSegmentCaptureDB(dir); err != nil {
 		t.Fatalf("initSegmentCaptureDB: %v", err)
 	}
 	t.Cleanup(func() {
-		if segmentCaptureDB != nil {
-			_ = segmentCaptureDB.Close()
-			segmentCaptureDB = nil
+		segmentCaptureMu.Lock()
+		for k, db := range segmentDBs {
+			db.Close()
+			delete(segmentDBs, k)
 		}
+		segmentCaptureDir = ""
+		segmentCaptureMu.Unlock()
 	})
+	return dir
 }
 
 func testLegs() []RouteLegStat {
@@ -44,7 +49,7 @@ func TestRecordAndFetchRouteSegments(t *testing.T) {
 		t.Errorf("meta = %+v, want route r1/Test Route", metas[0])
 	}
 
-	legs, err := getRouteSegmentLegs(metas[0].ID)
+	legs, err := getRouteSegmentLegs(metas[0].MonthKey, metas[0].ID)
 	if err != nil {
 		t.Fatalf("getRouteSegmentLegs: %v", err)
 	}
@@ -75,7 +80,7 @@ func TestRecordRouteSegmentsPopulatesLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("latestRouteSegmentScans: %v", err)
 	}
-	legs, err := getRouteSegmentLegs(metas[0].ID)
+	legs, err := getRouteSegmentLegs(metas[0].MonthKey, metas[0].ID)
 	if err != nil {
 		t.Fatalf("getRouteSegmentLegs: %v", err)
 	}
@@ -141,49 +146,137 @@ func TestLatestRouteSegmentsOnlyKeepsNewestPerRoute(t *testing.T) {
 	}
 }
 
-func TestCleanupSegmentCaptureOlderThan(t *testing.T) {
-	resetSegmentCaptureDB(t)
-	old := time.Now().AddDate(0, 0, -10)
-	recent := time.Now().AddDate(0, 0, -1)
-	if err := recordRouteSegments("r1", "Route A", old, testLegs()); err != nil {
-		t.Fatalf("recordRouteSegments (old): %v", err)
+// recordRouteSegments always writes into whichever month's file wall-clock
+// "now" falls in (not scannedAt — see currentSegmentDB's doc comment), so
+// every write in this test suite lands in one real file:
+// travel_route_segments_<this month>.db. This test confirms that file
+// actually exists on disk with the expected name, and that
+// ListSegmentCaptureMonths reports it.
+func TestRecordRouteSegmentsWritesCurrentMonthFile(t *testing.T) {
+	dir := resetSegmentCaptureDB(t)
+	if err := recordRouteSegments("r1", "Route A", time.Now(), testLegs()); err != nil {
+		t.Fatalf("recordRouteSegments: %v", err)
 	}
-	if err := recordRouteSegments("r1", "Route A", recent, testLegs()); err != nil {
-		t.Fatalf("recordRouteSegments (recent): %v", err)
+
+	wantKey := segmentMonthKeyFor(time.Now())
+	path := segmentMonthDBPath(dir, wantKey)
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected %s to exist: %v", path, err)
 	}
-	if err := cleanupSegmentCaptureOlderThan(7); err != nil {
-		t.Fatalf("cleanupSegmentCaptureOlderThan: %v", err)
+
+	months, err := ListSegmentCaptureMonths()
+	if err != nil {
+		t.Fatalf("ListSegmentCaptureMonths: %v", err)
 	}
-	var scanCount, segCount int
-	if err := segmentCaptureDB.QueryRow(`SELECT COUNT(*) FROM route_segment_scans`).Scan(&scanCount); err != nil {
-		t.Fatalf("count scans: %v", err)
+	if len(months) != 1 || months[0].MonthKey != wantKey {
+		t.Errorf("ListSegmentCaptureMonths = %+v, want exactly [%q]", months, wantKey)
 	}
-	if err := segmentCaptureDB.QueryRow(`SELECT COUNT(*) FROM route_segments`).Scan(&segCount); err != nil {
-		t.Fatalf("count segments: %v", err)
-	}
-	if scanCount != 1 {
-		t.Errorf("scanCount = %d, want 1 (only the recent scan should survive)", scanCount)
-	}
-	if segCount != 2 {
-		t.Errorf("segCount = %d, want 2 (the recent scan's own legs, old scan's legs must be gone)", segCount)
+	if months[0].SizeKB < 0 {
+		t.Errorf("SizeKB = %d, want >= 0", months[0].SizeKB)
 	}
 }
 
-func TestCleanupSegmentCaptureNoopWhenDaysNotPositive(t *testing.T) {
+// latestRouteSegmentScans must still find a route's latest scan when that
+// scan lives in LAST month's file — the brief window right after a month
+// rollover, before a route's next cycle has written anything into the new
+// (empty) current-month file.
+func TestLatestRouteSegmentScansSpansMonthBoundary(t *testing.T) {
 	resetSegmentCaptureDB(t)
-	veryOld := time.Now().AddDate(-1, 0, 0)
-	if err := recordRouteSegments("r1", "Route A", veryOld, testLegs()); err != nil {
-		t.Fatalf("recordRouteSegments: %v", err)
-	}
-	if err := cleanupSegmentCaptureOlderThan(0); err != nil {
-		t.Fatalf("cleanupSegmentCaptureOlderThan(0): %v", err)
-	}
-	metas, err := latestRouteSegmentScans()
+
+	now := time.Now().In(loc())
+	firstOfThisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	prevMonthKey := segmentMonthKeyFor(firstOfThisMonth.AddDate(0, 0, -1))
+
+	// Write directly into last month's file, bypassing recordRouteSegments
+	// (which always targets "now"'s file) — simulates a scan that really
+	// happened before this month started.
+	prevDB, err := segmentDBForMonth(prevMonthKey)
 	if err != nil {
-		t.Fatalf("latestRouteSegmentScans: %v", err)
+		t.Fatalf("segmentDBForMonth(%q): %v", prevMonthKey, err)
 	}
-	if len(metas) != 1 {
-		t.Errorf("got %d scans, want 1 — days<=0 must be a no-op", len(metas))
+	res, err := prevDB.Exec(`INSERT INTO route_segment_scans (route_id, route_name, scanned_at) VALUES (?, ?, ?)`,
+		"r1", "Route A", firstOfThisMonth.Add(-time.Hour).UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert into previous month: %v", err)
+	}
+	scanID, _ := res.LastInsertId()
+	if _, err := prevDB.Exec(`INSERT INTO route_segments
+		(scan_id, leg_index, from_lat, from_lng, to_lat, to_lng, length_m, duration_sec, base_sec, delay_sec, tti, los_label, los_color)
+		VALUES (?, 0, 10, 106, 10.1, 106.1, 1000, 100, 100, 0, 1.0, 'A', '#000')`, scanID); err != nil {
+		t.Fatalf("insert leg into previous month: %v", err)
+	}
+
+	all, err := LatestRouteSegments()
+	if err != nil {
+		t.Fatalf("LatestRouteSegments: %v", err)
+	}
+	if len(all) != 1 || all[0].RouteID != "r1" {
+		t.Fatalf("expected to find r1's scan from last month's file, got %+v", all)
+	}
+	if len(all[0].Segments) != 1 {
+		t.Errorf("expected 1 leg, got %d", len(all[0].Segments))
+	}
+}
+
+func TestQueryRouteSegmentHistoryRequiresRouteID(t *testing.T) {
+	resetSegmentCaptureDB(t)
+	if _, err := QueryRouteSegmentHistory(QueryRouteSegmentHistoryParams{MonthKey: segmentMonthKeyFor(time.Now())}); err == nil {
+		t.Error("expected an error when RouteID is empty")
+	}
+}
+
+func TestQueryRouteSegmentHistoryReturnsOldestFirstWithinMonth(t *testing.T) {
+	resetSegmentCaptureDB(t)
+	t1 := time.Now().Add(-2 * time.Hour)
+	t2 := time.Now().Add(-1 * time.Hour)
+	if err := recordRouteSegments("r1", "Route A", t1, testLegs()); err != nil {
+		t.Fatalf("recordRouteSegments (t1): %v", err)
+	}
+	if err := recordRouteSegments("r1", "Route A", t2, testLegs()); err != nil {
+		t.Fatalf("recordRouteSegments (t2): %v", err)
+	}
+	// A different route must never appear in r1's history.
+	if err := recordRouteSegments("r2", "Route B", t1, testLegs()); err != nil {
+		t.Fatalf("recordRouteSegments (r2): %v", err)
+	}
+
+	hist, err := QueryRouteSegmentHistory(QueryRouteSegmentHistoryParams{
+		MonthKey: segmentMonthKeyFor(time.Now()), RouteID: "r1",
+	})
+	if err != nil {
+		t.Fatalf("QueryRouteSegmentHistory: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("got %d history points, want 2 (only r1's own scans)", len(hist))
+	}
+	if hist[0].ScannedAt != t1.UTC().Format(time.RFC3339) || hist[1].ScannedAt != t2.UTC().Format(time.RFC3339) {
+		t.Errorf("expected oldest-first ordering [t1, t2], got [%s, %s]", hist[0].ScannedAt, hist[1].ScannedAt)
+	}
+	if len(hist[0].Segments) != 2 {
+		t.Errorf("expected 2 legs per scan, got %d", len(hist[0].Segments))
+	}
+}
+
+func TestQueryRouteSegmentHistoryRespectsFromTo(t *testing.T) {
+	resetSegmentCaptureDB(t)
+	early := time.Now().Add(-3 * time.Hour)
+	mid := time.Now().Add(-2 * time.Hour)
+	late := time.Now().Add(-1 * time.Hour)
+	for _, ts := range []time.Time{early, mid, late} {
+		if err := recordRouteSegments("r1", "Route A", ts, testLegs()); err != nil {
+			t.Fatalf("recordRouteSegments: %v", err)
+		}
+	}
+
+	hist, err := QueryRouteSegmentHistory(QueryRouteSegmentHistoryParams{
+		MonthKey: segmentMonthKeyFor(time.Now()), RouteID: "r1",
+		From: mid.UTC().Format(time.RFC3339), To: late.UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("QueryRouteSegmentHistory: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("got %d history points, want 2 (mid and late, early excluded by From)", len(hist))
 	}
 }
 
