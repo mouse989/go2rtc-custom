@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xem lại Heatmap – UTMC Platform</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+.hr-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:1.25rem 1.4rem; margin-bottom:1rem;
+}
+.hr-section h3 {
+  font-size:.85rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin:0 0 1rem;
+}
+.hr-row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; }
+.hr-row label { font-size:.78rem; color:var(--text-muted); white-space:nowrap; }
+.hr-row select, .hr-row button, .hr-row input[type=file] {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:6px; padding:.35rem .6rem; font-size:.8rem; font-family:inherit;
+}
+.hr-row button { cursor:pointer; }
+.hr-row button:disabled { opacity:.5; cursor:not-allowed; }
+#hrImportStatus { font-size:.78rem; color:var(--text-muted); margin-top:.5rem; }
+#hrControls { display:none; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border); }
+#hrSlider { width:100%; margin:.7rem 0; }
+#hrWindowLabel { font-size:.82rem; font-weight:600; }
+#hrMap { height:62vh; min-height:420px; border-radius:10px; overflow:hidden; background:var(--surface2); margin-top:.8rem; }
+.hr-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.7rem; color:var(--text-muted); }
+.hr-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
+.hr-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Platform</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/flowcapture.html" class="nav-item" data-tab-require="flowcapture" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" clip-rule="evenodd"/></svg>
+      Flow Capture
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Admin Config
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Xem lại Heatmap theo thời gian</h2>
+  </header>
+
+  <div class="content">
+
+    <div id="hrNoPermission" class="hr-section" style="display:none">
+      <div class="hr-empty">⚠ Bạn không có quyền sử dụng tính năng Heatmap.</div>
+    </div>
+
+    <div id="hrBody">
+      <div class="hr-section">
+        <h3>📂 Nạp dữ liệu từ file CSV</h3>
+        <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 .8rem">
+          Chọn file CSV đã xuất từ Traffic Monitor → "Xuất điểm Persistent (CSV)" (cột <code>Timestamp,Lat,Lng,JamFactor</code>).
+          File chỉ được đọc tại trình duyệt của anh, không gửi lên máy chủ.
+        </p>
+        <div class="hr-row">
+          <input type="file" id="hrFileInput" accept=".csv,text/csv">
+        </div>
+        <div id="hrImportStatus"></div>
+      </div>
+
+      <div class="hr-section" id="hrControls">
+        <h3>▶ Phát lại theo cửa sổ thời gian trượt</h3>
+        <div class="hr-row">
+          <label>Độ rộng cửa sổ</label>
+          <select id="hrWindowWidth">
+            <option value="900000">15 phút</option>
+            <option value="1800000" selected>30 phút</option>
+            <option value="3600000">1 giờ</option>
+            <option value="10800000">3 giờ</option>
+            <option value="21600000">6 giờ</option>
+            <option value="43200000">12 giờ</option>
+            <option value="86400000">1 ngày</option>
+          </select>
+          <label>Tốc độ phát</label>
+          <select id="hrSpeed">
+            <option value="300000">5 phút/giây</option>
+            <option value="900000">15 phút/giây</option>
+            <option value="1800000">30 phút/giây</option>
+            <option value="3600000" selected>1 giờ/giây</option>
+            <option value="10800000">3 giờ/giây</option>
+            <option value="21600000">6 giờ/giây</option>
+            <option value="43200000">12 giờ/giây</option>
+            <option value="86400000">1 ngày/giây</option>
+          </select>
+          <button id="hrPlayBtn">▶ Phát</button>
+          <button id="hrResetBtn">⏮ Về đầu</button>
+        </div>
+        <input type="range" id="hrSlider" value="0" min="0" max="1" step="1000">
+        <div id="hrWindowLabel">—</div>
+        <div id="hrMap"></div>
+        <div class="hr-jf-legend" id="hrGradientLegend">
+          <span>0</span>
+          <div class="hr-jf-legend-bar" id="hrJfLegendBar"></div>
+          <span>10</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- content -->
+</main>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="app.js"></script>
+<script>
+// ── CSV parsing ───────────────────────────────────────────────────────────
+// Small hand-written state-machine parser (not a naive split(',')) so a
+// quoted field (only Timestamp is quoted in this export, see
+// internal/traffic/persistent_export.go) is handled correctly even if a
+// future export ever adds a field that could contain a comma.
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+// parseUSDateTime/fmtUSDateTime treat the literal "MM/DD/YYYY HH:MM:SS"
+// digits as a UTC instant (Date.UTC), never the viewer's own browser
+// timezone — the export's Timestamp column is already Vietnam wall-clock
+// text (see persistent_export.go's own doc comment), so this is the only
+// way every viewer, regardless of where they are, sees the exact same
+// displayed time and the exact same window contents for the exact same
+// slider position. It does NOT represent a real UTC moment; it's an
+// internal trick to keep sorting/duration math simple and
+// timezone-independent.
+function parseUSDateTime(str) {
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/);
+  if (!m) return NaN;
+  const mo = +m[1], d = +m[2], y = +m[3], h = +m[4], mi = +m[5], s = +m[6];
+  return Date.UTC(y, mo - 1, d, h, mi, s);
+}
+function fmtUSDateTime(ms) {
+  const d = new Date(ms);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+function parseCsvFile(text) {
+  const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim() !== '');
+  if (!lines.length) return { points: [], skipped: 0 };
+  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const idx = {
+    t: header.indexOf('timestamp'), lat: header.indexOf('lat'),
+    lng: header.indexOf('lng'), jf: header.indexOf('jamfactor'),
+  };
+  if (idx.t < 0 || idx.lat < 0 || idx.lng < 0 || idx.jf < 0) {
+    throw new Error('File CSV thiếu cột bắt buộc (cần Timestamp, Lat, Lng, JamFactor)');
+  }
+  const points = [];
+  let skipped = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    const t = parseUSDateTime((cols[idx.t] || '').trim());
+    const lat = parseFloat(cols[idx.lat]);
+    const lng = parseFloat(cols[idx.lng]);
+    const jf = parseFloat(cols[idx.jf]);
+    if (!isFinite(t) || !isFinite(lat) || !isFinite(lng) || !isFinite(jf)) { skipped++; continue; }
+    points.push({ t, lat, lng, jf });
+  }
+  points.sort((a, b) => a.t - b.t);
+  return { points, skipped };
+}
+
+// ── Sliding time-window playback ──────────────────────────────────────────
+// _points is kept sorted by t ascending (parseCsvFile's job) so the
+// current window's slice is found by binary search each render instead of
+// scanning the whole array — stays cheap even at tens of thousands of
+// points, at the tick rate below.
+function lowerBound(arr, t) {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].t < t) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+const HR_TICK_MS = 150; // real-time animation tick — throttles GL source updates to ~6-7/s, smooth without hammering the renderer
+
+let _points = [], _minT = 0, _maxT = 0;
+let _windowWidthMs = 30 * 60 * 1000;
+let _windowStart = 0;
+let _speedMsPerSec = 3600 * 1000;
+let _playTimer = null;
+let _hrMap = null;
+
+function currentWindowPoints() {
+  const lo = lowerBound(_points, _windowStart);
+  const hi = lowerBound(_points, _windowStart + _windowWidthMs);
+  return _points.slice(lo, hi);
+}
+
+function renderWindow() {
+  const pts = currentWindowPoints();
+  if (_hrMap && _hrMap.getSource('hr-points')) {
+    _hrMap.getSource('hr-points').setData({
+      type: 'FeatureCollection',
+      features: pts.map(p => ({
+        type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { jf: p.jf },
+      })),
+    });
+  }
+  document.getElementById('hrWindowLabel').textContent =
+    `${fmtUSDateTime(_windowStart)} → ${fmtUSDateTime(_windowStart + _windowWidthMs)} · ${pts.length.toLocaleString('vi-VN')} điểm`;
+  document.getElementById('hrSlider').value = String(_windowStart);
+}
+
+function isPlaying() { return _playTimer !== null; }
+
+function startPlayback() {
+  if (isPlaying() || !_points.length) return;
+  if (_windowStart >= _maxT) _windowStart = _minT; // replay from the start once it's already reached the end
+  document.getElementById('hrPlayBtn').textContent = '⏸ Tạm dừng';
+  _playTimer = setInterval(() => {
+    _windowStart += _speedMsPerSec * (HR_TICK_MS / 1000);
+    if (_windowStart >= _maxT) { _windowStart = _maxT; renderWindow(); pausePlayback(); return; }
+    renderWindow();
+  }, HR_TICK_MS);
+}
+function pausePlayback() {
+  if (_playTimer) { clearInterval(_playTimer); _playTimer = null; }
+  document.getElementById('hrPlayBtn').textContent = '▶ Phát';
+}
+function resetPlayback() {
+  pausePlayback();
+  _windowStart = _minT;
+  renderWindow();
+}
+
+document.getElementById('hrPlayBtn').addEventListener('click', () => isPlaying() ? pausePlayback() : startPlayback());
+document.getElementById('hrResetBtn').addEventListener('click', resetPlayback);
+document.getElementById('hrWindowWidth').addEventListener('change', e => { _windowWidthMs = Number(e.target.value); renderWindow(); });
+document.getElementById('hrSpeed').addEventListener('change', e => { _speedMsPerSec = Number(e.target.value); });
+document.getElementById('hrSlider').addEventListener('input', e => {
+  pausePlayback(); // manual scrub takes over — avoids fighting the animation timer
+  _windowStart = Number(e.target.value);
+  renderWindow();
+});
+
+function fitMapToPoints() {
+  if (!_hrMap || !_points.length) return;
+  let minLat = _points[0].lat, maxLat = _points[0].lat, minLng = _points[0].lng, maxLng = _points[0].lng;
+  for (const p of _points) {
+    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng; if (p.lng > maxLng) maxLng = p.lng;
+  }
+  try { _hrMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 0 }); } catch (e) {}
+}
+
+document.getElementById('hrFileInput').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('hrImportStatus');
+  statusEl.textContent = 'Đang đọc file...';
+  pausePlayback();
+  try {
+    const text = await file.text();
+    const { points, skipped } = parseCsvFile(text);
+    if (!points.length) throw new Error('Không đọc được điểm hợp lệ nào trong file');
+    _points = points;
+    _minT = points[0].t;
+    _maxT = points[points.length - 1].t;
+    _windowStart = _minT;
+    const slider = document.getElementById('hrSlider');
+    slider.min = String(_minT); slider.max = String(_maxT); slider.step = '1000'; slider.value = String(_minT);
+    document.getElementById('hrControls').style.display = '';
+    renderWindow();
+    fitMapToPoints();
+    statusEl.textContent = `✓ Đã nạp ${points.length.toLocaleString('vi-VN')} điểm` +
+      (skipped ? `, bỏ qua ${skipped} dòng lỗi` : '') +
+      ` · Từ ${fmtUSDateTime(_minT)} đến ${fmtUSDateTime(_maxT)}`;
+  } catch (err) {
+    statusEl.textContent = '✗ Lỗi: ' + err.message;
+  }
+});
+
+// ── Map init (same heatmap+dot GL layer recipe as map.html's own
+// _addHeatmapLayers/btnHeatmap layer, just fed by the imported CSV's
+// current window instead of a live /api/traffic-heatmap poll) ────────────
+async function initHrMap() {
+  const [settings, heatCfg] = await Promise.all([
+    apiFetch('/api/settings').catch(() => null),
+    apiFetch('/api/heatmap-cfg').catch(() => null),
+    loadJamColorStops(),
+  ]);
+  const bar = document.getElementById('hrJfLegendBar');
+  if (bar) bar.style.background = jfGradientCssString();
+
+  const apiKey = (settings || {}).vietmap_api_key || '';
+  const el = document.getElementById('hrMap');
+  if (!apiKey) { el.innerHTML = '<div class="hr-empty">Chưa cấu hình VietMap API Key (Admin → Settings)</div>'; return; }
+
+  const d = Object.assign({ r5: 8, r15: 22, i5: 6, i15: 18, op: 82, crf: 2, crt: 7 }, heatCfg || {});
+  const r11 = Math.round((d.r5 * 2 + d.r15) / 3);
+  const i5 = d.i5 / 10, i15 = d.i15 / 10, i12 = Math.round((i5 + i15) / 2 * 10) / 10;
+
+  _hrMap = new vietmapgl.Map({
+    container: 'hrMap',
+    style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apiKey}`,
+    center: [106.700, 10.776], zoom: 10,
+  });
+  _hrMap.addControl(new vietmapgl.NavigationControl({ showCompass: false }), 'top-right');
+  _hrMap.on('load', () => {
+    _hrMap.addSource('hr-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    _hrMap.addLayer({
+      id: 'hr-points-heat', type: 'heatmap', source: 'hr-points', maxzoom: 15,
+      paint: {
+        'heatmap-weight': ['interpolate', ['linear'], ['get', 'jf'], 0, 0, 5, 0.6, 10, 1.5],
+        'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 5, i5, 12, i12, 15, i15],
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 5, d.r5, 11, r11, 15, d.r15],
+        'heatmap-opacity': d.op / 100,
+        'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+          0, 'rgba(0,0,0,0)', 0.15, 'rgba(251,191,36,.3)', 0.4, 'rgba(249,115,22,.6)',
+          0.7, 'rgba(239,68,68,.82)', 1, 'rgba(153,27,27,.95)'],
+      },
+    });
+    _hrMap.addLayer({
+      id: 'hr-points-dot', type: 'circle', source: 'hr-points', minzoom: 13,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['get', 'jf'], 0, d.crf, 10, d.crt],
+        'circle-color': jfColorExpression(),
+        'circle-opacity': 0.85,
+        'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,.4)',
+      },
+    });
+    renderWindow(); // re-apply current window in case a file was loaded before the map finished its own load event
+  });
+}
+
+(async () => {
+  await initApp();
+  if (!canUseHeatmap()) {
+    document.getElementById('hrNoPermission').style.display = '';
+    document.getElementById('hrBody').style.display = 'none';
+    return;
+  }
+  await initHrMap();
+})();
+</script>
+</body>
+</html>
