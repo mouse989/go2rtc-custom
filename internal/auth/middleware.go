@@ -286,6 +286,13 @@ var tabExtraPaths = map[string][]string{
 	// only gets a sub admin account past the outer path check, same as
 	// every other tab here.
 	TabSubAdmin: {"/api/subadmin"},
+	// /api/heatmap-replay/points (internal/traffic) is the "load a time
+	// range straight from the database" option on /heatmap-replay.html —
+	// same PersistentPointsInRange data the admin-only "Xuất điểm
+	// Persistent (CSV)" tool's /api/traffic/persistent-export already
+	// serves, just open to any viewer holding this tab instead of
+	// requireTrafficAccess's hard admin-only check.
+	TabHeatmapReplay: {"/api/heatmap-replay"},
 }
 
 func extractToken(r *http.Request) string {
