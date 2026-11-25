@@ -11,8 +11,11 @@ package traffic
 // functions; only the HTTP gate differs.
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
 	"github.com/AlexxIT/go2rtc/internal/trafficmetrics"
@@ -23,6 +26,9 @@ func registerFlowCapturePageHandlers() {
 	http.HandleFunc("/api/flowcapture/scans", handleFlowCapturePageScans)
 	http.HandleFunc("/api/flowcapture/geometry", handleFlowCapturePageGeometry)
 	http.HandleFunc("/api/flowcapture/latest", handleFlowCapturePageLatest)
+	http.HandleFunc("/api/flowcapture/at", handleFlowCapturePageAt)
+	http.HandleFunc("/api/flowcapture/roads", handleFlowCapturePageRoads)
+	http.HandleFunc("/api/flowcapture/hourly-stats", handleFlowCapturePageHourlyStats)
 	http.HandleFunc("/api/flowcapture/routes", handleFlowCapturePageRoutes)
 }
 
@@ -241,7 +247,15 @@ func handleFlowCapturePageLatest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, buildFlowLatestResponse(scans))
+}
 
+// buildFlowLatestResponse turns a list of per-region scan summaries
+// (latestFlowScanPerRegion or scanNearTimePerRegion — same shape either
+// way) into the combined geometry response the map renders, shared by
+// handleFlowCapturePageLatest (live) and handleFlowCapturePageAt
+// (a specific past moment).
+func buildFlowLatestResponse(scans []FlowScanSummary) flowLatestResponse {
 	resp := flowLatestResponse{Regions: []flowLatestRegion{}, Results: []flowGeometryResult{}}
 	for _, s := range scans {
 		resp.Regions = append(resp.Regions, flowLatestRegion{
@@ -257,7 +271,118 @@ func handleFlowCapturePageLatest(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Results = append(resp.Results, resultsToGeometry(parsed)...)
 	}
-	writeJSON(w, resp)
+	return resp
+}
+
+// handleFlowCapturePageAt  GET /api/flowcapture/at?time=RFC3339
+// Same combined shape as handleFlowCapturePageLatest, but "what every
+// active region's capture showed at or before this moment" instead of
+// "right now" — www/flowcapture.html's "🕐 Xem theo thời điểm" toggle.
+func handleFlowCapturePageAt(w http.ResponseWriter, r *http.Request) {
+	if !requireFlowCaptureViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	target, err := time.Parse(time.RFC3339, r.URL.Query().Get("time"))
+	if err != nil {
+		http.Error(w, "invalid time (want RFC3339): "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	scans, err := scanNearTimePerRegion(target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, buildFlowLatestResponse(scans))
+}
+
+// handleFlowCapturePageRoads  GET /api/flowcapture/roads?from=RFC3339&to=RFC3339
+// Distinct named roads seen in [from, to] — www/flowcapture.html's road
+// picker for the hourly-stats tool below. from/to are mandatory and
+// capped at maxFlowHistoryRangeDays apart (validateHistoryRange,
+// flow_capture_history.go) so this can never scan the whole, ever-growing
+// flow_segments table.
+func handleFlowCapturePageRoads(w http.ResponseWriter, r *http.Request) {
+	if !requireFlowCaptureViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	from, to, err := parseHistoryRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	roads, err := listFlowRoads(from, to)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, roads)
+}
+
+// handleFlowCapturePageHourlyStats  GET /api/flowcapture/hourly-stats
+//
+//	?region=&description=&from=RFC3339&to=RFC3339&levels=D,E,F
+//
+// "Vào giờ nào trong ngày tuyến này hay đạt mức ùn [levels] nhất?" —
+// www/flowcapture.html's hourly LOS/TTI breakdown for one named road.
+// levels defaults to D,E,F (every congested LOS tier per the official
+// LOS A-F standard, see internal/trafficmetrics's defaultLOSLevels) when
+// omitted.
+func handleFlowCapturePageHourlyStats(w http.ResponseWriter, r *http.Request) {
+	if !requireFlowCaptureViewer(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	from, to, err := parseHistoryRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	region := r.URL.Query().Get("region")
+	description := r.URL.Query().Get("description")
+	levels := []string{"D", "E", "F"}
+	if v := r.URL.Query().Get("levels"); v != "" {
+		levels = strings.Split(v, ",")
+	}
+
+	report, err := computeRoadHourlyStats(region, description, from, to, levels)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, report)
+}
+
+// parseHistoryRangeParams reads from/to (RFC3339, both required) off the
+// request's query string — the raw time.Time values, NOT yet range-
+// validated (listFlowRoads/computeRoadHourlyStats each call
+// validateHistoryRange themselves, so the cap is enforced in exactly one
+// place regardless of caller).
+func parseHistoryRangeParams(r *http.Request) (from, to time.Time, err error) {
+	fromStr := r.URL.Query().Get("from")
+	toStr := r.URL.Query().Get("to")
+	if fromStr == "" || toStr == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("from and to are required (RFC3339)")
+	}
+	from, err = time.Parse(time.RFC3339, fromStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid from: %w", err)
+	}
+	to, err = time.Parse(time.RFC3339, toStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid to: %w", err)
+	}
+	return from, to, nil
 }
 
 // handleFlowCapturePageRoutes  GET /api/flowcapture/routes

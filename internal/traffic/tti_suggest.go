@@ -90,7 +90,11 @@ func computeHotspots(days int, minTTI float64, minScans int, minRate float64, li
 	if flowCaptureDB == nil {
 		return []HotspotSuggestion{}, nil
 	}
-	if days <= 0 {
+	if days <= 0 || days > maxFlowHistoryRangeDays {
+		// Same cap flow_capture_history.go's validateHistoryRange enforces
+		// for the hourly-stats/roads endpoints — this is the same
+		// ever-growing flow_segments table, so an unbounded "days" here
+		// would be the same full-table-scan risk under a different name.
 		days = 7
 	}
 	if minTTI <= 0 {
