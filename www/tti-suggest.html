@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gợi ý tuyến TTI – UTMC Platform</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.css">
+<style>
+.tts-section {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:1.25rem 1.4rem; margin-bottom:1rem;
+}
+.tts-section h3 {
+  font-size:.85rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-muted); margin:0 0 1rem;
+}
+.tts-row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; margin-bottom:.5rem; }
+.tts-row label { font-size:.78rem; color:var(--text-muted); white-space:nowrap; }
+.tts-row select, .tts-row input[type=text], .tts-row input[type=number] {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:6px; padding:.35rem .6rem; font-size:.8rem; font-family:inherit;
+}
+.tts-hint { font-size:.73rem; color:var(--text-muted); margin:0 0 .6rem; line-height:1.5; }
+.tts-table { font-size:.8rem; }
+.tts-table th { text-align:left; color:var(--text-muted); font-weight:600; font-size:.73rem; text-transform:uppercase; letter-spacing:.04em; padding:.5rem .6rem; border-bottom:1px solid var(--border); }
+.tts-table td { padding:.5rem .6rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+.tts-table tr:last-child td { border-bottom:none; }
+.tts-rate-bar { display:inline-block; height:6px; border-radius:3px; background:var(--surface2); width:70px; overflow:hidden; vertical-align:middle; }
+.tts-rate-fill { height:100%; border-radius:3px; }
+.tts-badge { display:inline-block; padding:.1rem .45rem; border-radius:4px; font-size:.7rem; font-weight:700; color:#fff; }
+#ttsMap { height:60vh; min-height:420px; border-radius:10px; overflow:hidden; background:var(--surface2); }
+#ttsCtxMenu { position:fixed; z-index:9999; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.4); padding:.4rem 0; min-width:180px; font-size:.82rem; }
+#ttsCtxMenu button { width:100%; text-align:left; padding:.45rem 1rem; background:none; border:none; cursor:pointer; font-weight:600; font-family:inherit; font-size:.82rem; }
+#ttsPointBox { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:.6rem .75rem; font-size:.75rem; line-height:1.9; margin-bottom:.6rem; }
+#ttsRouteInfo { margin-top:.5rem; font-size:.8rem; padding:.4rem; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text-muted); }
+.tts-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <img src="logo.png" alt="UTMC">
+    <span><b>Platform</b></span>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/map.html" class="nav-item" data-tab-require="map" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 4.293L14 .586v12.828l2.293 2.293A1 1 0 0018 15V5a1 1 0 00-.293-.707z" clip-rule="evenodd"/></svg>
+      Map
+    </a>
+    <a href="/" class="nav-item" data-tab-require="cameras" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm8-8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+      Cameras
+    </a>
+    <a href="/dashboard.html" class="nav-item" data-tab-require="dashboard" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard
+    </a>
+    <a href="/dashboard2.html" class="nav-item" data-tab-require="dashboard2" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 02
+    </a>
+    <a href="/dashboard3.html" class="nav-item" data-tab-require="dashboard3" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 03
+    </a>
+    <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/annotate.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm-1 4h1v2H4V9zm1 4H4v2h1v-2z" clip-rule="evenodd"/></svg>
+      Annotate
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/incidents.html" class="nav-item" data-tab-require="incidents" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      Sự cố GT
+    </a>
+    <a href="/trafficinsight.html" class="nav-item" data-tab-require="trafficinsight" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
+      Tổng quan giao thông
+    </a>
+    <a href="/flowcapture.html" class="nav-item" data-tab-require="flowcapture" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" clip-rule="evenodd"/></svg>
+      Flow Capture
+    </a>
+    <a href="/heatmap-replay.html" class="nav-item" data-tab-require="heatmap_replay" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM10.75 6a.75.75 0 00-1.5 0v4c0 .284.152.546.398.687l3 1.732a.75.75 0 00.75-1.299L10.75 9.567V6z" clip-rule="evenodd"/></svg>
+      Xem lại Heatmap
+    </a>
+    <a href="/tti-suggest.html" class="nav-item active" data-tab-require="tti_suggest" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.69 18.933l.003.001c.106.059.212.085.312.085a.743.743 0 00.312-.085l.003-.001.006-.003.018-.01a6.788 6.788 0 00.397-.248c.24-.157.579-.396.975-.726.792-.66 1.819-1.636 2.845-2.853C16.447 12.6 18 9.95 18 7A6 6 0 006 7c0 2.95 1.553 5.6 3.44 7.993a19.646 19.646 0 002.846 2.853 11.65 11.65 0 00.976.726 6.967 6.967 0 00.407.258zM10 9a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+      Gợi ý tuyến TTI
+    </a>
+    <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
+    </a>
+    <a href="/admin.html" class="nav-item admin-only">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+      Admin Config
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="avatar" id="avatar">?</div>
+      <div class="user-meta">
+        <div class="user-name" id="userName">—</div>
+        <div class="user-role" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn-logout" id="btnLogout" title="Sign out">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <button class="sidebar-toggle" id="sidebarToggle">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+    </button>
+    <h2 class="page-title">Gợi ý tuyến cần theo dõi TTI</h2>
+  </header>
+
+  <div class="content">
+
+    <div class="tts-section">
+      <h3>🔎 Bộ lọc điểm nóng</h3>
+      <p class="tts-hint">
+        Tổng hợp từ dữ liệu Flow Capture (internal/traffic) — các đoạn đường ùn tắc (TTI ≥ ngưỡng chọn, theo đúng 6 mức LOS A-F
+        đang dùng ở Tổng quan giao thông) lặp lại nhiều lần trong khoảng thời gian chọn, loại trừ các đoạn đã có tuyến TTI theo dõi gần đó.
+      </p>
+      <div class="tts-row">
+        <label>Khoảng thời gian</label>
+        <select id="ttsDays">
+          <option value="1">1 ngày</option>
+          <option value="3">3 ngày</option>
+          <option value="7" selected>7 ngày</option>
+          <option value="14">14 ngày</option>
+          <option value="30">30 ngày</option>
+        </select>
+        <label>Mức ùn tối thiểu</label>
+        <select id="ttsMinTti">
+          <option value="1.49">≥ C (TTI 1.49)</option>
+          <option value="1.96" selected>≥ D (TTI 1.96)</option>
+          <option value="2.56">≥ E (TTI 2.56)</option>
+          <option value="3.45">≥ F (TTI 3.45)</option>
+        </select>
+        <label>Tần suất ùn tối thiểu</label>
+        <select id="ttsMinRate">
+          <option value="0.1">10%</option>
+          <option value="0.2" selected>20%</option>
+          <option value="0.3">30%</option>
+          <option value="0.5">50%</option>
+        </select>
+        <label><input type="checkbox" id="ttsHideCovered" checked onchange="renderTtsTable()"> Chỉ hiện khu vực chưa theo dõi</label>
+        <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
+      </div>
+      <div id="ttsStatus" style="font-size:.78rem;color:var(--text-muted)"></div>
+    </div>
+
+    <div class="tts-section">
+      <h3>📍 Điểm nóng gợi ý theo dõi TTI</h3>
+      <div style="overflow-x:auto">
+        <table class="tts-table" style="width:100%">
+          <thead>
+            <tr>
+              <th>Tên đường / khu vực</th>
+              <th>Khu vực</th>
+              <th>Tần suất ùn</th>
+              <th>Số lần ùn / quét</th>
+              <th>JF TB</th>
+              <th>Mức LOS cao nhất</th>
+              <th>Lần cuối phát hiện</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="ttsTableBody"><tr><td colspan="9" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tts-section">
+      <h3>🗺 Bản đồ</h3>
+      <p class="tts-hint">
+        🖱 <b>Chuột phải</b> trên bản đồ để đặt điểm đầu/giữa/cuối cho tuyến mới &nbsp;|&nbsp;
+        Đường <span style="color:#9ca3af">xám</span> = tuyến đã theo dõi &nbsp;|&nbsp;
+        Đường <span style="color:#ef4444">đỏ/cam</span> = điểm nóng gợi ý (bấm vào để nạp vào form thêm tuyến bên dưới)
+      </p>
+      <div id="ttsMap"></div>
+      <div id="ttsCtxMenu" style="display:none">
+        <button onclick="ttsCtxSet('origin')" style="color:#4ade80">🟢 Đặt làm Điểm đầu</button>
+        <button onclick="ttsCtxSet('waypoint')" style="color:#60a5fa">🔵 Thêm Điểm giữa</button>
+        <button onclick="ttsCtxSet('dest')" style="color:#f87171">🔴 Đặt làm Điểm cuối</button>
+      </div>
+    </div>
+
+    <div class="tts-section">
+      <h3>✏ Thêm tuyến theo dõi TTI mới</h3>
+      <p class="tts-hint">
+        Vẽ trực tiếp trên bản đồ ở trên (chuột phải để đặt điểm), hoặc bấm "+ Thêm vào theo dõi" ở một dòng trong bảng để nạp sẵn điểm đầu/cuối gợi ý —
+        tuyến được lưu thẳng vào danh sách theo dõi TTI, không cần vào Admin Config.
+      </p>
+      <form id="ttsRouteForm" onsubmit="ttsSubmitRoute(event)">
+        <div class="tts-row">
+          <label>Tên tuyến</label>
+          <input type="text" id="tts-route-name" required autocomplete="off" placeholder="VD: Nguyễn Văn Linh" style="min-width:220px">
+          <label>Khu vực</label>
+          <select id="tts-route-region"><option value="">— Chưa phân loại —</option></select>
+          <label>Loại đường</label>
+          <select id="tts-route-roadtype"><option value="">— Chưa phân loại —</option></select>
+        </div>
+        <div id="ttsPointBox">
+          <div><span style="color:#4ade80;font-weight:700">🟢 Đầu:</span> <span id="ttsOriginLabel" style="color:var(--text-muted)">Chưa chọn</span></div>
+          <div style="border-top:1px solid var(--border);padding-top:.35rem">
+            <span style="color:#60a5fa;font-weight:700">🔵 Giữa:</span> <span id="ttsWpLabel" style="color:var(--text-muted)">—</span>
+            <button type="button" onclick="ttsClearWp()" style="float:right;background:none;border:none;color:var(--red);cursor:pointer;font-size:.72rem">Xóa</button>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:.35rem"><span style="color:#f87171;font-weight:700">🔴 Cuối:</span> <span id="ttsDestLabel" style="color:var(--text-muted)">Chưa chọn</span></div>
+        </div>
+        <input type="hidden" id="tts-route-origin">
+        <input type="hidden" id="tts-route-dest">
+        <input type="hidden" id="tts-route-wp">
+        <div class="tts-row">
+          <button type="button" class="btn btn-secondary" onclick="ttsPreviewRoute()">🗺 Xem lộ trình</button>
+          <button type="button" class="btn btn-secondary" onclick="ttsResetDraw()">Xóa hết điểm</button>
+          <button type="submit" class="btn btn-primary">💾 Lưu vào danh sách theo dõi TTI</button>
+        </div>
+        <div id="ttsRouteInfo" style="display:none"></div>
+      </form>
+    </div>
+
+  </div>
+</main>
+
+<script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="app.js"></script>
+<script>
+// TT_ROAD_TYPES mirrors internal/traveltime/regions.go's RoadTypes exactly
+// — fixed, not admin-configurable, same convention admin.html's own
+// TT_ROAD_TYPES constant already uses, just duplicated here since this is
+// a separate standalone page.
+const TT_ROAD_TYPES = ['Đường đô thị', 'Đường trục chính', 'Đường vành đai', 'Quốc lộ', 'Cao tốc'];
+
+let _ttsHotspots = [];
+let _ttsRoutes = [];
+let _ttsRegions = [];
+
+// ── Hotspot list ─────────────────────────────────────────────────
+
+async function loadHotspots() {
+  const statusEl = document.getElementById('ttsStatus');
+  statusEl.textContent = 'Đang tải...';
+  try {
+    const qs = new URLSearchParams({
+      days: document.getElementById('ttsDays').value,
+      minTti: document.getElementById('ttsMinTti').value,
+      minRate: document.getElementById('ttsMinRate').value,
+    });
+    _ttsHotspots = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || [];
+    statusEl.textContent = `✓ ${_ttsHotspots.length} điểm nóng`;
+    renderTtsTable();
+    renderTtsHotspotLayer();
+  } catch (e) {
+    statusEl.textContent = '✗ Lỗi: ' + e.message;
+  }
+}
+
+function ttsLosColor(label) {
+  return { A: '#00E676', B: '#64DD17', C: '#8BC34A', D: '#FFC107', E: '#FF9800', F: '#D50000' }[label] || '#9ca3af';
+}
+
+function renderTtsTable() {
+  const hideCovered = document.getElementById('ttsHideCovered').checked;
+  const rows = hideCovered ? _ttsHotspots.filter(h => !h.covered) : _ttsHotspots;
+  const tbody = document.getElementById('ttsTableBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(h => {
+    const ratePct = Math.round(h.congestionRate * 100);
+    const name = h.description ? escHtml(h.description) : '<em style="opacity:.6">(chưa rõ tên đường)</em>';
+    const lastSeen = h.lastSeenAt ? new Date(h.lastSeenAt).toLocaleString('vi-VN') : '—';
+    const status = h.covered
+      ? `<span style="color:var(--text-muted)" title="${escHtml(h.coveredByRoute || '')}">✓ Đã theo dõi</span>`
+      : '<span style="color:var(--amber,#f59e0b)">Chưa theo dõi</span>';
+    const addBtn = h.covered ? '' : `<button class="btn btn-secondary btn-sm" onclick="ttsPrefillFromHotspot('${escHtml(h.key)}')">+ Thêm vào theo dõi</button>`;
+    return `<tr>
+      <td><strong>${name}</strong></td>
+      <td style="color:var(--text-muted);font-size:.77rem">${escHtml(h.regionName || '—')}</td>
+      <td><span class="tts-rate-bar"><span class="tts-rate-fill" style="width:${ratePct}%;background:${ttsLosColor(h.worstLosLabel)}"></span></span> ${ratePct}%</td>
+      <td style="color:var(--text-muted)">${h.congestedCount}/${h.scanCount}</td>
+      <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
+      <td><span class="tts-badge" style="background:${ttsLosColor(h.worstLosLabel)}">${escHtml(h.worstLosLabel || '—')}</span></td>
+      <td style="color:var(--text-muted);font-size:.76rem;white-space:nowrap">${lastSeen}</td>
+      <td>${status}</td>
+      <td style="white-space:nowrap">${addBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Map ──────────────────────────────────────────────────────────
+
+let _ttsMap = null, _ttsMapLoaded = false;
+let _ttsPendingLL = null;
+const _ttsMkrs = { origin: null, dest: null, waypoints: [] };
+
+function _ttsMkEl(color) {
+  const el = document.createElement('div');
+  el.style.cssText = `width:14px;height:14px;background:${color};border-radius:50%;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.55);cursor:pointer`;
+  return el;
+}
+
+async function initTtsMap() {
+  try {
+    const settings = await apiFetch('/api/settings');
+    const apikey = settings && settings.vietmap_api_key;
+    if (!apikey) {
+      document.getElementById('ttsMap').textContent = 'Chưa cấu hình VietMap API Key trong Settings';
+      return;
+    }
+    _ttsMap = new vietmapgl.Map({
+      container: 'ttsMap',
+      style: `https://maps.vietmap.vn/maps/styles/lm/style.json?apikey=${apikey}`,
+      center: [106.700, 10.776],
+      zoom: 11,
+    });
+    _ttsMap.addControl(new vietmapgl.NavigationControl(), 'top-right');
+
+    await new Promise(res => _ttsMap.on('load', res));
+    _ttsMapLoaded = true;
+
+    _ttsMap.addSource('tts-existing', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    _ttsMap.addLayer({
+      id: 'tts-existing-line', type: 'line', source: 'tts-existing',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#9ca3af', 'line-width': 2.5, 'line-opacity': .7 },
+    });
+
+    _ttsMap.addSource('tts-hotspot', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    _ttsMap.addLayer({
+      id: 'tts-hotspot-line', type: 'line', source: 'tts-hotspot',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': .85 },
+    });
+    _ttsMap.on('click', 'tts-hotspot-line', e => ttsPrefillFromHotspot(e.features[0].properties.key));
+    _ttsMap.on('mouseenter', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = 'pointer'; });
+    _ttsMap.on('mouseleave', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = ''; });
+
+    _ttsMap.addSource('tts-draw', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    _ttsMap.addLayer({
+      id: 'tts-draw-line', type: 'line', source: 'tts-draw',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-opacity': .9 },
+    });
+
+    _ttsMap.on('contextmenu', e => {
+      e.originalEvent.preventDefault();
+      _ttsPendingLL = e.lngLat;
+      const menu = document.getElementById('ttsCtxMenu');
+      menu.style.left = e.originalEvent.clientX + 'px';
+      menu.style.top = e.originalEvent.clientY + 'px';
+      menu.style.display = '';
+    });
+    _ttsMap.on('click', () => { document.getElementById('ttsCtxMenu').style.display = 'none'; });
+
+    renderTtsRoutesLayer();
+    renderTtsHotspotLayer();
+  } catch (err) {
+    document.getElementById('ttsMap').textContent = 'Lỗi khởi tạo bản đồ: ' + err.message;
+  }
+}
+
+function ttsParseLatLng(s) {
+  if (!s) return null;
+  const parts = s.split(',');
+  const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
+  return (isFinite(lat) && isFinite(lng)) ? [lat, lng] : null;
+}
+
+// Existing tracked routes, drawn as straight lines (origin→waypoints→
+// destination) for context — NOT snapped to the real road network (that
+// would need one /api/vietmap/route call per route); the hotspot map is
+// here to show WHERE coverage already is, not to re-render admin.html's
+// own road-accurate overview.
+function renderTtsRoutesLayer() {
+  if (!_ttsMapLoaded) return;
+  const features = _ttsRoutes.map(r => {
+    const pts = [r.origin, ...(r.waypoints ? r.waypoints.split('|').filter(Boolean) : []), r.destination]
+      .map(ttsParseLatLng).filter(Boolean).map(([lat, lng]) => [lng, lat]);
+    if (pts.length < 2) return null;
+    return { type: 'Feature', properties: { name: r.name }, geometry: { type: 'LineString', coordinates: pts } };
+  }).filter(Boolean);
+  _ttsMap.getSource('tts-existing').setData({ type: 'FeatureCollection', features });
+}
+
+function renderTtsHotspotLayer() {
+  if (!_ttsMapLoaded) return;
+  const features = _ttsHotspots.filter(h => !h.covered).map(h => ({
+    type: 'Feature',
+    properties: { key: h.key, color: ttsLosColor(h.worstLosLabel) },
+    geometry: { type: 'LineString', coordinates: [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]] },
+  }));
+  _ttsMap.getSource('tts-hotspot').setData({ type: 'FeatureCollection', features });
+}
+
+// ── Draw tool (port of admin.html's TTI route editor map) ──────────
+
+function ttsSetCoord(type, coordStr) {
+  const parts = coordStr.split(',');
+  const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
+  if (isNaN(lat) || isNaN(lng)) return;
+  if (type === 'origin') {
+    if (_ttsMkrs.origin) _ttsMkrs.origin.remove();
+    _ttsMkrs.origin = new vietmapgl.Marker({ element: _ttsMkEl('#10b981') }).setLngLat([lng, lat]).addTo(_ttsMap);
+    document.getElementById('tts-route-origin').value = coordStr;
+    document.getElementById('ttsOriginLabel').textContent = coordStr;
+  } else if (type === 'dest') {
+    if (_ttsMkrs.dest) _ttsMkrs.dest.remove();
+    _ttsMkrs.dest = new vietmapgl.Marker({ element: _ttsMkEl('#ef4444') }).setLngLat([lng, lat]).addTo(_ttsMap);
+    document.getElementById('tts-route-dest').value = coordStr;
+    document.getElementById('ttsDestLabel').textContent = coordStr;
+  } else {
+    _ttsMkrs.waypoints.push(new vietmapgl.Marker({ element: _ttsMkEl('#3b82f6') }).setLngLat([lng, lat]).addTo(_ttsMap));
+    const cur = document.getElementById('tts-route-wp').value;
+    const newVal = cur ? cur + '|' + coordStr : coordStr;
+    document.getElementById('tts-route-wp').value = newVal;
+    document.getElementById('ttsWpLabel').textContent = newVal.split('|').length + ' điểm';
+  }
+}
+
+function ttsCtxSet(type) {
+  document.getElementById('ttsCtxMenu').style.display = 'none';
+  if (!_ttsPendingLL) return;
+  const coordStr = `${_ttsPendingLL.lat.toFixed(5)},${_ttsPendingLL.lng.toFixed(5)}`;
+  ttsSetCoord(type, coordStr);
+  const o = document.getElementById('tts-route-origin').value;
+  const d = document.getElementById('tts-route-dest').value;
+  if (o && d) ttsPreviewRoute();
+}
+
+function ttsClearWp() {
+  _ttsMkrs.waypoints.forEach(m => m.remove());
+  _ttsMkrs.waypoints = [];
+  document.getElementById('tts-route-wp').value = '';
+  document.getElementById('ttsWpLabel').textContent = '—';
+  const o = document.getElementById('tts-route-origin').value;
+  const d = document.getElementById('tts-route-dest').value;
+  if (o && d) ttsPreviewRoute();
+}
+
+function ttsResetDraw() {
+  if (_ttsMkrs.origin) { _ttsMkrs.origin.remove(); _ttsMkrs.origin = null; }
+  if (_ttsMkrs.dest) { _ttsMkrs.dest.remove(); _ttsMkrs.dest = null; }
+  ttsClearWp();
+  document.getElementById('tts-route-origin').value = '';
+  document.getElementById('tts-route-dest').value = '';
+  document.getElementById('ttsOriginLabel').textContent = 'Chưa chọn';
+  document.getElementById('ttsDestLabel').textContent = 'Chưa chọn';
+  document.getElementById('ttsWpLabel').textContent = '—';
+  if (_ttsMapLoaded) _ttsMap.getSource('tts-draw').setData({ type: 'FeatureCollection', features: [] });
+  document.getElementById('ttsRouteInfo').style.display = 'none';
+  document.getElementById('tts-route-name').value = '';
+}
+
+async function ttsPreviewRoute() {
+  const origin = document.getElementById('tts-route-origin').value;
+  const dest = document.getElementById('tts-route-dest').value;
+  const wps = document.getElementById('tts-route-wp').value;
+  if (!origin || !dest) { toast('Cần có điểm đầu và điểm cuối', 'error'); return; }
+
+  const infoEl = document.getElementById('ttsRouteInfo');
+  infoEl.style.display = '';
+  infoEl.style.color = 'var(--text-muted)';
+  infoEl.textContent = '⏳ Đang tính lộ trình…';
+
+  try {
+    const pts = [origin];
+    if (wps) wps.split('|').filter(Boolean).forEach(p => pts.push(p));
+    pts.push(dest);
+
+    const params = new URLSearchParams();
+    pts.forEach(p => params.append('point', p));
+    params.set('vehicle', 'car');
+
+    const data = await apiFetch('/api/vietmap/route?' + params.toString());
+    if (data.error) throw new Error(data.error);
+    if (!data.paths?.length) throw new Error('Không tìm được lộ trình');
+
+    const path = data.paths[0];
+    const km = (path.distance / 1000).toFixed(2);
+    const min = (path.time / 60000).toFixed(1);
+    const coords = path.points?.coordinates ?? path.points;
+
+    if (_ttsMapLoaded && coords) {
+      _ttsMap.getSource('tts-draw').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
+      if (path.bbox) {
+        const [w, s, e, n] = path.bbox;
+        _ttsMap.fitBounds([[w, s], [e, n]], { padding: 50 });
+      }
+    }
+    infoEl.style.color = 'var(--green)';
+    infoEl.textContent = `📏 ${km} km · ⏱ ${min} phút · ${pts.length - 1} đoạn`;
+  } catch (err) {
+    infoEl.style.color = 'var(--red)';
+    infoEl.textContent = '❌ ' + (err.message || 'Lỗi kết nối');
+  }
+}
+
+function ttsPrefillFromHotspot(key) {
+  const h = _ttsHotspots.find(x => x.key === key);
+  if (!h) return;
+  ttsResetDraw();
+  ttsSetCoord('origin', `${h.firstLat.toFixed(5)},${h.firstLng.toFixed(5)}`);
+  ttsSetCoord('dest', `${h.lastLat.toFixed(5)},${h.lastLng.toFixed(5)}`);
+  document.getElementById('tts-route-name').value = h.description || '';
+  document.getElementById('tts-route-name').focus();
+  ttsPreviewRoute();
+  document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function ttsSubmitRoute(e) {
+  e.preventDefault();
+  const origin = document.getElementById('tts-route-origin').value.trim();
+  const dest = document.getElementById('tts-route-dest').value.trim();
+  const name = document.getElementById('tts-route-name').value.trim();
+  if (!origin || !dest) { toast('Vui lòng chọn điểm đầu và điểm cuối trên bản đồ', 'error'); return; }
+  if (!name) { toast('Vui lòng nhập tên tuyến đường', 'error'); return; }
+  const body = {
+    name, origin, destination: dest,
+    waypoints: document.getElementById('tts-route-wp').value.trim(),
+    region: document.getElementById('tts-route-region').value,
+    roadType: document.getElementById('tts-route-roadtype').value,
+  };
+  try {
+    await apiFetch('/api/traveltime/routes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    toast('Đã thêm tuyến vào danh sách theo dõi TTI', 'success');
+    ttsResetDraw();
+    await loadTtsRoutes();
+    await loadHotspots();
+  } catch (err) {
+    toast(err.message || 'Lỗi', 'error');
+  }
+}
+
+// ── Existing routes + regions (for the draw form's selects) ────────
+
+async function loadTtsRoutes() {
+  try { _ttsRoutes = await apiFetch('/api/traveltime/routes') || []; }
+  catch (_) { _ttsRoutes = []; }
+  renderTtsRoutesLayer();
+}
+
+async function loadTtsRegions() {
+  try { _ttsRegions = await apiFetch('/api/traveltime/route-regions') || []; }
+  catch (_) { _ttsRegions = []; }
+  const sel = document.getElementById('tts-route-region');
+  sel.innerHTML = '<option value="">— Chưa phân loại —</option>' + _ttsRegions.map(r => `<option value="${escHtml(r)}">${escHtml(r)}</option>`).join('');
+}
+
+function loadTtsRoadTypes() {
+  const sel = document.getElementById('tts-route-roadtype');
+  sel.innerHTML = '<option value="">— Chưa phân loại —</option>' + TT_ROAD_TYPES.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+}
+
+(async () => {
+  await initApp('tti_suggest');
+  loadTtsRoadTypes();
+  await Promise.all([initTtsMap(), loadTtsRoutes(), loadTtsRegions(), loadHotspots()]);
+})();
+</script>
+</body>
+</html>

@@ -135,6 +135,7 @@ func Init() {
 	registerAPIHandlers()
 	registerFlowCapturePageHandlers()
 	registerHeatmapReplayHandlers()
+	registerTtiSuggestHandlers()
 
 	// Auto-start worker if configured
 	if cfg.Running {

@@ -57,10 +57,21 @@ const (
 	// be allowed to review historical jam patterns offline without also
 	// getting the live overlay, or vice versa.
 	TabHeatmapReplay = "heatmap_replay"
+	// TabTtiSuggest gates /tti-suggest.html — surfaces recurring jam
+	// hotspots found in internal/traffic's flow-capture history (see
+	// internal/traffic/tti_suggest.go) as candidate routes worth tracking
+	// continuously, and lets a holder draw/save a new internal/traveltime
+	// Route straight from that page (click origin/destination/waypoints on
+	// a map) without needing admin.html's TTI config section at all. Its
+	// own grant: can only ADD a new route from there — editing or deleting
+	// an existing one still requires the admin role, same as before this
+	// tab existed (see internal/traveltime/api.go's
+	// requireAdminOrTtiSuggest).
+	TabTtiSuggest = "tti_suggest"
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabDashboard3, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture, TabHeatmapReplay}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabDashboard3, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture, TabHeatmapReplay, TabTtiSuggest}
 
 // User represents an application user
 type User struct {

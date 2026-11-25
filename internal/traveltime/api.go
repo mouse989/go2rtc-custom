@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -33,6 +34,26 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	user, ok := auth.UserFromContext(r.Context())
 	if !ok || user.Role != auth.RoleAdmin {
 		http.Error(w, "admin only", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// requireAdminOrTtiSuggest allows admin or a viewer holding
+// auth.TabTtiSuggest — used by handleRoutes' GET (list, so
+// tti-suggest.html's map can show which routes are already tracked) and
+// POST (create a new route from that page's draw tool: "add thêm route
+// mới vào module theo dõi TTi ... mà không cần vào phần config của menu
+// TTi"), and by handleRouteRegions' GET (populate that same form's
+// optional "Khu vực" select). Editing or deleting an EXISTING route
+// (handleRoutes' PUT/DELETE) and editing the region list itself
+// (handleRouteRegions' PUT) stay requireAdmin-only, unchanged — this tab
+// can only add new routes, not touch ones it didn't create nor the
+// region vocabulary itself.
+func requireAdminOrTtiSuggest(w http.ResponseWriter, r *http.Request) bool {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok || !slices.Contains(user.EffectiveTabs(), auth.TabTtiSuggest) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return false
 	}
 	return true
@@ -180,11 +201,15 @@ func validateRouteTags(rt *Route) error {
 }
 
 func handleRoutes(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
-		return
-	}
+	// GET/POST: admin or a TabTtiSuggest holder (that page's own "draw a
+	// route" tool). PUT/DELETE touch an EXISTING route and stay
+	// admin-only — checked per-branch below, not with one gate up front,
+	// precisely so TabTtiSuggest only ever reaches GET/POST here.
 	switch r.Method {
 	case http.MethodGet:
+		if !requireAdminOrTtiSuggest(w, r) {
+			return
+		}
 		list := listRoutes()
 		if list == nil {
 			list = []*Route{}
@@ -192,6 +217,9 @@ func handleRoutes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, list)
 
 	case http.MethodPost:
+		if !requireAdminOrTtiSuggest(w, r) {
+			return
+		}
 		var rt Route
 		if err := json.NewDecoder(r.Body).Decode(&rt); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -215,6 +243,9 @@ func handleRoutes(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(created)
 
 	case http.MethodPut:
+		if !requireAdmin(w, r) {
+			return
+		}
 		var rt Route
 		if err := json.NewDecoder(r.Body).Decode(&rt); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -239,6 +270,9 @@ func handleRoutes(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 
 	case http.MethodDelete:
+		if !requireAdmin(w, r) {
+			return
+		}
 		id := r.URL.Query().Get("id")
 		if id == "" {
 			http.Error(w, "id required", http.StatusBadRequest)
@@ -282,14 +316,20 @@ func handleRoutesOrder(w http.ResponseWriter, r *http.Request) {
 // codebase's other small admin lists — the client sends the full edited
 // array, not individual add/remove calls).
 func handleRouteRegions(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
-		return
-	}
+	// GET: admin or TabTtiSuggest (populates that page's optional "Khu
+	// vực" select). PUT edits the shared vocabulary itself and stays
+	// admin-only.
 	switch r.Method {
 	case http.MethodGet:
+		if !requireAdminOrTtiSuggest(w, r) {
+			return
+		}
 		writeJSON(w, ListRegions())
 
 	case http.MethodPut:
+		if !requireAdmin(w, r) {
+			return
+		}
 		var names []string
 		if err := json.NewDecoder(r.Body).Decode(&names); err != nil {
 			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)

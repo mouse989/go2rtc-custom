@@ -293,6 +293,17 @@ var tabExtraPaths = map[string][]string{
 	// serves, just open to any viewer holding this tab instead of
 	// requireTrafficAccess's hard admin-only check.
 	TabHeatmapReplay: {"/api/heatmap-replay"},
+	// /tti-suggest.html's own API (hotspot list) plus the three
+	// internal/traveltime endpoints its "draw a new route" tool needs:
+	// /api/traveltime/routes (list for the "already tracked" overlay, and
+	// POST to save a new one — handleRoutes itself still restricts
+	// PUT/DELETE of an EXISTING route to the admin role, see
+	// requireAdminOrTtiSuggest), /api/traveltime/route-regions (GET only,
+	// to populate the optional "Khu vực" tag on a new route — same
+	// handler, PUT still admin-only), and /api/vietmap/route (the road-
+	// snapping preview, same proxy TabDashboard/TabDashboard2/
+	// TabDashboard3 already unlock above for their own route-detail map).
+	TabTtiSuggest: {"/api/tti-suggest", "/api/traveltime/routes", "/api/traveltime/route-regions", "/api/vietmap/route"},
 }
 
 func extractToken(r *http.Request) string {
