@@ -31,6 +31,9 @@
 .hr-jf-legend { display:flex; align-items:center; gap:.5rem; margin-top:.7rem; font-size:.7rem; color:var(--text-muted); }
 .hr-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
 .hr-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
+.hr-day-chart { border:1px solid var(--border); border-radius:8px; padding:.7rem .9rem; margin-bottom:.8rem; background:var(--surface2); }
+.hr-day-chart h4 { margin:0 0 .5rem; font-size:.78rem; font-weight:700; color:var(--text); }
+.hr-day-chart .hr-day-canvas-wrap { height:160px; }
 </style>
 </head>
 <body>
@@ -141,12 +144,21 @@
           <span>10</span>
         </div>
       </div>
+
+      <div class="hr-section" id="hrHourlySection" style="display:none">
+        <h3>📊 Số tin xuất hiện theo giờ, từng ngày</h3>
+        <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 .8rem">
+          Mỗi biểu đồ là 1 ngày (0h–23h) — chỉ tính trên dữ liệu trong file đã nạp, không đổi theo cửa sổ thời gian đang phát ở trên.
+        </p>
+        <div id="hrHourlyCharts"></div>
+      </div>
     </div>
 
   </div><!-- content -->
 </main>
 
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>
 <script>
 // ── CSV parsing ───────────────────────────────────────────────────────────
@@ -323,6 +335,75 @@ function fitMapToPoints() {
   try { _hrMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40, duration: 0 }); } catch (e) {}
 }
 
+// ── Hourly histogram, one chart per calendar day ──────────────────────────
+// A static summary of the WHOLE imported file — unlike the map above, this
+// never changes with the sliding playback window (the user's own
+// distinction: "chỉ thể hiện dữ liệu trong file upload vào", not the
+// current window). One chart per day rather than one combined chart with
+// a day picker or a multi-series overlay — simplest to read correctly at
+// a glance, and naturally scales from 1 day to a couple of weeks just by
+// scrolling, without a separate "too many days" code path.
+let _hourlyCharts = [];
+
+// Calendar day in the same UTC-trick convention parseUSDateTime/fmtUSDateTime
+// use (the literal Vietnam wall-clock digits, stored as if they were UTC) —
+// never the viewer's own local timezone, for the same reason: every viewer
+// must group points into the same days regardless of where they are.
+function dayKeyOf(ms) {
+  const d = new Date(ms);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+function dayLabelOf(ms) {
+  const d = new Date(ms);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+}
+
+function buildHourlyCharts() {
+  _hourlyCharts.forEach(c => c.destroy());
+  _hourlyCharts = [];
+  const container = document.getElementById('hrHourlyCharts');
+  container.innerHTML = '';
+  document.getElementById('hrHourlySection').style.display = _points.length ? '' : 'none';
+  if (!_points.length) return;
+
+  // One pass to bucket every point into day -> 24 hourly counts.
+  const byDay = new Map(); // dayKey -> { label, counts[24] }
+  for (const p of _points) {
+    const key = dayKeyOf(p.t);
+    let day = byDay.get(key);
+    if (!day) { day = { label: dayLabelOf(p.t), counts: new Array(24).fill(0) }; byDay.set(key, day); }
+    day.counts[new Date(p.t).getUTCHours()]++;
+  }
+  const days = [...byDay.entries()].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+
+  const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+  const grid = 'rgba(128,128,128,.15)';
+  const hourLabels = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
+
+  for (const [, day] of days) {
+    const total = day.counts.reduce((a, b) => a + b, 0);
+    const wrap = document.createElement('div');
+    wrap.className = 'hr-day-chart';
+    wrap.innerHTML = `<h4>${day.label} — ${total.toLocaleString('vi-VN')} tin</h4><div class="hr-day-canvas-wrap"><canvas></canvas></div>`;
+    container.appendChild(wrap);
+    const chart = new Chart(wrap.querySelector('canvas'), {
+      type: 'bar',
+      data: { labels: hourLabels, datasets: [{ data: day.counts, backgroundColor: '#f97316', borderRadius: 3, maxBarThickness: 22 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => items[0].label, label: c => `${c.parsed.y.toLocaleString('vi-VN')} tin` } } },
+        scales: {
+          x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+          y: { beginAtZero: true, ticks: { color: txt, precision: 0, font: { size: 10 } }, grid: { color: grid } },
+        },
+      },
+    });
+    _hourlyCharts.push(chart);
+  }
+}
+
 document.getElementById('hrFileInput').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -344,6 +425,7 @@ document.getElementById('hrFileInput').addEventListener('change', async e => {
     document.getElementById('hrResetBtn').disabled = false;
     renderWindow();
     if (_hrMap) fitMapToPoints();
+    buildHourlyCharts();
     statusEl.textContent = `✓ Đã nạp ${points.length.toLocaleString('vi-VN')} điểm` +
       (skipped ? `, bỏ qua ${skipped} dòng lỗi` : '') +
       ` · Từ ${fmtUSDateTime(_minT)} đến ${fmtUSDateTime(_maxT)}`;
