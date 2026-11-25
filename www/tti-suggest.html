@@ -17,7 +17,7 @@
 }
 .tts-row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; margin-bottom:.5rem; }
 .tts-row label { font-size:.78rem; color:var(--text-muted); white-space:nowrap; }
-.tts-row select, .tts-row input[type=text], .tts-row input[type=number] {
+.tts-row select, .tts-row input[type=text], .tts-row input[type=number], .tts-row input[type=date] {
   background:var(--surface2); border:1px solid var(--border); color:var(--text);
   border-radius:6px; padding:.35rem .6rem; font-size:.8rem; font-family:inherit;
 }
@@ -146,17 +146,15 @@
       <h3>🔎 Bộ lọc điểm nóng</h3>
       <p class="tts-hint">
         Tổng hợp từ dữ liệu Flow Capture (internal/traffic) — các đoạn đường ùn tắc (TTI ≥ ngưỡng chọn, theo đúng 6 mức LOS A-F
-        đang dùng ở Tổng quan giao thông) lặp lại nhiều lần trong khoảng thời gian chọn, loại trừ các đoạn đã có tuyến TTI theo dõi gần đó.
+        đang dùng ở Tổng quan giao thông) lặp lại nhiều lần trong khoảng ngày chọn, loại trừ các đoạn đã có tuyến TTI theo dõi gần đó.
+        Mỗi khoảng ngày khác nhau có thể cho ra điểm nóng khác nhau, nên bắt buộc chọn Từ ngày/Đến ngày (tối đa 62 ngày) —
+        không tự suy luận từ "N ngày gần nhất" để tránh truy vấn toàn bộ dữ liệu đã lưu.
       </p>
       <div class="tts-row">
-        <label>Khoảng thời gian</label>
-        <select id="ttsDays">
-          <option value="1">1 ngày</option>
-          <option value="3">3 ngày</option>
-          <option value="7" selected>7 ngày</option>
-          <option value="14">14 ngày</option>
-          <option value="30">30 ngày</option>
-        </select>
+        <label>Từ ngày</label>
+        <input type="date" id="ttsFrom">
+        <label>Đến ngày</label>
+        <input type="date" id="ttsTo">
         <label>Mức ùn tối thiểu</label>
         <select id="ttsMinTti">
           <option value="1.49">≥ C (TTI 1.49)</option>
@@ -175,6 +173,7 @@
         <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
       </div>
       <div id="ttsStatus" style="font-size:.78rem;color:var(--text-muted)"></div>
+      <div id="ttsDataQuality" style="font-size:.76rem;color:var(--text-muted);margin-top:.3rem"></div>
     </div>
 
     <div class="tts-section">
@@ -267,22 +266,82 @@ let _ttsRegions = [];
 
 // ── Hotspot list ─────────────────────────────────────────────────
 
+// TTS_MAX_RANGE_DAYS mirrors internal/traffic/flow_capture_history.go's
+// maxFlowHistoryRangeDays exactly — checked here too so a too-wide range
+// is caught before the request even goes out, but the server enforces
+// the same cap regardless (validateHistoryRange), so this is only ever a
+// faster error, never the actual guarantee.
+const TTS_MAX_RANGE_DAYS = 62;
+
+function ttsDefaultDates() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 7 * 86400000);
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  document.getElementById('ttsFrom').value = fmt(from);
+  document.getElementById('ttsTo').value = fmt(to);
+}
+
+// ttsRangeOrNull reads/validates the Từ ngày/Đến ngày inputs, showing a
+// toast and returning null on anything invalid — every caller below bails
+// out immediately when this returns null.
+function ttsRangeOrNull() {
+  const fromVal = document.getElementById('ttsFrom').value;
+  const toVal = document.getElementById('ttsTo').value;
+  if (!fromVal || !toVal) { toast('Chọn Từ ngày và Đến ngày', 'error'); return null; }
+  const from = new Date(fromVal + 'T00:00:00');
+  const to = new Date(toVal + 'T23:59:59');
+  if (isNaN(from) || isNaN(to) || to < from) { toast('Khoảng ngày không hợp lệ', 'error'); return null; }
+  if ((to - from) / 86400000 > TTS_MAX_RANGE_DAYS) {
+    toast(`Khoảng ngày tối đa ${TTS_MAX_RANGE_DAYS} ngày — để tránh truy vấn toàn bộ dữ liệu đã lưu`, 'error');
+    return null;
+  }
+  return { from, to };
+}
+
 async function loadHotspots() {
+  const range = ttsRangeOrNull();
+  if (!range) return;
   const statusEl = document.getElementById('ttsStatus');
+  const dqEl = document.getElementById('ttsDataQuality');
   statusEl.textContent = 'Đang tải...';
+  dqEl.textContent = '';
   try {
     const qs = new URLSearchParams({
-      days: document.getElementById('ttsDays').value,
+      from: range.from.toISOString(),
+      to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
       minRate: document.getElementById('ttsMinRate').value,
     });
-    _ttsHotspots = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || [];
+    const report = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || {};
+    _ttsHotspots = report.hotspots || [];
     statusEl.textContent = `✓ ${_ttsHotspots.length} điểm nóng`;
+    renderTtsDataQuality(report.dataQuality);
     renderTtsTable();
     renderTtsHotspotLayer();
   } catch (e) {
     statusEl.textContent = '✗ Lỗi: ' + e.message;
   }
+}
+
+// renderTtsDataQuality surfaces, for the chosen range, how complete the
+// underlying flow_segments rows actually are — "khi chọn ngày xong sẽ
+// load trong db để suggest, nên kiểm tra ... có đầy đủ dữ liệu link; jf;
+// speed": a low "có hình học" rate here (not a bug in the hotspot list
+// itself) is why a date range can surface fewer suggestions than a viewer
+// might expect, since a flow_segments row without first/last lat,lng
+// never enters the grouping at all (hotspotGroupKey has nothing to key
+// it by).
+function renderTtsDataQuality(dq) {
+  const el = document.getElementById('ttsDataQuality');
+  if (!dq || !dq.scansExamined) {
+    el.textContent = 'Không có lượt quét Flow Capture nào trong khoảng ngày đã chọn.';
+    return;
+  }
+  const pct = Math.round((dq.geometryRate || 0) * 100);
+  const warn = pct < 90 ? ' ⚠' : '';
+  el.textContent = `📊 Dữ liệu trong khoảng đã chọn: ${dq.scansExamined.toLocaleString('vi-VN')} lượt quét đoạn đường` +
+    ` · ${pct}% có đầy đủ hình học (link)${warn}` +
+    (dq.zeroSpeedCount ? ` · ${dq.zeroSpeedCount.toLocaleString('vi-VN')} lượt không có dữ liệu tốc độ (speed=0)` : '');
 }
 
 function ttsLosColor(label) {
@@ -586,6 +645,7 @@ function loadTtsRoadTypes() {
 (async () => {
   await initApp('tti_suggest');
   loadTtsRoadTypes();
+  ttsDefaultDates();
   await Promise.all([initTtsMap(), loadTtsRoutes(), loadTtsRegions(), loadHotspots()]);
 })();
 </script>

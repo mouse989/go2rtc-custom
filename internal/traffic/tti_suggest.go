@@ -35,6 +35,32 @@ import (
 	"github.com/AlexxIT/go2rtc/internal/traveltime"
 )
 
+// HotspotDataQuality reports how complete the flow_segments rows in the
+// queried [from, to] window actually are — "khi chọn ngày xong sẽ load
+// trong db để suggest, nên kiểm tra phần db ... xem có đầy đủ dữ liệu
+// link; jf; speed": different date ranges can have different capture
+// coverage (a region added/removed, an outage, a provider response that
+// came back without shape.links for a stretch), so this is computed fresh
+// per request rather than assumed constant. ScansExamined/WithGeometry
+// count flow_segments rows (sub_index=-1, i.e. whole-road rows, not
+// subSegments) BEFORE hotspotGroupKey's own geometry filter runs — the
+// hotspots list below only ever reflects WithGeometry of these, so a low
+// GeometryRate here is the reason a date range "has fewer suggestions
+// than expected" even though ScansExamined looks healthy.
+type HotspotDataQuality struct {
+	ScansExamined  int     `json:"scansExamined"`
+	WithGeometry   int     `json:"withGeometry"`
+	GeometryRate   float64 `json:"geometryRate"`
+	ZeroSpeedCount int     `json:"zeroSpeedCount"` // speed_mps == 0 AND free_flow_mps == 0 — a reading that likely never carried real speed data
+}
+
+// HotspotReport is computeHotspots' full result: the data-quality summary
+// above, alongside the ranked suggestions themselves.
+type HotspotReport struct {
+	DataQuality HotspotDataQuality  `json:"dataQuality"`
+	Hotspots    []HotspotSuggestion `json:"hotspots"`
+}
+
 // HotspotSuggestion is one candidate route a TabTtiSuggest holder may want
 // to start tracking continuously, derived from recurring congestion seen
 // in the flow-capture history.
@@ -83,19 +109,18 @@ type hotspotAgg struct {
 }
 
 // computeHotspots is tti_suggest_api.go's handleTtiSuggestHotspots's own
-// implementation, split out for direct unit testing. Zero/negative
-// days/minScans/minRate/limit fall back to sensible defaults; minTTI <= 0
-// falls back to defaultHotspotMinTTI.
-func computeHotspots(days int, minTTI float64, minScans int, minRate float64, limit int) ([]HotspotSuggestion, error) {
-	if flowCaptureDB == nil {
-		return []HotspotSuggestion{}, nil
-	}
-	if days <= 0 || days > maxFlowHistoryRangeDays {
-		// Same cap flow_capture_history.go's validateHistoryRange enforces
-		// for the hourly-stats/roads endpoints — this is the same
-		// ever-growing flow_segments table, so an unbounded "days" here
-		// would be the same full-table-scan risk under a different name.
-		days = 7
+// implementation, split out for direct unit testing. from/to are
+// mandatory and range-checked by validateHistoryRange (flow_capture_
+// history.go) — the same cap the flowcapture page's history
+// endpoints use, since this reads the exact same ever-growing
+// flow_segments table. Different [from, to] windows surface different
+// hotspots (a road jammed in last month's data may be clear this month,
+// or vice versa), so the caller always picks the window explicitly;
+// there is no implicit "last N days" fallback. Zero/negative
+// minTTI/minScans/minRate/limit fall back to sensible defaults.
+func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate float64, limit int) (*HotspotReport, error) {
+	if err := validateHistoryRange(from, to); err != nil {
+		return nil, err
 	}
 	if minTTI <= 0 {
 		minTTI = defaultHotspotMinTTI
@@ -110,17 +135,27 @@ func computeHotspots(days int, minTTI float64, minScans int, minRate float64, li
 		limit = 50
 	}
 
-	cutoff := time.Now().AddDate(0, 0, -days).UTC().Format(time.RFC3339)
+	report := &HotspotReport{Hotspots: []HotspotSuggestion{}}
+	if flowCaptureDB == nil {
+		return report, nil
+	}
 
+	dq, err := computeHotspotDataQuality(from, to)
+	if err != nil {
+		return nil, err
+	}
+	report.DataQuality = dq
+
+	fromStr, toStr := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := flowCaptureDB.Query(`
 		SELECT fsc.region_name, fsc.scanned_at, fs.description, fs.length_m,
 		       fs.jam_factor, fs.tti_fused, fs.los_label,
 		       fs.first_lat, fs.first_lng, fs.last_lat, fs.last_lng
 		FROM flow_segments fs
 		JOIN flow_scans fsc ON fsc.id = fs.scan_id
-		WHERE fsc.scanned_at >= ? AND fs.sub_index = -1
+		WHERE fsc.scanned_at >= ? AND fsc.scanned_at <= ? AND fs.sub_index = -1
 		  AND fs.first_lat IS NOT NULL AND fs.last_lat IS NOT NULL
-	`, cutoff)
+	`, fromStr, toStr)
 	if err != nil {
 		return nil, fmt.Errorf("query flow_segments: %w", err)
 	}
@@ -218,7 +253,35 @@ func computeHotspots(days int, minTTI float64, minScans int, minRate float64, li
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out, nil
+	report.Hotspots = out
+	return report, nil
+}
+
+// computeHotspotDataQuality answers "trong khoảng ngày đã chọn, dữ liệu
+// flow_segments đã lưu đầy đủ chưa — có hình học (link), jf, speed
+// không?" — a cheap pair of COUNT(*) queries (not the full row scan
+// computeHotspots itself does) over the same [from, to] window, so a
+// caller can tell a genuinely-quiet road apart from a date range whose
+// capture data was simply incomplete.
+func computeHotspotDataQuality(from, to time.Time) (HotspotDataQuality, error) {
+	fromStr, toStr := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
+	var dq HotspotDataQuality
+	err := flowCaptureDB.QueryRow(`
+		SELECT
+			COUNT(*),
+			COALESCE(SUM(CASE WHEN fs.first_lat IS NOT NULL AND fs.last_lat IS NOT NULL THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN fs.speed_mps = 0 AND fs.free_flow_mps = 0 THEN 1 ELSE 0 END), 0)
+		FROM flow_segments fs
+		JOIN flow_scans fsc ON fsc.id = fs.scan_id
+		WHERE fsc.scanned_at >= ? AND fsc.scanned_at <= ? AND fs.sub_index = -1
+	`, fromStr, toStr).Scan(&dq.ScansExamined, &dq.WithGeometry, &dq.ZeroSpeedCount)
+	if err != nil {
+		return dq, fmt.Errorf("query data quality: %w", err)
+	}
+	if dq.ScansExamined > 0 {
+		dq.GeometryRate = round2(float64(dq.WithGeometry) / float64(dq.ScansExamined))
+	}
+	return dq, nil
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }

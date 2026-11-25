@@ -78,10 +78,11 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 			7.5, 8.0, 2.0, 10.90, 106.80, 10.91, 106.81)
 	}
 
-	out, err := computeHotspots(7, 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
+	out := report.Hotspots
 
 	var a, b *HotspotSuggestion
 	for i := range out {
@@ -127,10 +128,11 @@ func TestComputeHotspotsDedupsAgainstExistingRoute(t *testing.T) {
 		t.Fatalf("CreateRoute: %v", err)
 	}
 
-	out, err := computeHotspots(7, 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
+	out := report.Hotspots
 	if len(out) != 1 {
 		t.Fatalf("expected exactly 1 hotspot, got %d: %+v", len(out), out)
 	}
@@ -154,14 +156,52 @@ func TestComputeHotspotsMinScansFiltersSparseGroups(t *testing.T) {
 			1.5, 8.0, 9.0, 10.78, 106.75, 10.79, 106.76)
 	}
 
-	out, err := computeHotspots(7, 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
-	for _, h := range out {
+	for _, h := range report.Hotspots {
 		if h.Description == "Đường C" {
 			t.Fatalf("expected Đường C (only 2 scans) to be filtered out by minScans, got %+v", h)
 		}
+	}
+}
+
+func TestComputeHotspotsRequiresValidRangeAndReportsDataQuality(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
+	seedFlowScan(t, "Quận 1", "Đường D", base, 2.0, 8.0, 8.5, 10.80, 106.70, 10.81, 106.71)
+	// A second scan with no Links at all — recordFlowScan stores NULL
+	// first/last lat,lng for a result like this, same as a real provider
+	// response that omitted shape.links for that result.
+	noLinksResult := flowResult{Description: "Đường E (không có hình học)", SpeedMps: 2.0, FreeFlowMps: 8.0, JamFactor: 8.5}
+	if err := recordFlowScan("Quận 1", base.Add(time.Minute), "", 0, []byte("{}"), []flowResult{noLinksResult}); err != nil {
+		t.Fatalf("recordFlowScan (no links): %v", err)
+	}
+
+	if _, err := computeHotspots(base, base.Add(-time.Hour), 0, 0, 0, 0); err == nil {
+		t.Error("expected error for to-before-from, got nil")
+	}
+	if _, err := computeHotspots(base, base.AddDate(0, 0, maxFlowHistoryRangeDays+1), 0, 0, 0, 0); err == nil {
+		t.Error("expected error for a range wider than maxFlowHistoryRangeDays, got nil")
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	// 2 flow_segments rows total in range: Đường D (seedFlowScan always
+	// writes Links) and the no-Links Đường E write above.
+	if report.DataQuality.ScansExamined != 2 {
+		t.Errorf("DataQuality.ScansExamined = %d, want 2", report.DataQuality.ScansExamined)
+	}
+	if report.DataQuality.WithGeometry != 1 {
+		t.Errorf("DataQuality.WithGeometry = %d, want 1 (the no-Links write lacks first/last lat,lng)", report.DataQuality.WithGeometry)
+	}
+	if report.DataQuality.GeometryRate != 0.5 {
+		t.Errorf("DataQuality.GeometryRate = %v, want 0.5", report.DataQuality.GeometryRate)
 	}
 }
 
