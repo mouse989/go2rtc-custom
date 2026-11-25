@@ -24,7 +24,7 @@
 .hr-row button { cursor:pointer; }
 .hr-row button:disabled { opacity:.5; cursor:not-allowed; }
 #hrImportStatus { font-size:.78rem; color:var(--text-muted); margin-top:.5rem; }
-#hrControls { display:none; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border); }
+#hrControls { margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border); }
 #hrSlider { width:100%; margin:.7rem 0; }
 #hrWindowLabel { font-size:.82rem; font-weight:600; }
 #hrMap { height:62vh; min-height:420px; border-radius:10px; overflow:hidden; background:var(--surface2); margin-top:.8rem; }
@@ -127,11 +127,11 @@
             <option value="43200000">12 giờ/giây</option>
             <option value="86400000">1 ngày/giây</option>
           </select>
-          <button id="hrPlayBtn">▶ Phát</button>
-          <button id="hrResetBtn">⏮ Về đầu</button>
+          <button id="hrPlayBtn" disabled>▶ Phát</button>
+          <button id="hrResetBtn" disabled>⏮ Về đầu</button>
         </div>
-        <input type="range" id="hrSlider" value="0" min="0" max="1" step="1000">
-        <div id="hrWindowLabel">—</div>
+        <input type="range" id="hrSlider" value="0" min="0" max="1" step="1000" disabled>
+        <div id="hrWindowLabel">Chưa nạp dữ liệu — chọn file CSV ở trên</div>
         <div id="hrMap"></div>
         <div class="hr-jf-legend" id="hrGradientLegend">
           <span>0</span>
@@ -321,9 +321,11 @@ document.getElementById('hrFileInput').addEventListener('change', async e => {
     _windowStart = _minT;
     const slider = document.getElementById('hrSlider');
     slider.min = String(_minT); slider.max = String(_maxT); slider.step = '1000'; slider.value = String(_minT);
-    document.getElementById('hrControls').style.display = '';
+    slider.disabled = false;
+    document.getElementById('hrPlayBtn').disabled = false;
+    document.getElementById('hrResetBtn').disabled = false;
     renderWindow();
-    fitMapToPoints();
+    if (_hrMap) fitMapToPoints();
     statusEl.textContent = `✓ Đã nạp ${points.length.toLocaleString('vi-VN')} điểm` +
       (skipped ? `, bỏ qua ${skipped} dòng lỗi` : '') +
       ` · Từ ${fmtUSDateTime(_minT)} đến ${fmtUSDateTime(_maxT)}`;
