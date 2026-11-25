@@ -788,6 +788,7 @@ body.sb-collapsed           { --map-left:0; }
       </div>
       <!-- Heatmap jam overlay: shown only for admin or users with allow_heatmap -->
       <button class="map-btn" id="btnHeatmap" style="display:none" title="Bật/tắt lớp heatmap ùn tắc">🌡 Heatmap</button>
+      <button class="map-btn" id="btnHeatmapReplay" style="display:none" title="Nạp file CSV điểm Persistent đã xuất và xem lại theo cửa sổ thời gian trượt" onclick="window.open('/heatmap-replay.html','_blank')">📼 Xem lại Heatmap</button>
       <button class="map-btn" id="btnStnLayer" style="display:none" title="Bật/tắt hiển thị trạm đo đếm lưu lượng">📊 Trạm đo</button>
       <!-- Hawkwise traffic-flow layer: shown only for admin or users with
            allow_map_traffic_flow. Independent layer from "📊 Trạm đo" (the
@@ -6210,6 +6211,7 @@ document.getElementById('btnMobileNav').addEventListener('click', () => {
   }
   if (canUseHeatmap()) {
     document.getElementById('btnHeatmap').style.display = '';
+    document.getElementById('btnHeatmapReplay').style.display = '';
   }
   if (canMapSearch()) {
     document.getElementById('btnSearch').style.display = '';

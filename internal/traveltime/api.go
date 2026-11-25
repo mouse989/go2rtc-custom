@@ -26,6 +26,7 @@ func registerHandlers() {
 	http.HandleFunc("/api/traveltime/forecast", handleForecast)
 	http.HandleFunc("/api/traveltime/holidays", handleHolidays)
 	http.HandleFunc("/api/traveltime/holidays/preview", handleHolidayPreview)
+	registerSegmentCaptureHandlers()
 }
 
 func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
