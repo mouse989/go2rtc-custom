@@ -107,7 +107,7 @@
         <h3>▶ Phát lại theo cửa sổ thời gian trượt</h3>
         <div class="hr-row">
           <label>Độ rộng cửa sổ</label>
-          <select id="hrWindowWidth">
+          <select id="hrWindowWidth" onchange="hrWindowWidthChange()">
             <option value="900000">15 phút</option>
             <option value="1800000" selected>30 phút</option>
             <option value="3600000">1 giờ</option>
@@ -115,7 +115,9 @@
             <option value="21600000">6 giờ</option>
             <option value="43200000">12 giờ</option>
             <option value="86400000">1 ngày</option>
+            <option value="custom">Tuỳ chỉnh…</option>
           </select>
+          <input type="number" id="hrWindowWidthCustom" min="1" step="1" placeholder="…phút" style="width:80px;display:none">
           <label>Tốc độ phát</label>
           <select id="hrSpeed">
             <option value="300000">5 phút/giây</option>
@@ -287,7 +289,23 @@ function resetPlayback() {
 
 document.getElementById('hrPlayBtn').addEventListener('click', () => isPlaying() ? pausePlayback() : startPlayback());
 document.getElementById('hrResetBtn').addEventListener('click', resetPlayback);
-document.getElementById('hrWindowWidth').addEventListener('change', e => { _windowWidthMs = Number(e.target.value); renderWindow(); });
+// hrWindowWidthChange: same "Tuỳ chỉnh…" pattern admin.html's travel-time
+// interval select already uses (tt-interval/tt-interval-custom) — shows a
+// plain minutes input instead of being limited to the quick-pick options.
+function hrWindowWidthChange() {
+  const sel = document.getElementById('hrWindowWidth');
+  const custom = document.getElementById('hrWindowWidthCustom');
+  custom.style.display = sel.value === 'custom' ? '' : 'none';
+  if (sel.value === 'custom') { custom.focus(); return; }
+  _windowWidthMs = Number(sel.value);
+  renderWindow();
+}
+document.getElementById('hrWindowWidthCustom').addEventListener('input', e => {
+  const min = parseFloat(e.target.value);
+  if (!(min > 0)) return; // ignore while the field is empty/invalid rather than collapsing the window to 0
+  _windowWidthMs = min * 60000;
+  renderWindow();
+});
 document.getElementById('hrSpeed').addEventListener('change', e => { _speedMsPerSec = Number(e.target.value); });
 document.getElementById('hrSlider').addEventListener('input', e => {
   pausePlayback(); // manual scrub takes over — avoids fighting the animation timer
