@@ -411,10 +411,11 @@ function dayKeyOf(ms) {
   const pad = n => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
+const WEEKDAY_NAMES_VI = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
 function dayLabelOf(ms) {
   const d = new Date(ms);
   const pad = n => String(n).padStart(2, '0');
-  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} - ${WEEKDAY_NAMES_VI[d.getUTCDay()]}`;
 }
 
 function buildHourlyCharts() {
@@ -446,7 +447,7 @@ function buildHourlyCharts() {
     const total = day.counts.reduce((a, b) => a + b, 0);
     const wrap = document.createElement('div');
     wrap.className = 'hr-day-chart';
-    wrap.innerHTML = `<h4>${day.label} — ${total.toLocaleString('vi-VN')} tin</h4><div class="hr-day-canvas-wrap"><canvas></canvas></div>`;
+    wrap.innerHTML = `<h4>${day.label} - ${total.toLocaleString('vi-VN')} tin</h4><div class="hr-day-canvas-wrap"><canvas></canvas></div>`;
     container.appendChild(wrap);
     const chart = new Chart(wrap.querySelector('canvas'), {
       type: 'bar',
