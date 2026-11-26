@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -515,6 +516,59 @@ func TestComputeHotspotsMergeHelpsClearMinScans(t *testing.T) {
 	}
 	if found.ScanCount != 4 {
 		t.Errorf("ScanCount = %d, want 4", found.ScanCount)
+	}
+}
+
+// TestComputeHotspotsMergesNearbyNamedRoadsAcrossDifferentNames covers
+// "những điểm có tên cũng phải được gộp thành nhóm (trong đó có nhiều
+// đường)": two DIFFERENTLY-named roads (e.g. a junction where a provincial
+// road meets a national highway) whose own start points sit only ~5m
+// apart — well within gridRadiusM — must merge into ONE combined hotspot,
+// not stay separate just because their exact description strings differ.
+// The merged entry's own Description still names only its single
+// representative road, but MergedRoadNames must list BOTH.
+func TestComputeHotspotsMergesNearbyNamedRoadsAcrossDifferentNames(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	const gridRadiusM = 100.0
+	lat, lng := 10.78, 106.70
+	lat2 := lat + 5.0/metersPerDegreeLat() // ~5m north — well within gridRadiusM
+
+	base := time.Date(2026, 11, 28, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 11", "Đường Tỉnh 743", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, lat, lng, lat+0.001, lng+0.001)
+	}
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 11", "Quốc Lộ 1", base.Add(time.Duration(i+3)*5*time.Minute),
+			2.0, 8.0, 8.5, lat2, lng, lat2+0.001, lng+0.001)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, gridRadiusM, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var matches []HotspotSuggestion
+	for _, h := range report.Hotspots {
+		if h.RegionName == "Quận 11" {
+			matches = append(matches, h)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected the 2 nearby differently-named roads to merge into exactly 1 hotspot, got %d: %+v", len(matches), matches)
+	}
+	h := matches[0]
+	if h.ScanCount != 6 {
+		t.Errorf("merged ScanCount = %d, want 6", h.ScanCount)
+	}
+	wantNames := []string{"Đường Tỉnh 743", "Quốc Lộ 1"}
+	sort.Strings(wantNames)
+	if !reflect.DeepEqual(h.MergedRoadNames, wantNames) {
+		t.Errorf("MergedRoadNames = %v, want %v", h.MergedRoadNames, wantNames)
+	}
+	if h.Description != "Đường Tỉnh 743" && h.Description != "Quốc Lộ 1" {
+		t.Errorf("Description should be one of the 2 merged roads' own names, got %q", h.Description)
 	}
 }
 

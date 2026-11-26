@@ -632,7 +632,14 @@ function renderTtsTable() {
     return;
   }
   tbody.innerHTML = pageRows.map(h => {
-    const name = h.description ? escHtml(h.description) : '<em style="opacity:.6">(chưa rõ tên đường)</em>';
+    // mergedRoadNames (2+ entries) means the server folded several
+    // nearby, differently-named roads into this one "khu vực"/cụm —
+    // "những điểm có tên cũng phải được gộp thành nhóm (trong đó có
+    // nhiều đường)" — show the full combined list instead of just the
+    // single representative name h.description carries.
+    const name = h.mergedRoadNames && h.mergedRoadNames.length > 1
+      ? `<span title="Khu vực gồm ${h.mergedRoadNames.length} tuyến gần nhau">${h.mergedRoadNames.map(escHtml).join(' + ')}</span>`
+      : (h.description ? escHtml(h.description) : '<em style="opacity:.6">(chưa rõ tên đường)</em>');
     const lastSeen = h.lastSeenAt ? new Date(h.lastSeenAt).toLocaleString('vi-VN') : '—';
     const status = h.covered
       ? `<span style="color:var(--text-muted)" title="${escHtml(h.coveredByRoute || '')}">✓ Đã theo dõi</span>`
@@ -969,8 +976,11 @@ async function ttsLoadTimeline(h) {
   const box = document.getElementById('ttsTimelineBox');
   const statusEl = document.getElementById('ttsTimelineStatus');
   box.style.display = '';
+  const displayName = h.mergedRoadNames && h.mergedRoadNames.length > 1
+    ? h.mergedRoadNames.join(' + ')
+    : (h.description || '(chưa rõ tên đường)');
   document.getElementById('ttsTimelineTitle').textContent =
-    `📊 Chi tiết theo khung giờ — ${h.description || '(chưa rõ tên đường)'} (${h.regionName || '—'})`;
+    `📊 Chi tiết theo khung giờ — ${displayName} (${h.regionName || '—'})`;
 
   // h.key (region+description, or region+grid-cell for an unnamed road —
   // see hotspotGroupKey) is what the server matches rows against now, not
@@ -1168,7 +1178,8 @@ function ttsPrefillFromHotspot(key) {
   ttsResetDraw();
   ttsSetCoord('origin', `${h.firstLat.toFixed(5)},${h.firstLng.toFixed(5)}`);
   ttsSetCoord('dest', `${h.lastLat.toFixed(5)},${h.lastLng.toFixed(5)}`);
-  document.getElementById('tts-route-name').value = h.description || '';
+  document.getElementById('tts-route-name').value =
+    (h.mergedRoadNames && h.mergedRoadNames.length > 1 ? h.mergedRoadNames.join(' + ') : h.description) || '';
   document.getElementById('tts-route-name').focus();
   ttsPreviewRoute();
   document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });

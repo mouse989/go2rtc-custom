@@ -3,25 +3,32 @@ package traffic
 // tti_suggest.go — "gợi ý tuyến cần theo dõi TTI": scans flow_capture.db's
 // already-captured flow_segments (flow_capture_db.go — a SEPARATE research
 // pipeline from monitor.go's live jam-point map, see that file's own doc
-// comment) over a recent time window, groups rows that are the same
-// physical named road within the same monitored region, and surfaces the
-// ones that were congested often enough across that window to be worth
-// tracking continuously as a dedicated internal/traveltime Route instead
-// of only ever showing up as an ad-hoc jam alert.
+// comment) over a recent time window and surfaces the ones that were
+// congested often enough across that window to be worth tracking
+// continuously as a dedicated internal/traveltime Route instead of only
+// ever showing up as an ad-hoc jam alert.
 //
-// An UNNAMED result (no street name in the provider's own response) is
-// grouped in two passes instead: first by a ~gridRadiusM-wide coordinate
-// cell of its own start point (hotspotGroupKey — cheap, O(1) per row),
-// then a second pass (mergeNearbyUnnamedGroups) folds any of those
-// per-cell groups whose own representative points are within gridRadiusM
-// of EACH OTHER into one combined group — chaining transitively along a
-// whole corridor of short, back-to-back unnamed segments (a common way
-// the provider carves up one physical road). The first pass alone can't
-// do this: two points a few meters apart but on opposite sides of one
-// grid cell's own hard boundary never land in the same cell, however
-// large gridRadiusM is set ("vẫn có 1 số điểm không gộp theo bán kính
-// lọc") — the second pass fixes exactly that by clustering on true
-// distance instead of cell equality.
+// Grouping happens in two passes. The first is cheap and per-row: a named
+// result groups by its own exact (region, street name); an unnamed one
+// (no street name in the provider's own response) groups by a
+// ~gridRadiusM-wide coordinate cell of its own start point instead
+// (hotspotGroupKey). The second pass (mergeNearbyGroups) then folds ANY
+// of those first-pass groups — named or unnamed alike, one "khu vực"/cụm
+// candidate possibly spanning several different road names — whose own
+// representative points sit within gridRadiusM of EACH OTHER into one
+// combined group, chaining transitively along a whole corridor of short,
+// back-to-back segments (a common way the provider carves up one
+// physical road, or a junction where 2-3 differently-named roads meet).
+// The first pass alone can't do this: two points a few meters apart but
+// on opposite sides of one grid cell's own hard boundary never land in
+// the same cell, however large gridRadiusM is set ("vẫn có 1 số điểm
+// không gộp theo bán kính lọc ... những điểm có tên cũng phải được gộp
+// thành nhóm") — the second pass fixes that by clustering on true
+// distance instead of cell/name equality. A merged group's own
+// HotspotSuggestion.Description still names just its single
+// REPRESENTATIVE (most-recently-scanned) road, same as before this pass
+// existed; MergedRoadNames additionally lists every distinct road name
+// folded into it, only populated once there's more than one.
 //
 // "Congested" reuses flow_segments' own tti_fused column — the same TTI
 // figure, and by default the same LOS-D threshold (1.96), as the official
@@ -85,23 +92,33 @@ type HotspotReport struct {
 // to start tracking continuously, derived from recurring congestion seen
 // in the flow-capture history.
 type HotspotSuggestion struct {
-	Key            string  `json:"key"` // region+description (or region+grid cell) — stable within one response, for the "+ Thêm vào theo dõi" button to reference back
-	Description    string  `json:"description"`
-	RegionName     string  `json:"regionName"`
-	ScanCount      int     `json:"scanCount"`
-	CongestedCount int     `json:"congestedCount"`
-	CongestionRate float64 `json:"congestionRate"` // congestedCount / scanCount
-	AvgJamFactor   float64 `json:"avgJamFactor"`
-	WorstTTI       float64 `json:"worstTti"`
-	WorstLOSLabel  string  `json:"worstLosLabel"`
-	LengthM        float64 `json:"lengthM"`
-	FirstLat       float64 `json:"firstLat"`
-	FirstLng       float64 `json:"firstLng"`
-	LastLat        float64 `json:"lastLat"`
-	LastLng        float64 `json:"lastLng"`
-	LastSeenAt     string  `json:"lastSeenAt,omitempty"` // RFC3339, most recent congested scan
-	Covered        bool    `json:"covered"`              // an existing traveltime Route already runs through both endpoints
-	CoveredByRoute string  `json:"coveredByRoute,omitempty"`
+	Key         string `json:"key"` // region+description (or region+grid cell) — stable within one response, for the "+ Thêm vào theo dõi" button to reference back
+	Description string `json:"description"`
+	// MergedRoadNames lists every distinct non-empty road name folded
+	// into this one candidate by mergeNearbyGroups (sorted) — populated
+	// only once there are 2 or more (a group that was never merged with a
+	// differently-named one, or that stayed/became unnamed, leaves this
+	// nil). "những điểm có tên cũng phải được gộp thành nhóm (trong đó có
+	// nhiều đường)": Description alone still only ever names the single
+	// REPRESENTATIVE (most-recently-scanned) road in the merged group —
+	// this is where the OTHER road names that got folded in become
+	// visible, e.g. for display as "Đường A + Đường B".
+	MergedRoadNames []string `json:"mergedRoadNames,omitempty"`
+	RegionName      string   `json:"regionName"`
+	ScanCount       int      `json:"scanCount"`
+	CongestedCount  int      `json:"congestedCount"`
+	CongestionRate  float64  `json:"congestionRate"` // congestedCount / scanCount
+	AvgJamFactor    float64  `json:"avgJamFactor"`
+	WorstTTI        float64  `json:"worstTti"`
+	WorstLOSLabel   string   `json:"worstLosLabel"`
+	LengthM         float64  `json:"lengthM"`
+	FirstLat        float64  `json:"firstLat"`
+	FirstLng        float64  `json:"firstLng"`
+	LastLat         float64  `json:"lastLat"`
+	LastLng         float64  `json:"lastLng"`
+	LastSeenAt      string   `json:"lastSeenAt,omitempty"` // RFC3339, most recent congested scan
+	Covered         bool     `json:"covered"`              // an existing traveltime Route already runs through both endpoints
+	CoveredByRoute  string   `json:"coveredByRoute,omitempty"`
 	// Geometry is the representative scan's own real road polyline
 	// ([lat,lng] pairs, in order), reconstructed from flow_scans.raw_json
 	// (flow_capture_parse.go's Links, flattened) rather than synthesized
@@ -168,6 +185,7 @@ const (
 
 type hotspotAgg struct {
 	description, regionName              string
+	mergedNames                          []string // see HotspotSuggestion.MergedRoadNames; nil until mergeNearbyGroups finds 2+ distinct names
 	scanCount, congestedCount            int
 	jfSum                                float64
 	worstTTI                             float64
@@ -326,10 +344,10 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 	}
 
 	// Run BEFORE the minScans/minCongestedCount filtering below, so a
-	// corridor made of several short unnamed segments — each individually
-	// too sparse on its own to clear minScans — can still qualify once
-	// merged into one combined candidate.
-	mergeNearbyUnnamedGroups(groups, gridRadiusM)
+	// corridor made of several short segments (named or unnamed) — each
+	// individually too sparse on its own to clear minScans — can still
+	// qualify once merged into one combined candidate.
+	mergeNearbyGroups(groups, gridRadiusM)
 
 	existingRoutes := traveltime.ListRoutes()
 
@@ -351,6 +369,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 		out = append(out, HotspotSuggestion{
 			Key:                     key,
 			Description:             g.description,
+			MergedRoadNames:         g.mergedNames,
 			RegionName:              g.regionName,
 			ScanCount:               g.scanCount,
 			CongestedCount:          g.congestedCount,
@@ -657,45 +676,78 @@ func clusterFineKeys(reps map[string][2]float64, radiusM float64) map[string]str
 	return finalKeyOf
 }
 
-// mergeNearbyUnnamedGroups folds unnamed-road groups (hotspotGroupKey's
-// own per-cell keys) whose representative points sit within gridRadiusM
-// of EACH OTHER into one combined group — see this file's own top-level
-// doc comment for why a single grid-cell test alone can't do this.
-// Named-road groups (keyed by exact description, not a cell) are never
-// touched; merging only ever happens within the SAME region.
-func mergeNearbyUnnamedGroups(groups map[string]*hotspotAgg, gridRadiusM float64) {
+// mergeNearbyGroups folds first-pass groups (hotspotGroupKey's own
+// per-named-road or per-cell keys) whose representative points sit
+// within gridRadiusM of EACH OTHER into one combined group — named and
+// unnamed groups alike, so a cluster CAN end up spanning several
+// differently-named roads (e.g. a junction where 2-3 named roads meet, or
+// one physical road the provider happens to describe differently across
+// scans) — see this file's own top-level doc comment for why a single
+// grid-cell/exact-name test alone can't do this. Merging only ever
+// happens within the SAME region.
+func mergeNearbyGroups(groups map[string]*hotspotAgg, gridRadiusM float64) {
 	byRegion := map[string][]string{}
 	for key, g := range groups {
-		if g.description == "" {
-			byRegion[g.regionName] = append(byRegion[g.regionName], key)
-		}
+		byRegion[g.regionName] = append(byRegion[g.regionName], key)
 	}
 	for _, keys := range byRegion {
 		reps := make(map[string][2]float64, len(keys))
 		for _, k := range keys {
 			reps[k] = [2]float64{groups[k].firstLat, groups[k].firstLng}
 		}
+		// Collect every cluster's full member list (not just the
+		// non-canonical ones) up front, so the combined road-name list
+		// below can include the canonical member's own name too.
+		membersByFinal := map[string][]string{}
 		for fineKey, finalKey := range clusterFineKeys(reps, gridRadiusM) {
-			if fineKey == finalKey {
-				continue // this IS the cluster's own canonical key — others fold into it below
+			membersByFinal[finalKey] = append(membersByFinal[finalKey], fineKey)
+		}
+		for finalKey, members := range membersByFinal {
+			dst := groups[finalKey]
+			names := map[string]bool{}
+			if dst.description != "" {
+				names[dst.description] = true
 			}
-			dst, src := groups[finalKey], groups[fineKey]
-			dst.scanCount += src.scanCount
-			dst.congestedCount += src.congestedCount
-			dst.jfSum += src.jfSum
-			if src.worstTTI > dst.worstTTI {
-				dst.worstTTI, dst.worstLOS, dst.worstTTISpeedMps = src.worstTTI, src.worstLOS, src.worstTTISpeedMps
+			for _, fineKey := range members {
+				if fineKey == finalKey {
+					continue // this IS the cluster's own canonical key — others fold into it below
+				}
+				src := groups[fineKey]
+				if src.description != "" {
+					names[src.description] = true
+				}
+				dst.scanCount += src.scanCount
+				dst.congestedCount += src.congestedCount
+				dst.jfSum += src.jfSum
+				if src.worstTTI > dst.worstTTI {
+					dst.worstTTI, dst.worstLOS, dst.worstTTISpeedMps = src.worstTTI, src.worstLOS, src.worstTTISpeedMps
+				}
+				if src.latestScannedAt.After(dst.latestScannedAt) {
+					dst.latestScannedAt = src.latestScannedAt
+					dst.lengthM = src.lengthM
+					dst.firstLat, dst.firstLng, dst.lastLat, dst.lastLng = src.firstLat, src.firstLng, src.lastLat, src.lastLng
+					dst.scanID = src.scanID
+					// Keep Description paired with the SAME representative
+					// scan's own geometry/scanID — enrichHotspotGeometry
+					// matches raw_json by this exact description within
+					// that exact scan, so the two must never drift apart.
+					// MergedRoadNames (below) is the separate, order-
+					// independent full combined-name list for display.
+					dst.description = src.description
+				}
+				if src.lastCongestedAt.After(dst.lastCongestedAt) {
+					dst.lastCongestedAt = src.lastCongestedAt
+				}
+				delete(groups, fineKey)
 			}
-			if src.latestScannedAt.After(dst.latestScannedAt) {
-				dst.latestScannedAt = src.latestScannedAt
-				dst.lengthM = src.lengthM
-				dst.firstLat, dst.firstLng, dst.lastLat, dst.lastLng = src.firstLat, src.firstLng, src.lastLat, src.lastLng
-				dst.scanID = src.scanID
+			if len(names) > 1 {
+				merged := make([]string, 0, len(names))
+				for n := range names {
+					merged = append(merged, n)
+				}
+				sort.Strings(merged)
+				dst.mergedNames = merged
 			}
-			if src.lastCongestedAt.After(dst.lastCongestedAt) {
-				dst.lastCongestedAt = src.lastCongestedAt
-			}
-			delete(groups, fineKey)
 		}
 	}
 }
@@ -813,24 +865,25 @@ func hotspotTimelineSlotLabel(slot int) string {
 // summed across every day the range covers.
 //
 // key is exactly one HotspotSuggestion.Key from computeHotspots' own
-// output (region+description, or an unnamed road's own cell key — or,
-// once mergeNearbyUnnamedGroups folded several nearby cells together,
-// one of those cells' own key standing in for the whole merged group —
-// see hotspotGroupKey/mergeNearbyUnnamedGroups). Matching rows to key
-// here RECOMPUTES hotspotGroupKey per row instead of filtering by
-// description directly, so an unnamed hotspot gets its own timeline too,
-// not only named roads: a flat `description = ?` filter can't express
-// "this row's own lat/lng lands in the same grid cell" — only
-// hotspotGroupKey's own logic can. For an unnamed road it ALSO
-// reconstructs the same cell-merge computeHotspots itself applies (via
-// clusterFineKeys, fed the same per-cell representative points — the
-// latest-scanned row's own point per cell, exactly as computeHotspots'
-// own aggregation picks it), so a row belonging to any cell that ended up
-// folded into key's own merged group is still counted here, not just rows
-// whose OWN individual cell happens to equal key verbatim. region narrows
-// the SQL query first (every candidate row must be in this region anyway,
-// per how hotspotGroupKey built the key) before any of this runs.
-// gridRadiusM MUST be the same value the caller used to generate key via
+// output (one road's own exact-name key, or an unnamed road's own cell
+// key — or, once mergeNearbyGroups folded several nearby first-pass
+// groups together, one of THEIR own keys standing in for the whole
+// merged group, which may span multiple different road names — see
+// hotspotGroupKey/mergeNearbyGroups). Matching rows to key here
+// RECOMPUTES hotspotGroupKey per row instead of filtering by description
+// directly, so an unnamed hotspot gets its own timeline too, not only
+// named roads: a flat `description = ?` filter can't express "this row's
+// own lat/lng lands in the same grid cell" — only hotspotGroupKey's own
+// logic can. It ALSO reconstructs the same cell/name-merge computeHotspots
+// itself applies (via clusterFineKeys, fed the same per-first-pass-group
+// representative points — the latest-scanned row's own point per group,
+// exactly as computeHotspots' own aggregation picks it), so a row
+// belonging to any first-pass group that ended up folded into key's own
+// merged group is still counted here, not just rows whose OWN individual
+// group happens to equal key verbatim. region narrows the SQL query first
+// (every candidate row must be in this region anyway, per how
+// hotspotGroupKey built the key) before any of this runs. gridRadiusM
+// MUST be the same value the caller used to generate key via
 // computeHotspots in the first place — a different radius recomputes
 // different cell boundaries (and a different merge outcome) and key could
 // simply never match any row.
@@ -879,11 +932,13 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 		ttiFused  float64
 	}
 	var buffered []timelineRow
-	// Representative point per fine-grained unnamed key — the
-	// LATEST-scanned row's own point, exactly as computeHotspots' own
-	// aggregation picks it (see hotspotAgg.firstLat/firstLng), so
+	// Representative point per first-pass group (named or unnamed alike)
+	// — the LATEST-scanned row's own point, exactly as computeHotspots'
+	// own aggregation picks it (see hotspotAgg.firstLat/firstLng), so
 	// clusterFineKeys below reconstructs the identical merge outcome
-	// computeHotspots itself derived for this same region/window/radius.
+	// computeHotspots itself derived for this same region/window/radius —
+	// named groups participate too, since mergeNearbyGroups itself no
+	// longer only touches unnamed ones.
 	latestByFineKey := map[string]time.Time{}
 	repByFineKey := map[string][2]float64{}
 
@@ -899,11 +954,9 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 		}
 		fineKey := hotspotGroupKey(region, description, firstLat, firstLng, gridRadiusM)
 		buffered = append(buffered, timelineRow{scannedAt, fineKey, ttiFused})
-		if description == "" {
-			if t, ok := latestByFineKey[fineKey]; !ok || scannedAt.After(t) {
-				latestByFineKey[fineKey] = scannedAt
-				repByFineKey[fineKey] = [2]float64{firstLat, firstLng}
-			}
+		if t, ok := latestByFineKey[fineKey]; !ok || scannedAt.After(t) {
+			latestByFineKey[fineKey] = scannedAt
+			repByFineKey[fineKey] = [2]float64{firstLat, firstLng}
 		}
 	}
 	if err := rows.Err(); err != nil {
