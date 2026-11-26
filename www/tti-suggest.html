@@ -457,18 +457,76 @@ function ttsParseLatLng(s) {
   return (isFinite(lat) && isFinite(lng)) ? [lat, lng] : null;
 }
 
-// Existing tracked routes, drawn as straight lines (origin→waypoints→
-// destination) for context — NOT snapped to the real road network (that
-// would need one /api/vietmap/route call per route); the hotspot map is
-// here to show WHERE coverage already is, not to re-render admin.html's
-// own road-accurate overview.
-function renderTtsRoutesLayer() {
+// _ttsGeomCache: ttsRouteKey(route) -> coords | 'error', cached across
+// re-renders (e.g. after adding a new route, only the new one needs a
+// fresh fetch) — same convention admin.html's own route-overview map
+// (_ttGeomCache) uses. Key includes the route's own points, not just its
+// id, so editing a route's points invalidates the cache automatically.
+const _ttsGeomCache = {};
+function ttsRouteKey(r) { return `${r.origin}|${r.destination}|${r.waypoints || ''}`; }
+
+async function ttsFetchRouteGeom(r) {
+  const params = new URLSearchParams();
+  params.append('point', r.origin);
+  if (r.waypoints) r.waypoints.split('|').filter(Boolean).forEach(wp => params.append('point', wp));
+  params.append('point', r.destination);
+  params.set('vehicle', 'car');
+  const data = await apiFetch('/api/vietmap/route?' + params.toString());
+  if (data?.error || !data?.paths?.length) throw new Error('no route');
+  const coords = data.paths[0].points?.coordinates ?? data.paths[0].points;
+  if (!coords || coords.length < 2) throw new Error('bad geometry');
+  return coords;
+}
+
+// Runs `fn` over `items` with at most `limit` in flight at once — same
+// convention admin.html's ttMapWithConcurrency uses, so snapping however
+// many tracked routes exist to their real road geometry doesn't fire one
+// request per route all at once.
+async function ttsWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 1 }, worker));
+  return results;
+}
+
+function ttsStraightLineCoords(r) {
+  return [r.origin, ...(r.waypoints ? r.waypoints.split('|').filter(Boolean) : []), r.destination]
+    .map(ttsParseLatLng).filter(Boolean).map(([lat, lng]) => [lng, lat]);
+}
+
+// Existing tracked routes — snapped to the real road network
+// (/api/vietmap/route, cached per route's own origin/destination/
+// waypoints) so this matches admin.html's own route-overview map instead
+// of a straight line cutting across blocks between origin and
+// destination. Falls back to that straight line only if a route's own
+// snap request fails (e.g. VietMap couldn't find a drivable path for
+// those exact points), so a broken route still shows up somewhere on the
+// map rather than disappearing silently.
+async function renderTtsRoutesLayer() {
   if (!_ttsMapLoaded) return;
-  const features = _ttsRoutes.map(r => {
-    const pts = [r.origin, ...(r.waypoints ? r.waypoints.split('|').filter(Boolean) : []), r.destination]
-      .map(ttsParseLatLng).filter(Boolean).map(([lat, lng]) => [lng, lat]);
-    if (pts.length < 2) return null;
-    return { type: 'Feature', properties: { name: r.name }, geometry: { type: 'LineString', coordinates: pts } };
+  const coordsPerRoute = await ttsWithConcurrency(_ttsRoutes, 4, async r => {
+    const key = ttsRouteKey(r);
+    if (_ttsGeomCache[key] && _ttsGeomCache[key] !== 'error') return _ttsGeomCache[key];
+    try {
+      const coords = await ttsFetchRouteGeom(r);
+      _ttsGeomCache[key] = coords;
+      return coords;
+    } catch (_) {
+      _ttsGeomCache[key] = 'error';
+      return ttsStraightLineCoords(r);
+    }
+  });
+  if (!_ttsMapLoaded) return; // map may have been torn down while awaiting
+  const features = _ttsRoutes.map((r, i) => {
+    const coords = coordsPerRoute[i];
+    if (!coords || coords.length < 2) return null;
+    return { type: 'Feature', properties: { name: r.name }, geometry: { type: 'LineString', coordinates: coords } };
   }).filter(Boolean);
   _ttsMap.getSource('tts-existing').setData({ type: 'FeatureCollection', features });
 }
@@ -627,7 +685,7 @@ async function ttsSubmitRoute(e) {
 async function loadTtsRoutes() {
   try { _ttsRoutes = await apiFetch('/api/traveltime/routes') || []; }
   catch (_) { _ttsRoutes = []; }
-  renderTtsRoutesLayer();
+  await renderTtsRoutesLayer();
 }
 
 async function loadTtsRegions() {
