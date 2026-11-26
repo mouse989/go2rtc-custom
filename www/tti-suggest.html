@@ -166,6 +166,9 @@
           <option value="2.56">≥ E (TTI 2.56)</option>
           <option value="3.45">≥ F (TTI 3.45)</option>
         </select>
+        <label>Số lần xuất hiện tối thiểu</label>
+        <input type="number" id="ttsMinOccurrences" min="1" step="1" value="1" style="width:64px"
+          title="Chỉ hiện các đoạn/tuyến đã đạt mức ùn tối thiểu ở trên ÍT NHẤT bấy nhiêu lần trong khoảng ngày đã chọn — mặc định 1 (từng đạt ít nhất 1 lần); tăng lên để chỉ xem các điểm ùn lặp lại nhiều lần.">
         <label>Bán kính gộp</label>
         <select id="ttsGridRadius" title="Đoạn đường không có tên trong dữ liệu được gộp theo toạ độ — bán kính càng lớn thì gộp càng rộng (ít điểm nóng hơn nhưng thô hơn), càng nhỏ thì tách càng chi tiết (nhiều điểm nóng hơn). Không ảnh hưởng tuyến đã có tên đường.">
           <option value="50">50 m</option>
@@ -184,7 +187,7 @@
           <option value="1000">1000</option>
           <option value="2000">2000 (tối đa)</option>
         </select>
-        <label><input type="checkbox" id="ttsHideCovered" checked onchange="renderTtsTable()"> Chỉ hiện khu vực chưa theo dõi</label>
+        <label><input type="checkbox" id="ttsHideCovered" checked onchange="ttsHideCoveredChange()"> Chỉ hiện khu vực chưa theo dõi</label>
         <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
       </div>
       <div class="tts-row" style="margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--border)">
@@ -217,14 +220,32 @@
               <th>Tên đường / khu vực</th>
               <th class="tts-sortable" onclick="ttsSortBy('congestedCount')" title="Bấm để sắp xếp">Số lần xuất hiện <span class="tts-sort-arrow" data-key="congestedCount"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('avgJamFactor')" title="Bấm để sắp xếp">JF TB <span class="tts-sort-arrow" data-key="avgJamFactor"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('worstTti')" title="Bấm để sắp xếp — TTI (Travel Time Index) là chỉ số dùng để xếp mức LOS">TTI cao nhất <span class="tts-sort-arrow" data-key="worstTti"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('worstLosLabel')" title="Bấm để sắp xếp">Mức LOS cao nhất <span class="tts-sort-arrow" data-key="worstLosLabel"></span></th>
               <th>Lần cuối phát hiện</th>
               <th>Trạng thái</th>
               <th></th>
             </tr>
           </thead>
-          <tbody id="ttsTableBody"><tr><td colspan="7" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
+          <tbody id="ttsTableBody"><tr><td colspan="8" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
         </table>
+      </div>
+      <div id="ttsPager" style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-top:.5rem;font-size:.78rem;color:var(--text-muted)">
+        <span id="ttsPagerInfo"></span>
+        <span style="display:flex;align-items:center;gap:.35rem">
+          <label>Mỗi trang</label>
+          <select id="ttsPageSize" onchange="ttsPageSizeChange()">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPage(1)" title="Trang đầu">«</button>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPageRelative(-1)" title="Trang trước">‹</button>
+          <span id="ttsPagerPageLabel" style="min-width:5.5em;text-align:center"></span>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPageRelative(1)" title="Trang sau">›</button>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPage(Infinity)" title="Trang cuối">»</button>
+        </span>
       </div>
     </div>
 
@@ -233,8 +254,13 @@
       <p class="tts-hint">
         🖱 <b>Chuột phải</b> trên bản đồ để đặt điểm đầu/giữa/cuối cho tuyến mới &nbsp;|&nbsp;
         Đường <span style="color:#9ca3af">xám</span> = tuyến đã theo dõi &nbsp;|&nbsp;
-        Đường <span style="color:#ef4444">đỏ/cam</span> = điểm nóng gợi ý (bấm vào để nạp vào form thêm tuyến bên dưới)
+        Đường <span style="color:#ef4444">đỏ/cam</span> nét liền = điểm nóng gợi ý chưa theo dõi (bấm để xem chi tiết) &nbsp;|&nbsp;
+        Đường nét đứt mờ = điểm nóng trùng khu vực đã có tuyến theo dõi — vẫn vẽ đè lên để biết còn bao nhiêu điểm mới xuất hiện cần đưa vào thống kê TTI
       </p>
+      <label style="font-size:.78rem;display:inline-flex;align-items:center;gap:.35rem;margin-bottom:.5rem">
+        <input type="checkbox" id="ttsShowExisting" checked onchange="ttsToggleExistingLayer()">
+        Hiện lớp tuyến đã theo dõi (xám) — tắt đi nếu các đường xám che khuất điểm nóng mới
+      </label>
       <div id="ttsMap"></div>
       <div id="ttsCtxMenu" style="display:none">
         <button onclick="ttsCtxSet('origin')" style="color:#4ade80">🟢 Đặt làm Điểm đầu</button>
@@ -465,6 +491,7 @@ async function loadHotspots() {
       from: range.from.toISOString(),
       to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
+      minOccurrences: document.getElementById('ttsMinOccurrences').value || '1',
       gridRadiusM: document.getElementById('ttsGridRadius').value,
       limit: document.getElementById('ttsLimit').value,
     });
@@ -472,6 +499,7 @@ async function loadHotspots() {
     if (wardIds.length) qs.set('wards', wardIds.join(','));
     const report = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || {};
     _ttsHotspots = report.hotspots || [];
+    _ttsPage = 1;
     const total = report.totalMatched || 0;
     statusEl.textContent = total > _ttsHotspots.length
       ? `✓ Đang hiển thị ${_ttsHotspots.length} / ${total.toLocaleString('vi-VN')} điểm nóng phù hợp — tăng "Số lượng hiển thị tối đa" ở trên để xem thêm`
@@ -517,6 +545,15 @@ function ttsLosColor(label) {
 let _ttsSortKey = 'congestedCount';
 let _ttsSortDir = 'desc';
 
+// Phân trang bảng điểm nóng — dữ liệu có thể lên tới 2000 dòng ("Số
+// lượng hiển thị tối đa"), nên chỉ render 1 trang tại 1 thời điểm thay
+// vì render hết rồi cuộn dài. _ttsPage reset về 1 mỗi khi tập dữ liệu
+// hiển thị có thể đổi (tải lại, đổi bộ lọc "chưa theo dõi", đổi cách
+// sắp xếp, đổi số dòng/trang) — chỉ điều hướng trang (ttsGoToPage) mới
+// giữ nguyên trang hiện tại.
+let _ttsPage = 1;
+let _ttsPageSize = 20;
+
 const TTS_LOS_ORDER = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
 
 function ttsSortBy(key) {
@@ -526,6 +563,7 @@ function ttsSortBy(key) {
     _ttsSortKey = key;
     _ttsSortDir = 'desc';
   }
+  _ttsPage = 1;
   renderTtsTable();
 }
 
@@ -542,6 +580,33 @@ function ttsUpdateSortArrows() {
   });
 }
 
+function ttsHideCoveredChange() {
+  _ttsPage = 1;
+  renderTtsTable();
+}
+
+function ttsPageSizeChange() {
+  _ttsPageSize = parseInt(document.getElementById('ttsPageSize').value, 10) || 20;
+  _ttsPage = 1;
+  renderTtsTable();
+}
+
+function ttsGoToPage(p) {
+  _ttsPage = p; // clamped to [1, totalPages] inside renderTtsTable
+  renderTtsTable();
+}
+
+function ttsGoToPageRelative(delta) {
+  ttsGoToPage(_ttsPage + delta);
+}
+
+function ttsRenderPager(total, totalPages, startIdx, pageCount) {
+  document.getElementById('ttsPagerInfo').textContent = total
+    ? `Hiển thị ${(startIdx + 1).toLocaleString('vi-VN')}-${(startIdx + pageCount).toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} điểm nóng`
+    : '';
+  document.getElementById('ttsPagerPageLabel').textContent = total ? `Trang ${_ttsPage}/${totalPages}` : '—';
+}
+
 function renderTtsTable() {
   const hideCovered = document.getElementById('ttsHideCovered').checked;
   let rows = hideCovered ? _ttsHotspots.filter(h => !h.covered) : _ttsHotspots;
@@ -550,12 +615,20 @@ function renderTtsTable() {
     return _ttsSortDir === 'desc' ? bv - av : av - bv;
   });
   ttsUpdateSortArrows();
+
+  const total = rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / _ttsPageSize));
+  _ttsPage = Math.min(Math.max(1, _ttsPage), totalPages);
+  const startIdx = (_ttsPage - 1) * _ttsPageSize;
+  const pageRows = rows.slice(startIdx, startIdx + _ttsPageSize);
+  ttsRenderPager(total, totalPages, startIdx, pageRows.length);
+
   const tbody = document.getElementById('ttsTableBody');
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
+  if (!pageRows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(h => {
+  tbody.innerHTML = pageRows.map(h => {
     const name = h.description ? escHtml(h.description) : '<em style="opacity:.6">(chưa rõ tên đường)</em>';
     const lastSeen = h.lastSeenAt ? new Date(h.lastSeenAt).toLocaleString('vi-VN') : '—';
     const status = h.covered
@@ -566,6 +639,9 @@ function renderTtsTable() {
       <td><strong>${name}</strong> <span style="color:var(--text-muted);font-size:.72rem">(${escHtml(h.regionName || '—')})</span></td>
       <td>${h.congestedCount} lần <span style="color:var(--text-muted);font-size:.72rem">(/${h.scanCount} lượt quét)</span></td>
       <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
+      <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}${h.worstTtiLowSpeedWarning
+        ? ` <span title="Lượt quét cho ra TTI cao nhất này có tốc độ đo được gần như bằng 0 — TTI có thể bị đẩy cao do công thức tính (sàn tối thiểu), không hẳn phản ánh đúng mức ùn tắc thực tế. Không phải số cộng dồn.">⚠</span>`
+        : ''}</td>
       <td><span class="tts-badge" style="background:${ttsLosColor(h.worstLosLabel)}">${escHtml(h.worstLosLabel || '—')}</span></td>
       <td style="color:var(--text-muted);font-size:.76rem;white-space:nowrap">${lastSeen}</td>
       <td>${status}</td>
@@ -628,9 +704,31 @@ async function initTtsMap() {
       paint: { 'line-color': '#9ca3af', 'line-width': 2.5, 'line-opacity': .7 },
     });
 
+    // tts-hotspot holds EVERY hotspot candidate, covered or not — "nếu
+    // có các điểm xuất hiện mới, cần phải được vẽ đè lên các tuyến theo
+    // dõi này ... kể cả có theo dõi, cũng như chưa theo dõi": a candidate
+    // "covered" by an existing tracked Route only means its own two
+    // ENDPOINTS sit near that route's own endpoints (hotspotCoveredByRoute)
+    // — the real road geometry drawn here can still visibly differ from
+    // that route's own path, so hiding it entirely (the old behavior)
+    // could hide a genuinely new segment. Split into two layers reading
+    // the SAME source (filtered by each feature's own `covered` property)
+    // rather than one data-driven style, since line-dasharray isn't a
+    // data-driven paint property: tts-hotspot-line (uncovered — full
+    // color/opacity, the usual "needs tracking" candidates) draws on top
+    // of tts-hotspot-line-covered (already-tracked — dashed + muted, still
+    // visible but visually secondary), both already above tts-existing-line
+    // in z-order since both are added after it.
     _ttsMap.addSource('tts-hotspot', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     _ttsMap.addLayer({
+      id: 'tts-hotspot-line-covered', type: 'line', source: 'tts-hotspot',
+      filter: ['get', 'covered'],
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': .5, 'line-dasharray': [2, 2] },
+    });
+    _ttsMap.addLayer({
       id: 'tts-hotspot-line', type: 'line', source: 'tts-hotspot',
+      filter: ['!', ['get', 'covered']],
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': .85 },
     });
@@ -642,9 +740,11 @@ async function initTtsMap() {
     // though a different route was just clicked right here on the map.
     // Pre-filling the "add to tracking" form is still reachable via each
     // row's own "+ Thêm vào theo dõi" button in the table.
-    _ttsMap.on('click', 'tts-hotspot-line', e => ttsShowHotspotOnMap(e.features[0].properties.key));
-    _ttsMap.on('mouseenter', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = 'pointer'; });
-    _ttsMap.on('mouseleave', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = ''; });
+    for (const layerId of ['tts-hotspot-line', 'tts-hotspot-line-covered']) {
+      _ttsMap.on('click', layerId, e => ttsShowHotspotOnMap(e.features[0].properties.key));
+      _ttsMap.on('mouseenter', layerId, () => { _ttsMap.getCanvas().style.cursor = 'pointer'; });
+      _ttsMap.on('mouseleave', layerId, () => { _ttsMap.getCanvas().style.cursor = ''; });
+    }
 
     // tts-selected: a temporary highlight for whichever hotspot row was
     // just clicked in the table below — bấm vào tên/hàng điểm nóng để
@@ -784,11 +884,28 @@ function ttsHotspotLineCoords(h) {
   return [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]];
 }
 
+// ttsToggleExistingLayer — "cơ chế bật tắt lớp các tuyến đã theo dõi":
+// an admin with many existing tracked routes nearby can have the gray
+// tts-existing-line layer visually dominate the map, making it harder to
+// spot hotspot lines drawn on top of it — this lets them hide it
+// entirely without losing anything else (hotspot layers are untouched).
+function ttsToggleExistingLayer() {
+  if (!_ttsMapLoaded) return;
+  const visible = document.getElementById('ttsShowExisting').checked;
+  _ttsMap.setLayoutProperty('tts-existing-line', 'visibility', visible ? 'visible' : 'none');
+}
+
+// renderTtsHotspotLayer draws EVERY hotspot candidate, covered or not —
+// see tts-hotspot-line-covered's own doc comment in initTtsMap for why a
+// "covered" one still gets its own real road geometry drawn (as a
+// muted, dashed line) instead of being hidden outright: it may well be a
+// newly-appearing segment worth adding to TTI tracking even though it
+// happens to sit near an existing Route's own endpoints.
 function renderTtsHotspotLayer() {
   if (!_ttsMapLoaded) return;
-  const features = _ttsHotspots.filter(h => !h.covered).map(h => ({
+  const features = _ttsHotspots.map(h => ({
     type: 'Feature',
-    properties: { key: h.key, color: ttsLosColor(h.worstLosLabel) },
+    properties: { key: h.key, color: ttsLosColor(h.worstLosLabel), covered: !!h.covered },
     geometry: { type: 'LineString', coordinates: ttsHotspotLineCoords(h) },
   }));
   _ttsMap.getSource('tts-hotspot').setData({ type: 'FeatureCollection', features });
