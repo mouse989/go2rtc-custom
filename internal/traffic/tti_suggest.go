@@ -56,9 +56,9 @@ type HotspotDataQuality struct {
 
 // HotspotReport is computeHotspots' full result: the data-quality summary
 // above, alongside the ranked suggestions themselves. TotalMatched is how
-// many groups passed minScans/minRate BEFORE the limit cutoff below
-// trimmed the list — "chọn khung thời gian dài/ngắn vẫn chỉ ra 50 điểm
-// nóng dù rõ ràng có nhiều hơn": Hotspots is always capped at limit, but
+// many groups passed minScans BEFORE the limit cutoff below trimmed the
+// list — "chọn khung thời gian dài/ngắn vẫn chỉ ra 50 điểm nóng dù rõ
+// ràng có nhiều hơn": Hotspots is always capped at limit, but
 // TotalMatched lets the caller tell "that's really all of them" apart
 // from "there are more, raise limit to see them".
 type HotspotReport struct {
@@ -103,6 +103,16 @@ const defaultDedupRadiusM = 400.0
 // just alerting on.
 const defaultHotspotMinTTI = 1.96
 
+// defaultGridRadiusM is hotspotGroupKey's own grid-cell size for an
+// unnamed road (no description to group by instead) when the caller
+// doesn't specify one — admin-chosen per request (www/tti-suggest.html's
+// "Bán kính gộp" select), not a fixed constant baked into the grouping
+// itself: a bigger radius merges more scans into one candidate (fewer,
+// coarser hotspots) and a smaller one keeps them apart (more, finer
+// hotspots) — there's no universally-correct size for every deployment's
+// own road density.
+const defaultGridRadiusM = 100.0
+
 // defaultHotspotLimit/maxHotspotLimit bound how many ranked suggestions
 // computeHotspots returns. A caller that sends no limit (or an invalid
 // one, <= 0) gets defaultHotspotLimit; an explicit limit above
@@ -136,8 +146,11 @@ type hotspotAgg struct {
 // hotspots (a road jammed in last month's data may be clear this month,
 // or vice versa), so the caller always picks the window explicitly;
 // there is no implicit "last N days" fallback. Zero/negative
-// minTTI/minScans/minRate/limit fall back to sensible defaults.
-func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate float64, limit int) (*HotspotReport, error) {
+// minTTI/minScans/gridRadiusM/limit fall back to sensible defaults.
+// There is deliberately no minimum-congestion-rate filter — every group
+// that clears minScans is a candidate; CongestionRate is only ever a
+// ranking signal (see the sort below), never an exclusion one.
+func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiusM float64, limit int) (*HotspotReport, error) {
 	if err := validateHistoryRange(from, to); err != nil {
 		return nil, err
 	}
@@ -147,8 +160,8 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate f
 	if minScans <= 0 {
 		minScans = 3
 	}
-	if minRate <= 0 {
-		minRate = 0.2
+	if gridRadiusM <= 0 {
+		gridRadiusM = defaultGridRadiusM
 	}
 	if limit <= 0 {
 		limit = defaultHotspotLimit
@@ -196,7 +209,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate f
 			continue // malformed row — skip it rather than fail the whole report
 		}
 
-		key := hotspotGroupKey(regionName, description, firstLat, firstLng)
+		key := hotspotGroupKey(regionName, description, firstLat, firstLng, gridRadiusM)
 		g := groups[key]
 		if g == nil {
 			g = &hotspotAgg{description: description, regionName: regionName}
@@ -236,9 +249,6 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate f
 			continue
 		}
 		rate := float64(g.congestedCount) / float64(g.scanCount)
-		if rate < minRate {
-			continue
-		}
 		covered, coveredBy := hotspotCoveredByRoute(g.firstLat, g.firstLng, g.lastLat, g.lastLng, existingRoutes)
 		lastSeen := ""
 		if !g.lastCongestedAt.IsZero() {
@@ -308,15 +318,39 @@ func computeHotspotDataQuality(from, to time.Time) (HotspotDataQuality, error) {
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
+// earthRadiusM backs metersPerDegreeLat/metersPerDegreeLng below —
+// WGS-84's mean radius, same value monitor.go's own haversine uses.
+const earthRadiusM = 6371000.0
+
+// metersPerDegreeLat is constant everywhere on the sphere (lines of
+// latitude are evenly spaced); metersPerDegreeLng shrinks toward the
+// poles (lines of longitude converge), so it depends on the point's own
+// latitude.
+func metersPerDegreeLat() float64 { return earthRadiusM * math.Pi / 180 }
+func metersPerDegreeLng(latDeg float64) float64 {
+	return earthRadiusM * math.Pi / 180 * math.Cos(latDeg*math.Pi/180)
+}
+
 // hotspotGroupKey groups by (region, street name) when the provider named
-// the road; an unnamed result instead groups by a coarse ~0.001°
-// (~100m) grid cell of its own start point, so unrelated unnamed segments
-// elsewhere in the same region don't collapse into one bucket.
-func hotspotGroupKey(regionName, description string, lat, lng float64) string {
+// the road; an unnamed result instead groups by a grid cell of its own
+// start point, sized so each cell is gridRadiusM wide — so unrelated
+// unnamed segments elsewhere in the same region don't collapse into one
+// bucket. Snaps lat/lng to the cell's own floor boundary (not just
+// rounded to N decimal places) so gridRadiusM can be ANY size the caller
+// picks, not only the handful of sizes a fixed decimal-places format
+// string happens to land on.
+func hotspotGroupKey(regionName, description string, lat, lng, gridRadiusM float64) string {
 	if description != "" {
 		return regionName + "|" + description
 	}
-	return fmt.Sprintf("%s|@%.3f,%.3f", regionName, lat, lng)
+	if gridRadiusM <= 0 {
+		gridRadiusM = defaultGridRadiusM
+	}
+	cellSizeLat := gridRadiusM / metersPerDegreeLat()
+	cellSizeLng := gridRadiusM / metersPerDegreeLng(lat)
+	cellLat := math.Floor(lat/cellSizeLat) * cellSizeLat
+	cellLng := math.Floor(lng/cellSizeLng) * cellSizeLng
+	return fmt.Sprintf("%s|@%.6f,%.6f", regionName, cellLat, cellLng)
 }
 
 // hotspotCoveredByRoute reports whether an existing internal/traveltime
@@ -417,11 +451,14 @@ func hotspotTimelineSlotLabel(slot int) string {
 // hotspotGroupKey per row instead of filtering by description directly,
 // so a grid-cell-grouped (unnamed) hotspot gets its own timeline too, not
 // only named roads: a flat `description = ?` filter can't express "this
-// row's own lat/lng rounds to the same ~100m cell" — only
+// row's own lat/lng lands in the same grid cell" — only
 // hotspotGroupKey's own logic can. region narrows the SQL query first
 // (every candidate row must be in this region anyway, per how
 // hotspotGroupKey built the key) before that per-row recomputation runs.
-func computeHotspotTimeline(region, key string, from, to time.Time, minTTI float64) (*HotspotTimeline, error) {
+// gridRadiusM MUST be the same value the caller used to generate key via
+// computeHotspots in the first place — a different radius recomputes
+// different cell boundaries and key would simply never match any row.
+func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, gridRadiusM float64) (*HotspotTimeline, error) {
 	if err := validateHistoryRange(from, to); err != nil {
 		return nil, err
 	}
@@ -430,6 +467,9 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI float
 	}
 	if minTTI <= 0 {
 		minTTI = defaultHotspotMinTTI
+	}
+	if gridRadiusM <= 0 {
+		gridRadiusM = defaultGridRadiusM
 	}
 
 	tl := &HotspotTimeline{
@@ -463,7 +503,7 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI float
 		if err := rows.Scan(&scannedAtStr, &description, &firstLat, &firstLng, &ttiFused); err != nil {
 			return nil, fmt.Errorf("scan timeline row: %w", err)
 		}
-		if hotspotGroupKey(region, description, firstLat, firstLng) != key {
+		if hotspotGroupKey(region, description, firstLat, firstLng, gridRadiusM) != key {
 			continue
 		}
 		if ttiFused < minTTI {

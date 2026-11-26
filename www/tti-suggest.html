@@ -162,12 +162,14 @@
           <option value="2.56">≥ E (TTI 2.56)</option>
           <option value="3.45">≥ F (TTI 3.45)</option>
         </select>
-        <label>Tần suất ùn tối thiểu</label>
-        <select id="ttsMinRate">
-          <option value="0.1">10%</option>
-          <option value="0.2" selected>20%</option>
-          <option value="0.3">30%</option>
-          <option value="0.5">50%</option>
+        <label>Bán kính gộp</label>
+        <select id="ttsGridRadius" title="Đoạn đường không có tên trong dữ liệu được gộp theo toạ độ — bán kính càng lớn thì gộp càng rộng (ít điểm nóng hơn nhưng thô hơn), càng nhỏ thì tách càng chi tiết (nhiều điểm nóng hơn). Không ảnh hưởng tuyến đã có tên đường.">
+          <option value="50">50 m</option>
+          <option value="100" selected>100 m (mặc định)</option>
+          <option value="150">150 m</option>
+          <option value="200">200 m</option>
+          <option value="300">300 m</option>
+          <option value="500">500 m</option>
         </select>
         <label>Số lượng hiển thị tối đa</label>
         <select id="ttsLimit">
@@ -326,7 +328,7 @@ async function loadHotspots() {
       from: range.from.toISOString(),
       to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
-      minRate: document.getElementById('ttsMinRate').value,
+      gridRadiusM: document.getElementById('ttsGridRadius').value,
       limit: document.getElementById('ttsLimit').value,
     });
     const report = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || {};
@@ -636,6 +638,11 @@ async function ttsLoadTimeline(h) {
       region: h.regionName, key: h.key,
       from: range.from.toISOString(), to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
+      // MUST match the "Bán kính gộp" value used to generate h.key in
+      // the first place (loadHotspots) — a different radius recomputes
+      // different grid-cell boundaries and h.key would simply never
+      // match any row server-side.
+      gridRadiusM: document.getElementById('ttsGridRadius').value,
     });
     const tl = await apiFetch('/api/tti-suggest/hotspot-timeline?' + qs.toString());
     renderTtsTimelineChart(tl);

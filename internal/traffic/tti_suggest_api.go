@@ -22,7 +22,7 @@ func registerTtiSuggestHandlers() {
 
 // handleTtiSuggestHotspots  GET /api/tti-suggest/hotspots
 //
-//	?from=RFC3339&to=RFC3339&minTti=&minScans=&minRate=&limit=
+//	?from=RFC3339&to=RFC3339&minTti=&minScans=&gridRadiusM=&limit=
 //
 // from/to are mandatory (computeHotspots/validateHistoryRange reject a
 // missing or overly wide range) — a different date window can surface
@@ -48,10 +48,10 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	minTTI, _ := strconv.ParseFloat(q.Get("minTti"), 64)
 	minScans, _ := strconv.Atoi(q.Get("minScans"))
-	minRate, _ := strconv.ParseFloat(q.Get("minRate"), 64)
+	gridRadiusM, _ := strconv.ParseFloat(q.Get("gridRadiusM"), 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
-	report, err := computeHotspots(from, to, minTTI, minScans, minRate, limit)
+	report, err := computeHotspots(from, to, minTTI, minScans, gridRadiusM, limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -61,15 +61,16 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 
 // handleTtiSuggestHotspotTimeline  GET /api/tti-suggest/hotspot-timeline
 //
-//	?region=&key=&from=RFC3339&to=RFC3339&minTti=
+//	?region=&key=&from=RFC3339&to=RFC3339&minTti=&gridRadiusM=
 //
 // www/tti-suggest.html's "chi tiết theo khung giờ" chart for ONE hotspot
-// row clicked in the table — same from/to range and minTti threshold
-// already chosen on that page's own filter, just for this single
-// hotspot (key is exactly the HotspotSuggestion.Key computeHotspots
+// row clicked in the table — same from/to range, minTti threshold and
+// gridRadiusM already chosen on that page's own filter, just for this
+// single hotspot (key is exactly the HotspotSuggestion.Key computeHotspots
 // returned for it) instead of every road at once. Works for an unnamed,
 // grid-cell-grouped hotspot too — not just a named road — since key
-// (not description) is what computeHotspotTimeline matches rows against.
+// (not description) is what computeHotspotTimeline matches rows against;
+// gridRadiusM here MUST match whatever was used to generate that key.
 func handleTtiSuggestHotspotTimeline(w http.ResponseWriter, r *http.Request) {
 	if _, ok := auth.UserFromContext(r.Context()); !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -90,8 +91,9 @@ func handleTtiSuggestHotspotTimeline(w http.ResponseWriter, r *http.Request) {
 	region := q.Get("region")
 	key := q.Get("key")
 	minTTI, _ := strconv.ParseFloat(q.Get("minTti"), 64)
+	gridRadiusM, _ := strconv.ParseFloat(q.Get("gridRadiusM"), 64)
 
-	tl, err := computeHotspotTimeline(region, key, from, to, minTTI)
+	tl, err := computeHotspotTimeline(region, key, from, to, minTTI, gridRadiusM)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -103,10 +103,27 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 	if a.CongestionRate != 0.8 {
 		t.Errorf("Đường A: CongestionRate=%v, want 0.8", a.CongestionRate)
 	}
-	// Đường B's congestion rate (0) is below the default minRate (0.2), so
-	// it must be filtered out entirely.
-	if b != nil {
-		t.Errorf("expected Đường B to be filtered out (never congested), got %+v", b)
+	// There is no minimum-congestion-rate filter any more — Đường B
+	// (never congested, rate 0) still clears minScans, so it must appear
+	// too, just ranked after Đường A (CongestionRate is a sort key, not
+	// an exclusion one).
+	if b == nil {
+		t.Fatalf("expected Đường B in results (no min-rate filter any more), got %+v", out)
+	}
+	if b.CongestionRate != 0 {
+		t.Errorf("Đường B: CongestionRate=%v, want 0", b.CongestionRate)
+	}
+	aIdx, bIdx := -1, -1
+	for i := range out {
+		if out[i].Description == "Đường A" {
+			aIdx = i
+		}
+		if out[i].Description == "Đường B" {
+			bIdx = i
+		}
+	}
+	if aIdx >= bIdx {
+		t.Errorf("expected Đường A (rate 0.8) ranked before Đường B (rate 0), got order %+v", out)
 	}
 }
 
@@ -207,14 +224,38 @@ func TestComputeHotspotsRequiresValidRangeAndReportsDataQuality(t *testing.T) {
 }
 
 func TestHotspotGroupKeyFallsBackToGridCellWhenUnnamed(t *testing.T) {
-	k1 := hotspotGroupKey("Quận 1", "", 10.800123, 106.700456)
-	k2 := hotspotGroupKey("Quận 1", "", 10.800234, 106.700321) // same ~100m cell after rounding
-	if k1 != k2 {
-		t.Errorf("expected nearby unnamed points to share a grid-cell key: %q vs %q", k1, k2)
+	// Identical point -> identical key, whatever the radius.
+	k1 := hotspotGroupKey("Quận 1", "", 10.800123, 106.700456, 100)
+	k1b := hotspotGroupKey("Quận 1", "", 10.800123, 106.700456, 100)
+	if k1 != k1b {
+		t.Errorf("identical point must produce an identical key: %q vs %q", k1, k1b)
 	}
-	k3 := hotspotGroupKey("Quận 1", "", 10.850000, 106.750000) // far away
-	if k1 == k3 {
-		t.Errorf("expected distant unnamed points to land in different grid cells, both got %q", k1)
+
+	// Two points ~1000m apart in longitude only: floor-division
+	// guarantees two values at least one cell-width apart land in
+	// different buckets, so at gridRadiusM=100 (cell ~100m, far smaller
+	// than the 1000m gap) these MUST differ — not a probabilistic check.
+	lat, lng := 10.800000, 106.700000
+	lngFar := lng + 1000.0/metersPerDegreeLng(lat) // ~1000m due east
+	kNear := hotspotGroupKey("Quận 1", "", lat, lng, 100)
+	kFar := hotspotGroupKey("Quận 1", "", lat, lngFar, 100)
+	if kNear == kFar {
+		t.Errorf("points ~1000m apart must land in different cells at gridRadiusM=100, both got %q", kNear)
+	}
+
+	// Same two points, but with a MUCH larger grid radius (100km, vs. a
+	// 1000m/1% gap) — now too close together, relative to the cell, to
+	// plausibly straddle a boundary, so they should collapse into one
+	// bucket.
+	kNearBig := hotspotGroupKey("Quận 1", "", lat, lng, 100000)
+	kFarBig := hotspotGroupKey("Quận 1", "", lat, lngFar, 100000)
+	if kNearBig != kFarBig {
+		t.Errorf("points ~1000m apart should land in the SAME cell at gridRadiusM=100000, got %q vs %q", kNearBig, kFarBig)
+	}
+
+	// A different region never shares a grid-cell key, same point or not.
+	if kOther := hotspotGroupKey("Quận 3", "", lat, lng, 100); kOther == kNear {
+		t.Errorf("different region must never share a grid-cell key, both got %q", kNear)
 	}
 }
 
@@ -288,8 +329,8 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 	seedFlowScan(t, "Quận 1", "Đường B", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
 		2.0, 8.0, 8.5, 10.90, 106.80, 10.91, 106.81)
 
-	key := hotspotGroupKey("Quận 1", "Đường A", 10.80, 106.70)
-	tl, err := computeHotspotTimeline("Quận 1", key, from, to, 0)
+	key := hotspotGroupKey("Quận 1", "Đường A", 10.80, 106.70, 0)
+	tl, err := computeHotspotTimeline("Quận 1", key, from, to, 0, 0)
 	if err != nil {
 		t.Fatalf("computeHotspotTimeline: %v", err)
 	}
@@ -313,10 +354,10 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 		t.Errorf("total Count across all slots = %d, want 2 (Đường B's reading must not be included)", total)
 	}
 
-	if _, err := computeHotspotTimeline("Quận 1", "", from, to, 0); err == nil {
+	if _, err := computeHotspotTimeline("Quận 1", "", from, to, 0, 0); err == nil {
 		t.Error("expected error for empty key, got nil")
 	}
-	if _, err := computeHotspotTimeline("Quận 1", key, to, from, 0); err == nil {
+	if _, err := computeHotspotTimeline("Quận 1", key, to, from, 0, 0); err == nil {
 		t.Error("expected error for to-before-from, got nil")
 	}
 }
@@ -327,20 +368,29 @@ func TestComputeHotspotTimelineWorksForGridCellGroupedUnnamedHotspot(t *testing.
 	from := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
 
-	// Two unnamed readings landing in the same ~100m grid cell (per
-	// hotspotGroupKey's own rounding) — same scenario computeHotspots
-	// itself groups into one "(chưa rõ tên đường)" hotspot.
+	baseLat, baseLng := 10.800000, 106.700000
+	// ~1m east — well under 1% of the default (100m) cell width, so this
+	// lands in the same grid cell as baseLat/baseLng for any realistic
+	// alignment.
+	nearLng := baseLng + 1.0/metersPerDegreeLng(baseLat)
+	// ~1000m east — at least one full cell width away, so floor-division
+	// GUARANTEES a different cell at the default 100m radius.
+	farLng := baseLng + 1000.0/metersPerDegreeLng(baseLat)
+
+	// Two unnamed readings landing in the same grid cell — same scenario
+	// computeHotspots itself groups into one "(chưa rõ tên đường)"
+	// hotspot.
 	seedFlowScan(t, "Quận 1", "", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
-		2.0, 8.0, 8.5, 10.800123, 106.700456, 10.81, 106.71)
+		2.0, 8.0, 8.5, baseLat, baseLng, 10.81, 106.71)
 	seedFlowScan(t, "Quận 1", "", time.Date(2026, 11, 20, 0, 35, 0, 0, time.UTC),
-		2.0, 8.0, 8.5, 10.800234, 106.700321, 10.81, 106.71)
+		2.0, 8.0, 8.5, baseLat, nearLng, 10.81, 106.71)
 	// A reading in a clearly different grid cell, same region, also
 	// unnamed — must not leak into the first cell's timeline.
 	seedFlowScan(t, "Quận 1", "", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
-		2.0, 8.0, 8.5, 10.95, 106.95, 10.96, 106.96)
+		2.0, 8.0, 8.5, baseLat, farLng, 10.96, 106.96)
 
-	key := hotspotGroupKey("Quận 1", "", 10.800123, 106.700456)
-	tl, err := computeHotspotTimeline("Quận 1", key, from, to, 0)
+	key := hotspotGroupKey("Quận 1", "", baseLat, baseLng, 0)
+	tl, err := computeHotspotTimeline("Quận 1", key, from, to, 0, 0)
 	if err != nil {
 		t.Fatalf("computeHotspotTimeline: %v", err)
 	}
