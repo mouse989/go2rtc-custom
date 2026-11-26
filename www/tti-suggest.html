@@ -217,13 +217,14 @@
               <th>Tên đường / khu vực</th>
               <th class="tts-sortable" onclick="ttsSortBy('congestedCount')" title="Bấm để sắp xếp">Số lần xuất hiện <span class="tts-sort-arrow" data-key="congestedCount"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('avgJamFactor')" title="Bấm để sắp xếp">JF TB <span class="tts-sort-arrow" data-key="avgJamFactor"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('worstTti')" title="Bấm để sắp xếp — TTI (Travel Time Index) là chỉ số dùng để xếp mức LOS">TTI cao nhất <span class="tts-sort-arrow" data-key="worstTti"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('worstLosLabel')" title="Bấm để sắp xếp">Mức LOS cao nhất <span class="tts-sort-arrow" data-key="worstLosLabel"></span></th>
               <th>Lần cuối phát hiện</th>
               <th>Trạng thái</th>
               <th></th>
             </tr>
           </thead>
-          <tbody id="ttsTableBody"><tr><td colspan="7" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
+          <tbody id="ttsTableBody"><tr><td colspan="8" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -552,7 +553,7 @@ function renderTtsTable() {
   ttsUpdateSortArrows();
   const tbody = document.getElementById('ttsTableBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(h => {
@@ -566,6 +567,7 @@ function renderTtsTable() {
       <td><strong>${name}</strong> <span style="color:var(--text-muted);font-size:.72rem">(${escHtml(h.regionName || '—')})</span></td>
       <td>${h.congestedCount} lần <span style="color:var(--text-muted);font-size:.72rem">(/${h.scanCount} lượt quét)</span></td>
       <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
+      <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}</td>
       <td><span class="tts-badge" style="background:${ttsLosColor(h.worstLosLabel)}">${escHtml(h.worstLosLabel || '—')}</span></td>
       <td style="color:var(--text-muted);font-size:.76rem;white-space:nowrap">${lastSeen}</td>
       <td>${status}</td>

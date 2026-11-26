@@ -104,27 +104,15 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 	if a.CongestionRate != 0.8 {
 		t.Errorf("Đường A: CongestionRate=%v, want 0.8", a.CongestionRate)
 	}
-	// There is no minimum-congestion-rate filter any more — Đường B
-	// (never congested, rate 0) still clears minScans, so it must appear
-	// too, just ranked after Đường A (CongestionRate is a sort key, not
-	// an exclusion one).
-	if b == nil {
-		t.Fatalf("expected Đường B in results (no min-rate filter any more), got %+v", out)
-	}
-	if b.CongestionRate != 0 {
-		t.Errorf("Đường B: CongestionRate=%v, want 0", b.CongestionRate)
-	}
-	aIdx, bIdx := -1, -1
-	for i := range out {
-		if out[i].Description == "Đường A" {
-			aIdx = i
-		}
-		if out[i].Description == "Đường B" {
-			bIdx = i
-		}
-	}
-	if aIdx >= bIdx {
-		t.Errorf("expected Đường A (rate 0.8) ranked before Đường B (rate 0), got order %+v", out)
+	// Đường B never once reached minTTI (congestedCount stays 0, even
+	// though it clears minScans) — "chọn mức ùn tối thiểu > F nhưng vẫn
+	// thấy điểm E/C/D": a road that never hit the chosen threshold at
+	// all must not appear as a hotspot for it, so Đường B is excluded
+	// entirely here. CongestionRate itself (for a road that DID hit the
+	// threshold at least once) stays purely a sort key, never an
+	// exclusion one — that part of the original design is unchanged.
+	if b != nil {
+		t.Fatalf("expected Đường B (never congested) to be excluded entirely, got %+v", out)
 	}
 }
 
@@ -183,6 +171,58 @@ func TestComputeHotspotsMinScansFiltersSparseGroups(t *testing.T) {
 		if h.Description == "Đường C" {
 			t.Fatalf("expected Đường C (only 2 scans) to be filtered out by minScans, got %+v", h)
 		}
+	}
+}
+
+// TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI covers "chọn mức
+// ùn tối thiểu > F tuy nhiên bảng/bản đồ vẫn còn vẽ các điểm E/C/D": a
+// road whose own worst-ever TTI only ever reaches "D" must be excluded
+// entirely when the caller filters at the "F" threshold — not merely
+// ranked last — and a road that DOES reach "F" must show WorstLOSLabel
+// "F" (never a lower band it also happened to pass through along the
+// way).
+func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 24, 8, 0, 0, 0, time.UTC)
+	// Freeflow/speed = 8.0/4.0 = TTI 2.0, squarely "D" (1.96-2.56) — never F.
+	for i := 0; i < 4; i++ {
+		seedFlowScan(t, "Quận 3", "Đường Chỉ Tới D", base.Add(time.Duration(i)*5*time.Minute),
+			4.0, 8.0, 5.0, 10.75, 106.65, 10.76, 106.66)
+	}
+	// Freeflow/speed = 8.0/2.0 = TTI 4.0, "F" (>= 3.45).
+	for i := 0; i < 4; i++ {
+		seedFlowScan(t, "Quận 3", "Đường Tới F", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, 10.85, 106.65, 10.86, 106.66)
+	}
+
+	const losFThreshold = 3.45
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), losFThreshold, 0, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+
+	var d, f *HotspotSuggestion
+	for i := range report.Hotspots {
+		switch report.Hotspots[i].Description {
+		case "Đường Chỉ Tới D":
+			d = &report.Hotspots[i]
+		case "Đường Tới F":
+			f = &report.Hotspots[i]
+		}
+	}
+	if d != nil {
+		t.Errorf("expected Đường Chỉ Tới D (never reaches F) to be excluded at the F threshold, got %+v", d)
+	}
+	if f == nil {
+		t.Fatalf("expected Đường Tới F in results, got %+v", report.Hotspots)
+	}
+	if f.WorstLOSLabel != "F" {
+		t.Errorf("Đường Tới F: WorstLOSLabel = %q, want %q", f.WorstLOSLabel, "F")
+	}
+	if f.WorstTTI < losFThreshold {
+		t.Errorf("Đường Tới F: WorstTTI = %v, want >= %v", f.WorstTTI, losFThreshold)
 	}
 }
 
