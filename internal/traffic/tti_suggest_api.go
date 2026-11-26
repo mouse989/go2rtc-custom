@@ -61,12 +61,15 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 
 // handleTtiSuggestHotspotTimeline  GET /api/tti-suggest/hotspot-timeline
 //
-//	?region=&description=&from=RFC3339&to=RFC3339&minTti=
+//	?region=&key=&from=RFC3339&to=RFC3339&minTti=
 //
 // www/tti-suggest.html's "chi tiết theo khung giờ" chart for ONE hotspot
 // row clicked in the table — same from/to range and minTti threshold
 // already chosen on that page's own filter, just for this single
-// (region, description) instead of every road at once.
+// hotspot (key is exactly the HotspotSuggestion.Key computeHotspots
+// returned for it) instead of every road at once. Works for an unnamed,
+// grid-cell-grouped hotspot too — not just a named road — since key
+// (not description) is what computeHotspotTimeline matches rows against.
 func handleTtiSuggestHotspotTimeline(w http.ResponseWriter, r *http.Request) {
 	if _, ok := auth.UserFromContext(r.Context()); !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -85,10 +88,10 @@ func handleTtiSuggestHotspotTimeline(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	region := q.Get("region")
-	description := q.Get("description")
+	key := q.Get("key")
 	minTTI, _ := strconv.ParseFloat(q.Get("minTti"), 64)
 
-	tl, err := computeHotspotTimeline(region, description, from, to, minTTI)
+	tl, err := computeHotspotTimeline(region, key, from, to, minTTI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

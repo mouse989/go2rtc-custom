@@ -288,7 +288,8 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 	seedFlowScan(t, "Quận 1", "Đường B", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
 		2.0, 8.0, 8.5, 10.90, 106.80, 10.91, 106.81)
 
-	tl, err := computeHotspotTimeline("Quận 1", "Đường A", from, to, 0)
+	key := hotspotGroupKey("Quận 1", "Đường A", 10.80, 106.70)
+	tl, err := computeHotspotTimeline("Quận 1", key, from, to, 0)
 	if err != nil {
 		t.Fatalf("computeHotspotTimeline: %v", err)
 	}
@@ -313,10 +314,45 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 	}
 
 	if _, err := computeHotspotTimeline("Quận 1", "", from, to, 0); err == nil {
-		t.Error("expected error for empty description, got nil")
+		t.Error("expected error for empty key, got nil")
 	}
-	if _, err := computeHotspotTimeline("Quận 1", "Đường A", to, from, 0); err == nil {
+	if _, err := computeHotspotTimeline("Quận 1", key, to, from, 0); err == nil {
 		t.Error("expected error for to-before-from, got nil")
+	}
+}
+
+func TestComputeHotspotTimelineWorksForGridCellGroupedUnnamedHotspot(t *testing.T) {
+	resetFlowCaptureDB(t)
+
+	from := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)
+
+	// Two unnamed readings landing in the same ~100m grid cell (per
+	// hotspotGroupKey's own rounding) — same scenario computeHotspots
+	// itself groups into one "(chưa rõ tên đường)" hotspot.
+	seedFlowScan(t, "Quận 1", "", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
+		2.0, 8.0, 8.5, 10.800123, 106.700456, 10.81, 106.71)
+	seedFlowScan(t, "Quận 1", "", time.Date(2026, 11, 20, 0, 35, 0, 0, time.UTC),
+		2.0, 8.0, 8.5, 10.800234, 106.700321, 10.81, 106.71)
+	// A reading in a clearly different grid cell, same region, also
+	// unnamed — must not leak into the first cell's timeline.
+	seedFlowScan(t, "Quận 1", "", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
+		2.0, 8.0, 8.5, 10.95, 106.95, 10.96, 106.96)
+
+	key := hotspotGroupKey("Quận 1", "", 10.800123, 106.700456)
+	tl, err := computeHotspotTimeline("Quận 1", key, from, to, 0)
+	if err != nil {
+		t.Fatalf("computeHotspotTimeline: %v", err)
+	}
+	total := 0
+	for _, s := range tl.Slots {
+		total += s.Count
+	}
+	if total != 2 {
+		t.Errorf("total Count = %d, want 2 (both readings in the same grid cell, the distant one excluded)", total)
+	}
+	if tl.Slots[14].Count != 1 || tl.Slots[15].Count != 1 {
+		t.Errorf("expected one reading each in slot 14 (07:00-07:30) and slot 15 (07:30-08:00), got %+v", tl.Slots[14:16])
 	}
 }
 

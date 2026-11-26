@@ -389,12 +389,11 @@ type HotspotTimelineSlot struct {
 // 48 slots (zero-filled where there's no congested reading), index ==
 // slot.
 type HotspotTimeline struct {
-	RegionName  string                `json:"regionName"`
-	Description string                `json:"description"`
-	From        string                `json:"from"`
-	To          string                `json:"to"`
-	MinTTI      float64               `json:"minTti"`
-	Slots       []HotspotTimelineSlot `json:"slots"`
+	Key    string                `json:"key"`
+	From   string                `json:"from"`
+	To     string                `json:"to"`
+	MinTTI float64               `json:"minTti"`
+	Slots  []HotspotTimelineSlot `json:"slots"`
 }
 
 func hotspotTimelineSlotLabel(slot int) string {
@@ -406,25 +405,37 @@ func hotspotTimelineSlotLabel(slot int) string {
 	return fmt.Sprintf("%02d:%02d-%02d:%02d", h, m, h2%24, m2)
 }
 
-// computeHotspotTimeline answers "với MỘT tuyến/đoạn đường cụ thể (click
-// từ bảng điểm nóng), nó hay ùn vào khung giờ nào trong ngày?" — same
+// computeHotspotTimeline answers "với MỘT điểm nóng cụ thể (click từ
+// bảng điểm nóng), nó hay ùn vào khung giờ nào trong ngày?" — same
 // from/to window and minTTI threshold already chosen on the page's own
 // filter (not a separate "last N days"), bucketed every 30 minutes and
 // summed across every day the range covers.
-func computeHotspotTimeline(region, description string, from, to time.Time, minTTI float64) (*HotspotTimeline, error) {
+//
+// key is exactly one HotspotSuggestion.Key from computeHotspots' own
+// output (region+description, or region+grid-cell for an unnamed road —
+// see hotspotGroupKey). Matching rows to key here RECOMPUTES
+// hotspotGroupKey per row instead of filtering by description directly,
+// so a grid-cell-grouped (unnamed) hotspot gets its own timeline too, not
+// only named roads: a flat `description = ?` filter can't express "this
+// row's own lat/lng rounds to the same ~100m cell" — only
+// hotspotGroupKey's own logic can. region narrows the SQL query first
+// (every candidate row must be in this region anyway, per how
+// hotspotGroupKey built the key) before that per-row recomputation runs.
+func computeHotspotTimeline(region, key string, from, to time.Time, minTTI float64) (*HotspotTimeline, error) {
 	if err := validateHistoryRange(from, to); err != nil {
 		return nil, err
 	}
-	if description == "" {
-		return nil, fmt.Errorf("description is required")
+	if key == "" {
+		return nil, fmt.Errorf("key is required")
 	}
 	if minTTI <= 0 {
 		minTTI = defaultHotspotMinTTI
 	}
 
 	tl := &HotspotTimeline{
-		RegionName: region, Description: description,
-		From: from.UTC().Format(time.RFC3339), To: to.UTC().Format(time.RFC3339),
+		Key:    key,
+		From:   from.UTC().Format(time.RFC3339),
+		To:     to.UTC().Format(time.RFC3339),
 		MinTTI: minTTI, Slots: make([]HotspotTimelineSlot, 48),
 	}
 	for i := range tl.Slots {
@@ -435,22 +446,25 @@ func computeHotspotTimeline(region, description string, from, to time.Time, minT
 	}
 
 	rows, err := flowCaptureDB.Query(`
-		SELECT fsc.scanned_at, fs.tti_fused
+		SELECT fsc.scanned_at, fs.description, fs.first_lat, fs.first_lng, fs.tti_fused
 		FROM flow_segments fs
 		JOIN flow_scans fsc ON fsc.id = fs.scan_id
 		WHERE fsc.scanned_at >= ? AND fsc.scanned_at <= ? AND fs.sub_index = -1
-		  AND fsc.region_name = ? AND fs.description = ?
-	`, from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339), region, description)
+		  AND fsc.region_name = ? AND fs.first_lat IS NOT NULL AND fs.last_lat IS NOT NULL
+	`, from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339), region)
 	if err != nil {
 		return nil, fmt.Errorf("query flow_segments: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var scannedAtStr string
-		var ttiFused float64
-		if err := rows.Scan(&scannedAtStr, &ttiFused); err != nil {
+		var scannedAtStr, description string
+		var firstLat, firstLng, ttiFused float64
+		if err := rows.Scan(&scannedAtStr, &description, &firstLat, &firstLng, &ttiFused); err != nil {
 			return nil, fmt.Errorf("scan timeline row: %w", err)
+		}
+		if hotspotGroupKey(region, description, firstLat, firstLng) != key {
+			continue
 		}
 		if ttiFused < minTTI {
 			continue

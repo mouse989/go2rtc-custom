@@ -623,24 +623,17 @@ async function ttsLoadTimeline(h) {
   document.getElementById('ttsTimelineTitle').textContent =
     `📊 Chi tiết theo khung giờ — ${h.description || '(chưa rõ tên đường)'} (${h.regionName || '—'})`;
 
-  // An unnamed hotspot is grouped by a coarse lat/lng grid cell
-  // (hotspotGroupKey, internal/traffic/tti_suggest.go) — the timeline API
-  // only filters by (region, description), so querying with an empty
-  // description would pull in EVERY unnamed road in the region instead of
-  // just this one cluster. Simplest correct behavior: this feature only
-  // supports named roads.
-  if (!h.description) {
-    if (_ttsTimelineChart) { _ttsTimelineChart.destroy(); _ttsTimelineChart = null; }
-    statusEl.textContent = 'Điểm nóng này chưa rõ tên đường (gộp theo toạ độ) — chưa hỗ trợ xem chi tiết theo khung giờ.';
-    return;
-  }
+  // h.key (region+description, or region+grid-cell for an unnamed road —
+  // see hotspotGroupKey) is what the server matches rows against now, not
+  // description directly — so this works for a grid-cell-grouped
+  // ("chưa rõ tên đường") hotspot exactly the same way as a named road.
   const range = ttsRangeOrNull();
   if (!range) { statusEl.textContent = 'Chọn lại khoảng Từ ngày/Đến ngày hợp lệ ở bộ lọc phía trên.'; return; }
 
   statusEl.textContent = 'Đang tải...';
   try {
     const qs = new URLSearchParams({
-      region: h.regionName, description: h.description,
+      region: h.regionName, key: h.key,
       from: range.from.toISOString(), to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
     });
