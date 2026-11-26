@@ -268,7 +268,10 @@
         <button onclick="ttsCtxSet('dest')" style="color:#f87171">🔴 Đặt làm Điểm cuối</button>
       </div>
       <div id="ttsTimelineBox" style="display:none;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border)">
-        <div style="font-size:.82rem;font-weight:600;margin-bottom:.4rem" id="ttsTimelineTitle"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin-bottom:.4rem">
+          <div style="font-size:.82rem;font-weight:600" id="ttsTimelineTitle"></div>
+          <button class="btn btn-secondary btn-sm" onclick="ttsClearSelection()" title="Bỏ highlight tuyến đang chọn trên bản đồ">✕ Bỏ chọn</button>
+        </div>
         <p class="tts-hint" style="margin:0 0 .5rem">
           Số lần đạt mức ùn đã chọn ở bộ lọc trên, theo khung giờ 30 phút — cộng dồn qua mọi ngày trong khoảng Từ ngày/Đến ngày đã chọn
           (VD: 07:00-07:30 gộp số lần xảy ra ở khung giờ đó của tất cả các ngày trong khoảng). Bấm vào 1 cột để xem chi tiết từng ngày.
@@ -778,7 +781,19 @@ async function initTtsMap() {
       menu.style.top = e.originalEvent.clientY + 'px';
       menu.style.display = '';
     });
-    _ttsMap.on('click', () => { document.getElementById('ttsCtxMenu').style.display = 'none'; });
+    // A click that doesn't land on any hotspot line is a "blank area"
+    // click — treat it as a deselect too, same as the explicit "✕ Bỏ
+    // chọn" button (ttsClearSelection). Checked explicitly via
+    // queryRenderedFeatures (not by registration order between this
+    // handler and the per-layer click handlers above, which isn't
+    // something to rely on) so a click that DOES land on a hotspot keeps
+    // showing that hotspot's own highlight instead of immediately
+    // clearing it again.
+    _ttsMap.on('click', e => {
+      document.getElementById('ttsCtxMenu').style.display = 'none';
+      const hits = _ttsMap.queryRenderedFeatures(e.point, { layers: ['tts-hotspot-line', 'tts-hotspot-line-covered'] });
+      if (!hits.length) ttsClearSelection();
+    });
 
     renderTtsRoutesLayer();
     renderTtsHotspotLayer();
@@ -916,9 +931,8 @@ function renderTtsHotspotLayer() {
 // table row (not its "+ Thêm vào theo dõi" button) is clicked, so a
 // viewer can see at a glance where a named road actually is before
 // deciding whether to track it. Works for an already-covered hotspot too
-// (those are left out of the orange tts-hotspot-line layer entirely,
-// since they're not candidates any more — but still show here on
-// request).
+// (renderTtsHotspotLayer draws those as well, just dashed/muted — see
+// its own doc comment).
 function ttsShowHotspotOnMap(key) {
   const h = _ttsHotspots.find(x => x.key === key);
   if (!h || !_ttsMapLoaded) return;
@@ -932,6 +946,20 @@ function ttsShowHotspotOnMap(key) {
   _ttsMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 120, maxZoom: 17, duration: 600 });
   document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
   ttsLoadTimeline(h);
+}
+
+// ttsClearSelection — "ko có cơ chế bỏ chọn; nên bạn thấy có vẻ như 2
+// level": trước đây tts-selected (highlight cam/vàng — xem
+// ttsShowHotspotOnMap) không có cách nào xoá đi, nên 1 tuyến đã từng
+// bấm chọn cứ giữ nguyên màu cam trên bản đồ mãi mãi, trông như 1 điểm
+// nóng khác màu/mức độ riêng biệt dù thực ra chỉ là highlight của lượt
+// chọn trước đó. Gọi được qua nút "✕ Bỏ chọn" trong khung chi tiết
+// theo khung giờ, hoặc tự động khi bấm vào vùng trống trên bản đồ
+// (không trúng điểm nóng nào — xem initTtsMap's own click handler).
+function ttsClearSelection() {
+  if (!_ttsMapLoaded) return;
+  _ttsMap.getSource('tts-selected').setData({ type: 'FeatureCollection', features: [] });
+  document.getElementById('ttsTimelineBox').style.display = 'none';
 }
 
 // ── Chi tiết theo khung giờ (30 phút), chỉ cho 1 tuyến đã chọn ──────
