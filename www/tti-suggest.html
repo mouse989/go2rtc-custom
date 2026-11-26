@@ -169,6 +169,14 @@
           <option value="0.3">30%</option>
           <option value="0.5">50%</option>
         </select>
+        <label>Số lượng hiển thị tối đa</label>
+        <select id="ttsLimit">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+          <option value="1000">1000 (tối đa)</option>
+        </select>
         <label><input type="checkbox" id="ttsHideCovered" checked onchange="renderTtsTable()"> Chỉ hiện khu vực chưa theo dõi</label>
         <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
       </div>
@@ -319,10 +327,14 @@ async function loadHotspots() {
       to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
       minRate: document.getElementById('ttsMinRate').value,
+      limit: document.getElementById('ttsLimit').value,
     });
     const report = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || {};
     _ttsHotspots = report.hotspots || [];
-    statusEl.textContent = `✓ ${_ttsHotspots.length} điểm nóng`;
+    const total = report.totalMatched || 0;
+    statusEl.textContent = total > _ttsHotspots.length
+      ? `✓ Đang hiển thị ${_ttsHotspots.length} / ${total.toLocaleString('vi-VN')} điểm nóng phù hợp — tăng "Số lượng hiển thị tối đa" ở trên để xem thêm`
+      : `✓ ${_ttsHotspots.length} điểm nóng`;
     renderTtsDataQuality(report.dataQuality);
     renderTtsTable();
     renderTtsHotspotLayer();

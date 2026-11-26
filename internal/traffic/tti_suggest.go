@@ -55,10 +55,16 @@ type HotspotDataQuality struct {
 }
 
 // HotspotReport is computeHotspots' full result: the data-quality summary
-// above, alongside the ranked suggestions themselves.
+// above, alongside the ranked suggestions themselves. TotalMatched is how
+// many groups passed minScans/minRate BEFORE the limit cutoff below
+// trimmed the list — "chọn khung thời gian dài/ngắn vẫn chỉ ra 50 điểm
+// nóng dù rõ ràng có nhiều hơn": Hotspots is always capped at limit, but
+// TotalMatched lets the caller tell "that's really all of them" apart
+// from "there are more, raise limit to see them".
 type HotspotReport struct {
-	DataQuality HotspotDataQuality  `json:"dataQuality"`
-	Hotspots    []HotspotSuggestion `json:"hotspots"`
+	DataQuality  HotspotDataQuality  `json:"dataQuality"`
+	TotalMatched int                 `json:"totalMatched"`
+	Hotspots     []HotspotSuggestion `json:"hotspots"`
 }
 
 // HotspotSuggestion is one candidate route a TabTtiSuggest holder may want
@@ -97,6 +103,19 @@ const defaultDedupRadiusM = 400.0
 // just alerting on.
 const defaultHotspotMinTTI = 1.96
 
+// defaultHotspotLimit/maxHotspotLimit bound how many ranked suggestions
+// computeHotspots returns. A caller that sends no limit (or an invalid
+// one, <= 0) gets defaultHotspotLimit; an explicit limit above
+// maxHotspotLimit is clamped DOWN to maxHotspotLimit, not reset to the
+// default — unlike an earlier version of this clamp, which reset ANY
+// out-of-range value (including an intentional "give me 500") straight
+// back to 50, so a caller could never actually see more than the
+// default regardless of how explicitly it asked.
+const (
+	defaultHotspotLimit = 50
+	maxHotspotLimit     = 1000
+)
+
 type hotspotAgg struct {
 	description, regionName              string
 	scanCount, congestedCount            int
@@ -131,8 +150,10 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate f
 	if minRate <= 0 {
 		minRate = 0.2
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if limit <= 0 {
+		limit = defaultHotspotLimit
+	} else if limit > maxHotspotLimit {
+		limit = maxHotspotLimit
 	}
 
 	report := &HotspotReport{Hotspots: []HotspotSuggestion{}}
@@ -250,6 +271,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, minRate f
 		}
 		return out[i].CongestedCount > out[j].CongestedCount
 	})
+	report.TotalMatched = len(out)
 	if len(out) > limit {
 		out = out[:limit]
 	}

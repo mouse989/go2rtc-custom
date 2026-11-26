@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -214,6 +215,57 @@ func TestHotspotGroupKeyFallsBackToGridCellWhenUnnamed(t *testing.T) {
 	k3 := hotspotGroupKey("Quận 1", "", 10.850000, 106.750000) // far away
 	if k1 == k3 {
 		t.Errorf("expected distant unnamed points to land in different grid cells, both got %q", k1)
+	}
+}
+
+func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 24, 8, 0, 0, 0, time.UTC)
+	const roadCount = 55 // > defaultHotspotLimit (50)
+	for r := 0; r < roadCount; r++ {
+		name := fmt.Sprintf("Đường Test %02d", r)
+		for i := 0; i < 3; i++ {
+			seedFlowScan(t, "Quận 1", name, base.Add(time.Duration(i)*5*time.Minute),
+				2.0, 8.0, 8.5, 10.0+float64(r)*0.01, 106.0, 10.01+float64(r)*0.01, 106.01)
+		}
+	}
+
+	// limit omitted (0) -> defaultHotspotLimit (50) results, but
+	// TotalMatched must still report the true count (55), not 50.
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	if len(report.Hotspots) != 50 {
+		t.Errorf("len(Hotspots) = %d, want 50 (defaultHotspotLimit)", len(report.Hotspots))
+	}
+	if report.TotalMatched != roadCount {
+		t.Errorf("TotalMatched = %d, want %d", report.TotalMatched, roadCount)
+	}
+
+	// An explicit limit above the old (buggy) "reset to 50 past 200"
+	// threshold must be honored, not silently reduced back to 50.
+	report2, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, roadCount)
+	if err != nil {
+		t.Fatalf("computeHotspots (explicit limit): %v", err)
+	}
+	if len(report2.Hotspots) != roadCount {
+		t.Errorf("len(Hotspots) with limit=%d = %d, want %d", roadCount, len(report2.Hotspots), roadCount)
+	}
+	if report2.TotalMatched != roadCount {
+		t.Errorf("TotalMatched = %d, want %d", report2.TotalMatched, roadCount)
+	}
+
+	// A limit above maxHotspotLimit is clamped DOWN to maxHotspotLimit,
+	// not reset to defaultHotspotLimit.
+	report3, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, maxHotspotLimit+500)
+	if err != nil {
+		t.Fatalf("computeHotspots (over-max limit): %v", err)
+	}
+	if len(report3.Hotspots) != roadCount {
+		t.Errorf("len(Hotspots) with an over-max limit = %d, want %d (every match, since roadCount < maxHotspotLimit)", len(report3.Hotspots), roadCount)
 	}
 }
 
