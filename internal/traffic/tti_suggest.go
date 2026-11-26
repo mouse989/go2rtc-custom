@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AlexxIT/go2rtc/internal/trafficmetrics"
 	"github.com/AlexxIT/go2rtc/internal/traveltime"
 )
 
@@ -99,6 +100,21 @@ type HotspotSuggestion struct {
 	// the straight FirstLat/Lng-LastLat/Lng line in that case, same as
 	// before this field existed.
 	Geometry [][2]float64 `json:"geometry,omitempty"`
+	// WorstTTILowSpeedWarning flags that the scan which produced WorstTTI
+	// had its own speed_mps at or below trafficmetrics.MinSpeedMps — "TTi
+	// cao nhất hiện nay đang khá lớn ... kiểm tra xem đây là số cộng dồn
+	// qua các lần lấy hay sao?": it is NOT a cumulative/summed figure
+	// (WorstTTI is tracked as a plain per-scan max, see the loop below),
+	// but CalculateTTIFromSpeed floors a near-zero/zero speed reading to
+	// MinSpeedMps before dividing, so once a reading's own speed is at or
+	// under that floor, the resulting TTI is driven almost entirely by
+	// FreeFlowMps/MinSpeedMps rather than a precisely measured ratio — a
+	// true standstill (real gridlock) and a noisy/stale GPS sample
+	// reporting near-zero speed while traffic is merely slow both floor to
+	// the same inflated number. This is a hint to double-check the
+	// underlying reading, not proof of a bad one — flagged here rather
+	// than silently producing a large WorstTTI with no way to tell why.
+	WorstTTILowSpeedWarning bool `json:"worstTtiLowSpeedWarning,omitempty"`
 }
 
 // defaultDedupRadiusM: how close a candidate's own endpoint must be to an
@@ -143,6 +159,7 @@ type hotspotAgg struct {
 	jfSum                                float64
 	worstTTI                             float64
 	worstLOS                             string
+	worstTTISpeedMps                     float64 // the speed_mps that produced worstTTI — see HotspotSuggestion.WorstTTILowSpeedWarning
 	lengthM                              float64
 	firstLat, firstLng, lastLat, lastLng float64
 	latestScannedAt, lastCongestedAt     time.Time
@@ -231,7 +248,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 	fromStr, toStr := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := flowCaptureDB.Query(`
 		SELECT fsc.region_name, fsc.scanned_at, fs.description, fs.length_m,
-		       fs.jam_factor, fs.tti_fused, fs.los_label,
+		       fs.jam_factor, fs.tti_fused, fs.los_label, fs.speed_mps,
 		       fs.first_lat, fs.first_lng, fs.last_lat, fs.last_lng, fs.scan_id
 		FROM flow_segments fs
 		JOIN flow_scans fsc ON fsc.id = fs.scan_id
@@ -247,9 +264,9 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 
 	for rows.Next() {
 		var regionName, scannedAtStr, description, losLabel string
-		var lengthM, jamFactor, ttiFused, firstLat, firstLng, lastLat, lastLng float64
+		var lengthM, jamFactor, ttiFused, speedMps, firstLat, firstLng, lastLat, lastLng float64
 		var scanID int64
-		if err := rows.Scan(&regionName, &scannedAtStr, &description, &lengthM, &jamFactor, &ttiFused, &losLabel,
+		if err := rows.Scan(&regionName, &scannedAtStr, &description, &lengthM, &jamFactor, &ttiFused, &losLabel, &speedMps,
 			&firstLat, &firstLng, &lastLat, &lastLng, &scanID); err != nil {
 			return nil, fmt.Errorf("scan flow_segments row: %w", err)
 		}
@@ -278,6 +295,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 		if ttiFused > g.worstTTI {
 			g.worstTTI = ttiFused
 			g.worstLOS = losLabel
+			g.worstTTISpeedMps = speedMps
 		}
 		// Representative geometry/length always comes from the most
 		// recently seen scan for this group, so a road the provider has
@@ -312,23 +330,24 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 			lastSeen = g.lastCongestedAt.UTC().Format(time.RFC3339)
 		}
 		out = append(out, HotspotSuggestion{
-			Key:            key,
-			Description:    g.description,
-			RegionName:     g.regionName,
-			ScanCount:      g.scanCount,
-			CongestedCount: g.congestedCount,
-			CongestionRate: round2(rate),
-			AvgJamFactor:   round2(g.jfSum / float64(g.scanCount)),
-			WorstTTI:       round2(g.worstTTI),
-			WorstLOSLabel:  g.worstLOS,
-			LengthM:        math.Round(g.lengthM),
-			FirstLat:       g.firstLat,
-			FirstLng:       g.firstLng,
-			LastLat:        g.lastLat,
-			LastLng:        g.lastLng,
-			LastSeenAt:     lastSeen,
-			Covered:        covered,
-			CoveredByRoute: coveredBy,
+			Key:                     key,
+			Description:             g.description,
+			RegionName:              g.regionName,
+			ScanCount:               g.scanCount,
+			CongestedCount:          g.congestedCount,
+			CongestionRate:          round2(rate),
+			AvgJamFactor:            round2(g.jfSum / float64(g.scanCount)),
+			WorstTTI:                round2(g.worstTTI),
+			WorstLOSLabel:           g.worstLOS,
+			LengthM:                 math.Round(g.lengthM),
+			FirstLat:                g.firstLat,
+			FirstLng:                g.firstLng,
+			LastLat:                 g.lastLat,
+			LastLng:                 g.lastLng,
+			LastSeenAt:              lastSeen,
+			Covered:                 covered,
+			CoveredByRoute:          coveredBy,
+			WorstTTILowSpeedWarning: g.worstTTISpeedMps <= trafficmetrics.MinSpeedMps,
 		})
 		scanIDByKey[key] = g.scanID
 	}

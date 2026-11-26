@@ -224,6 +224,49 @@ func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	if f.WorstTTI < losFThreshold {
 		t.Errorf("Đường Tới F: WorstTTI = %v, want >= %v", f.WorstTTI, losFThreshold)
 	}
+	if f.WorstTTILowSpeedWarning {
+		t.Errorf("Đường Tới F: WorstTTILowSpeedWarning = true, want false (speed 2.0 m/s is well above the floor)")
+	}
+}
+
+// TestComputeHotspotsFlagsWorstTTIFromFlooredSpeed covers "TTi cao nhất
+// hiện nay đang khá lớn: 46.00, 18.26 ... kiểm tra xem đây là số cộng
+// dồn qua các lần lấy hay sao?" — WorstTTI is never cumulative (it's a
+// plain per-scan max, see the aggregation loop above), but
+// CalculateTTIFromSpeed (internal/trafficmetrics) floors a near-zero/zero
+// speed reading to MinSpeedMps before dividing by it, so a road whose
+// worst scan had an almost-stalled speed can show a very large TTI that
+// reflects the floor kicking in more than a precisely measured ratio.
+// WorstTTILowSpeedWarning must flag exactly that scan.
+func TestComputeHotspotsFlagsWorstTTIFromFlooredSpeed(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC)
+	// speed 0.1 m/s is below trafficmetrics.MinSpeedMps (0.2) — floored,
+	// so the resulting TTI is driven by freeFlow/MinSpeedMps rather than
+	// the (unreliable at that point) exact measured speed.
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 5", "Đường Gần Như Đứng Yên", base.Add(time.Duration(i)*5*time.Minute),
+			0.1, 9.0, 9.5, 10.76, 106.68, 10.77, 106.69)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var h *HotspotSuggestion
+	for i := range report.Hotspots {
+		if report.Hotspots[i].Description == "Đường Gần Như Đứng Yên" {
+			h = &report.Hotspots[i]
+		}
+	}
+	if h == nil {
+		t.Fatalf("expected Đường Gần Như Đứng Yên in results, got %+v", report.Hotspots)
+	}
+	if !h.WorstTTILowSpeedWarning {
+		t.Errorf("expected WorstTTILowSpeedWarning = true for a scan with speed 0.1 m/s (below the floor), got false (WorstTTI=%v)", h.WorstTTI)
+	}
 }
 
 // TestComputeHotspotsMinCongestedCountFiltersByOwnOccurrenceCount covers

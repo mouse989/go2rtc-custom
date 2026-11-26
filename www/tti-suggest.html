@@ -639,7 +639,9 @@ function renderTtsTable() {
       <td><strong>${name}</strong> <span style="color:var(--text-muted);font-size:.72rem">(${escHtml(h.regionName || '—')})</span></td>
       <td>${h.congestedCount} lần <span style="color:var(--text-muted);font-size:.72rem">(/${h.scanCount} lượt quét)</span></td>
       <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
-      <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}</td>
+      <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}${h.worstTtiLowSpeedWarning
+        ? ` <span title="Lượt quét cho ra TTI cao nhất này có tốc độ đo được gần như bằng 0 — TTI có thể bị đẩy cao do công thức tính (sàn tối thiểu), không hẳn phản ánh đúng mức ùn tắc thực tế. Không phải số cộng dồn.">⚠</span>`
+        : ''}</td>
       <td><span class="tts-badge" style="background:${ttsLosColor(h.worstLosLabel)}">${escHtml(h.worstLosLabel || '—')}</span></td>
       <td style="color:var(--text-muted);font-size:.76rem;white-space:nowrap">${lastSeen}</td>
       <td>${status}</td>

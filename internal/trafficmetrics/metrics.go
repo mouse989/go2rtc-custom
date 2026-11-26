@@ -16,6 +16,23 @@ package trafficmetrics
 
 import "math"
 
+// MinSpeedMps/MinFreeFlowMps are CalculateTTIFromSpeed's own floors —
+// exported (rather than kept as unexported literals) so a caller holding
+// the raw speedMps that went into a TTI figure (internal/traffic's
+// hotspot aggregation, in particular) can tell whether that TTI came from
+// a genuinely-measured speed or from this floor kicking in instead. Once
+// speedMps <= MinSpeedMps, the resulting TTI is driven almost entirely by
+// freeFlowMps/MinSpeedMps — a near-zero or zero speed reading (true
+// gridlock, but also a noisy/stale GPS sample reporting near-zero speed
+// while traffic is merely slow) and a near-standstill-but-not-quite one
+// both floor to the exact same ratio, so a resulting TTI in the tens
+// doesn't carry more information than "very bad" — see
+// HotspotSuggestion.WorstTTILowSpeedWarning in internal/traffic.
+const (
+	MinSpeedMps    = 0.2
+	MinFreeFlowMps = 0.5
+)
+
 // CalculateTTIFromSpeed computes TTI = freeFlow/speed from raw m/s values
 // (VietMap's currentFlow.speed/freeFlow — confirmed m/s, not km/h, by
 // internal/traffic/flow_capture_parse.go's own doc comment). Both inputs
@@ -23,8 +40,8 @@ import "math"
 // (stalled traffic, a bad sample) never divides by zero or yields a wild
 // ratio.
 func CalculateTTIFromSpeed(speedMps, freeFlowMps float64) float64 {
-	safeSpeed := math.Max(speedMps, 0.2)
-	safeFreeFlow := math.Max(freeFlowMps, 0.5)
+	safeSpeed := math.Max(speedMps, MinSpeedMps)
+	safeFreeFlow := math.Max(freeFlowMps, MinFreeFlowMps)
 	return round3(safeFreeFlow / safeSpeed)
 }
 
