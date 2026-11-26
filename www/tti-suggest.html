@@ -187,7 +187,7 @@
           <option value="1000">1000</option>
           <option value="2000">2000 (tối đa)</option>
         </select>
-        <label><input type="checkbox" id="ttsHideCovered" checked onchange="renderTtsTable()"> Chỉ hiện khu vực chưa theo dõi</label>
+        <label><input type="checkbox" id="ttsHideCovered" checked onchange="ttsHideCoveredChange()"> Chỉ hiện khu vực chưa theo dõi</label>
         <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
       </div>
       <div class="tts-row" style="margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--border)">
@@ -229,6 +229,23 @@
           </thead>
           <tbody id="ttsTableBody"><tr><td colspan="8" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
         </table>
+      </div>
+      <div id="ttsPager" style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-top:.5rem;font-size:.78rem;color:var(--text-muted)">
+        <span id="ttsPagerInfo"></span>
+        <span style="display:flex;align-items:center;gap:.35rem">
+          <label>Mỗi trang</label>
+          <select id="ttsPageSize" onchange="ttsPageSizeChange()">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPage(1)" title="Trang đầu">«</button>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPageRelative(-1)" title="Trang trước">‹</button>
+          <span id="ttsPagerPageLabel" style="min-width:5.5em;text-align:center"></span>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPageRelative(1)" title="Trang sau">›</button>
+          <button class="btn btn-secondary btn-sm" onclick="ttsGoToPage(Infinity)" title="Trang cuối">»</button>
+        </span>
       </div>
     </div>
 
@@ -477,6 +494,7 @@ async function loadHotspots() {
     if (wardIds.length) qs.set('wards', wardIds.join(','));
     const report = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || {};
     _ttsHotspots = report.hotspots || [];
+    _ttsPage = 1;
     const total = report.totalMatched || 0;
     statusEl.textContent = total > _ttsHotspots.length
       ? `✓ Đang hiển thị ${_ttsHotspots.length} / ${total.toLocaleString('vi-VN')} điểm nóng phù hợp — tăng "Số lượng hiển thị tối đa" ở trên để xem thêm`
@@ -522,6 +540,15 @@ function ttsLosColor(label) {
 let _ttsSortKey = 'congestedCount';
 let _ttsSortDir = 'desc';
 
+// Phân trang bảng điểm nóng — dữ liệu có thể lên tới 2000 dòng ("Số
+// lượng hiển thị tối đa"), nên chỉ render 1 trang tại 1 thời điểm thay
+// vì render hết rồi cuộn dài. _ttsPage reset về 1 mỗi khi tập dữ liệu
+// hiển thị có thể đổi (tải lại, đổi bộ lọc "chưa theo dõi", đổi cách
+// sắp xếp, đổi số dòng/trang) — chỉ điều hướng trang (ttsGoToPage) mới
+// giữ nguyên trang hiện tại.
+let _ttsPage = 1;
+let _ttsPageSize = 20;
+
 const TTS_LOS_ORDER = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
 
 function ttsSortBy(key) {
@@ -531,6 +558,7 @@ function ttsSortBy(key) {
     _ttsSortKey = key;
     _ttsSortDir = 'desc';
   }
+  _ttsPage = 1;
   renderTtsTable();
 }
 
@@ -547,6 +575,33 @@ function ttsUpdateSortArrows() {
   });
 }
 
+function ttsHideCoveredChange() {
+  _ttsPage = 1;
+  renderTtsTable();
+}
+
+function ttsPageSizeChange() {
+  _ttsPageSize = parseInt(document.getElementById('ttsPageSize').value, 10) || 20;
+  _ttsPage = 1;
+  renderTtsTable();
+}
+
+function ttsGoToPage(p) {
+  _ttsPage = p; // clamped to [1, totalPages] inside renderTtsTable
+  renderTtsTable();
+}
+
+function ttsGoToPageRelative(delta) {
+  ttsGoToPage(_ttsPage + delta);
+}
+
+function ttsRenderPager(total, totalPages, startIdx, pageCount) {
+  document.getElementById('ttsPagerInfo').textContent = total
+    ? `Hiển thị ${(startIdx + 1).toLocaleString('vi-VN')}-${(startIdx + pageCount).toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} điểm nóng`
+    : '';
+  document.getElementById('ttsPagerPageLabel').textContent = total ? `Trang ${_ttsPage}/${totalPages}` : '—';
+}
+
 function renderTtsTable() {
   const hideCovered = document.getElementById('ttsHideCovered').checked;
   let rows = hideCovered ? _ttsHotspots.filter(h => !h.covered) : _ttsHotspots;
@@ -555,12 +610,20 @@ function renderTtsTable() {
     return _ttsSortDir === 'desc' ? bv - av : av - bv;
   });
   ttsUpdateSortArrows();
+
+  const total = rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / _ttsPageSize));
+  _ttsPage = Math.min(Math.max(1, _ttsPage), totalPages);
+  const startIdx = (_ttsPage - 1) * _ttsPageSize;
+  const pageRows = rows.slice(startIdx, startIdx + _ttsPageSize);
+  ttsRenderPager(total, totalPages, startIdx, pageRows.length);
+
   const tbody = document.getElementById('ttsTableBody');
-  if (!rows.length) {
+  if (!pageRows.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(h => {
+  tbody.innerHTML = pageRows.map(h => {
     const name = h.description ? escHtml(h.description) : '<em style="opacity:.6">(chưa rõ tên đường)</em>';
     const lastSeen = h.lastSeenAt ? new Date(h.lastSeenAt).toLocaleString('vi-VN') : '—';
     const status = h.covered
