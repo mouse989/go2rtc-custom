@@ -88,6 +88,17 @@ type HotspotSuggestion struct {
 	LastSeenAt     string  `json:"lastSeenAt,omitempty"` // RFC3339, most recent congested scan
 	Covered        bool    `json:"covered"`              // an existing traveltime Route already runs through both endpoints
 	CoveredByRoute string  `json:"coveredByRoute,omitempty"`
+	// Geometry is the representative scan's own real road polyline
+	// ([lat,lng] pairs, in order), reconstructed from flow_scans.raw_json
+	// (flow_capture_parse.go's Links, flattened) rather than synthesized
+	// as a straight line between FirstLat/Lng and LastLat/Lng — "biểu
+	// diễn trên map theo đoạn tuyến đúng nguyên văn dữ liệu raw, không
+	// tách ra thành từng điểm rồi nối lại". Omitted (empty) when the
+	// representative scan's raw_json can no longer be read/parsed, or
+	// didn't carry a matching result's geometry — callers fall back to
+	// the straight FirstLat/Lng-LastLat/Lng line in that case, same as
+	// before this field existed.
+	Geometry [][2]float64 `json:"geometry,omitempty"`
 }
 
 // defaultDedupRadiusM: how close a candidate's own endpoint must be to an
@@ -135,6 +146,7 @@ type hotspotAgg struct {
 	lengthM                              float64
 	firstLat, firstLng, lastLat, lastLng float64
 	latestScannedAt, lastCongestedAt     time.Time
+	scanID                               int64 // flow_scans.id the representative (latest) row came from — see enrichHotspotGeometry
 }
 
 // computeHotspots is tti_suggest_api.go's handleTtiSuggestHotspots's own
@@ -195,7 +207,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 	rows, err := flowCaptureDB.Query(`
 		SELECT fsc.region_name, fsc.scanned_at, fs.description, fs.length_m,
 		       fs.jam_factor, fs.tti_fused, fs.los_label,
-		       fs.first_lat, fs.first_lng, fs.last_lat, fs.last_lng
+		       fs.first_lat, fs.first_lng, fs.last_lat, fs.last_lng, fs.scan_id
 		FROM flow_segments fs
 		JOIN flow_scans fsc ON fsc.id = fs.scan_id
 		WHERE fsc.scanned_at >= ? AND fsc.scanned_at <= ? AND fs.sub_index = -1
@@ -211,8 +223,9 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 	for rows.Next() {
 		var regionName, scannedAtStr, description, losLabel string
 		var lengthM, jamFactor, ttiFused, firstLat, firstLng, lastLat, lastLng float64
+		var scanID int64
 		if err := rows.Scan(&regionName, &scannedAtStr, &description, &lengthM, &jamFactor, &ttiFused, &losLabel,
-			&firstLat, &firstLng, &lastLat, &lastLng); err != nil {
+			&firstLat, &firstLng, &lastLat, &lastLng, &scanID); err != nil {
 			return nil, fmt.Errorf("scan flow_segments row: %w", err)
 		}
 		scannedAt, err := time.Parse(time.RFC3339, scannedAtStr)
@@ -249,6 +262,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 			g.latestScannedAt = scannedAt
 			g.lengthM = lengthM
 			g.firstLat, g.firstLng, g.lastLat, g.lastLng = firstLat, firstLng, lastLat, lastLng
+			g.scanID = scanID
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -258,6 +272,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 	existingRoutes := traveltime.ListRoutes()
 
 	out := make([]HotspotSuggestion, 0, len(groups))
+	scanIDByKey := make(map[string]int64, len(groups))
 	for key, g := range groups {
 		if g.scanCount < minScans {
 			continue
@@ -287,6 +302,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 			Covered:        covered,
 			CoveredByRoute: coveredBy,
 		})
+		scanIDByKey[key] = g.scanID
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -299,8 +315,99 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 	if len(out) > limit {
 		out = out[:limit]
 	}
+	// Real road geometry only ever gets fetched/parsed for the final,
+	// post-limit list — never for every match before truncation — so
+	// raising "Số lượng hiển thị tối đa" is the only thing that scales
+	// this cost up.
+	enrichHotspotGeometry(out, scanIDByKey)
 	report.Hotspots = out
 	return report, nil
+}
+
+// enrichHotspotGeometry fills in each hotspot's Geometry (its real road
+// polyline) by re-parsing its representative scan's raw_json — see
+// HotspotSuggestion.Geometry's own doc comment for why this beats a
+// straight FirstLat/Lng-LastLat/Lng line. Caches one parsed result set
+// per scan_id, so hotspots sharing a scan (the common case — most
+// candidates from one region share that region's single latest scan in
+// the window) only pay the raw_json fetch+parse cost once.
+func enrichHotspotGeometry(out []HotspotSuggestion, scanIDByKey map[string]int64) {
+	parsedByScan := map[int64][]flowResult{}
+	for i := range out {
+		scanID, ok := scanIDByKey[out[i].Key]
+		if !ok {
+			continue
+		}
+		results, cached := parsedByScan[scanID]
+		if !cached {
+			raw, err := rawFlowScanJSON(scanID)
+			if err != nil {
+				parsedByScan[scanID] = nil
+				continue
+			}
+			parsed, _, err := parseFlowResults([]byte(raw))
+			if err != nil {
+				parsedByScan[scanID] = nil
+				continue
+			}
+			results = parsed
+			parsedByScan[scanID] = results
+		}
+		if results == nil {
+			continue
+		}
+		if match := findMatchingFlowResult(results, out[i].Description, out[i].FirstLat, out[i].FirstLng); match != nil {
+			out[i].Geometry = flattenFlowResultPoints(match)
+		}
+	}
+}
+
+// findMatchingFlowResult picks the one result (within one scan's parsed
+// raw_json) that produced a given hotspot's representative row. A named
+// road matches by its own description (unique enough within one scan in
+// practice — the provider doesn't return the same street name twice for
+// one bbox query); an unnamed one has no such key, so it matches by
+// whichever result's own first point is closest to the hotspot's own
+// FirstLat/Lng — the EXACT point that row's first_lat/first_lng came
+// from in the first place, so this is an exact (or near-exact, modulo
+// float round-tripping) match, not a fuzzy guess.
+func findMatchingFlowResult(results []flowResult, description string, firstLat, firstLng float64) *flowResult {
+	if description != "" {
+		for i := range results {
+			if results[i].Description == description {
+				return &results[i]
+			}
+		}
+		return nil
+	}
+	const matchToleranceM = 5.0
+	var best *flowResult
+	bestDist := math.MaxFloat64
+	for i := range results {
+		r := &results[i]
+		if len(r.Links) == 0 || len(r.Links[0].Points) == 0 {
+			continue
+		}
+		p := r.Links[0].Points[0]
+		if d := haversine(firstLat, firstLng, p[0], p[1]); d < bestDist {
+			bestDist = d
+			best = r
+		}
+	}
+	if best != nil && bestDist <= matchToleranceM {
+		return best
+	}
+	return nil
+}
+
+// flattenFlowResultPoints concatenates every link's own polyline, in
+// order, into one continuous [lat,lng] path for the whole result.
+func flattenFlowResultPoints(r *flowResult) [][2]float64 {
+	var pts [][2]float64
+	for _, link := range r.Links {
+		pts = append(pts, link.Points...)
+	}
+	return pts
 }
 
 // computeHotspotDataQuality answers "trong khoảng ngày đã chọn, dữ liệu
@@ -423,14 +530,34 @@ func parseLatLng(s string) (lat, lng float64, ok bool) {
 	return lat, lng, true
 }
 
+// weekdayNamesVI mirrors www/heatmap-replay.html's own WEEKDAY_NAMES_VI
+// exactly (index == time.Weekday(), 0 = Sunday) — computed server-side
+// here instead of asking the client to redo it from a date string.
+var weekdayNamesVI = [...]string{"Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"}
+
+// HotspotTimelineDayCount is one calendar day's own count within a single
+// 30-minute slot — "nếu click vào từng khung giờ sẽ thể hiện được chi
+// tiết: khung giờ đó, từng ngày - thứ... bao nhiêu lần". Only days that
+// actually had >= 1 occurrence in that slot are included (a 62-day range
+// × 48 slots full of mostly-zero entries would be a lot of dead weight
+// for no benefit).
+type HotspotTimelineDayCount struct {
+	Date    string `json:"date"`    // "2026-11-22", Vietnam local calendar day
+	Weekday string `json:"weekday"` // "Chủ Nhật"
+	Count   int    `json:"count"`
+}
+
 // HotspotTimelineSlot is one 30-minute time-of-day bucket (0-47, Vietnam
 // local time) — same slot width www/heatmap-replay.html's per-day
 // histogram uses, just summed across every day in the queried range
 // instead of split per calendar day: "7h-7h30 cộng dồn qua nhiều ngày".
+// ByDay is that same total broken back down by day for display once a
+// viewer clicks into one particular slot.
 type HotspotTimelineSlot struct {
-	Slot  int    `json:"slot"` // 0-47
-	Label string `json:"label"`
-	Count int    `json:"count"` // số lần đạt mức ùn (TTI >= minTTI) trong khung giờ này, cộng dồn qua mọi ngày trong [from,to]
+	Slot  int                       `json:"slot"` // 0-47
+	Label string                    `json:"label"`
+	Count int                       `json:"count"`           // số lần đạt mức ùn (TTI >= minTTI) trong khung giờ này, cộng dồn qua mọi ngày trong [from,to]
+	ByDay []HotspotTimelineDayCount `json:"byDay,omitempty"` // sorted by Date ascending; only days with Count > 0
 }
 
 // HotspotTimeline is computeHotspotTimeline's full result: always exactly
@@ -511,6 +638,12 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 	}
 	defer rows.Close()
 
+	// dayCounts[slot][dateKey] accumulates the per-day breakdown
+	// alongside tl.Slots[slot].Count itself — built into HotspotTimelineSlot.ByDay
+	// once every row has been seen (so each slot's days end up sorted,
+	// rather than sorting 48 times inside the loop).
+	dayCounts := make([]map[string]int, 48)
+
 	for rows.Next() {
 		var scannedAtStr, description string
 		var firstLat, firstLng, ttiFused float64
@@ -530,9 +663,35 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 		local := scannedAt.In(vnLocation)
 		slot := local.Hour()*2 + local.Minute()/30
 		tl.Slots[slot].Count++
+		if dayCounts[slot] == nil {
+			dayCounts[slot] = map[string]int{}
+		}
+		dayCounts[slot][local.Format("2006-01-02")]++
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate timeline rows: %w", err)
 	}
+
+	for slot, counts := range dayCounts {
+		if len(counts) == 0 {
+			continue
+		}
+		dates := make([]string, 0, len(counts))
+		for d := range counts {
+			dates = append(dates, d)
+		}
+		sort.Strings(dates)
+		byDay := make([]HotspotTimelineDayCount, len(dates))
+		for i, d := range dates {
+			t, err := time.ParseInLocation("2006-01-02", d, vnLocation)
+			weekday := ""
+			if err == nil {
+				weekday = weekdayNamesVI[t.Weekday()]
+			}
+			byDay[i] = HotspotTimelineDayCount{Date: d, Weekday: weekday, Count: counts[d]}
+		}
+		tl.Slots[slot].ByDay = byDay
+	}
+
 	return tl, nil
 }

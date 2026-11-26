@@ -240,10 +240,11 @@
         <div style="font-size:.82rem;font-weight:600;margin-bottom:.4rem" id="ttsTimelineTitle"></div>
         <p class="tts-hint" style="margin:0 0 .5rem">
           Số lần đạt mức ùn đã chọn ở bộ lọc trên, theo khung giờ 30 phút — cộng dồn qua mọi ngày trong khoảng Từ ngày/Đến ngày đã chọn
-          (VD: 07:00-07:30 gộp số lần xảy ra ở khung giờ đó của tất cả các ngày trong khoảng).
+          (VD: 07:00-07:30 gộp số lần xảy ra ở khung giờ đó của tất cả các ngày trong khoảng). Bấm vào 1 cột để xem chi tiết từng ngày.
         </p>
         <div id="ttsTimelineStatus" style="font-size:.78rem;color:var(--text-muted);margin-bottom:.4rem"></div>
         <div style="height:220px"><canvas id="ttsTimelineChart"></canvas></div>
+        <div id="ttsTimelineDayDetail" style="display:none;margin-top:.7rem;padding-top:.6rem;border-top:1px dashed var(--border);font-size:.8rem"></div>
       </div>
     </div>
 
@@ -716,12 +717,28 @@ async function renderTtsRoutesLayer() {
   _ttsMap.getSource('tts-existing').setData({ type: 'FeatureCollection', features });
 }
 
+// ttsHotspotLineCoords returns a hotspot's own line as [[lng,lat],...]
+// (GeoJSON order) for drawing — h.geometry, when the server could
+// resolve it (enrichHotspotGeometry, internal/traffic/tti_suggest.go), is
+// the REAL road polyline reconstructed from flow_scans.raw_json verbatim,
+// not a straight line synthesized between two endpoints: "biểu diễn trên
+// map theo đoạn tuyến đúng nguyên văn dữ liệu raw, không tách ra thành
+// từng điểm rồi nối lại". Falls back to the old 2-point line only when
+// geometry is missing (e.g. the representative scan's raw_json could no
+// longer be read/parsed).
+function ttsHotspotLineCoords(h) {
+  if (h.geometry && h.geometry.length >= 2) {
+    return h.geometry.map(([lat, lng]) => [lng, lat]);
+  }
+  return [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]];
+}
+
 function renderTtsHotspotLayer() {
   if (!_ttsMapLoaded) return;
   const features = _ttsHotspots.filter(h => !h.covered).map(h => ({
     type: 'Feature',
     properties: { key: h.key, color: ttsLosColor(h.worstLosLabel) },
-    geometry: { type: 'LineString', coordinates: [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]] },
+    geometry: { type: 'LineString', coordinates: ttsHotspotLineCoords(h) },
   }));
   _ttsMap.getSource('tts-hotspot').setData({ type: 'FeatureCollection', features });
 }
@@ -737,12 +754,13 @@ function renderTtsHotspotLayer() {
 function ttsShowHotspotOnMap(key) {
   const h = _ttsHotspots.find(x => x.key === key);
   if (!h || !_ttsMapLoaded) return;
-  _ttsMap.getSource('tts-selected').setData({
-    type: 'Feature',
-    geometry: { type: 'LineString', coordinates: [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]] },
+  const coords = ttsHotspotLineCoords(h);
+  _ttsMap.getSource('tts-selected').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } });
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  coords.forEach(([lng, lat]) => {
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   });
-  const minLat = Math.min(h.firstLat, h.lastLat), maxLat = Math.max(h.firstLat, h.lastLat);
-  const minLng = Math.min(h.firstLng, h.lastLng), maxLng = Math.max(h.firstLng, h.lastLng);
   _ttsMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 120, maxZoom: 17, duration: 600 });
   document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
   ttsLoadTimeline(h);
@@ -790,6 +808,7 @@ async function ttsLoadTimeline(h) {
 
 function renderTtsTimelineChart(tl) {
   if (_ttsTimelineChart) { _ttsTimelineChart.destroy(); _ttsTimelineChart = null; }
+  document.getElementById('ttsTimelineDayDetail').style.display = 'none';
   const labels = tl.slots.map(s => s.label.split('-')[0]); // "07:00-07:30" -> "07:00"
   const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
   const grid = 'rgba(128,128,128,.15)';
@@ -798,6 +817,17 @@ function renderTtsTimelineChart(tl) {
     data: { labels, datasets: [{ data: tl.slots.map(s => s.count), backgroundColor: '#ef4444', borderRadius: 3, maxBarThickness: 14 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
+      // "nếu click vào từng khung giờ sẽ thể hiện được chi tiết: khung
+      // giờ đó, từng ngày - thứ... bao nhiêu lần" — a bar's own total is
+      // already the sum across every day in the chosen range; this
+      // expands that one slot back out into its own per-day breakdown
+      // (ttsShowTimelineSlotDetail), using tl.slots[i].byDay the server
+      // already computed — no extra request needed.
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        ttsShowTimelineSlotDetail(tl.slots[elements[0].index]);
+      },
+      onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : ''; },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { title: items => tl.slots[items[0].dataIndex].label, label: c => `${c.parsed.y} lần` } },
@@ -808,6 +838,29 @@ function renderTtsTimelineChart(tl) {
       },
     },
   });
+}
+
+// ttsShowTimelineSlotDetail renders one clicked slot's own per-day
+// breakdown (slot.byDay, already computed server-side — see
+// HotspotTimelineSlot.ByDay's own doc comment) as "ngày - thứ: N lần",
+// one line per day that actually had data in that slot, across every day
+// the chosen Từ ngày/Đến ngày range covers.
+function ttsShowTimelineSlotDetail(slot) {
+  const el = document.getElementById('ttsTimelineDayDetail');
+  el.style.display = '';
+  if (!slot.byDay || !slot.byDay.length) {
+    el.innerHTML = `<strong>${escHtml(slot.label)}</strong> — không có ngày nào đạt mức ùn đã chọn trong khung giờ này.`;
+    return;
+  }
+  const rows = slot.byDay.map(d => {
+    const [y, m, dd] = d.date.split('-');
+    return `<div style="display:flex;justify-content:space-between;gap:1rem;padding:.2rem 0;border-bottom:1px solid var(--border)">
+      <span>${dd}/${m}/${y} - ${escHtml(d.weekday)}</span>
+      <span style="color:var(--text-muted)">${d.count} lần</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<strong>${escHtml(slot.label)}</strong> — ${slot.byDay.length} ngày có dữ liệu:
+    <div style="margin-top:.4rem;max-height:220px;overflow-y:auto">${rows}</div>`;
 }
 
 // ── Draw tool (port of admin.html's TTI route editor map) ──────────

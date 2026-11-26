@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -310,6 +311,63 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 	}
 }
 
+// TestComputeHotspotsEnrichesGeometryFromRawJSON verifies
+// enrichHotspotGeometry/findMatchingFlowResult/flattenFlowResultPoints
+// against realSampleJSON (flow_capture_parse_test.go) — a real captured
+// API response, not a hand-built fixture — for BOTH matching paths:
+// a named road (matched by Description) and an unnamed one (matched by
+// nearest first-point, since it has no description to key off of).
+func TestComputeHotspotsEnrichesGeometryFromRawJSON(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	results, sourceUpdated, err := parseFlowResults([]byte(realSampleJSON))
+	if err != nil {
+		t.Fatalf("parseFlowResults: %v", err)
+	}
+	base := time.Date(2026, 11, 25, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ { // >= default minScans (3)
+		scannedAt := base.Add(time.Duration(i) * 5 * time.Minute)
+		if err := recordFlowScan("Quận 7", scannedAt, sourceUpdated, len(realSampleJSON), []byte(realSampleJSON), results); err != nil {
+			t.Fatalf("recordFlowScan (%d): %v", i, err)
+		}
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+
+	var named, unnamed *HotspotSuggestion
+	for i := range report.Hotspots {
+		h := &report.Hotspots[i]
+		switch h.Description {
+		case "Duong Nguyen Thi Thap":
+			named = h
+		case "":
+			unnamed = h
+		}
+	}
+	if named == nil {
+		t.Fatalf("expected a hotspot for 'Duong Nguyen Thi Thap', got %+v", report.Hotspots)
+	}
+	wantNamedGeom := [][2]float64{{10.73097, 106.70022}, {10.73114, 106.70019}}
+	if !reflect.DeepEqual(named.Geometry, wantNamedGeom) {
+		t.Errorf("named hotspot Geometry = %v, want %v", named.Geometry, wantNamedGeom)
+	}
+
+	if unnamed == nil {
+		t.Fatalf("expected an unnamed (grid-cell-grouped) hotspot, got %+v", report.Hotspots)
+	}
+	wantUnnamedGeom := [][2]float64{
+		{10.80114, 106.66217}, {10.80099, 106.66213}, {10.80087, 106.66214},
+		{10.80087, 106.66214}, {10.80073, 106.66218},
+	}
+	if !reflect.DeepEqual(unnamed.Geometry, wantUnnamedGeom) {
+		t.Errorf("unnamed hotspot Geometry = %v, want %v (both links' points flattened in order)", unnamed.Geometry, wantUnnamedGeom)
+	}
+}
+
 func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *testing.T) {
 	resetFlowCaptureDB(t)
 
@@ -352,6 +410,27 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 	}
 	if total != 2 {
 		t.Errorf("total Count across all slots = %d, want 2 (Đường B's reading must not be included)", total)
+	}
+
+	// Per-day breakdown: slot 14 (07:00-07:30) should split its total of 2
+	// into one occurrence each on 2026-11-20 and 2026-11-21.
+	byDay := tl.Slots[14].ByDay
+	if len(byDay) != 2 {
+		t.Fatalf("slot 14 ByDay = %+v, want 2 entries", byDay)
+	}
+	if byDay[0].Date != "2026-11-20" || byDay[0].Count != 1 {
+		t.Errorf("byDay[0] = %+v, want {Date: 2026-11-20, Count: 1}", byDay[0])
+	}
+	if byDay[1].Date != "2026-11-21" || byDay[1].Count != 1 {
+		t.Errorf("byDay[1] = %+v, want {Date: 2026-11-21, Count: 1}", byDay[1])
+	}
+	wantWeekday0 := weekdayNamesVI[time.Date(2026, 11, 20, 0, 0, 0, 0, vnLocation).Weekday()]
+	if byDay[0].Weekday != wantWeekday0 {
+		t.Errorf("byDay[0].Weekday = %q, want %q", byDay[0].Weekday, wantWeekday0)
+	}
+	// Slot 15 was never congested, so it must carry no per-day breakdown at all.
+	if tl.Slots[15].ByDay != nil {
+		t.Errorf("slot 15 ByDay = %+v, want nil (never congested)", tl.Slots[15].ByDay)
 	}
 
 	if _, err := computeHotspotTimeline("Quận 1", "", from, to, 0, 0); err == nil {
