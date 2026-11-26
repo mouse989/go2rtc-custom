@@ -37,6 +37,11 @@
 .fc-jf-legend-bar { flex:1; height:10px; border-radius:5px; }
 .fc-empty { color:var(--text-muted); font-size:.82rem; text-align:center; padding:1.5rem 0; }
 @media (max-width:900px) { .fc-stat-tile { min-width:46%; } }
+.fc-controls input[type=date], .fc-controls input[type=datetime-local] {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:6px; padding:.3rem .55rem; font-size:.78rem; font-family:inherit;
+}
+.fc-chart-wrap { height:220px; }
 </style>
 </head>
 <body>
@@ -103,6 +108,14 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" clip-rule="evenodd"/></svg>
       Flow Capture
     </a>
+    <a href="/heatmap-replay.html" class="nav-item" data-tab-require="heatmap_replay" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM10.75 6a.75.75 0 00-1.5 0v4c0 .284.152.546.398.687l3 1.732a.75.75 0 00.75-1.299L10.75 9.567V6z" clip-rule="evenodd"/></svg>
+      Xem lại Heatmap
+    </a>
+    <a href="/tti-suggest.html" class="nav-item" data-tab-require="tti_suggest" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.69 18.933l.003.001c.106.059.212.085.312.085a.743.743 0 00.312-.085l.003-.001.006-.003.018-.01a6.788 6.788 0 00.397-.248c.24-.157.579-.396.975-.726.792-.66 1.819-1.636 2.845-2.853C16.447 12.6 18 9.95 18 7A6 6 0 006 7c0 2.95 1.553 5.6 3.44 7.993a19.646 19.646 0 002.846 2.853 11.65 11.65 0 00.976.726 6.967 6.967 0 00.407.258zM10 9a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+      Gợi ý tuyến TTI
+    </a>
     <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
       Sub Admin
@@ -151,6 +164,17 @@
           <label style="display:inline-flex;align-items:center;gap:.3rem;cursor:pointer">
             <input type="checkbox" id="fcLayerRoutes" checked> Tuyến TTI đang theo dõi
           </label>
+          <label style="display:inline-flex;align-items:center;gap:.3rem">
+            Chế độ xem
+            <select id="fcViewMode" onchange="fcViewModeChange()">
+              <option value="live">🔴 Trực tiếp</option>
+              <option value="at">🕐 Xem theo thời điểm</option>
+            </select>
+          </label>
+          <span id="fcAtControls" style="display:none;align-items:center;gap:.3rem">
+            <input type="datetime-local" id="fcAtTime" step="1">
+            <button id="btnFcAtLoad" onclick="loadFcAtSelected()">Xem</button>
+          </span>
           <span id="fcAsOf" style="color:var(--text-muted)">—</span>
           <button id="btnFcRefresh">Làm mới</button>
         </div>
@@ -171,10 +195,49 @@
       </div>
     </div>
 
+    <div class="fc-section">
+      <h3><span>📊 Thống kê giờ ùn tắc theo tuyến đường</span></h3>
+      <p style="font-size:.76rem;color:var(--text-muted);margin:0 0 .8rem">
+        Chọn khoảng ngày (tối đa 62 ngày — để tránh truy vấn toàn bộ dữ liệu đã lưu) rồi chọn 1 tuyến đường để xem
+        giờ nào trong ngày tuyến đó hay đạt mức ùn đã chọn nhất.
+      </p>
+      <div class="fc-controls" style="margin-bottom:.6rem">
+        <label style="display:inline-flex;align-items:center;gap:.3rem">Từ ngày <input type="date" id="fcHsFrom"></label>
+        <label style="display:inline-flex;align-items:center;gap:.3rem">Đến ngày <input type="date" id="fcHsTo"></label>
+        <button id="btnFcHsLoadRoads" onclick="loadFcHsRoads()">Tải danh sách tuyến</button>
+        <label style="display:inline-flex;align-items:center;gap:.3rem">
+          Tuyến đường
+          <select id="fcHsRoad" style="min-width:220px"><option value="">— Chọn khoảng ngày rồi tải danh sách —</option></select>
+        </label>
+        <span style="display:inline-flex;align-items:center;gap:.6rem">
+          Mức ùn tính:
+          <label style="display:inline-flex;align-items:center;gap:.25rem;cursor:pointer"><input type="checkbox" id="fcHsLevelD" checked> D</label>
+          <label style="display:inline-flex;align-items:center;gap:.25rem;cursor:pointer"><input type="checkbox" id="fcHsLevelE" checked> E</label>
+          <label style="display:inline-flex;align-items:center;gap:.25rem;cursor:pointer"><input type="checkbox" id="fcHsLevelF" checked> F</label>
+        </span>
+        <button id="btnFcHsAnalyze" onclick="loadFcHourlyStats()">Phân tích</button>
+      </div>
+      <div id="fcHsStatus" style="font-size:.78rem;color:var(--text-muted);margin-bottom:.6rem"></div>
+      <div id="fcHsResult" style="display:none">
+        <div id="fcHsPeak" style="font-size:.85rem;font-weight:600;margin-bottom:.6rem"></div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:300px">
+            <div style="font-size:.74rem;color:var(--text-muted);margin-bottom:.3rem">TTI trung bình theo giờ</div>
+            <div class="fc-chart-wrap"><canvas id="fcHsTtiChart"></canvas></div>
+          </div>
+          <div style="flex:1;min-width:300px">
+            <div style="font-size:.74rem;color:var(--text-muted);margin-bottom:.3rem">Tỷ lệ đạt mức đã chọn theo giờ</div>
+            <div class="fc-chart-wrap"><canvas id="fcHsRateChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- content -->
 </main>
 
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>
 <script>
 // apiFetch, toast(), escHtml, loadJamColorStops/jfColorExpression/jfToColor/
@@ -650,6 +713,180 @@ async function loadFcLatest() {
 }
 let _fcHasFitOnce = false;
 
+// ── Live / xem theo thời điểm toggle ─────────────────────────────
+// fcViewMode === 'live' polls loadFcLatest every 60s (same as before this
+// toggle existed); 'at' stops that poll and shows whatever
+// loadFcAtSelected last fetched instead — the two never run at once, so
+// switching to "live" and back never leaves a stale extra timer running.
+let _fcPollTimer = null;
+
+function fcViewModeChange() {
+  const mode = document.getElementById('fcViewMode').value;
+  document.getElementById('fcAtControls').style.display = mode === 'at' ? 'inline-flex' : 'none';
+  if (_fcPollTimer) { clearInterval(_fcPollTimer); _fcPollTimer = null; }
+  if (mode === 'live') {
+    loadFcLatest();
+    _fcPollTimer = setInterval(loadFcLatest, 60000);
+  } else {
+    const input = document.getElementById('fcAtTime');
+    if (!input.value) {
+      // Default the picker to "now" the first time it's shown — a
+      // convenient starting point to then wind back from, not meant to
+      // duplicate what "🔴 Trực tiếp" already shows.
+      const d = new Date();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      input.value = d.toISOString().slice(0, 19);
+    }
+  }
+}
+
+async function loadFcAtSelected() {
+  const val = document.getElementById('fcAtTime').value;
+  if (!val) { toast('Chọn thời điểm cần xem', 'error'); return; }
+  const target = new Date(val);
+  if (isNaN(target)) { toast('Thời điểm không hợp lệ', 'error'); return; }
+  await loadFcAt(target.toISOString());
+}
+
+async function loadFcAt(iso) {
+  try {
+    const [latest, routes] = await Promise.all([
+      apiFetch('/api/flowcapture/at?time=' + encodeURIComponent(iso)),
+      apiFetch('/api/flowcapture/routes').catch(() => []),
+    ]);
+    renderFcStats(latest, routes);
+    const data = buildFcGeoJSON(latest);
+    const routeData = await buildRouteSegmentsGeoJSON(routes);
+    if (_fcMapInited && _fcMap.getSource('fc-lines')) {
+      _fcMap.getSource('fc-lines').setData(data);
+      _fcMap.getSource('fc-routes').setData(routeData);
+    } else {
+      _pendingFcData = data;
+      _pendingFcRouteData = routeData;
+    }
+  } catch (e) {
+    toast('Không tải được dữ liệu tại thời điểm đã chọn: ' + e.message, 'error');
+  }
+}
+
+// ── Thống kê giờ ùn tắc theo tuyến đường ──────────────────────────
+let _fcHsRoads = [];
+let _fcHsCharts = [];
+
+function fcHsDefaultDates() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 7 * 86400000);
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  document.getElementById('fcHsFrom').value = fmt(from);
+  document.getElementById('fcHsTo').value = fmt(to);
+}
+
+function fcHsRangeOrNull() {
+  const fromVal = document.getElementById('fcHsFrom').value;
+  const toVal = document.getElementById('fcHsTo').value;
+  if (!fromVal || !toVal) { toast('Chọn Từ ngày và Đến ngày', 'error'); return null; }
+  const from = new Date(fromVal + 'T00:00:00');
+  const to = new Date(toVal + 'T23:59:59');
+  if (isNaN(from) || isNaN(to) || to < from) { toast('Khoảng ngày không hợp lệ', 'error'); return null; }
+  return { from, to };
+}
+
+// loadFcHsRoads is a SEPARATE step from "Phân tích" — it only ever asks
+// the server for the (small) list of distinct road names seen in the
+// chosen range (GET /api/flowcapture/roads), never the full per-scan
+// detail, so picking a huge range here stays cheap; the server still caps
+// it at 62 days either way (validateHistoryRange, flow_capture_history.go).
+async function loadFcHsRoads() {
+  const range = fcHsRangeOrNull();
+  if (!range) return;
+  const statusEl = document.getElementById('fcHsStatus');
+  statusEl.textContent = 'Đang tải danh sách tuyến...';
+  try {
+    const qs = new URLSearchParams({ from: range.from.toISOString(), to: range.to.toISOString() });
+    _fcHsRoads = await apiFetch('/api/flowcapture/roads?' + qs.toString()) || [];
+    const sel = document.getElementById('fcHsRoad');
+    if (!_fcHsRoads.length) {
+      sel.innerHTML = '<option value="">(không có tuyến nào trong khoảng này)</option>';
+      statusEl.textContent = 'Không có dữ liệu tuyến đường nào trong khoảng đã chọn';
+      return;
+    }
+    sel.innerHTML = _fcHsRoads.map((r, i) => `<option value="${i}">${escHtml(r.regionName)} — ${escHtml(r.description)}</option>`).join('');
+    statusEl.textContent = `✓ ${_fcHsRoads.length} tuyến đường`;
+  } catch (e) {
+    statusEl.textContent = '✗ Lỗi: ' + e.message;
+  }
+}
+
+async function loadFcHourlyStats() {
+  const idx = document.getElementById('fcHsRoad').value;
+  if (idx === '' || !_fcHsRoads[idx]) { toast('Chọn tuyến đường cần phân tích (tải danh sách tuyến trước)', 'error'); return; }
+  const road = _fcHsRoads[idx];
+  const range = fcHsRangeOrNull();
+  if (!range) return;
+  const levels = [];
+  if (document.getElementById('fcHsLevelD').checked) levels.push('D');
+  if (document.getElementById('fcHsLevelE').checked) levels.push('E');
+  if (document.getElementById('fcHsLevelF').checked) levels.push('F');
+  if (!levels.length) { toast('Chọn ít nhất 1 mức LOS', 'error'); return; }
+
+  const statusEl = document.getElementById('fcHsStatus');
+  statusEl.textContent = 'Đang phân tích...';
+  try {
+    const qs = new URLSearchParams({
+      region: road.regionName, description: road.description,
+      from: range.from.toISOString(), to: range.to.toISOString(), levels: levels.join(','),
+    });
+    const report = await apiFetch('/api/flowcapture/hourly-stats?' + qs.toString());
+    statusEl.textContent = '✓ Đã phân tích';
+    renderFcHourlyStats(report);
+  } catch (e) {
+    statusEl.textContent = '✗ Lỗi: ' + e.message;
+  }
+}
+
+function renderFcHourlyStats(report) {
+  document.getElementById('fcHsResult').style.display = '';
+  const peakEl = document.getElementById('fcHsPeak');
+  if (report.peakHour < 0) {
+    peakEl.textContent = 'Không có dữ liệu trong khoảng đã chọn';
+  } else {
+    const h = report.hours[report.peakHour];
+    peakEl.textContent = `⚠ Giờ ùn tắc nhất: ${String(report.peakHour).padStart(2, '0')}h — ` +
+      `${(h.worstRate * 100).toFixed(0)}% số lần đạt mức ${report.levels.join(',')} (TTI TB ${h.avgTti.toFixed(2)}, ${h.count} lượt quét)`;
+  }
+
+  _fcHsCharts.forEach(c => c.destroy());
+  _fcHsCharts = [];
+  const labels = report.hours.map(h => String(h.hour).padStart(2, '0') + 'h');
+  const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+  const grid = 'rgba(128,128,128,.15)';
+
+  _fcHsCharts.push(new Chart(document.getElementById('fcHsTtiChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: report.hours.map(h => h.avgTti || 0), backgroundColor: '#3b82f6', borderRadius: 3, maxBarThickness: 16 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: txt, font: { size: 10 } }, grid: { color: grid } },
+      },
+    },
+  }));
+  _fcHsCharts.push(new Chart(document.getElementById('fcHsRateChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: report.hours.map(h => Math.round((h.worstRate || 0) * 100)), backgroundColor: '#f97316', borderRadius: 3, maxBarThickness: 16 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + '%' } } },
+      scales: {
+        x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+        y: { beginAtZero: true, max: 100, ticks: { color: txt, font: { size: 10 }, callback: v => v + '%' }, grid: { color: grid } },
+      },
+    },
+  }));
+}
+
 let _pendingFcData = null;
 let _pendingFcRouteData = null;
 
@@ -747,8 +984,11 @@ document.getElementById('fcLayerRoutes').addEventListener('change', e => {
   // — same ~60s cadence other live pages in this app poll at. Each tick
   // just replaces the map/stats with whatever is newest at that moment
   // (see loadFcLatest); the viewport itself isn't re-fit after the first
-  // load, so panning/zooming while watching isn't disrupted.
-  setInterval(loadFcLatest, 60000);
+  // load, so panning/zooming while watching isn't disrupted. Stopped (and
+  // restarted) by fcViewModeChange when the viewer switches to/from
+  // "🕐 Xem theo thời điểm".
+  _fcPollTimer = setInterval(loadFcLatest, 60000);
+  fcHsDefaultDates();
 
   const themeBtn = document.getElementById('btnTheme');
   if (themeBtn) themeBtn.addEventListener('click', renderFcLegend);

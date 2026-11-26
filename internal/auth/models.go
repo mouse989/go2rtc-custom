@@ -19,11 +19,11 @@ const (
 	// Its own grant, independent of TabDashboard2, because planned future
 	// content on this page won't necessarily match Dashboard 02's audience.
 	TabDashboard3 = "dashboard3"
-	TabLog        = "log"        // /log.html
-	TabConfig     = "config"     // /config.html
-	TabAPIDocs    = "api_docs"   // /api-docs.html
-	TabCounting   = "counting"   // /counting.html
-	TabIncidents  = "incidents"  // /incidents.html
+	TabLog        = "log"       // /log.html
+	TabConfig     = "config"    // /config.html
+	TabAPIDocs    = "api_docs"  // /api-docs.html
+	TabCounting   = "counting"  // /counting.html
+	TabIncidents  = "incidents" // /incidents.html
 	// TabTrafficInsight gates /trafficinsight.html — the trend/comparison
 	// page (today vs. 7-day/30-day average, weekday-by-week matrix). It
 	// only reads data other tabs already expose elsewhere (traffic,
@@ -49,10 +49,29 @@ const (
 	// identify a sub admin account inconsistent with the rest of this file's
 	// doc comments — see models.go's "Sub Admin delegation" block below.
 	TabSubAdmin = "subadmin"
+	// TabHeatmapReplay gates /heatmap-replay.html — import a "Xuất điểm
+	// Persistent (CSV)" file (or, now, load a time range straight from the
+	// database) and replay it on a map as a sliding time window. Its own
+	// grant, separate from allow_heatmap (map.html's live "🌡 Heatmap"
+	// overlay toggle, a per-user bool flag rather than a tab): a viewer may
+	// be allowed to review historical jam patterns offline without also
+	// getting the live overlay, or vice versa.
+	TabHeatmapReplay = "heatmap_replay"
+	// TabTtiSuggest gates /tti-suggest.html — surfaces recurring jam
+	// hotspots found in internal/traffic's flow-capture history (see
+	// internal/traffic/tti_suggest.go) as candidate routes worth tracking
+	// continuously, and lets a holder draw/save a new internal/traveltime
+	// Route straight from that page (click origin/destination/waypoints on
+	// a map) without needing admin.html's TTI config section at all. Its
+	// own grant: can only ADD a new route from there — editing or deleting
+	// an existing one still requires the admin role, same as before this
+	// tab existed (see internal/traveltime/api.go's
+	// requireAdminOrTtiSuggest).
+	TabTtiSuggest = "tti_suggest"
 )
 
 // allAdminTabs is the full tab list automatically given to admins.
-var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabDashboard3, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture}
+var allAdminTabs = []string{TabCameras, TabMap, TabMonitor, TabDashboard, TabDashboard2, TabDashboard3, TabLog, TabConfig, TabAPIDocs, TabCounting, TabIncidents, TabTrafficInsight, TabFlowCapture, TabHeatmapReplay, TabTtiSuggest}
 
 // User represents an application user
 type User struct {

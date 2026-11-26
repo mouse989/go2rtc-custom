@@ -15,29 +15,29 @@ var log zerolog.Logger
 
 // Region is a named polygon area to monitor.
 type Region struct {
-	ID      string     `json:"id"`
-	Name    string     `json:"name"`
-	Color   string     `json:"color"`
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Color   string       `json:"color"`
 	Coords  [][2]float64 `json:"coords"` // [[lat,lon],...]
-	Enabled bool       `json:"enabled"`
+	Enabled bool         `json:"enabled"`
 }
 
 // TelegramConfig holds Telegram notification settings.
 type TelegramConfig struct {
-	Enabled          bool   `json:"enabled"`
-	Token            string `json:"token"`
-	ChatID           string `json:"chatId"`
-	SendRaw          bool   `json:"sendRaw"`
-	SendRawImg       bool   `json:"sendRawImg"`
-	SendFiltered     bool   `json:"sendFiltered"`
-	SendFilteredImg  bool   `json:"sendFilteredImg"`
-	SendPersistent   bool   `json:"sendPersistent"`
-	SendPersistentImg bool  `json:"sendPersistentImg"`
-	TplHeader        string `json:"tplHeader"`
-	TplRaw           string `json:"tplRaw"`
-	TplFiltered      string `json:"tplFiltered"`
-	TplPersistent    string `json:"tplPersistent"`
-	TplPoint         string `json:"tplPoint"`
+	Enabled           bool   `json:"enabled"`
+	Token             string `json:"token"`
+	ChatID            string `json:"chatId"`
+	SendRaw           bool   `json:"sendRaw"`
+	SendRawImg        bool   `json:"sendRawImg"`
+	SendFiltered      bool   `json:"sendFiltered"`
+	SendFilteredImg   bool   `json:"sendFilteredImg"`
+	SendPersistent    bool   `json:"sendPersistent"`
+	SendPersistentImg bool   `json:"sendPersistentImg"`
+	TplHeader         string `json:"tplHeader"`
+	TplRaw            string `json:"tplRaw"`
+	TplFiltered       string `json:"tplFiltered"`
+	TplPersistent     string `json:"tplPersistent"`
+	TplPoint          string `json:"tplPoint"`
 }
 
 // SheetsConfig holds Google Sheets webhook settings.
@@ -83,8 +83,8 @@ var (
 	cfg        Config
 	configFile string
 
-	workerMu   sync.Mutex
-	stopCh     chan struct{}
+	workerMu sync.Mutex
+	stopCh   chan struct{}
 )
 
 func defaultConfig() Config {
@@ -98,11 +98,11 @@ func defaultConfig() Config {
 			RetentionDays: 30,
 		},
 		Telegram: TelegramConfig{
-			TplHeader:      "🚦 Traffic Report {time}",
-			TplRaw:         "📍 Raw jams ({count}):",
-			TplFiltered:    "🔍 Filtered jams ({count}):",
-			TplPersistent:  "⚠️ Persistent jams ({count}):",
-			TplPoint:       "{n}. 🔥 {jf} · {label} · {area}",
+			TplHeader:     "🚦 Traffic Report {time}",
+			TplRaw:        "📍 Raw jams ({count}):",
+			TplFiltered:   "🔍 Filtered jams ({count}):",
+			TplPersistent: "⚠️ Persistent jams ({count}):",
+			TplPoint:      "{n}. 🔥 {jf} · {label} · {area}",
 		},
 	}
 }
@@ -131,9 +131,13 @@ func Init() {
 	if err := initFlowCaptureDB(dataDir()); err != nil {
 		log.Warn().Err(err).Msg("[traffic] flow capture DB init failed — capture disabled")
 	}
+	initWardBoundaries(dataDir())
 
 	registerAPIHandlers()
 	registerFlowCapturePageHandlers()
+	registerHeatmapReplayHandlers()
+	registerTtiSuggestHandlers()
+	registerWardBoundaryHandlers()
 
 	// Auto-start worker if configured
 	if cfg.Running {

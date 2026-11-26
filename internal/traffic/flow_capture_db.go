@@ -414,6 +414,59 @@ func latestFlowScanPerRegion() ([]FlowScanSummary, error) {
 	return out, rows.Err()
 }
 
+// scanNearTimePerRegion returns, for each currently-active region, the
+// most recent scan whose scanned_at is at or before target — "what this
+// region's capture actually showed as of that moment" — one row per
+// region, newest first. Same active-region restriction as
+// latestFlowScanPerRegion (and the same reasoning: a retired region's old
+// scans shouldn't keep surfacing forever), and the same shape, just with
+// an added upper bound on scanned_at instead of always picking MAX(id)
+// unconditionally. A region with no scan at or before target is simply
+// absent from the result (not an error) — e.g. target predates when that
+// region started being captured at all.
+//
+// This only ever touches flow_scans (one row per scan, indexed on
+// scanned_at via idx_flow_scans_time) — never flow_segments, the much
+// larger per-segment table — so it stays cheap regardless of how far back
+// target is or how much history flow_capture.db has accumulated.
+func scanNearTimePerRegion(target time.Time) ([]FlowScanSummary, error) {
+	if flowCaptureDB == nil {
+		return nil, nil
+	}
+	activeNames := map[string]bool{}
+	for _, r := range getConfig().Regions {
+		if r.Enabled {
+			activeNames[r.Name] = true
+		}
+	}
+	if len(activeNames) == 0 {
+		return []FlowScanSummary{}, nil
+	}
+	rows, err := flowCaptureDB.Query(`
+		SELECT s.id, s.region_name, s.scanned_at, s.source_updated, s.raw_bytes, s.result_count
+		FROM flow_scans s
+		INNER JOIN (
+			SELECT region_name, MAX(id) AS max_id FROM flow_scans WHERE scanned_at <= ? GROUP BY region_name
+		) nearest ON nearest.region_name = s.region_name AND nearest.max_id = s.id
+		ORDER BY s.scanned_at DESC`, target.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FlowScanSummary{}
+	for rows.Next() {
+		var s FlowScanSummary
+		if err := rows.Scan(&s.ID, &s.RegionName, &s.ScannedAt, &s.SourceUpdated, &s.RawBytes, &s.ResultCount); err != nil {
+			return nil, err
+		}
+		if !activeNames[s.RegionName] {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // getFlowScan returns one scan's own metadata row.
 func getFlowScan(id int64) (*FlowScanSummary, error) {
 	if flowCaptureDB == nil {

@@ -17,7 +17,7 @@
 }
 .hr-row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; font-size:.82rem; }
 .hr-row label { font-size:.78rem; color:var(--text-muted); white-space:nowrap; }
-.hr-row select, .hr-row button, .hr-row input[type=file] {
+.hr-row select, .hr-row button, .hr-row input[type=file], .hr-row input[type=datetime-local] {
   background:var(--surface2); border:1px solid var(--border); color:var(--text);
   border-radius:6px; padding:.35rem .6rem; font-size:.8rem; font-family:inherit;
 }
@@ -56,9 +56,61 @@
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
       Dashboard
     </a>
+    <a href="/dashboard2.html" class="nav-item" data-tab-require="dashboard2" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 02
+    </a>
+    <a href="/dashboard3.html" class="nav-item" data-tab-require="dashboard3" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+      Dashboard 03
+    </a>
+    <a href="/counting.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clip-rule="evenodd"></path></svg>
+      Counting
+    </a>
+    <a href="/annotate.html" class="nav-item" data-tab-require="counting" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-2H7v4h6v-4zm2 0h1V9h-1v2zm1-4V5h-1v2h1zM5 5v2H4V5h1zm-1 4h1v2H4V9zm1 4H4v2h1v-2z" clip-rule="evenodd"/></svg>
+      Annotate
+    </a>
+    <a href="/monitor.html" class="nav-item" data-tab-require="monitor" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      Monitor
+    </a>
+    <a href="/log.html" class="nav-item" data-tab-require="log" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h14a1 1 0 100-2H3zm0 4a1 1 0 000 2h10a1 1 0 100-2H3z" clip-rule="evenodd"/></svg>
+      Logs
+    </a>
+    <a href="/config.html" class="nav-item" data-tab-require="config" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+      Config
+    </a>
+    <a href="/api-docs.html" class="nav-item" data-tab-require="api_docs" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+      API Docs
+    </a>
+    <a href="/incidents.html" class="nav-item" data-tab-require="incidents" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.598c.75 1.334-.213 2.986-1.742 2.986H3.483c-1.53 0-2.493-1.652-1.743-2.986L8.257 3.1zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      Sự cố GT
+    </a>
+    <a href="/trafficinsight.html" class="nav-item" data-tab-require="trafficinsight" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.577 4.878a.75.75 0 01.919-.53l4.78 1.281a.75.75 0 01.531.919l-1.281 4.78a.75.75 0 11-1.449-.387l.81-3.022a19.407 19.407 0 00-5.594 5.203.75.75 0 01-1.139.093L7 10.06l-4.72 4.72a.75.75 0 01-1.06-1.061l5.25-5.25a.75.75 0 011.06 0l3.074 3.073a20.923 20.923 0 015.545-4.931l-3.042-.815a.75.75 0 01-.53-.919z" clip-rule="evenodd"/></svg>
+      Tổng quan giao thông
+    </a>
     <a href="/flowcapture.html" class="nav-item" data-tab-require="flowcapture" style="display:none">
       <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.983 1.907a.75.75 0 00-1.292-.657l-8.5 9.5A.75.75 0 002.75 12h6.572l-1.305 6.093a.75.75 0 001.292.657l8.5-9.5A.75.75 0 0017.25 8h-6.572l1.305-6.093z" clip-rule="evenodd"/></svg>
       Flow Capture
+    </a>
+    <a href="/heatmap-replay.html" class="nav-item active" data-tab-require="heatmap_replay" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM10.75 6a.75.75 0 00-1.5 0v4c0 .284.152.546.398.687l3 1.732a.75.75 0 00.75-1.299L10.75 9.567V6z" clip-rule="evenodd"/></svg>
+      Xem lại Heatmap
+    </a>
+    <a href="/tti-suggest.html" class="nav-item" data-tab-require="tti_suggest" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.69 18.933l.003.001c.106.059.212.085.312.085a.743.743 0 00.312-.085l.003-.001.006-.003.018-.01a6.788 6.788 0 00.397-.248c.24-.157.579-.396.975-.726.792-.66 1.819-1.636 2.845-2.853C16.447 12.6 18 9.95 18 7A6 6 0 006 7c0 2.95 1.553 5.6 3.44 7.993a19.646 19.646 0 002.846 2.853 11.65 11.65 0 00.976.726 6.967 6.967 0 00.407.258zM10 9a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+      Gợi ý tuyến TTI
+    </a>
+    <a href="/subadmin.html" class="nav-item" data-tab-require="subadmin" style="display:none">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.661 2.237a2 2 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75z" clip-rule="evenodd"/></svg>
+      Sub Admin
     </a>
     <a href="/admin.html" class="nav-item admin-only">
       <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
@@ -89,10 +141,6 @@
 
   <div class="content">
 
-    <div id="hrNoPermission" class="hr-section" style="display:none">
-      <div class="hr-empty">⚠ Bạn không có quyền sử dụng tính năng Heatmap.</div>
-    </div>
-
     <div id="hrBody">
       <div class="hr-section">
         <h3>📂 Nạp dữ liệu từ file CSV</h3>
@@ -104,6 +152,19 @@
           <input type="file" id="hrFileInput" accept=".csv,text/csv">
         </div>
         <div id="hrImportStatus"></div>
+
+        <h3 style="margin-top:1.1rem">🗄 Hoặc tải trực tiếp từ cơ sở dữ liệu</h3>
+        <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 .8rem">
+          Chọn khung ngày giờ cần xem — không cần xuất CSV rồi nạp lại.
+        </p>
+        <div class="hr-row">
+          <label>Từ</label>
+          <input type="datetime-local" id="hrDbFrom">
+          <label>Đến</label>
+          <input type="datetime-local" id="hrDbTo">
+          <button id="hrDbLoadBtn">Tải từ CSDL</button>
+        </div>
+        <div id="hrDbStatus" style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem"></div>
       </div>
 
       <div class="hr-section" id="hrControls">
@@ -354,10 +415,11 @@ function dayKeyOf(ms) {
   const pad = n => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
+const WEEKDAY_NAMES_VI = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
 function dayLabelOf(ms) {
   const d = new Date(ms);
   const pad = n => String(n).padStart(2, '0');
-  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} - ${WEEKDAY_NAMES_VI[d.getUTCDay()]}`;
 }
 
 function buildHourlyCharts() {
@@ -368,40 +430,62 @@ function buildHourlyCharts() {
   document.getElementById('hrHourlySection').style.display = _points.length ? '' : 'none';
   if (!_points.length) return;
 
-  // One pass to bucket every point into day -> 24 hourly counts.
-  const byDay = new Map(); // dayKey -> { label, counts[24] }
+  // One pass to bucket every point into day -> 48 half-hour-slot counts
+  // (index = hour*2 + (minute>=30 ? 1 : 0)), finer than the old 24 hourly
+  // buckets so rush-hour shape within the hour is visible.
+  const byDay = new Map(); // dayKey -> { label, counts[48] }
   for (const p of _points) {
     const key = dayKeyOf(p.t);
     let day = byDay.get(key);
-    if (!day) { day = { label: dayLabelOf(p.t), counts: new Array(24).fill(0) }; byDay.set(key, day); }
-    day.counts[new Date(p.t).getUTCHours()]++;
+    if (!day) { day = { label: dayLabelOf(p.t), counts: new Array(48).fill(0) }; byDay.set(key, day); }
+    const d = new Date(p.t);
+    day.counts[d.getUTCHours() * 2 + (d.getUTCMinutes() >= 30 ? 1 : 0)]++;
   }
   const days = [...byDay.entries()].sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
 
   const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
   const grid = 'rgba(128,128,128,.15)';
-  const hourLabels = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
+  const slotLabels = Array.from({ length: 48 }, (_, i) => String(Math.floor(i / 2)).padStart(2, '0') + ':' + (i % 2 === 0 ? '00' : '30'));
 
   for (const [, day] of days) {
     const total = day.counts.reduce((a, b) => a + b, 0);
     const wrap = document.createElement('div');
     wrap.className = 'hr-day-chart';
-    wrap.innerHTML = `<h4>${day.label} — ${total.toLocaleString('vi-VN')} tin</h4><div class="hr-day-canvas-wrap"><canvas></canvas></div>`;
+    wrap.innerHTML = `<h4>${day.label} - ${total.toLocaleString('vi-VN')} tin</h4><div class="hr-day-canvas-wrap"><canvas></canvas></div>`;
     container.appendChild(wrap);
     const chart = new Chart(wrap.querySelector('canvas'), {
       type: 'bar',
-      data: { labels: hourLabels, datasets: [{ data: day.counts, backgroundColor: '#f97316', borderRadius: 3, maxBarThickness: 22 }] },
+      data: { labels: slotLabels, datasets: [{ data: day.counts, backgroundColor: '#f97316', borderRadius: 3, maxBarThickness: 14 }] },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false }, tooltip: { callbacks: { title: items => items[0].label, label: c => `${c.parsed.y.toLocaleString('vi-VN')} tin` } } },
         scales: {
-          x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 12, font: { size: 10 } }, grid: { display: false } },
+          x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 24, font: { size: 10 } }, grid: { display: false } },
           y: { beginAtZero: true, ticks: { color: txt, precision: 0, font: { size: 10 } }, grid: { color: grid } },
         },
       },
     });
     _hourlyCharts.push(chart);
   }
+}
+
+// applyLoadedPoints is the shared "we now have a fresh point list" path —
+// both the CSV import and the "load from database" option funnel into
+// this, so the map/slider/hourly-charts wiring only exists once.
+function applyLoadedPoints(points) {
+  if (!points.length) throw new Error('Không có điểm nào trong khoảng đã chọn');
+  _points = points;
+  _minT = points[0].t;
+  _maxT = points[points.length - 1].t;
+  _windowStart = _minT;
+  const slider = document.getElementById('hrSlider');
+  slider.min = String(_minT); slider.max = String(_maxT); slider.step = '1000'; slider.value = String(_minT);
+  slider.disabled = false;
+  document.getElementById('hrPlayBtn').disabled = false;
+  document.getElementById('hrResetBtn').disabled = false;
+  renderWindow();
+  if (_hrMap) fitMapToPoints();
+  buildHourlyCharts();
 }
 
 document.getElementById('hrFileInput').addEventListener('change', async e => {
@@ -413,21 +497,41 @@ document.getElementById('hrFileInput').addEventListener('change', async e => {
   try {
     const text = await file.text();
     const { points, skipped } = parseCsvFile(text);
-    if (!points.length) throw new Error('Không đọc được điểm hợp lệ nào trong file');
-    _points = points;
-    _minT = points[0].t;
-    _maxT = points[points.length - 1].t;
-    _windowStart = _minT;
-    const slider = document.getElementById('hrSlider');
-    slider.min = String(_minT); slider.max = String(_maxT); slider.step = '1000'; slider.value = String(_minT);
-    slider.disabled = false;
-    document.getElementById('hrPlayBtn').disabled = false;
-    document.getElementById('hrResetBtn').disabled = false;
-    renderWindow();
-    if (_hrMap) fitMapToPoints();
-    buildHourlyCharts();
+    applyLoadedPoints(points);
     statusEl.textContent = `✓ Đã nạp ${points.length.toLocaleString('vi-VN')} điểm` +
       (skipped ? `, bỏ qua ${skipped} dòng lỗi` : '') +
+      ` · Từ ${fmtUSDateTime(_minT)} đến ${fmtUSDateTime(_maxT)}`;
+  } catch (err) {
+    statusEl.textContent = '✗ Lỗi: ' + err.message;
+  }
+});
+
+// ── Load directly from the database (no CSV export/import round trip) ────
+// Same data persistent_export.go's admin-only CSV tool reads
+// (PersistentPointsInRange), via the heatmap_replay tab's own endpoint —
+// see internal/traffic/heatmap_replay_api.go.
+document.getElementById('hrDbLoadBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('hrDbStatus');
+  const fromVal = document.getElementById('hrDbFrom').value;
+  const toVal = document.getElementById('hrDbTo').value;
+  if (!fromVal || !toVal) { statusEl.textContent = '✗ Chọn đủ Từ và Đến'; return; }
+  const from = new Date(fromVal), to = new Date(toVal);
+  if (isNaN(from) || isNaN(to) || to < from) { statusEl.textContent = '✗ Khoảng thời gian không hợp lệ'; return; }
+
+  statusEl.textContent = 'Đang tải từ cơ sở dữ liệu...';
+  pausePlayback();
+  try {
+    const qs = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
+    const rows = await apiFetch('/api/heatmap-replay/points?' + qs.toString());
+    // Same row shape (Timestamp "MM/DD/YYYY HH:MM:SS", Lat, Lng, JamFactor)
+    // the CSV export already uses — reuse parseUSDateTime so both loading
+    // paths agree on exactly the same timezone convention.
+    const points = (rows || [])
+      .map(r => ({ t: parseUSDateTime(r.timestamp), lat: r.lat, lng: r.lng, jf: r.jamFactor }))
+      .filter(p => isFinite(p.t) && isFinite(p.lat) && isFinite(p.lng) && isFinite(p.jf))
+      .sort((a, b) => a.t - b.t);
+    applyLoadedPoints(points);
+    statusEl.textContent = `✓ Đã tải ${points.length.toLocaleString('vi-VN')} điểm` +
       ` · Từ ${fmtUSDateTime(_minT)} đến ${fmtUSDateTime(_maxT)}`;
   } catch (err) {
     statusEl.textContent = '✗ Lỗi: ' + err.message;
@@ -488,12 +592,12 @@ async function initHrMap() {
 }
 
 (async () => {
-  await initApp();
-  if (!canUseHeatmap()) {
-    document.getElementById('hrNoPermission').style.display = '';
-    document.getElementById('hrBody').style.display = 'none';
-    return;
-  }
+  // 'heatmap_replay' is its own grantable tab (see internal/auth/models.go's
+  // TabHeatmapReplay) — initApp's own tab-guard already redirects a viewer
+  // without it to their first permitted page before any code below runs,
+  // same convention every other page in this app uses (e.g. flowcapture.html's
+  // initApp('flowcapture')).
+  await initApp('heatmap_replay');
   await initHrMap();
 })();
 </script>
