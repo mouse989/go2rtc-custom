@@ -2,6 +2,7 @@ package traffic
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -389,6 +390,131 @@ func TestHotspotGroupKeyFallsBackToGridCellWhenUnnamed(t *testing.T) {
 	// A different region never shares a grid-cell key, same point or not.
 	if kOther := hotspotGroupKey("Quận 3", "", lat, lng, 100); kOther == kNear {
 		t.Errorf("different region must never share a grid-cell key, both got %q", kNear)
+	}
+}
+
+// TestComputeHotspotsMergesNearbyUnnamedGroupsAcrossGridBoundary covers
+// "vẫn có 1 số điểm không gộp theo bán kính lọc ... rà soát lại cơ chế
+// gộm tuyến thành khu vực, cụm tuyến đường": two unnamed readings whose
+// own start points sit on OPPOSITE sides of one raw grid cell's hard
+// boundary (only ~2m apart — well within even the smallest "Bán kính
+// gộp" option) used to land in two different hotspotGroupKey cells and
+// show up as two disconnected map entries, however large gridRadiusM was
+// set — mergeNearbyUnnamedGroups must fold them back into exactly ONE
+// hotspot, and computeHotspotTimeline must recognize rows from BOTH
+// original cells under that one merged entry's own Key.
+func TestComputeHotspotsMergesNearbyUnnamedGroupsAcrossGridBoundary(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	const gridRadiusM = 100.0
+	cellSizeLat := gridRadiusM / metersPerDegreeLat()
+	k := math.Floor(10.78 / cellSizeLat)
+	boundaryLat := k * cellSizeLat
+	metersToLat := func(m float64) float64 { return m / metersPerDegreeLat() }
+	latBelow := boundaryLat - metersToLat(1) // falls in cell k-1
+	latAbove := boundaryLat + metersToLat(1) // falls in cell k
+	const lng = 106.70
+
+	// Sanity-check the test's own premise before relying on it below.
+	if hotspotGroupKey("Quận 9", "", latBelow, lng, gridRadiusM) == hotspotGroupKey("Quận 9", "", latAbove, lng, gridRadiusM) {
+		t.Fatalf("test setup error: latBelow/latAbove must land in different raw grid cells")
+	}
+	if d := haversine(latBelow, lng, latAbove, lng); d > gridRadiusM {
+		t.Fatalf("test setup error: latBelow/latAbove are %v m apart, want well within gridRadiusM=%v", d, gridRadiusM)
+	}
+
+	base := time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 9", "", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, latBelow, lng, latBelow+0.001, lng+0.001)
+	}
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 9", "", base.Add(time.Duration(i+3)*5*time.Minute),
+			2.0, 8.0, 8.5, latAbove, lng, latAbove+0.001, lng+0.001)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, gridRadiusM, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var matches []HotspotSuggestion
+	for _, h := range report.Hotspots {
+		if h.RegionName == "Quận 9" {
+			matches = append(matches, h)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected the two straddling-boundary unnamed groups to merge into exactly 1 hotspot, got %d: %+v", len(matches), matches)
+	}
+	if matches[0].ScanCount != 6 {
+		t.Errorf("merged ScanCount = %d, want 6 (3+3 from both sides of the boundary)", matches[0].ScanCount)
+	}
+	if matches[0].CongestedCount != 6 {
+		t.Errorf("merged CongestedCount = %d, want 6", matches[0].CongestedCount)
+	}
+
+	// The merged entry's own Key must let computeHotspotTimeline recover
+	// rows from BOTH original cells, not just whichever one became the
+	// canonical key.
+	tl, err := computeHotspotTimeline("Quận 9", matches[0].Key, base.Add(-time.Hour), base.Add(time.Hour), 0, gridRadiusM)
+	if err != nil {
+		t.Fatalf("computeHotspotTimeline: %v", err)
+	}
+	total := 0
+	for _, s := range tl.Slots {
+		total += s.Count
+	}
+	if total != 6 {
+		t.Errorf("timeline total = %d, want 6 (rows from both merged cells)", total)
+	}
+}
+
+// TestComputeHotspotsMergeHelpsClearMinScans covers the merge step's own
+// side benefit: two unnamed sub-groups, each individually too sparse to
+// clear minScans on its own, must still qualify once merged into one
+// combined candidate — the merge step runs BEFORE minScans/
+// minCongestedCount filtering (see computeHotspots' own call site).
+func TestComputeHotspotsMergeHelpsClearMinScans(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	const gridRadiusM = 100.0
+	cellSizeLat := gridRadiusM / metersPerDegreeLat()
+	k := math.Floor(10.78 / cellSizeLat)
+	boundaryLat := k * cellSizeLat
+	metersToLat := func(m float64) float64 { return m / metersPerDegreeLat() }
+	latBelow := boundaryLat - metersToLat(1)
+	latAbove := boundaryLat + metersToLat(1)
+	const lng = 106.70
+
+	base := time.Date(2026, 11, 27, 8, 0, 0, 0, time.UTC)
+	// 2 scans on each side — individually below the default minScans=3,
+	// but 4 combined clears it once merged.
+	for i := 0; i < 2; i++ {
+		seedFlowScan(t, "Quận 10", "", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, latBelow, lng, latBelow+0.001, lng+0.001)
+	}
+	for i := 0; i < 2; i++ {
+		seedFlowScan(t, "Quận 10", "", base.Add(time.Duration(i+2)*5*time.Minute),
+			2.0, 8.0, 8.5, latAbove, lng, latAbove+0.001, lng+0.001)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, gridRadiusM, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var found *HotspotSuggestion
+	for i := range report.Hotspots {
+		if report.Hotspots[i].RegionName == "Quận 10" {
+			found = &report.Hotspots[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected the merged group (4 scans combined) to clear the default minScans=3, got none in Quận 10: %+v", report.Hotspots)
+	}
+	if found.ScanCount != 4 {
+		t.Errorf("ScanCount = %d, want 4", found.ScanCount)
 	}
 }
 

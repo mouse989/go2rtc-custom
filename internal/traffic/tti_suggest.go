@@ -4,11 +4,24 @@ package traffic
 // already-captured flow_segments (flow_capture_db.go — a SEPARATE research
 // pipeline from monitor.go's live jam-point map, see that file's own doc
 // comment) over a recent time window, groups rows that are the same
-// physical named road (or, when unnamed, the same ~100m coordinate cell)
-// within the same monitored region, and surfaces the ones that were
-// congested often enough across that window to be worth tracking
-// continuously as a dedicated internal/traveltime Route instead of only
-// ever showing up as an ad-hoc jam alert.
+// physical named road within the same monitored region, and surfaces the
+// ones that were congested often enough across that window to be worth
+// tracking continuously as a dedicated internal/traveltime Route instead
+// of only ever showing up as an ad-hoc jam alert.
+//
+// An UNNAMED result (no street name in the provider's own response) is
+// grouped in two passes instead: first by a ~gridRadiusM-wide coordinate
+// cell of its own start point (hotspotGroupKey — cheap, O(1) per row),
+// then a second pass (mergeNearbyUnnamedGroups) folds any of those
+// per-cell groups whose own representative points are within gridRadiusM
+// of EACH OTHER into one combined group — chaining transitively along a
+// whole corridor of short, back-to-back unnamed segments (a common way
+// the provider carves up one physical road). The first pass alone can't
+// do this: two points a few meters apart but on opposite sides of one
+// grid cell's own hard boundary never land in the same cell, however
+// large gridRadiusM is set ("vẫn có 1 số điểm không gộp theo bán kính
+// lọc") — the second pass fixes exactly that by clustering on true
+// distance instead of cell equality.
 //
 // "Congested" reuses flow_segments' own tti_fused column — the same TTI
 // figure, and by default the same LOS-D threshold (1.96), as the official
@@ -312,6 +325,12 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 		return nil, fmt.Errorf("iterate flow_segments rows: %w", err)
 	}
 
+	// Run BEFORE the minScans/minCongestedCount filtering below, so a
+	// corridor made of several short unnamed segments — each individually
+	// too sparse on its own to clear minScans — can still qualify once
+	// merged into one combined candidate.
+	mergeNearbyUnnamedGroups(groups, gridRadiusM)
+
 	existingRoutes := traveltime.ListRoutes()
 
 	out := make([]HotspotSuggestion, 0, len(groups))
@@ -521,6 +540,166 @@ func hotspotGroupKey(regionName, description string, lat, lng, gridRadiusM float
 	return fmt.Sprintf("%s|@%.6f,%.6f", regionName, cellLat, cellLng)
 }
 
+// clusterCoordPairs runs a grid-indexed union-find over points, linking any
+// two whose haversine distance is <= radiusM — this is what lets a whole
+// chain of short, back-to-back unnamed segments end up in ONE cluster
+// even though the chain's own overall span can be much larger than
+// radiusM, as long as each adjacent pair along it is within radiusM of
+// its neighbor (transitive chaining, not just a single pairwise test).
+// Returns each resulting cluster as the list of its own member indices
+// (a singleton cluster for a point with no close neighbor).
+//
+// The grid index bucket size equals radiusM, so two points farther apart
+// than that can never land in cells more than 1 apart — nothing beyond
+// the 3x3 neighborhood around a point's own cell could possibly need a
+// distance check against it. Note that this function's own callers (see
+// clusterFineKeys) only ever feed it already-deduplicated representative
+// points (at most one per hotspotGroupKey cell already), so in practice
+// a bucket holds very few points and this runs close to O(n), not the
+// O(n²) a naive all-pairs scan would.
+func clusterCoordPairs(points [][2]float64, radiusM float64) [][]int {
+	n := len(points)
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(x int) int {
+		for parent[x] != x {
+			parent[x] = parent[parent[x]]
+			x = parent[x]
+		}
+		return x
+	}
+	union := func(a, b int) {
+		ra, rb := find(a), find(b)
+		if ra != rb {
+			parent[ra] = rb
+		}
+	}
+
+	type cellKey struct{ x, y int }
+	cellOf := make([]cellKey, n)
+	buckets := map[cellKey][]int{}
+	for i, p := range points {
+		cellSizeLat := radiusM / metersPerDegreeLat()
+		cellSizeLng := radiusM / metersPerDegreeLng(p[0])
+		c := cellKey{int(math.Floor(p[0] / cellSizeLat)), int(math.Floor(p[1] / cellSizeLng))}
+		cellOf[i] = c
+		buckets[c] = append(buckets[c], i)
+	}
+	for i, p := range points {
+		c := cellOf[i]
+		for dx := -1; dx <= 1; dx++ {
+			for dy := -1; dy <= 1; dy++ {
+				for _, j := range buckets[cellKey{c.x + dx, c.y + dy}] {
+					if j <= i {
+						continue // each unordered pair checked once
+					}
+					if haversine(p[0], p[1], points[j][0], points[j][1]) <= radiusM {
+						union(i, j)
+					}
+				}
+			}
+		}
+	}
+
+	byRoot := map[int][]int{}
+	for i := range points {
+		byRoot[find(i)] = append(byRoot[find(i)], i)
+	}
+	clusters := make([][]int, 0, len(byRoot))
+	for _, members := range byRoot {
+		clusters = append(clusters, members)
+	}
+	return clusters
+}
+
+// clusterFineKeys groups fine-grained unnamed-road keys (hotspotGroupKey's
+// own per-cell keys) by true distance between their own representative
+// points, returning a map from each fine key that ends up merged with at
+// least one other into its cluster's own canonical final key — the
+// member whose own point sorts first by (lat,lng). That choice is
+// deterministic regardless of map/slice iteration order, so re-deriving
+// clusters later from the SAME underlying representative points (as
+// computeHotspotTimeline must, to recognize which rows belong to an
+// already-merged hotspot's own key — see its own doc comment) always
+// lands on the identical key string. A fine key with no close neighbor
+// is left OUT of the returned map entirely: the caller's own fine key is
+// already its own final key in that case.
+func clusterFineKeys(reps map[string][2]float64, radiusM float64) map[string]string {
+	if len(reps) < 2 {
+		return nil
+	}
+	keys := make([]string, 0, len(reps))
+	points := make([][2]float64, 0, len(reps))
+	for k, p := range reps {
+		keys = append(keys, k)
+		points = append(points, p)
+	}
+	finalKeyOf := map[string]string{}
+	for _, members := range clusterCoordPairs(points, radiusM) {
+		if len(members) < 2 {
+			continue
+		}
+		best := members[0]
+		for _, m := range members[1:] {
+			if points[m][0] < points[best][0] ||
+				(points[m][0] == points[best][0] && points[m][1] < points[best][1]) {
+				best = m
+			}
+		}
+		finalKey := keys[best]
+		for _, m := range members {
+			finalKeyOf[keys[m]] = finalKey
+		}
+	}
+	return finalKeyOf
+}
+
+// mergeNearbyUnnamedGroups folds unnamed-road groups (hotspotGroupKey's
+// own per-cell keys) whose representative points sit within gridRadiusM
+// of EACH OTHER into one combined group — see this file's own top-level
+// doc comment for why a single grid-cell test alone can't do this.
+// Named-road groups (keyed by exact description, not a cell) are never
+// touched; merging only ever happens within the SAME region.
+func mergeNearbyUnnamedGroups(groups map[string]*hotspotAgg, gridRadiusM float64) {
+	byRegion := map[string][]string{}
+	for key, g := range groups {
+		if g.description == "" {
+			byRegion[g.regionName] = append(byRegion[g.regionName], key)
+		}
+	}
+	for _, keys := range byRegion {
+		reps := make(map[string][2]float64, len(keys))
+		for _, k := range keys {
+			reps[k] = [2]float64{groups[k].firstLat, groups[k].firstLng}
+		}
+		for fineKey, finalKey := range clusterFineKeys(reps, gridRadiusM) {
+			if fineKey == finalKey {
+				continue // this IS the cluster's own canonical key — others fold into it below
+			}
+			dst, src := groups[finalKey], groups[fineKey]
+			dst.scanCount += src.scanCount
+			dst.congestedCount += src.congestedCount
+			dst.jfSum += src.jfSum
+			if src.worstTTI > dst.worstTTI {
+				dst.worstTTI, dst.worstLOS, dst.worstTTISpeedMps = src.worstTTI, src.worstLOS, src.worstTTISpeedMps
+			}
+			if src.latestScannedAt.After(dst.latestScannedAt) {
+				dst.latestScannedAt = src.latestScannedAt
+				dst.lengthM = src.lengthM
+				dst.firstLat, dst.firstLng, dst.lastLat, dst.lastLng = src.firstLat, src.firstLng, src.lastLat, src.lastLng
+				dst.scanID = src.scanID
+			}
+			if src.lastCongestedAt.After(dst.lastCongestedAt) {
+				dst.lastCongestedAt = src.lastCongestedAt
+			}
+			delete(groups, fineKey)
+		}
+	}
+}
+
 // hotspotCoveredByRoute reports whether an existing internal/traveltime
 // Route already runs through this candidate: BOTH of the candidate's own
 // endpoints must lie within defaultDedupRadiusM of some point (origin,
@@ -634,18 +813,27 @@ func hotspotTimelineSlotLabel(slot int) string {
 // summed across every day the range covers.
 //
 // key is exactly one HotspotSuggestion.Key from computeHotspots' own
-// output (region+description, or region+grid-cell for an unnamed road —
-// see hotspotGroupKey). Matching rows to key here RECOMPUTES
-// hotspotGroupKey per row instead of filtering by description directly,
-// so a grid-cell-grouped (unnamed) hotspot gets its own timeline too, not
-// only named roads: a flat `description = ?` filter can't express "this
-// row's own lat/lng lands in the same grid cell" — only
-// hotspotGroupKey's own logic can. region narrows the SQL query first
-// (every candidate row must be in this region anyway, per how
-// hotspotGroupKey built the key) before that per-row recomputation runs.
+// output (region+description, or an unnamed road's own cell key — or,
+// once mergeNearbyUnnamedGroups folded several nearby cells together,
+// one of those cells' own key standing in for the whole merged group —
+// see hotspotGroupKey/mergeNearbyUnnamedGroups). Matching rows to key
+// here RECOMPUTES hotspotGroupKey per row instead of filtering by
+// description directly, so an unnamed hotspot gets its own timeline too,
+// not only named roads: a flat `description = ?` filter can't express
+// "this row's own lat/lng lands in the same grid cell" — only
+// hotspotGroupKey's own logic can. For an unnamed road it ALSO
+// reconstructs the same cell-merge computeHotspots itself applies (via
+// clusterFineKeys, fed the same per-cell representative points — the
+// latest-scanned row's own point per cell, exactly as computeHotspots'
+// own aggregation picks it), so a row belonging to any cell that ended up
+// folded into key's own merged group is still counted here, not just rows
+// whose OWN individual cell happens to equal key verbatim. region narrows
+// the SQL query first (every candidate row must be in this region anyway,
+// per how hotspotGroupKey built the key) before any of this runs.
 // gridRadiusM MUST be the same value the caller used to generate key via
 // computeHotspots in the first place — a different radius recomputes
-// different cell boundaries and key would simply never match any row.
+// different cell boundaries (and a different merge outcome) and key could
+// simply never match any row.
 func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, gridRadiusM float64) (*HotspotTimeline, error) {
 	if err := validateHistoryRange(from, to); err != nil {
 		return nil, err
@@ -685,11 +873,19 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 	}
 	defer rows.Close()
 
-	// dayCounts[slot][dateKey] accumulates the per-day breakdown
-	// alongside tl.Slots[slot].Count itself — built into HotspotTimelineSlot.ByDay
-	// once every row has been seen (so each slot's days end up sorted,
-	// rather than sorting 48 times inside the loop).
-	dayCounts := make([]map[string]int, 48)
+	type timelineRow struct {
+		scannedAt time.Time
+		fineKey   string
+		ttiFused  float64
+	}
+	var buffered []timelineRow
+	// Representative point per fine-grained unnamed key — the
+	// LATEST-scanned row's own point, exactly as computeHotspots' own
+	// aggregation picks it (see hotspotAgg.firstLat/firstLng), so
+	// clusterFineKeys below reconstructs the identical merge outcome
+	// computeHotspots itself derived for this same region/window/radius.
+	latestByFineKey := map[string]time.Time{}
+	repByFineKey := map[string][2]float64{}
 
 	for rows.Next() {
 		var scannedAtStr, description string
@@ -697,26 +893,49 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 		if err := rows.Scan(&scannedAtStr, &description, &firstLat, &firstLng, &ttiFused); err != nil {
 			return nil, fmt.Errorf("scan timeline row: %w", err)
 		}
-		if hotspotGroupKey(region, description, firstLat, firstLng, gridRadiusM) != key {
-			continue
-		}
-		if ttiFused < minTTI {
-			continue
-		}
 		scannedAt, err := time.Parse(time.RFC3339, scannedAtStr)
 		if err != nil {
 			continue // malformed row — skip rather than fail the whole report
 		}
-		local := scannedAt.In(vnLocation)
+		fineKey := hotspotGroupKey(region, description, firstLat, firstLng, gridRadiusM)
+		buffered = append(buffered, timelineRow{scannedAt, fineKey, ttiFused})
+		if description == "" {
+			if t, ok := latestByFineKey[fineKey]; !ok || scannedAt.After(t) {
+				latestByFineKey[fineKey] = scannedAt
+				repByFineKey[fineKey] = [2]float64{firstLat, firstLng}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate timeline rows: %w", err)
+	}
+
+	finalKeyOf := clusterFineKeys(repByFineKey, gridRadiusM)
+
+	// dayCounts[slot][dateKey] accumulates the per-day breakdown
+	// alongside tl.Slots[slot].Count itself — built into HotspotTimelineSlot.ByDay
+	// once every row has been seen (so each slot's days end up sorted,
+	// rather than sorting 48 times inside the loop).
+	dayCounts := make([]map[string]int, 48)
+
+	for _, r := range buffered {
+		rowKey := r.fineKey
+		if merged, ok := finalKeyOf[r.fineKey]; ok {
+			rowKey = merged
+		}
+		if rowKey != key {
+			continue
+		}
+		if r.ttiFused < minTTI {
+			continue
+		}
+		local := r.scannedAt.In(vnLocation)
 		slot := local.Hour()*2 + local.Minute()/30
 		tl.Slots[slot].Count++
 		if dayCounts[slot] == nil {
 			dayCounts[slot] = map[string]int{}
 		}
 		dayCounts[slot][local.Format("2006-01-02")]++
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate timeline rows: %w", err)
 	}
 
 	for slot, counts := range dayCounts {
