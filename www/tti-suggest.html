@@ -166,6 +166,9 @@
           <option value="2.56">≥ E (TTI 2.56)</option>
           <option value="3.45">≥ F (TTI 3.45)</option>
         </select>
+        <label>Số lần xuất hiện tối thiểu</label>
+        <input type="number" id="ttsMinOccurrences" min="1" step="1" value="1" style="width:64px"
+          title="Chỉ hiện các đoạn/tuyến đã đạt mức ùn tối thiểu ở trên ÍT NHẤT bấy nhiêu lần trong khoảng ngày đã chọn — mặc định 1 (từng đạt ít nhất 1 lần); tăng lên để chỉ xem các điểm ùn lặp lại nhiều lần.">
         <label>Bán kính gộp</label>
         <select id="ttsGridRadius" title="Đoạn đường không có tên trong dữ liệu được gộp theo toạ độ — bán kính càng lớn thì gộp càng rộng (ít điểm nóng hơn nhưng thô hơn), càng nhỏ thì tách càng chi tiết (nhiều điểm nóng hơn). Không ảnh hưởng tuyến đã có tên đường.">
           <option value="50">50 m</option>
@@ -466,6 +469,7 @@ async function loadHotspots() {
       from: range.from.toISOString(),
       to: range.to.toISOString(),
       minTti: document.getElementById('ttsMinTti').value,
+      minOccurrences: document.getElementById('ttsMinOccurrences').value || '1',
       gridRadiusM: document.getElementById('ttsGridRadius').value,
       limit: document.getElementById('ttsLimit').value,
     });

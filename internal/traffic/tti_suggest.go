@@ -172,21 +172,28 @@ type hotspotAgg struct {
 // (e.g. a Flow Capture region configured to extend past the city's own
 // administrative boundary).
 //
-// A group only becomes a candidate at all once congestedCount >= 1 —
-// i.e. it must have hit minTTI at least once somewhere in [from, to].
-// "Chọn mức ùn tối thiểu > F nhưng bảng/bản đồ vẫn vẽ điểm E/C/D": a
-// road whose own worst-ever TTI never reached the chosen threshold has
-// no business appearing as a "hotspot" for that threshold at all, even
-// though it still clears minScans. This is NOT the min-congestion-RATE
-// filter deliberately left out below (CongestionRate stays a sort key,
-// never an exclusion one) — it's a strictly weaker "reached it at least
-// once" check: a road reaching minTTI in 1 scan out of 500 still
-// qualifies, one that never reaches it even once does not. Once this
-// holds, WorstTTI/WorstLOSLabel (the group's own all-time max, tracked
-// below regardless of minTTI) is guaranteed to already be >= minTTI —
-// so a surviving group's displayed worst LOS can never read below
-// whatever LOS band the chosen minTTI corresponds to.
-func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiusM float64, limit int, wardIDs []string) (*HotspotReport, error) {
+// A group only becomes a candidate at all once congestedCount >=
+// minCongestedCount — i.e. it must have hit minTTI at least that many
+// times somewhere in [from, to]. "Chọn mức ùn tối thiểu > F nhưng
+// bảng/bản đồ vẫn vẽ điểm E/C/D": a road whose own worst-ever TTI never
+// reached the chosen threshold has no business appearing as a
+// "hotspot" for that threshold at all, even though it still clears
+// minScans — minCongestedCount <= 0 (or omitted) falls back to 1, i.e.
+// "reached it at least once", which is the minimum this check can ever
+// enforce. This is NOT the min-congestion-RATE filter deliberately left
+// out below (CongestionRate stays a sort key, never an exclusion one):
+// minCongestedCount is a raw count ("số lần xuất hiện tối thiểu" —
+// exactly HotspotSuggestion.CongestedCount, the same number the table
+// itself shows), so a road reaching minTTI in 1 scan out of 500 still
+// qualifies at minCongestedCount=1, but is excluded once the caller
+// raises that bar past 1 to focus on roads that keep recurring rather
+// than a one-off reading. Once congestedCount >= 1 holds at all,
+// WorstTTI/WorstLOSLabel (the group's own all-time max, tracked below
+// regardless of minTTI) is guaranteed to already be >= minTTI — so a
+// surviving group's displayed worst LOS can never read below whatever
+// LOS band the chosen minTTI corresponds to, independently of how high
+// minCongestedCount itself is set.
+func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedCount int, gridRadiusM float64, limit int, wardIDs []string) (*HotspotReport, error) {
 	if err := validateHistoryRange(from, to); err != nil {
 		return nil, err
 	}
@@ -195,6 +202,9 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 	}
 	if minScans <= 0 {
 		minScans = 3
+	}
+	if minCongestedCount <= 0 {
+		minCongestedCount = 1
 	}
 	if gridRadiusM <= 0 {
 		gridRadiusM = defaultGridRadiusM
@@ -292,8 +302,8 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 		if g.scanCount < minScans {
 			continue
 		}
-		if g.congestedCount == 0 {
-			continue // never reached minTTI even once — see computeHotspots' own doc comment
+		if g.congestedCount < minCongestedCount {
+			continue // didn't reach minTTI often enough — see computeHotspots' own doc comment
 		}
 		rate := float64(g.congestedCount) / float64(g.scanCount)
 		covered, coveredBy := hotspotCoveredByRoute(g.firstLat, g.firstLng, g.lastLat, g.lastLng, existingRoutes)

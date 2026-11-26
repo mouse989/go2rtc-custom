@@ -80,7 +80,7 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 			7.5, 8.0, 2.0, 10.90, 106.80, 10.91, 106.81)
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestComputeHotspotsDedupsAgainstExistingRoute(t *testing.T) {
 		t.Fatalf("CreateRoute: %v", err)
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestComputeHotspotsMinScansFiltersSparseGroups(t *testing.T) {
 			1.5, 8.0, 9.0, 10.78, 106.75, 10.79, 106.76)
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	}
 
 	const losFThreshold = 3.45
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), losFThreshold, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), losFThreshold, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -226,6 +226,55 @@ func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	}
 }
 
+// TestComputeHotspotsMinCongestedCountFiltersByOwnOccurrenceCount covers
+// the "bổ sung thêm cho bộ lọc điểm nóng: số lần xuất hiện" request — a
+// NEW raw-count filter on exactly HotspotSuggestion.CongestedCount (the
+// "Số lần xuất hiện" column), distinct from both minScans (total scan
+// count, unrelated to whether any of them were congested) and
+// CongestionRate (a ranking-only signal, never an exclusion one — see
+// computeHotspots' own doc comment). A road congested in exactly 2 of 5
+// scans must be excluded once the caller asks for at least 3
+// occurrences, included once the bar is at or below 2.
+func TestComputeHotspotsMinCongestedCountFiltersByOwnOccurrenceCount(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 25, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		speed, freeFlow := 8.0, 8.0 // TTI 1.0 — not congested at the default 1.96 threshold
+		if i < 2 {
+			speed = 2.0 // TTI 4.0 — congested
+		}
+		seedFlowScan(t, "Quận 4", "Đường Ùn 2 Lần", base.Add(time.Duration(i)*5*time.Minute),
+			speed, freeFlow, 5.0, 10.70, 106.60, 10.71, 106.61)
+	}
+
+	findIt := func(minCongestedCount int) *HotspotSuggestion {
+		report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, minCongestedCount, 0, 0, nil)
+		if err != nil {
+			t.Fatalf("computeHotspots(minCongestedCount=%d): %v", minCongestedCount, err)
+		}
+		for i := range report.Hotspots {
+			if report.Hotspots[i].Description == "Đường Ùn 2 Lần" {
+				return &report.Hotspots[i]
+			}
+		}
+		return nil
+	}
+
+	if h := findIt(3); h != nil {
+		t.Errorf("minCongestedCount=3: expected the road (congested only 2 times) excluded, got %+v", h)
+	}
+	if h := findIt(2); h == nil || h.CongestedCount != 2 {
+		t.Errorf("minCongestedCount=2: expected the road included with CongestedCount=2, got %+v", h)
+	}
+	// 0 falls back to the minimum of 1 ("đã từng đạt ít nhất 1 lần") —
+	// same floor as before this filter existed.
+	if h := findIt(0); h == nil || h.CongestedCount != 2 {
+		t.Errorf("minCongestedCount=0 (defaults to 1): expected the road included with CongestedCount=2, got %+v", h)
+	}
+}
+
 func TestComputeHotspotsRequiresValidRangeAndReportsDataQuality(t *testing.T) {
 	resetFlowCaptureDB(t)
 	ensureTravelTimeInit(t)
@@ -240,14 +289,14 @@ func TestComputeHotspotsRequiresValidRangeAndReportsDataQuality(t *testing.T) {
 		t.Fatalf("recordFlowScan (no links): %v", err)
 	}
 
-	if _, err := computeHotspots(base, base.Add(-time.Hour), 0, 0, 0, 0, nil); err == nil {
+	if _, err := computeHotspots(base, base.Add(-time.Hour), 0, 0, 0, 0, 0, nil); err == nil {
 		t.Error("expected error for to-before-from, got nil")
 	}
-	if _, err := computeHotspots(base, base.AddDate(0, 0, maxFlowHistoryRangeDays+1), 0, 0, 0, 0, nil); err == nil {
+	if _, err := computeHotspots(base, base.AddDate(0, 0, maxFlowHistoryRangeDays+1), 0, 0, 0, 0, 0, nil); err == nil {
 		t.Error("expected error for a range wider than maxFlowHistoryRangeDays, got nil")
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -316,7 +365,7 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 
 	// limit omitted (0) -> defaultHotspotLimit (50) results, but
 	// TotalMatched must still report the true count (55), not 50.
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -329,7 +378,7 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 
 	// An explicit limit above the old (buggy) "reset to 50 past 200"
 	// threshold must be honored, not silently reduced back to 50.
-	report2, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, roadCount, nil)
+	report2, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, roadCount, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots (explicit limit): %v", err)
 	}
@@ -342,7 +391,7 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 
 	// A limit above maxHotspotLimit is clamped DOWN to maxHotspotLimit,
 	// not reset to defaultHotspotLimit.
-	report3, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, maxHotspotLimit+500, nil)
+	report3, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, maxHotspotLimit+500, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots (over-max limit): %v", err)
 	}
@@ -373,7 +422,7 @@ func TestComputeHotspotsEnrichesGeometryFromRawJSON(t *testing.T) {
 		}
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}

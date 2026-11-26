@@ -165,7 +165,7 @@ func TestComputeHotspotsFiltersByWardBoundary(t *testing.T) {
 	from, to := base.Add(-time.Hour), base.Add(time.Hour)
 
 	// No ward filter: both roads appear.
-	all, err := computeHotspots(from, to, 0, 0, 0, 0, nil)
+	all, err := computeHotspots(from, to, 0, 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots (no filter): %v", err)
 	}
@@ -174,7 +174,7 @@ func TestComputeHotspotsFiltersByWardBoundary(t *testing.T) {
 	}
 
 	// Filtered to inWard only: only Đường Trong should appear.
-	filtered, err := computeHotspots(from, to, 0, 0, 0, 0, []string{inWard.ID})
+	filtered, err := computeHotspots(from, to, 0, 0, 0, 0, 0, []string{inWard.ID})
 	if err != nil {
 		t.Fatalf("computeHotspots (ward filter): %v", err)
 	}
@@ -183,7 +183,7 @@ func TestComputeHotspotsFiltersByWardBoundary(t *testing.T) {
 	}
 
 	// Filtered to otherWard only: neither road is inside it.
-	none, err := computeHotspots(from, to, 0, 0, 0, 0, []string{otherWard.ID})
+	none, err := computeHotspots(from, to, 0, 0, 0, 0, 0, []string{otherWard.ID})
 	if err != nil {
 		t.Fatalf("computeHotspots (otherWard filter): %v", err)
 	}

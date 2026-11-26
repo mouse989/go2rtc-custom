@@ -23,7 +23,7 @@ func registerTtiSuggestHandlers() {
 
 // handleTtiSuggestHotspots  GET /api/tti-suggest/hotspots
 //
-//	?from=RFC3339&to=RFC3339&minTti=&minScans=&gridRadiusM=&limit=&wards=id1,id2,...
+//	?from=RFC3339&to=RFC3339&minTti=&minScans=&minOccurrences=&gridRadiusM=&limit=&wards=id1,id2,...
 //
 // from/to are mandatory (computeHotspots/validateHistoryRange reject a
 // missing or overly wide range) — a different date window can surface
@@ -52,6 +52,7 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	minTTI, _ := strconv.ParseFloat(q.Get("minTti"), 64)
 	minScans, _ := strconv.Atoi(q.Get("minScans"))
+	minCongestedCount, _ := strconv.Atoi(q.Get("minOccurrences"))
 	gridRadiusM, _ := strconv.ParseFloat(q.Get("gridRadiusM"), 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	var wardIDs []string
@@ -59,7 +60,7 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 		wardIDs = strings.Split(v, ",")
 	}
 
-	report, err := computeHotspots(from, to, minTTI, minScans, gridRadiusM, limit, wardIDs)
+	report, err := computeHotspots(from, to, minTTI, minScans, minCongestedCount, gridRadiusM, limit, wardIDs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
