@@ -221,8 +221,8 @@
               <th class="tts-sortable" onclick="ttsSortBy('congestedCount')" title="Bấm để sắp xếp">Số lần xuất hiện <span class="tts-sort-arrow" data-key="congestedCount"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('avgJamFactor')" title="Bấm để sắp xếp">JF TB <span class="tts-sort-arrow" data-key="avgJamFactor"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('avgTti')" title="Bấm để sắp xếp — trung bình trên mọi lượt quét trong khoảng ngày đã lọc">TTI trung bình <span class="tts-sort-arrow" data-key="avgTti"></span></th>
-              <th class="tts-sortable" onclick="ttsSortBy('worstTti')" title="Bấm để sắp xếp — TTI (Travel Time Index) là chỉ số dùng để xếp mức LOS">TTI cao nhất <span class="tts-sort-arrow" data-key="worstTti"></span></th>
-              <th class="tts-sortable" onclick="ttsSortBy('worstLosLabel')" title="Bấm để sắp xếp">Mức LOS cao nhất <span class="tts-sort-arrow" data-key="worstLosLabel"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('worstTti')" title="Bấm để sắp xếp — lượt quét tệ nhất trong khoảng đã lọc (không dùng để xếp Mức LOS — cột đó dựa theo TTI trung bình)">TTI cao nhất <span class="tts-sort-arrow" data-key="worstTti"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('losLabel')" title="Bấm để sắp xếp — phân loại theo TTI trung bình, so với ngưỡng 6 mức LOS (A-F) đang cấu hình ở trang Admin Config">Mức LOS <span class="tts-sort-arrow" data-key="losLabel"></span></th>
               <th>Lần cuối phát hiện</th>
               <th>Trạng thái</th>
               <th></th>
@@ -573,7 +573,7 @@ function ttsSortBy(key) {
 }
 
 function ttsSortValue(h, key) {
-  if (key === 'worstLosLabel') return TTS_LOS_ORDER[h.worstLosLabel] ?? -1;
+  if (key === 'losLabel') return TTS_LOS_ORDER[h.losLabel] ?? -1;
   return h[key];
 }
 
@@ -655,7 +655,7 @@ function renderTtsTable() {
       <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}${h.worstTtiLowSpeedWarning
         ? ` <span title="Lượt quét cho ra TTI cao nhất này có tốc độ đo được gần như bằng 0 — TTI có thể bị đẩy cao do công thức tính (sàn tối thiểu), không hẳn phản ánh đúng mức ùn tắc thực tế. Không phải số cộng dồn.">⚠</span>`
         : ''}</td>
-      <td><span class="tts-badge" style="background:${ttsLosColor(h.worstLosLabel)}">${escHtml(h.worstLosLabel || '—')}</span></td>
+      <td><span class="tts-badge" style="background:${ttsLosColor(h.losLabel)}">${escHtml(h.losLabel || '—')}</span></td>
       <td style="color:var(--text-muted);font-size:.76rem;white-space:nowrap">${lastSeen}</td>
       <td>${status}</td>
       <td style="white-space:nowrap">${addBtn}</td>
@@ -930,7 +930,7 @@ function renderTtsHotspotLayer() {
   if (!_ttsMapLoaded) return;
   const features = _ttsHotspots.map(h => ({
     type: 'Feature',
-    properties: { key: h.key, color: ttsLosColor(h.worstLosLabel), covered: !!h.covered },
+    properties: { key: h.key, color: ttsLosColor(h.losLabel), covered: !!h.covered },
     geometry: { type: 'LineString', coordinates: ttsHotspotLineCoords(h) },
   }));
   _ttsMap.getSource('tts-hotspot').setData({ type: 'FeatureCollection', features });

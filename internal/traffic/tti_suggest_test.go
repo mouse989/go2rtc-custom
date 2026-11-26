@@ -189,9 +189,9 @@ func TestComputeHotspotsMinScansFiltersSparseGroups(t *testing.T) {
 // ùn tối thiểu > F tuy nhiên bảng/bản đồ vẫn còn vẽ các điểm E/C/D": a
 // road whose own worst-ever TTI only ever reaches "D" must be excluded
 // entirely when the caller filters at the "F" threshold — not merely
-// ranked last — and a road that DOES reach "F" must show WorstLOSLabel
-// "F" (never a lower band it also happened to pass through along the
-// way).
+// ranked last. "Đường Tới F" seeds every scan at the IDENTICAL TTI, so
+// AvgTTI == WorstTTI for it here, and LOSLabel (now classified from
+// AvgTTI, not the worst single reading) must still read "F".
 func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	resetFlowCaptureDB(t)
 	ensureTravelTimeInit(t)
@@ -229,14 +229,61 @@ func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	if f == nil {
 		t.Fatalf("expected Đường Tới F in results, got %+v", report.Hotspots)
 	}
-	if f.WorstLOSLabel != "F" {
-		t.Errorf("Đường Tới F: WorstLOSLabel = %q, want %q", f.WorstLOSLabel, "F")
+	if f.LOSLabel != "F" {
+		t.Errorf("Đường Tới F: LOSLabel = %q, want %q", f.LOSLabel, "F")
 	}
 	if f.WorstTTI < losFThreshold {
 		t.Errorf("Đường Tới F: WorstTTI = %v, want >= %v", f.WorstTTI, losFThreshold)
 	}
 	if f.WorstTTILowSpeedWarning {
 		t.Errorf("Đường Tới F: WorstTTILowSpeedWarning = true, want false (speed 2.0 m/s is well above the floor)")
+	}
+}
+
+// TestComputeHotspotsLOSLabelComesFromAvgTTINotWorstTTI covers "có 2
+// tuyến TTI trung bình 2.45 nhưng phân loại mức LOS cao nhất là F ...
+// mức LOS này sẽ được tính theo chỉ số TTI trung bình": a road that is
+// mostly calm (19 scans at a low, steady tti_fused) but had ONE
+// momentary spike into the "F" band must NOT show "F" as its overall
+// LOSLabel — only its WorstTTI should reflect that one bad moment.
+func TestComputeHotspotsLOSLabelComesFromAvgTTINotWorstTTI(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 29, 8, 0, 0, 0, time.UTC)
+	// 19 calm scans: tti_fused ≈ 1.425 (well inside the "B" band).
+	for i := 0; i < 19; i++ {
+		seedFlowScan(t, "Quận 12", "Đường Phần Lớn Yên Bình", base.Add(time.Duration(i)*5*time.Minute),
+			5.0, 8.0, 3.0, 10.72, 106.62, 10.73, 106.63)
+	}
+	// 1 momentary spike: tti_fused ≈ 3.861 (squarely "F", same values
+	// TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI's own "Đường
+	// Tới F" uses).
+	seedFlowScan(t, "Quận 12", "Đường Phần Lớn Yên Bình", base.Add(19*5*time.Minute),
+		2.0, 8.0, 8.5, 10.72, 106.62, 10.73, 106.63)
+
+	const losFThreshold = 3.45
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(2*time.Hour), losFThreshold, 0, 0, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var h *HotspotSuggestion
+	for i := range report.Hotspots {
+		if report.Hotspots[i].Description == "Đường Phần Lớn Yên Bình" {
+			h = &report.Hotspots[i]
+		}
+	}
+	if h == nil {
+		t.Fatalf("expected Đường Phần Lớn Yên Bình in results, got %+v", report.Hotspots)
+	}
+	if h.WorstTTI < losFThreshold {
+		t.Errorf("WorstTTI = %v, want >= %v (the one momentary spike)", h.WorstTTI, losFThreshold)
+	}
+	if h.AvgTTI >= losFThreshold {
+		t.Fatalf("test setup error: AvgTTI = %v, want well under %v so this test actually exercises the fix", h.AvgTTI, losFThreshold)
+	}
+	if h.LOSLabel == "F" {
+		t.Errorf("LOSLabel = %q, want anything but F — AvgTTI (%v) is nowhere near the F threshold, only WorstTTI (%v) is", h.LOSLabel, h.AvgTTI, h.WorstTTI)
 	}
 }
 

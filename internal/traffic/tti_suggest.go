@@ -115,9 +115,19 @@ type HotspotSuggestion struct {
 	// bình (theo các dữ liệu theo khung giờ đã lọc)": WorstTTI alone only
 	// ever shows the single worst moment: this is the typical/overall
 	// level across the whole chosen date range instead.
-	AvgTTI         float64 `json:"avgTti"`
-	WorstTTI       float64 `json:"worstTti"`
-	WorstLOSLabel  string  `json:"worstLosLabel"`
+	AvgTTI   float64 `json:"avgTti"`
+	WorstTTI float64 `json:"worstTti"`
+	// LOSLabel is the LOS band (A-F) AvgTTI falls into, per the admin's
+	// OWN CURRENT threshold config (trafficmetrics.GetConfig().LOSLevels,
+	// via ClassifyLOS) — recomputed fresh on every call, never the
+	// per-row los_label flow_segments stores (that one was frozen at
+	// SCAN time, against whatever thresholds were configured back then,
+	// and described the single WORST reading, not the overall level).
+	// "2 tuyến TTI trung bình 2.45 nhưng phân loại mức LOS cao nhất là F
+	// ... mức LOS này sẽ được tính theo chỉ số TTI trung bình": a route's
+	// occasional worst moment no longer decides its displayed LOS band —
+	// its typical level across the whole chosen date range does.
+	LOSLabel       string  `json:"losLabel"`
 	LengthM        float64 `json:"lengthM"`
 	FirstLat       float64 `json:"firstLat"`
 	FirstLng       float64 `json:"firstLng"`
@@ -196,7 +206,6 @@ type hotspotAgg struct {
 	scanCount, congestedCount            int
 	jfSum, ttiSum                        float64
 	worstTTI                             float64
-	worstLOS                             string
 	worstTTISpeedMps                     float64 // the speed_mps that produced worstTTI — see HotspotSuggestion.WorstTTILowSpeedWarning
 	lengthM                              float64
 	firstLat, firstLng, lastLat, lastLng float64
@@ -286,7 +295,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 	fromStr, toStr := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := flowCaptureDB.Query(`
 		SELECT fsc.region_name, fsc.scanned_at, fs.description, fs.length_m,
-		       fs.jam_factor, fs.tti_fused, fs.los_label, fs.speed_mps,
+		       fs.jam_factor, fs.tti_fused, fs.speed_mps,
 		       fs.first_lat, fs.first_lng, fs.last_lat, fs.last_lng, fs.scan_id
 		FROM flow_segments fs
 		JOIN flow_scans fsc ON fsc.id = fs.scan_id
@@ -301,10 +310,10 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 	groups := map[string]*hotspotAgg{}
 
 	for rows.Next() {
-		var regionName, scannedAtStr, description, losLabel string
+		var regionName, scannedAtStr, description string
 		var lengthM, jamFactor, ttiFused, speedMps, firstLat, firstLng, lastLat, lastLng float64
 		var scanID int64
-		if err := rows.Scan(&regionName, &scannedAtStr, &description, &lengthM, &jamFactor, &ttiFused, &losLabel, &speedMps,
+		if err := rows.Scan(&regionName, &scannedAtStr, &description, &lengthM, &jamFactor, &ttiFused, &speedMps,
 			&firstLat, &firstLng, &lastLat, &lastLng, &scanID); err != nil {
 			return nil, fmt.Errorf("scan flow_segments row: %w", err)
 		}
@@ -333,7 +342,6 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 		}
 		if ttiFused > g.worstTTI {
 			g.worstTTI = ttiFused
-			g.worstLOS = losLabel
 			g.worstTTISpeedMps = speedMps
 		}
 		// Representative geometry/length always comes from the most
@@ -374,6 +382,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 		if !g.lastCongestedAt.IsZero() {
 			lastSeen = g.lastCongestedAt.UTC().Format(time.RFC3339)
 		}
+		avgTTI := g.ttiSum / float64(g.scanCount)
 		out = append(out, HotspotSuggestion{
 			Key:                     key,
 			Description:             g.description,
@@ -383,9 +392,9 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 			CongestedCount:          g.congestedCount,
 			CongestionRate:          round2(rate),
 			AvgJamFactor:            round2(g.jfSum / float64(g.scanCount)),
-			AvgTTI:                  round2(g.ttiSum / float64(g.scanCount)),
+			AvgTTI:                  round2(avgTTI),
 			WorstTTI:                round2(g.worstTTI),
-			WorstLOSLabel:           g.worstLOS,
+			LOSLabel:                trafficmetrics.ClassifyLOS(avgTTI, trafficmetrics.GetConfig().LOSLevels).Label,
 			LengthM:                 math.Round(g.lengthM),
 			FirstLat:                g.firstLat,
 			FirstLng:                g.firstLng,
@@ -730,7 +739,7 @@ func mergeNearbyGroups(groups map[string]*hotspotAgg, gridRadiusM float64) {
 				dst.jfSum += src.jfSum
 				dst.ttiSum += src.ttiSum
 				if src.worstTTI > dst.worstTTI {
-					dst.worstTTI, dst.worstLOS, dst.worstTTISpeedMps = src.worstTTI, src.worstLOS, src.worstTTISpeedMps
+					dst.worstTTI, dst.worstTTISpeedMps = src.worstTTI, src.worstTTISpeedMps
 				}
 				if src.latestScannedAt.After(dst.latestScannedAt) {
 					dst.latestScannedAt = src.latestScannedAt
