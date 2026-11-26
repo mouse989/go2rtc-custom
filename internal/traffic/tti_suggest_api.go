@@ -11,13 +11,13 @@ package traffic
 import (
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
 )
 
 func registerTtiSuggestHandlers() {
 	http.HandleFunc("/api/tti-suggest/hotspots", handleTtiSuggestHotspots)
+	http.HandleFunc("/api/tti-suggest/hotspot-timeline", handleTtiSuggestHotspotTimeline)
 }
 
 // handleTtiSuggestHotspots  GET /api/tti-suggest/hotspots
@@ -39,23 +39,13 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := r.URL.Query()
-	fromStr, toStr := q.Get("from"), q.Get("to")
-	if fromStr == "" || toStr == "" {
-		http.Error(w, "from and to are required (RFC3339)", http.StatusBadRequest)
-		return
-	}
-	from, err := time.Parse(time.RFC3339, fromStr)
+	from, to, err := parseHistoryRangeParams(r)
 	if err != nil {
-		http.Error(w, "invalid from: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	to, err := time.Parse(time.RFC3339, toStr)
-	if err != nil {
-		http.Error(w, "invalid to: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	q := r.URL.Query()
 	minTTI, _ := strconv.ParseFloat(q.Get("minTti"), 64)
 	minScans, _ := strconv.Atoi(q.Get("minScans"))
 	minRate, _ := strconv.ParseFloat(q.Get("minRate"), 64)
@@ -67,4 +57,41 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, report)
+}
+
+// handleTtiSuggestHotspotTimeline  GET /api/tti-suggest/hotspot-timeline
+//
+//	?region=&description=&from=RFC3339&to=RFC3339&minTti=
+//
+// www/tti-suggest.html's "chi tiết theo khung giờ" chart for ONE hotspot
+// row clicked in the table — same from/to range and minTti threshold
+// already chosen on that page's own filter, just for this single
+// (region, description) instead of every road at once.
+func handleTtiSuggestHotspotTimeline(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.UserFromContext(r.Context()); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	from, to, err := parseHistoryRangeParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	q := r.URL.Query()
+	region := q.Get("region")
+	description := q.Get("description")
+	minTTI, _ := strconv.ParseFloat(q.Get("minTti"), 64)
+
+	tl, err := computeHotspotTimeline(region, description, from, to, minTTI)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, tl)
 }

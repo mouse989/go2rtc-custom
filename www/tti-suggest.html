@@ -28,8 +28,6 @@
 .tts-table tr:last-child td { border-bottom:none; }
 .tts-hotspot-row { cursor:pointer; }
 .tts-hotspot-row:hover td { background:var(--surface2); }
-.tts-rate-bar { display:inline-block; height:6px; border-radius:3px; background:var(--surface2); width:70px; overflow:hidden; vertical-align:middle; }
-.tts-rate-fill { height:100%; border-radius:3px; }
 .tts-badge { display:inline-block; padding:.1rem .45rem; border-radius:4px; font-size:.7rem; font-weight:700; color:#fff; }
 #ttsMap { height:60vh; min-height:420px; border-radius:10px; overflow:hidden; background:var(--surface2); }
 #ttsCtxMenu { position:fixed; z-index:9999; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.4); padding:.4rem 0; min-width:180px; font-size:.82rem; }
@@ -185,9 +183,7 @@
           <thead>
             <tr>
               <th>Tên đường / khu vực</th>
-              <th>Khu vực</th>
-              <th>Tần suất ùn</th>
-              <th>Số lần ùn / quét</th>
+              <th>Số lần xuất hiện</th>
               <th>JF TB</th>
               <th>Mức LOS cao nhất</th>
               <th>Lần cuối phát hiện</th>
@@ -195,7 +191,7 @@
               <th></th>
             </tr>
           </thead>
-          <tbody id="ttsTableBody"><tr><td colspan="9" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
+          <tbody id="ttsTableBody"><tr><td colspan="7" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -212,6 +208,15 @@
         <button onclick="ttsCtxSet('origin')" style="color:#4ade80">🟢 Đặt làm Điểm đầu</button>
         <button onclick="ttsCtxSet('waypoint')" style="color:#60a5fa">🔵 Thêm Điểm giữa</button>
         <button onclick="ttsCtxSet('dest')" style="color:#f87171">🔴 Đặt làm Điểm cuối</button>
+      </div>
+      <div id="ttsTimelineBox" style="display:none;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border)">
+        <div style="font-size:.82rem;font-weight:600;margin-bottom:.4rem" id="ttsTimelineTitle"></div>
+        <p class="tts-hint" style="margin:0 0 .5rem">
+          Số lần đạt mức ùn đã chọn ở bộ lọc trên, theo khung giờ 30 phút — cộng dồn qua mọi ngày trong khoảng Từ ngày/Đến ngày đã chọn
+          (VD: 07:00-07:30 gộp số lần xảy ra ở khung giờ đó của tất cả các ngày trong khoảng).
+        </p>
+        <div id="ttsTimelineStatus" style="font-size:.78rem;color:var(--text-muted);margin-bottom:.4rem"></div>
+        <div style="height:220px"><canvas id="ttsTimelineChart"></canvas></div>
       </div>
     </div>
 
@@ -254,6 +259,7 @@
 </main>
 
 <script src="https://unpkg.com/@vietmap/vietmap-gl-js@6.0.1/dist/vietmap-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>
 <script>
 // TT_ROAD_TYPES mirrors internal/traveltime/regions.go's RoadTypes exactly
@@ -355,22 +361,19 @@ function renderTtsTable() {
   const rows = hideCovered ? _ttsHotspots.filter(h => !h.covered) : _ttsHotspots;
   const tbody = document.getElementById('ttsTableBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(h => {
-    const ratePct = Math.round(h.congestionRate * 100);
     const name = h.description ? escHtml(h.description) : '<em style="opacity:.6">(chưa rõ tên đường)</em>';
     const lastSeen = h.lastSeenAt ? new Date(h.lastSeenAt).toLocaleString('vi-VN') : '—';
     const status = h.covered
       ? `<span style="color:var(--text-muted)" title="${escHtml(h.coveredByRoute || '')}">✓ Đã theo dõi</span>`
       : '<span style="color:var(--amber,#f59e0b)">Chưa theo dõi</span>';
     const addBtn = h.covered ? '' : `<button class="btn btn-secondary btn-sm" data-action="add" data-key="${escHtml(h.key)}">+ Thêm vào theo dõi</button>`;
-    return `<tr data-key="${escHtml(h.key)}" class="tts-hotspot-row" title="Bấm để xem vị trí trên bản đồ">
-      <td><strong>${name}</strong></td>
-      <td style="color:var(--text-muted);font-size:.77rem">${escHtml(h.regionName || '—')}</td>
-      <td><span class="tts-rate-bar"><span class="tts-rate-fill" style="width:${ratePct}%;background:${ttsLosColor(h.worstLosLabel)}"></span></span> ${ratePct}%</td>
-      <td style="color:var(--text-muted)">${h.congestedCount}/${h.scanCount}</td>
+    return `<tr data-key="${escHtml(h.key)}" class="tts-hotspot-row" title="Bấm để xem vị trí trên bản đồ + chi tiết theo khung giờ bên dưới">
+      <td><strong>${name}</strong> <span style="color:var(--text-muted);font-size:.72rem">(${escHtml(h.regionName || '—')})</span></td>
+      <td>${h.congestedCount} lần <span style="color:var(--text-muted);font-size:.72rem">(/${h.scanCount} lượt quét)</span></td>
       <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
       <td><span class="tts-badge" style="background:${ttsLosColor(h.worstLosLabel)}">${escHtml(h.worstLosLabel || '—')}</span></td>
       <td style="color:var(--text-muted);font-size:.76rem;white-space:nowrap">${lastSeen}</td>
@@ -595,6 +598,71 @@ function ttsShowHotspotOnMap(key) {
   const minLng = Math.min(h.firstLng, h.lastLng), maxLng = Math.max(h.firstLng, h.lastLng);
   _ttsMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 120, maxZoom: 17, duration: 600 });
   document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  ttsLoadTimeline(h);
+}
+
+// ── Chi tiết theo khung giờ (30 phút), chỉ cho 1 tuyến đã chọn ──────
+let _ttsTimelineChart = null;
+
+async function ttsLoadTimeline(h) {
+  const box = document.getElementById('ttsTimelineBox');
+  const statusEl = document.getElementById('ttsTimelineStatus');
+  box.style.display = '';
+  document.getElementById('ttsTimelineTitle').textContent =
+    `📊 Chi tiết theo khung giờ — ${h.description || '(chưa rõ tên đường)'} (${h.regionName || '—'})`;
+
+  // An unnamed hotspot is grouped by a coarse lat/lng grid cell
+  // (hotspotGroupKey, internal/traffic/tti_suggest.go) — the timeline API
+  // only filters by (region, description), so querying with an empty
+  // description would pull in EVERY unnamed road in the region instead of
+  // just this one cluster. Simplest correct behavior: this feature only
+  // supports named roads.
+  if (!h.description) {
+    if (_ttsTimelineChart) { _ttsTimelineChart.destroy(); _ttsTimelineChart = null; }
+    statusEl.textContent = 'Điểm nóng này chưa rõ tên đường (gộp theo toạ độ) — chưa hỗ trợ xem chi tiết theo khung giờ.';
+    return;
+  }
+  const range = ttsRangeOrNull();
+  if (!range) { statusEl.textContent = 'Chọn lại khoảng Từ ngày/Đến ngày hợp lệ ở bộ lọc phía trên.'; return; }
+
+  statusEl.textContent = 'Đang tải...';
+  try {
+    const qs = new URLSearchParams({
+      region: h.regionName, description: h.description,
+      from: range.from.toISOString(), to: range.to.toISOString(),
+      minTti: document.getElementById('ttsMinTti').value,
+    });
+    const tl = await apiFetch('/api/tti-suggest/hotspot-timeline?' + qs.toString());
+    renderTtsTimelineChart(tl);
+    const total = tl.slots.reduce((s, x) => s + x.count, 0);
+    statusEl.textContent = total
+      ? `✓ ${total.toLocaleString('vi-VN')} lần ùn trong khoảng đã chọn`
+      : 'Không có lần nào đạt mức ùn đã chọn trong khoảng này';
+  } catch (e) {
+    statusEl.textContent = '✗ Lỗi: ' + e.message;
+  }
+}
+
+function renderTtsTimelineChart(tl) {
+  if (_ttsTimelineChart) { _ttsTimelineChart.destroy(); _ttsTimelineChart = null; }
+  const labels = tl.slots.map(s => s.label.split('-')[0]); // "07:00-07:30" -> "07:00"
+  const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
+  const grid = 'rgba(128,128,128,.15)';
+  _ttsTimelineChart = new Chart(document.getElementById('ttsTimelineChart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: tl.slots.map(s => s.count), backgroundColor: '#ef4444', borderRadius: 3, maxBarThickness: 14 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: items => tl.slots[items[0].dataIndex].label, label: c => `${c.parsed.y} lần` } },
+      },
+      scales: {
+        x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 24, font: { size: 10 } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: txt, precision: 0, font: { size: 10 } }, grid: { color: grid } },
+      },
+    },
+  });
 }
 
 // ── Draw tool (port of admin.html's TTI route editor map) ──────────

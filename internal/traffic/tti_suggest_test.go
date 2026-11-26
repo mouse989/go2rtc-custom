@@ -217,6 +217,57 @@ func TestHotspotGroupKeyFallsBackToGridCellWhenUnnamed(t *testing.T) {
 	}
 }
 
+func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *testing.T) {
+	resetFlowCaptureDB(t)
+
+	from := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+
+	// Day 1: 00:05 UTC == 07:05 VN local -> slot 14 (07:00-07:30).
+	seedFlowScan(t, "Quận 1", "Đường A", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
+		2.0, 8.0, 8.5, 10.80, 106.70, 10.81, 106.71)
+	// Day 2, same time-of-day -> same slot 14, should be summed with day 1.
+	seedFlowScan(t, "Quận 1", "Đường A", time.Date(2026, 11, 21, 0, 5, 0, 0, time.UTC),
+		2.0, 8.0, 8.5, 10.80, 106.70, 10.81, 106.71)
+	// Day 1, 00:40 UTC == 07:40 VN local -> slot 15 (07:30-08:00), free-flowing (not congested).
+	seedFlowScan(t, "Quận 1", "Đường A", time.Date(2026, 11, 20, 0, 40, 0, 0, time.UTC),
+		7.5, 8.0, 2.0, 10.80, 106.70, 10.81, 106.71)
+	// A different road — must not leak into Đường A's timeline.
+	seedFlowScan(t, "Quận 1", "Đường B", time.Date(2026, 11, 20, 0, 5, 0, 0, time.UTC),
+		2.0, 8.0, 8.5, 10.90, 106.80, 10.91, 106.81)
+
+	tl, err := computeHotspotTimeline("Quận 1", "Đường A", from, to, 0)
+	if err != nil {
+		t.Fatalf("computeHotspotTimeline: %v", err)
+	}
+	if len(tl.Slots) != 48 {
+		t.Fatalf("expected 48 slots, got %d", len(tl.Slots))
+	}
+	if tl.Slots[14].Count != 2 {
+		t.Errorf("slot 14 (07:00-07:30) Count = %d, want 2 (summed across both days)", tl.Slots[14].Count)
+	}
+	if tl.Slots[14].Label != "07:00-07:30" {
+		t.Errorf("slot 14 Label = %q, want %q", tl.Slots[14].Label, "07:00-07:30")
+	}
+	if tl.Slots[15].Count != 0 {
+		t.Errorf("slot 15 (07:30-08:00) Count = %d, want 0 (that reading wasn't congested)", tl.Slots[15].Count)
+	}
+	total := 0
+	for _, s := range tl.Slots {
+		total += s.Count
+	}
+	if total != 2 {
+		t.Errorf("total Count across all slots = %d, want 2 (Đường B's reading must not be included)", total)
+	}
+
+	if _, err := computeHotspotTimeline("Quận 1", "", from, to, 0); err == nil {
+		t.Error("expected error for empty description, got nil")
+	}
+	if _, err := computeHotspotTimeline("Quận 1", "Đường A", to, from, 0); err == nil {
+		t.Error("expected error for to-before-from, got nil")
+	}
+}
+
 func TestParseLatLng(t *testing.T) {
 	lat, lng, ok := parseLatLng(" 10.5 , 106.7 ")
 	if !ok || lat != 10.5 || lng != 106.7 {

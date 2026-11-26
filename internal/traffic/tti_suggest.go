@@ -352,3 +352,97 @@ func parseLatLng(s string) (lat, lng float64, ok bool) {
 	}
 	return lat, lng, true
 }
+
+// HotspotTimelineSlot is one 30-minute time-of-day bucket (0-47, Vietnam
+// local time) — same slot width www/heatmap-replay.html's per-day
+// histogram uses, just summed across every day in the queried range
+// instead of split per calendar day: "7h-7h30 cộng dồn qua nhiều ngày".
+type HotspotTimelineSlot struct {
+	Slot  int    `json:"slot"` // 0-47
+	Label string `json:"label"`
+	Count int    `json:"count"` // số lần đạt mức ùn (TTI >= minTTI) trong khung giờ này, cộng dồn qua mọi ngày trong [from,to]
+}
+
+// HotspotTimeline is computeHotspotTimeline's full result: always exactly
+// 48 slots (zero-filled where there's no congested reading), index ==
+// slot.
+type HotspotTimeline struct {
+	RegionName  string                `json:"regionName"`
+	Description string                `json:"description"`
+	From        string                `json:"from"`
+	To          string                `json:"to"`
+	MinTTI      float64               `json:"minTti"`
+	Slots       []HotspotTimelineSlot `json:"slots"`
+}
+
+func hotspotTimelineSlotLabel(slot int) string {
+	h, m := slot/2, (slot%2)*30
+	h2, m2 := h, m+30
+	if m2 == 60 {
+		h2, m2 = h+1, 0
+	}
+	return fmt.Sprintf("%02d:%02d-%02d:%02d", h, m, h2%24, m2)
+}
+
+// computeHotspotTimeline answers "với MỘT tuyến/đoạn đường cụ thể (click
+// từ bảng điểm nóng), nó hay ùn vào khung giờ nào trong ngày?" — same
+// from/to window and minTTI threshold already chosen on the page's own
+// filter (not a separate "last N days"), bucketed every 30 minutes and
+// summed across every day the range covers.
+func computeHotspotTimeline(region, description string, from, to time.Time, minTTI float64) (*HotspotTimeline, error) {
+	if err := validateHistoryRange(from, to); err != nil {
+		return nil, err
+	}
+	if description == "" {
+		return nil, fmt.Errorf("description is required")
+	}
+	if minTTI <= 0 {
+		minTTI = defaultHotspotMinTTI
+	}
+
+	tl := &HotspotTimeline{
+		RegionName: region, Description: description,
+		From: from.UTC().Format(time.RFC3339), To: to.UTC().Format(time.RFC3339),
+		MinTTI: minTTI, Slots: make([]HotspotTimelineSlot, 48),
+	}
+	for i := range tl.Slots {
+		tl.Slots[i] = HotspotTimelineSlot{Slot: i, Label: hotspotTimelineSlotLabel(i)}
+	}
+	if flowCaptureDB == nil {
+		return tl, nil
+	}
+
+	rows, err := flowCaptureDB.Query(`
+		SELECT fsc.scanned_at, fs.tti_fused
+		FROM flow_segments fs
+		JOIN flow_scans fsc ON fsc.id = fs.scan_id
+		WHERE fsc.scanned_at >= ? AND fsc.scanned_at <= ? AND fs.sub_index = -1
+		  AND fsc.region_name = ? AND fs.description = ?
+	`, from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339), region, description)
+	if err != nil {
+		return nil, fmt.Errorf("query flow_segments: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var scannedAtStr string
+		var ttiFused float64
+		if err := rows.Scan(&scannedAtStr, &ttiFused); err != nil {
+			return nil, fmt.Errorf("scan timeline row: %w", err)
+		}
+		if ttiFused < minTTI {
+			continue
+		}
+		scannedAt, err := time.Parse(time.RFC3339, scannedAtStr)
+		if err != nil {
+			continue // malformed row — skip rather than fail the whole report
+		}
+		local := scannedAt.In(vnLocation)
+		slot := local.Hour()*2 + local.Minute()/30
+		tl.Slots[slot].Count++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate timeline rows: %w", err)
+	}
+	return tl, nil
+}
