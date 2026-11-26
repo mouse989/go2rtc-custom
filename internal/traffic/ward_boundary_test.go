@@ -95,6 +95,7 @@ func TestPointInWardsFiltersByRing(t *testing.T) {
 	square := &WardBoundary{ID: "sq", Name: "Square", Rings: []Ring{{
 		{10.0, 106.0}, {10.0, 106.1}, {10.1, 106.1}, {10.1, 106.0},
 	}}}
+	square.computeBBox() // normally done by initWardBoundaries/replaceWardBoundaries — pointInWards' own bbox pre-filter needs it
 	selected := []*WardBoundary{square}
 
 	if !pointInWards(10.05, 106.05, selected) {
@@ -102,6 +103,35 @@ func TestPointInWardsFiltersByRing(t *testing.T) {
 	}
 	if pointInWards(10.20, 106.20, selected) {
 		t.Error("expected point outside the square to be excluded")
+	}
+}
+
+// TestPointInWardsBBoxPreFilterStaysExact confirms the cheap bbox reject
+// added to pointInWards (so "Toàn TP.HCM" doesn't ray-cast against all
+// 168 wards' full rings for every row) never changes the ANSWER, only
+// how fast it gets there — a point sitting inside a non-rectangular
+// ward's bounding box but outside its actual ring (the top-right corner
+// a triangle's own bbox always includes but the triangle itself doesn't)
+// must still be excluded by the exact ray-casting test that runs after
+// the bbox passes.
+func TestPointInWardsBBoxPreFilterStaysExact(t *testing.T) {
+	triangle := &WardBoundary{ID: "tri", Name: "Triangle", Rings: []Ring{{
+		{10.0, 106.0}, {10.0, 106.1}, {10.1, 106.0},
+	}}}
+	triangle.computeBBox()
+	selected := []*WardBoundary{triangle}
+
+	if !pointInWards(10.02, 106.02, selected) {
+		t.Error("expected a point inside the triangle to pass")
+	}
+	// (10.09, 106.09) is inside the triangle's bbox [10.0-10.1]x[106.0-106.1]
+	// but outside the triangle itself (past its hypotenuse).
+	if pointInWards(10.09, 106.09, selected) {
+		t.Error("expected a point inside the bbox but outside the triangle to be excluded")
+	}
+	// Clearly outside the bbox entirely — exercises the bbox reject path itself.
+	if pointInWards(20.0, 120.0, selected) {
+		t.Error("expected a point outside the bbox entirely to be excluded")
 	}
 }
 

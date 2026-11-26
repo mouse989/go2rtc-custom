@@ -25,6 +25,7 @@ package traffic
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,11 +45,45 @@ type Ring [][2]float64
 // more than one entry when the KML source described the ward as a
 // MultiGeometry (e.g. a mainland piece plus a small river island) — a
 // point counts as inside the ward if it falls within ANY one of them.
+//
+// minLat/maxLat/minLng/maxLng is this ward's own bounding box, filled in
+// by computeBBox right after load/import — pointInWards' own cheap
+// reject before the expensive ray-casting test (see its doc comment for
+// why this matters once "Toàn TP.HCM (168 đơn vị)" selects every ward at
+// once). Unexported, so encoding/json silently skips it on both
+// Marshal/Unmarshal — recomputed from Rings every time, never persisted.
 type WardBoundary struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"` // "An Đông"
 	Type  string `json:"type"` // "Phường" | "Xã" | "" if unknown
 	Rings []Ring `json:"rings"`
+
+	minLat, maxLat, minLng, maxLng float64
+}
+
+// computeBBox fills in w's own bounding box from its current Rings —
+// called once right after a ward is loaded from disk or freshly
+// imported, never per point-in-wards query.
+func (w *WardBoundary) computeBBox() {
+	w.minLat, w.minLng = math.Inf(1), math.Inf(1)
+	w.maxLat, w.maxLng = math.Inf(-1), math.Inf(-1)
+	for _, ring := range w.Rings {
+		for _, p := range ring {
+			lat, lng := p[0], p[1]
+			if lat < w.minLat {
+				w.minLat = lat
+			}
+			if lat > w.maxLat {
+				w.maxLat = lat
+			}
+			if lng < w.minLng {
+				w.minLng = lng
+			}
+			if lng > w.maxLng {
+				w.maxLng = lng
+			}
+		}
+	}
 }
 
 var (
@@ -72,6 +107,9 @@ func initWardBoundaries(dir string) {
 		log.Warn().Err(err).Msg("[traffic] ward_boundaries.json parse error, starting empty")
 		wards = []*WardBoundary{}
 		return
+	}
+	for _, w := range loaded {
+		w.computeBBox()
 	}
 	wards = loaded
 }
@@ -102,6 +140,7 @@ func replaceWardBoundaries(next []*WardBoundary) error {
 		}
 		seen[id] = true
 		w.ID = id
+		w.computeBBox()
 	}
 
 	data, err := json.MarshalIndent(next, "", "  ")
@@ -205,6 +244,20 @@ func pointInWards(lat, lng float64, selectedWards []*WardBoundary) bool {
 		return true
 	}
 	for _, w := range selectedWards {
+		// Cheap bounding-box reject before the expensive ray-casting
+		// test below. "Toàn TP.HCM (168 đơn vị)" selects every imported
+		// ward at once — over 220K boundary points combined — so
+		// walking every ring of every ward for every flow_segments row
+		// (computeHotspots' own hot loop) was the actual slow part
+		// ("dò từng phường xã"). A point's own bbox rejects it against
+		// all but a small handful of wards (ordinarily just the one
+		// it's actually inside, plus maybe an immediate neighbor at a
+		// shared border) before any ring is ever walked — same exact
+		// result as before, just without testing 167 wards' full
+		// polygons that could never have matched in the first place.
+		if lat < w.minLat || lat > w.maxLat || lng < w.minLng || lng > w.maxLng {
+			continue
+		}
 		for _, ring := range w.Rings {
 			if pointInPolygon(lat, lng, ring) {
 				return true

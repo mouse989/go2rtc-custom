@@ -24,6 +24,10 @@
 .tts-hint { font-size:.73rem; color:var(--text-muted); margin:0 0 .6rem; line-height:1.5; }
 .tts-table { font-size:.8rem; }
 .tts-table th { text-align:left; color:var(--text-muted); font-weight:600; font-size:.73rem; text-transform:uppercase; letter-spacing:.04em; padding:.5rem .6rem; border-bottom:1px solid var(--border); }
+.tts-table th.tts-sortable { cursor:pointer; user-select:none; }
+.tts-table th.tts-sortable:hover { color:var(--text); }
+.tts-sort-arrow { display:inline-block; opacity:.35; font-size:.9em; }
+.tts-sort-arrow.tts-sort-active { opacity:1; }
 .tts-table td { padding:.5rem .6rem; border-bottom:1px solid var(--border); vertical-align:middle; }
 .tts-table tr:last-child td { border-bottom:none; }
 .tts-hotspot-row { cursor:pointer; }
@@ -177,7 +181,8 @@
           <option value="100" selected>100</option>
           <option value="200">200</option>
           <option value="500">500</option>
-          <option value="1000">1000 (tối đa)</option>
+          <option value="1000">1000</option>
+          <option value="2000">2000 (tối đa)</option>
         </select>
         <label><input type="checkbox" id="ttsHideCovered" checked onchange="renderTtsTable()"> Chỉ hiện khu vực chưa theo dõi</label>
         <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
@@ -210,9 +215,9 @@
           <thead>
             <tr>
               <th>Tên đường / khu vực</th>
-              <th>Số lần xuất hiện</th>
-              <th>JF TB</th>
-              <th>Mức LOS cao nhất</th>
+              <th class="tts-sortable" onclick="ttsSortBy('congestedCount')" title="Bấm để sắp xếp">Số lần xuất hiện <span class="tts-sort-arrow" data-key="congestedCount"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('avgJamFactor')" title="Bấm để sắp xếp">JF TB <span class="tts-sort-arrow" data-key="avgJamFactor"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('worstLosLabel')" title="Bấm để sắp xếp">Mức LOS cao nhất <span class="tts-sort-arrow" data-key="worstLosLabel"></span></th>
               <th>Lần cuối phát hiện</th>
               <th>Trạng thái</th>
               <th></th>
@@ -504,9 +509,47 @@ function ttsLosColor(label) {
   return { A: '#00E676', B: '#64DD17', C: '#8BC34A', D: '#FFC107', E: '#FF9800', F: '#D50000' }[label] || '#9ca3af';
 }
 
+// Sắp xếp bảng điểm nóng theo cột — mặc định "Số lần xuất hiện" (số lần
+// ùn thực sự, congestedCount — không phải scanCount) từ nhiều đến ít.
+// Bấm lại cùng 1 cột sẽ đảo chiều; bấm cột khác quay lại chiều giảm dần
+// (lớn → nhỏ), vì với cả 3 cột cho sắp xếp (số lần, JF TB, mức LOS) thì
+// "đáng chú ý nhất lên đầu" luôn là chiều giảm dần theo mặc định.
+let _ttsSortKey = 'congestedCount';
+let _ttsSortDir = 'desc';
+
+const TTS_LOS_ORDER = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
+
+function ttsSortBy(key) {
+  if (_ttsSortKey === key) {
+    _ttsSortDir = _ttsSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _ttsSortKey = key;
+    _ttsSortDir = 'desc';
+  }
+  renderTtsTable();
+}
+
+function ttsSortValue(h, key) {
+  if (key === 'worstLosLabel') return TTS_LOS_ORDER[h.worstLosLabel] ?? -1;
+  return h[key];
+}
+
+function ttsUpdateSortArrows() {
+  document.querySelectorAll('.tts-sort-arrow').forEach(el => {
+    const active = el.dataset.key === _ttsSortKey;
+    el.textContent = active ? (_ttsSortDir === 'desc' ? '▼' : '▲') : '⇕';
+    el.classList.toggle('tts-sort-active', active);
+  });
+}
+
 function renderTtsTable() {
   const hideCovered = document.getElementById('ttsHideCovered').checked;
-  const rows = hideCovered ? _ttsHotspots.filter(h => !h.covered) : _ttsHotspots;
+  let rows = hideCovered ? _ttsHotspots.filter(h => !h.covered) : _ttsHotspots;
+  rows = rows.slice().sort((a, b) => {
+    const av = ttsSortValue(a, _ttsSortKey), bv = ttsSortValue(b, _ttsSortKey);
+    return _ttsSortDir === 'desc' ? bv - av : av - bv;
+  });
+  ttsUpdateSortArrows();
   const tbody = document.getElementById('ttsTableBody');
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';

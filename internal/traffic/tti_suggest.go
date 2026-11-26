@@ -134,7 +134,7 @@ const defaultGridRadiusM = 100.0
 // default regardless of how explicitly it asked.
 const (
 	defaultHotspotLimit = 50
-	maxHotspotLimit     = 1000
+	maxHotspotLimit     = 2000
 )
 
 type hotspotAgg struct {
