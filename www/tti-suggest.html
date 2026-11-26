@@ -591,7 +591,15 @@ async function initTtsMap() {
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': .85 },
     });
-    _ttsMap.on('click', 'tts-hotspot-line', e => ttsPrefillFromHotspot(e.features[0].properties.key));
+    // Clicking a hotspot line ON THE MAP must behave exactly like
+    // clicking that same hotspot's row in the table — highlight it +
+    // load its own "chi tiết theo khung giờ" timeline (ttsShowHotspotOnMap)
+    // — otherwise the timeline keeps showing whatever route was selected
+    // last (or stays empty if none was ever selected via the table), even
+    // though a different route was just clicked right here on the map.
+    // Pre-filling the "add to tracking" form is still reachable via each
+    // row's own "+ Thêm vào theo dõi" button in the table.
+    _ttsMap.on('click', 'tts-hotspot-line', e => ttsShowHotspotOnMap(e.features[0].properties.key));
     _ttsMap.on('mouseenter', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = 'pointer'; });
     _ttsMap.on('mouseleave', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = ''; });
 
