@@ -217,7 +217,7 @@
         <table class="tts-table" style="width:100%">
           <thead>
             <tr>
-              <th>Tên đường / khu vực</th>
+              <th>Tên đường</th>
               <th class="tts-sortable" onclick="ttsSortBy('congestedCount')" title="Bấm để sắp xếp">Số lần xuất hiện <span class="tts-sort-arrow" data-key="congestedCount"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('avgJamFactor')" title="Bấm để sắp xếp">JF TB <span class="tts-sort-arrow" data-key="avgJamFactor"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('worstTti')" title="Bấm để sắp xếp — TTI (Travel Time Index) là chỉ số dùng để xếp mức LOS">TTI cao nhất <span class="tts-sort-arrow" data-key="worstTti"></span></th>
@@ -636,7 +636,7 @@ function renderTtsTable() {
       : '<span style="color:var(--amber,#f59e0b)">Chưa theo dõi</span>';
     const addBtn = h.covered ? '' : `<button class="btn btn-secondary btn-sm" data-action="add" data-key="${escHtml(h.key)}">+ Thêm vào theo dõi</button>`;
     return `<tr data-key="${escHtml(h.key)}" class="tts-hotspot-row" title="Bấm để xem vị trí trên bản đồ + chi tiết theo khung giờ bên dưới">
-      <td><strong>${name}</strong> <span style="color:var(--text-muted);font-size:.72rem">(${escHtml(h.regionName || '—')})</span></td>
+      <td><strong>${name}</strong></td>
       <td>${h.congestedCount} lần <span style="color:var(--text-muted);font-size:.72rem">(/${h.scanCount} lượt quét)</span></td>
       <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
       <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}${h.worstTtiLowSpeedWarning
