@@ -26,6 +26,8 @@
 .tts-table th { text-align:left; color:var(--text-muted); font-weight:600; font-size:.73rem; text-transform:uppercase; letter-spacing:.04em; padding:.5rem .6rem; border-bottom:1px solid var(--border); }
 .tts-table td { padding:.5rem .6rem; border-bottom:1px solid var(--border); vertical-align:middle; }
 .tts-table tr:last-child td { border-bottom:none; }
+.tts-hotspot-row { cursor:pointer; }
+.tts-hotspot-row:hover td { background:var(--surface2); }
 .tts-rate-bar { display:inline-block; height:6px; border-radius:3px; background:var(--surface2); width:70px; overflow:hidden; vertical-align:middle; }
 .tts-rate-fill { height:100%; border-radius:3px; }
 .tts-badge { display:inline-block; padding:.1rem .45rem; border-radius:4px; font-size:.7rem; font-weight:700; color:#fff; }
@@ -363,8 +365,8 @@ function renderTtsTable() {
     const status = h.covered
       ? `<span style="color:var(--text-muted)" title="${escHtml(h.coveredByRoute || '')}">✓ Đã theo dõi</span>`
       : '<span style="color:var(--amber,#f59e0b)">Chưa theo dõi</span>';
-    const addBtn = h.covered ? '' : `<button class="btn btn-secondary btn-sm" onclick="ttsPrefillFromHotspot('${escHtml(h.key)}')">+ Thêm vào theo dõi</button>`;
-    return `<tr>
+    const addBtn = h.covered ? '' : `<button class="btn btn-secondary btn-sm" data-action="add" data-key="${escHtml(h.key)}">+ Thêm vào theo dõi</button>`;
+    return `<tr data-key="${escHtml(h.key)}" class="tts-hotspot-row" title="Bấm để xem vị trí trên bản đồ">
       <td><strong>${name}</strong></td>
       <td style="color:var(--text-muted);font-size:.77rem">${escHtml(h.regionName || '—')}</td>
       <td><span class="tts-rate-bar"><span class="tts-rate-fill" style="width:${ratePct}%;background:${ttsLosColor(h.worstLosLabel)}"></span></span> ${ratePct}%</td>
@@ -377,6 +379,22 @@ function renderTtsTable() {
     </tr>`;
   }).join('');
 }
+
+// Delegated on the (static) tbody element itself rather than re-attached
+// per row on every renderTtsTable() — innerHTML replacement above
+// recreates the <tr>/<button> elements each time, but the tbody itself
+// never gets replaced, so one listener here survives every re-render.
+// data-key goes through escHtml (as a data-* ATTRIBUTE, not inlined into
+// an onclick=\"...('...')\" JS string) specifically so a description
+// containing a quote (raw, untrusted text from the flow provider API)
+// can't break out of a hand-built JS string literal the way an inline
+// onclick would risk.
+document.getElementById('ttsTableBody').addEventListener('click', e => {
+  const addBtn = e.target.closest('[data-action="add"]');
+  if (addBtn) { ttsPrefillFromHotspot(addBtn.dataset.key); return; }
+  const row = e.target.closest('tr[data-key]');
+  if (row) ttsShowHotspotOnMap(row.dataset.key);
+});
 
 // ── Map ──────────────────────────────────────────────────────────
 
@@ -425,6 +443,23 @@ async function initTtsMap() {
     _ttsMap.on('click', 'tts-hotspot-line', e => ttsPrefillFromHotspot(e.features[0].properties.key));
     _ttsMap.on('mouseenter', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = 'pointer'; });
     _ttsMap.on('mouseleave', 'tts-hotspot-line', () => { _ttsMap.getCanvas().style.cursor = ''; });
+
+    // tts-selected: a temporary highlight for whichever hotspot row was
+    // just clicked in the table below — bấm vào tên/hàng điểm nóng để
+    // "show ra tương ứng trên bản đồ" (see ttsShowHotspotOnMap). Drawn on
+    // top of tts-hotspot-line so the highlighted one is never hidden
+    // underneath the others.
+    _ttsMap.addSource('tts-selected', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    _ttsMap.addLayer({
+      id: 'tts-selected-halo', type: 'line', source: 'tts-selected',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#fbbf24', 'line-width': 12, 'line-opacity': .5 },
+    });
+    _ttsMap.addLayer({
+      id: 'tts-selected-line', type: 'line', source: 'tts-selected',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#f59e0b', 'line-width': 4, 'line-opacity': 1 },
+    });
 
     _ttsMap.addSource('tts-draw', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     _ttsMap.addLayer({
@@ -539,6 +574,27 @@ function renderTtsHotspotLayer() {
     geometry: { type: 'LineString', coordinates: [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]] },
   }));
   _ttsMap.getSource('tts-hotspot').setData({ type: 'FeatureCollection', features });
+}
+
+// ttsShowHotspotOnMap highlights one hotspot's own span (yellow halo +
+// line, tts-selected source) and flies the map to it — called when a
+// table row (not its "+ Thêm vào theo dõi" button) is clicked, so a
+// viewer can see at a glance where a named road actually is before
+// deciding whether to track it. Works for an already-covered hotspot too
+// (those are left out of the orange tts-hotspot-line layer entirely,
+// since they're not candidates any more — but still show here on
+// request).
+function ttsShowHotspotOnMap(key) {
+  const h = _ttsHotspots.find(x => x.key === key);
+  if (!h || !_ttsMapLoaded) return;
+  _ttsMap.getSource('tts-selected').setData({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: [[h.firstLng, h.firstLat], [h.lastLng, h.lastLat]] },
+  });
+  const minLat = Math.min(h.firstLat, h.lastLat), maxLat = Math.max(h.firstLat, h.lastLat);
+  const minLng = Math.min(h.firstLng, h.lastLng), maxLng = Math.max(h.firstLng, h.lastLng);
+  _ttsMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 120, maxZoom: 17, duration: 600 });
+  document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // ── Draw tool (port of admin.html's TTI route editor map) ──────────
