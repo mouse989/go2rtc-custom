@@ -106,6 +106,15 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 	if a.CongestionRate != 0.8 {
 		t.Errorf("Đường A: CongestionRate=%v, want 0.8", a.CongestionRate)
 	}
+	// AvgTTI averages tti_fused (the FUSED speed+jamFactor figure
+	// recordFlowScan actually stores, not the raw speed ratio) across ALL
+	// 5 scans, not just the 4 congested ones (that's CongestedCount/
+	// CongestionRate's own job): 4 scans at tti_fused≈3.861 (speed 2.0,
+	// jamFactor 8.5) + 1 at tti_fused≈1.911 (speed 8.0, same jamFactor) =
+	// 17.355/5 = 3.471, rounded to 3.47.
+	if a.AvgTTI != 3.47 {
+		t.Errorf("Đường A: AvgTTI=%v, want 3.47", a.AvgTTI)
+	}
 	// Đường B never once reached minTTI (congestedCount stays 0, even
 	// though it clears minScans) — "chọn mức ùn tối thiểu > F nhưng vẫn
 	// thấy điểm E/C/D": a road that never hit the chosen threshold at
@@ -715,6 +724,19 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 	}
 	if tl.Slots[15].Count != 0 {
 		t.Errorf("slot 15 (07:30-08:00) Count = %d, want 0 (that reading wasn't congested)", tl.Slots[15].Count)
+	}
+	// AvgTTI/ReadingCount track EVERY matching scan regardless of minTTI —
+	// slot 14's 2 scans both have the same fused tti_fused≈3.861 (speed
+	// 2.0, freeFlow 8.0, jamFactor 8.5 — tti_fused blends the raw speed
+	// ratio with a jamFactor-implied TTI, see trafficmetrics.ComputeFlow,
+	// so it isn't simply freeFlow/speed); slot 15's 1 scan is still
+	// counted toward ReadingCount even though it never cleared minTTI
+	// (Count stays 0 for it, per the check above).
+	if tl.Slots[14].AvgTTI != 3.86 || tl.Slots[14].ReadingCount != 2 {
+		t.Errorf("slot 14 AvgTTI/ReadingCount = %v/%d, want 3.86/2", tl.Slots[14].AvgTTI, tl.Slots[14].ReadingCount)
+	}
+	if tl.Slots[15].ReadingCount != 1 {
+		t.Errorf("slot 15 ReadingCount = %d, want 1 (still counted toward the average even though not congested)", tl.Slots[15].ReadingCount)
 	}
 	total := 0
 	for _, s := range tl.Slots {

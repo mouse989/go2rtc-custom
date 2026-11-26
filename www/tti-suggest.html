@@ -220,6 +220,7 @@
               <th>Tên đường</th>
               <th class="tts-sortable" onclick="ttsSortBy('congestedCount')" title="Bấm để sắp xếp">Số lần xuất hiện <span class="tts-sort-arrow" data-key="congestedCount"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('avgJamFactor')" title="Bấm để sắp xếp">JF TB <span class="tts-sort-arrow" data-key="avgJamFactor"></span></th>
+              <th class="tts-sortable" onclick="ttsSortBy('avgTti')" title="Bấm để sắp xếp — trung bình trên mọi lượt quét trong khoảng ngày đã lọc">TTI trung bình <span class="tts-sort-arrow" data-key="avgTti"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('worstTti')" title="Bấm để sắp xếp — TTI (Travel Time Index) là chỉ số dùng để xếp mức LOS">TTI cao nhất <span class="tts-sort-arrow" data-key="worstTti"></span></th>
               <th class="tts-sortable" onclick="ttsSortBy('worstLosLabel')" title="Bấm để sắp xếp">Mức LOS cao nhất <span class="tts-sort-arrow" data-key="worstLosLabel"></span></th>
               <th>Lần cuối phát hiện</th>
@@ -227,7 +228,7 @@
               <th></th>
             </tr>
           </thead>
-          <tbody id="ttsTableBody"><tr><td colspan="8" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
+          <tbody id="ttsTableBody"><tr><td colspan="9" class="tts-empty">Chưa có dữ liệu — nhấn "Làm mới"</td></tr></tbody>
         </table>
       </div>
       <div id="ttsPager" style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-top:.5rem;font-size:.78rem;color:var(--text-muted)">
@@ -272,10 +273,11 @@
           <div style="font-size:.82rem;font-weight:600" id="ttsTimelineTitle"></div>
           <button class="btn btn-secondary btn-sm" onclick="ttsClearSelection()" title="Bỏ highlight tuyến đang chọn trên bản đồ">✕ Bỏ chọn</button>
         </div>
-        <p class="tts-hint" style="margin:0 0 .5rem">
-          Số lần đạt mức ùn đã chọn ở bộ lọc trên, theo khung giờ 30 phút — cộng dồn qua mọi ngày trong khoảng Từ ngày/Đến ngày đã chọn
-          (VD: 07:00-07:30 gộp số lần xảy ra ở khung giờ đó của tất cả các ngày trong khoảng). Bấm vào 1 cột để xem chi tiết từng ngày.
-        </p>
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:.4rem;font-size:.8rem">
+          <label><input type="radio" name="ttsTimelineMetric" value="count" checked onchange="ttsTimelineMetricChange()"> Số lần ùn</label>
+          <label><input type="radio" name="ttsTimelineMetric" value="avgTti" onchange="ttsTimelineMetricChange()"> TTI trung bình</label>
+        </div>
+        <p class="tts-hint" style="margin:0 0 .5rem" id="ttsTimelineHint"></p>
         <div id="ttsTimelineStatus" style="font-size:.78rem;color:var(--text-muted);margin-bottom:.4rem"></div>
         <div style="height:220px"><canvas id="ttsTimelineChart"></canvas></div>
         <div id="ttsTimelineDayDetail" style="display:none;margin-top:.7rem;padding-top:.6rem;border-top:1px dashed var(--border);font-size:.8rem"></div>
@@ -628,7 +630,7 @@ function renderTtsTable() {
 
   const tbody = document.getElementById('ttsTableBody');
   if (!pageRows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="tts-empty">Không có điểm nóng phù hợp bộ lọc hiện tại</td></tr>';
     return;
   }
   tbody.innerHTML = pageRows.map(h => {
@@ -649,6 +651,7 @@ function renderTtsTable() {
       <td><strong>${name}</strong></td>
       <td>${h.congestedCount} lần <span style="color:var(--text-muted);font-size:.72rem">(/${h.scanCount} lượt quét)</span></td>
       <td style="color:var(--text-muted)">${h.avgJamFactor.toFixed(1)}</td>
+      <td style="color:var(--text-muted)">${h.avgTti.toFixed(2)}</td>
       <td style="color:var(--text-muted)">${h.worstTti.toFixed(2)}${h.worstTtiLowSpeedWarning
         ? ` <span title="Lượt quét cho ra TTI cao nhất này có tốc độ đo được gần như bằng 0 — TTI có thể bị đẩy cao do công thức tính (sàn tối thiểu), không hẳn phản ánh đúng mức ùn tắc thực tế. Không phải số cộng dồn.">⚠</span>`
         : ''}</td>
@@ -940,6 +943,8 @@ function renderTtsHotspotLayer() {
 // deciding whether to track it. Works for an already-covered hotspot too
 // (renderTtsHotspotLayer draws those as well, just dashed/muted — see
 // its own doc comment).
+let _ttsSelectedPopup = null;
+
 function ttsShowHotspotOnMap(key) {
   const h = _ttsHotspots.find(x => x.key === key);
   if (!h || !_ttsMapLoaded) return;
@@ -952,7 +957,31 @@ function ttsShowHotspotOnMap(key) {
   });
   _ttsMap.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 120, maxZoom: 17, duration: 600 });
   document.getElementById('ttsMap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  ttsShowSelectedStatsPopup(h, coords);
   ttsLoadTimeline(h);
+}
+
+// ttsShowSelectedStatsPopup — "hiển thị bổ sung các thông tin về TTi
+// trung bình, TTi cao nhất trên bản đồ cho tuyến đang chọn": a small
+// popup anchored at the selected route's own midpoint, so the figures
+// sit directly ON the map next to the highlighted line itself, not only
+// in the "Chi tiết theo khung giờ" box further down the page.
+function ttsShowSelectedStatsPopup(h, coords) {
+  if (_ttsSelectedPopup) { _ttsSelectedPopup.remove(); _ttsSelectedPopup = null; }
+  const mid = coords[Math.floor(coords.length / 2)];
+  const warn = h.worstTtiLowSpeedWarning
+    ? ' <span title="Tốc độ đo được gần như bằng 0 ở lượt quét này — TTI có thể bị đẩy cao do công thức tính, không hẳn phản ánh đúng mức ùn tắc thực tế">⚠</span>'
+    : '';
+  const displayName = h.mergedRoadNames && h.mergedRoadNames.length > 1
+    ? h.mergedRoadNames.join(' + ')
+    : (h.description || '(chưa rõ tên đường)');
+  const html = `<div style="font-family:sans-serif;line-height:1.6;min-width:150px">
+    <div style="font-size:.85rem;font-weight:700;color:#111">${escHtml(displayName)}</div>
+    <div style="font-size:.8rem;color:#333">TTI trung bình: <strong>${h.avgTti.toFixed(2)}</strong></div>
+    <div style="font-size:.8rem;color:#333">TTI cao nhất: <strong>${h.worstTti.toFixed(2)}</strong>${warn}</div>
+  </div>`;
+  _ttsSelectedPopup = new vietmapgl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '240px' })
+    .setLngLat(mid).setHTML(html).addTo(_ttsMap);
 }
 
 // ttsClearSelection — "ko có cơ chế bỏ chọn; nên bạn thấy có vẻ như 2
@@ -967,10 +996,26 @@ function ttsClearSelection() {
   if (!_ttsMapLoaded) return;
   _ttsMap.getSource('tts-selected').setData({ type: 'FeatureCollection', features: [] });
   document.getElementById('ttsTimelineBox').style.display = 'none';
+  if (_ttsSelectedPopup) { _ttsSelectedPopup.remove(); _ttsSelectedPopup = null; }
 }
 
 // ── Chi tiết theo khung giờ (30 phút), chỉ cho 1 tuyến đã chọn ──────
 let _ttsTimelineChart = null;
+let _ttsCurrentTimeline = null; // last-loaded HotspotTimeline — re-rendered locally on metric toggle, no re-fetch
+
+function ttsTimelineMetric() {
+  const el = document.querySelector('input[name="ttsTimelineMetric"]:checked');
+  return el ? el.value : 'count';
+}
+
+// "bổ sung bảng chi tiết theo khung giờ, cho chọn: hiển thị số lần ùn,
+// hay chỉ số TTI trung bình theo từng khung giờ" — switching the radio
+// just re-renders the already-fetched _ttsCurrentTimeline against the
+// newly chosen metric (HotspotTimelineSlot carries both Count and AvgTTI
+// for every slot already), no server round-trip needed.
+function ttsTimelineMetricChange() {
+  if (_ttsCurrentTimeline) renderTtsTimelineChart(_ttsCurrentTimeline);
+}
 
 async function ttsLoadTimeline(h) {
   const box = document.getElementById('ttsTimelineBox');
@@ -1002,6 +1047,7 @@ async function ttsLoadTimeline(h) {
       gridRadiusM: document.getElementById('ttsGridRadius').value,
     });
     const tl = await apiFetch('/api/tti-suggest/hotspot-timeline?' + qs.toString());
+    _ttsCurrentTimeline = tl;
     renderTtsTimelineChart(tl);
     const total = tl.slots.reduce((s, x) => s + x.count, 0);
     statusEl.textContent = total
@@ -1015,12 +1061,20 @@ async function ttsLoadTimeline(h) {
 function renderTtsTimelineChart(tl) {
   if (_ttsTimelineChart) { _ttsTimelineChart.destroy(); _ttsTimelineChart = null; }
   document.getElementById('ttsTimelineDayDetail').style.display = 'none';
+
+  const isAvg = ttsTimelineMetric() === 'avgTti';
+  document.getElementById('ttsTimelineHint').textContent = isAvg
+    ? 'TTI trung bình theo khung giờ 30 phút — tính trên MỌI lượt quét (không chỉ các lượt đạt mức ùn đã chọn), cộng gộp qua mọi ngày trong khoảng Từ ngày/Đến ngày. Bấm vào 1 cột để xem chi tiết số lần ùn từng ngày trong khung giờ đó.'
+    : 'Số lần đạt mức ùn đã chọn ở bộ lọc trên, theo khung giờ 30 phút — cộng dồn qua mọi ngày trong khoảng Từ ngày/Đến ngày đã chọn ' +
+      '(VD: 07:00-07:30 gộp số lần xảy ra ở khung giờ đó của tất cả các ngày trong khoảng). Bấm vào 1 cột để xem chi tiết từng ngày.';
+
   const labels = tl.slots.map(s => s.label.split('-')[0]); // "07:00-07:30" -> "07:00"
   const txt = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#888';
   const grid = 'rgba(128,128,128,.15)';
+  const values = tl.slots.map(s => isAvg ? s.avgTti : s.count);
   _ttsTimelineChart = new Chart(document.getElementById('ttsTimelineChart'), {
     type: 'bar',
-    data: { labels, datasets: [{ data: tl.slots.map(s => s.count), backgroundColor: '#ef4444', borderRadius: 3, maxBarThickness: 14 }] },
+    data: { labels, datasets: [{ data: values, backgroundColor: isAvg ? '#3b82f6' : '#ef4444', borderRadius: 3, maxBarThickness: 14 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
       // "nếu click vào từng khung giờ sẽ thể hiện được chi tiết: khung
@@ -1028,7 +1082,8 @@ function renderTtsTimelineChart(tl) {
       // already the sum across every day in the chosen range; this
       // expands that one slot back out into its own per-day breakdown
       // (ttsShowTimelineSlotDetail), using tl.slots[i].byDay the server
-      // already computed — no extra request needed.
+      // already computed — no extra request needed. Works the same in
+      // either metric view (byDay is always count-based detail).
       onClick: (evt, elements) => {
         if (!elements.length) return;
         ttsShowTimelineSlotDetail(tl.slots[elements[0].index]);
@@ -1036,11 +1091,18 @@ function renderTtsTimelineChart(tl) {
       onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : ''; },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { title: items => tl.slots[items[0].dataIndex].label, label: c => `${c.parsed.y} lần` } },
+        tooltip: {
+          callbacks: {
+            title: items => tl.slots[items[0].dataIndex].label,
+            label: c => isAvg
+              ? `TTI TB: ${c.parsed.y.toFixed(2)} (${tl.slots[c.dataIndex].readingCount.toLocaleString('vi-VN')} lượt quét)`
+              : `${c.parsed.y} lần`,
+          },
+        },
       },
       scales: {
         x: { ticks: { color: txt, maxRotation: 0, autoSkip: true, maxTicksLimit: 24, font: { size: 10 } }, grid: { display: false } },
-        y: { beginAtZero: true, ticks: { color: txt, precision: 0, font: { size: 10 } }, grid: { color: grid } },
+        y: { beginAtZero: true, ticks: { color: txt, precision: isAvg ? 2 : 0, font: { size: 10 } }, grid: { color: grid } },
       },
     },
   });

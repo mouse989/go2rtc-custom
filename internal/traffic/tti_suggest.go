@@ -109,16 +109,23 @@ type HotspotSuggestion struct {
 	CongestedCount  int      `json:"congestedCount"`
 	CongestionRate  float64  `json:"congestionRate"` // congestedCount / scanCount
 	AvgJamFactor    float64  `json:"avgJamFactor"`
-	WorstTTI        float64  `json:"worstTti"`
-	WorstLOSLabel   string   `json:"worstLosLabel"`
-	LengthM         float64  `json:"lengthM"`
-	FirstLat        float64  `json:"firstLat"`
-	FirstLng        float64  `json:"firstLng"`
-	LastLat         float64  `json:"lastLat"`
-	LastLng         float64  `json:"lastLng"`
-	LastSeenAt      string   `json:"lastSeenAt,omitempty"` // RFC3339, most recent congested scan
-	Covered         bool     `json:"covered"`              // an existing traveltime Route already runs through both endpoints
-	CoveredByRoute  string   `json:"coveredByRoute,omitempty"`
+	// AvgTTI is the average tti_fused across every scan in [from, to]
+	// this candidate matched (ScanCount of them, not just the
+	// CongestedCount that cleared minTTI) — "bổ sung thêm cột TTI trung
+	// bình (theo các dữ liệu theo khung giờ đã lọc)": WorstTTI alone only
+	// ever shows the single worst moment: this is the typical/overall
+	// level across the whole chosen date range instead.
+	AvgTTI         float64 `json:"avgTti"`
+	WorstTTI       float64 `json:"worstTti"`
+	WorstLOSLabel  string  `json:"worstLosLabel"`
+	LengthM        float64 `json:"lengthM"`
+	FirstLat       float64 `json:"firstLat"`
+	FirstLng       float64 `json:"firstLng"`
+	LastLat        float64 `json:"lastLat"`
+	LastLng        float64 `json:"lastLng"`
+	LastSeenAt     string  `json:"lastSeenAt,omitempty"` // RFC3339, most recent congested scan
+	Covered        bool    `json:"covered"`              // an existing traveltime Route already runs through both endpoints
+	CoveredByRoute string  `json:"coveredByRoute,omitempty"`
 	// Geometry is the representative scan's own real road polyline
 	// ([lat,lng] pairs, in order), reconstructed from flow_scans.raw_json
 	// (flow_capture_parse.go's Links, flattened) rather than synthesized
@@ -187,7 +194,7 @@ type hotspotAgg struct {
 	description, regionName              string
 	mergedNames                          []string // see HotspotSuggestion.MergedRoadNames; nil until mergeNearbyGroups finds 2+ distinct names
 	scanCount, congestedCount            int
-	jfSum                                float64
+	jfSum, ttiSum                        float64
 	worstTTI                             float64
 	worstLOS                             string
 	worstTTISpeedMps                     float64 // the speed_mps that produced worstTTI — see HotspotSuggestion.WorstTTILowSpeedWarning
@@ -317,6 +324,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 		}
 		g.scanCount++
 		g.jfSum += jamFactor
+		g.ttiSum += ttiFused
 		if ttiFused >= minTTI {
 			g.congestedCount++
 			if scannedAt.After(g.lastCongestedAt) {
@@ -375,6 +383,7 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans, minCongestedC
 			CongestedCount:          g.congestedCount,
 			CongestionRate:          round2(rate),
 			AvgJamFactor:            round2(g.jfSum / float64(g.scanCount)),
+			AvgTTI:                  round2(g.ttiSum / float64(g.scanCount)),
 			WorstTTI:                round2(g.worstTTI),
 			WorstLOSLabel:           g.worstLOS,
 			LengthM:                 math.Round(g.lengthM),
@@ -719,6 +728,7 @@ func mergeNearbyGroups(groups map[string]*hotspotAgg, gridRadiusM float64) {
 				dst.scanCount += src.scanCount
 				dst.congestedCount += src.congestedCount
 				dst.jfSum += src.jfSum
+				dst.ttiSum += src.ttiSum
 				if src.worstTTI > dst.worstTTI {
 					dst.worstTTI, dst.worstLOS, dst.worstTTISpeedMps = src.worstTTI, src.worstLOS, src.worstTTISpeedMps
 				}
@@ -836,6 +846,18 @@ type HotspotTimelineSlot struct {
 	Label string                    `json:"label"`
 	Count int                       `json:"count"`           // số lần đạt mức ùn (TTI >= minTTI) trong khung giờ này, cộng dồn qua mọi ngày trong [from,to]
 	ByDay []HotspotTimelineDayCount `json:"byDay,omitempty"` // sorted by Date ascending; only days with Count > 0
+	// AvgTTI/ReadingCount — "bảng chi tiết theo khung giờ, cho chọn:
+	// hiển thị số lần ùn, hay chỉ số TTI trung bình theo từng khung giờ":
+	// the second, alternative view next to Count. Averaged across EVERY
+	// scan that landed in this slot (ReadingCount of them), regardless of
+	// whether its own tti_fused cleared minTTI — Count only ever reflects
+	// the subset that did, so this is deliberately a different, broader
+	// denominator: it shows the slot's typical congestion LEVEL across
+	// the whole day, not just how often it crossed one threshold.
+	AvgTTI       float64 `json:"avgTti"`
+	ReadingCount int     `json:"readingCount"`
+
+	avgTTISum float64 // scratch accumulator while building AvgTTI; never serialized
 }
 
 // HotspotTimeline is computeHotspotTimeline's full result: always exactly
@@ -979,16 +1001,26 @@ func computeHotspotTimeline(region, key string, from, to time.Time, minTTI, grid
 		if rowKey != key {
 			continue
 		}
+		local := r.scannedAt.In(vnLocation)
+		slot := local.Hour()*2 + local.Minute()/30
+		// AvgTTI/ReadingCount track EVERY matching scan, not gated by
+		// minTTI — see HotspotTimelineSlot.AvgTTI's own doc comment for
+		// why this must be a broader denominator than Count's.
+		tl.Slots[slot].avgTTISum += r.ttiFused
+		tl.Slots[slot].ReadingCount++
 		if r.ttiFused < minTTI {
 			continue
 		}
-		local := r.scannedAt.In(vnLocation)
-		slot := local.Hour()*2 + local.Minute()/30
 		tl.Slots[slot].Count++
 		if dayCounts[slot] == nil {
 			dayCounts[slot] = map[string]int{}
 		}
 		dayCounts[slot][local.Format("2006-01-02")]++
+	}
+	for i := range tl.Slots {
+		if tl.Slots[i].ReadingCount > 0 {
+			tl.Slots[i].AvgTTI = round2(tl.Slots[i].avgTTISum / float64(tl.Slots[i].ReadingCount))
+		}
 	}
 
 	for slot, counts := range dayCounts {
