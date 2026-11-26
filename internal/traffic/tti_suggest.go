@@ -150,7 +150,16 @@ type hotspotAgg struct {
 // There is deliberately no minimum-congestion-rate filter — every group
 // that clears minScans is a candidate; CongestionRate is only ever a
 // ranking signal (see the sort below), never an exclusion one.
-func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiusM float64, limit int) (*HotspotReport, error) {
+//
+// wardIDs (ward_boundary.go) restricts candidates to rows whose own
+// first_lat/first_lng falls inside one of those wards — nil/empty means
+// no boundary restriction at all (www/tti-suggest.html's "Không giới
+// hạn"); passing EVERY currently-imported ward ID is how that same page
+// expresses "Toàn TP.HCM (168 đơn vị)" instead, which is NOT a no-op: it
+// still excludes a scan whose point falls outside every imported ward
+// (e.g. a Flow Capture region configured to extend past the city's own
+// administrative boundary).
+func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiusM float64, limit int, wardIDs []string) (*HotspotReport, error) {
 	if err := validateHistoryRange(from, to); err != nil {
 		return nil, err
 	}
@@ -180,6 +189,8 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 	}
 	report.DataQuality = dq
 
+	selectedWards := wardsByIDs(wardIDs)
+
 	fromStr, toStr := from.UTC().Format(time.RFC3339), to.UTC().Format(time.RFC3339)
 	rows, err := flowCaptureDB.Query(`
 		SELECT fsc.region_name, fsc.scanned_at, fs.description, fs.length_m,
@@ -207,6 +218,9 @@ func computeHotspots(from, to time.Time, minTTI float64, minScans int, gridRadiu
 		scannedAt, err := time.Parse(time.RFC3339, scannedAtStr)
 		if err != nil {
 			continue // malformed row — skip it rather than fail the whole report
+		}
+		if !pointInWards(firstLat, firstLng, selectedWards) {
+			continue // outside the chosen administrative-boundary filter
 		}
 
 		key := hotspotGroupKey(regionName, description, firstLat, firstLng, gridRadiusM)

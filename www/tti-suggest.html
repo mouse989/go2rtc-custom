@@ -182,6 +182,23 @@
         <label><input type="checkbox" id="ttsHideCovered" checked onchange="renderTtsTable()"> Chỉ hiện khu vực chưa theo dõi</label>
         <button class="btn btn-secondary" id="ttsRefreshBtn" onclick="loadHotspots()">↻ Làm mới</button>
       </div>
+      <div class="tts-row" style="margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--border)">
+        <label>Lọc theo ranh giới</label>
+        <select id="ttsWardMode" onchange="ttsWardModeChange()">
+          <option value="none" selected>Không giới hạn</option>
+          <option value="all">Toàn TP.HCM (168 đơn vị)</option>
+          <option value="pick">Chọn đơn vị cụ thể…</option>
+        </select>
+        <span id="ttsWardPickBox" style="display:none;align-items:center;gap:.4rem">
+          <input type="text" id="ttsWardSearch" placeholder="Tìm phường/xã…" oninput="ttsRenderWardOptions()" style="width:150px">
+          <select id="ttsWardSelect" multiple size="6" style="min-width:220px" title="Giữ Ctrl (hoặc Cmd) để chọn nhiều đơn vị"></select>
+        </span>
+        <span id="ttsWardStatus" style="font-size:.74rem;color:var(--text-muted)"></span>
+        <span id="ttsWardAdminTools" style="display:none;align-items:center;gap:.4rem">
+          <input type="file" id="ttsWardKmlFile" accept=".kml" style="display:none">
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('ttsWardKmlFile').click()" title="Chỉ admin mới nhập được — thay thế toàn bộ danh sách ranh giới hiện có">📂 Nhập ranh giới (KML)</button>
+        </span>
+      </div>
       <div id="ttsStatus" style="font-size:.78rem;color:var(--text-muted)"></div>
       <div id="ttsDataQuality" style="font-size:.76rem;color:var(--text-muted);margin-top:.3rem"></div>
     </div>
@@ -316,6 +333,120 @@ function ttsRangeOrNull() {
   return { from, to };
 }
 
+// ── Lọc theo ranh giới hành chính (168 phường/xã TP.HCM) ────────────
+// _ttsWards: [{id, name, type}, ...] — loaded once from
+// GET /api/tti-suggest/wards (admin imports the actual polygon rings
+// separately; this list only ever needs id/name/type to build the
+// picker). "Toàn TP.HCM" sends every id here — NOT the same as "Không
+// giới hạn" sending none — see computeHotspots' own doc comment
+// (internal/traffic/tti_suggest.go) for why that distinction matters.
+let _ttsWards = [];
+
+async function loadTtsWards() {
+  try { _ttsWards = await apiFetch('/api/tti-suggest/wards') || []; }
+  catch (_) { _ttsWards = []; }
+  ttsRenderWardOptions();
+  document.getElementById('ttsWardStatus').textContent = _ttsWards.length
+    ? `${_ttsWards.length} phường/xã đã nhập`
+    : 'Chưa có dữ liệu ranh giới — nhập file KML để dùng bộ lọc này';
+}
+
+function ttsWardModeChange() {
+  const mode = document.getElementById('ttsWardMode').value;
+  document.getElementById('ttsWardPickBox').style.display = mode === 'pick' ? 'inline-flex' : 'none';
+}
+
+function ttsRenderWardOptions() {
+  const search = (document.getElementById('ttsWardSearch').value || '').toLowerCase();
+  const sel = document.getElementById('ttsWardSelect');
+  const prevSelected = new Set([...sel.selectedOptions].map(o => o.value));
+  const sorted = [..._ttsWards].sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  sel.innerHTML = sorted
+    .filter(w => !search || w.name.toLowerCase().includes(search))
+    .map(w => `<option value="${escHtml(w.id)}"${prevSelected.has(w.id) ? ' selected' : ''}>${escHtml(w.type ? w.type + ' ' + w.name : w.name)}</option>`)
+    .join('');
+}
+
+// ttsSelectedWardIDs reads the current "Lọc theo ranh giới" mode and
+// returns the ward-ID list to send as the hotspot query's ?wards=
+// param — [] for "Không giới hạn" (no filter at all, the loadHotspots
+// caller below only sets the param when this returns something).
+function ttsSelectedWardIDs() {
+  const mode = document.getElementById('ttsWardMode').value;
+  if (mode === 'all') return _ttsWards.map(w => w.id);
+  if (mode === 'pick') return [...document.getElementById('ttsWardSelect').selectedOptions].map(o => o.value);
+  return [];
+}
+
+// parseKmlCoordinatesLatLng parses KML's own "lng,lat,alt lng,lat,alt ..."
+// coordinate text into [lat,lng] pairs (flipped from KML's order to match
+// this app's own convention, pointInPolygon included — see
+// internal/traffic/ward_boundary.go's own doc comment), dropping the
+// closing point KML repeats to close the ring.
+function parseKmlCoordinatesLatLng(text) {
+  const pts = text.trim().split(/\s+/).map(tuple => {
+    const parts = tuple.split(',');
+    return [parseFloat(parts[1]), parseFloat(parts[0])];
+  }).filter(pt => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
+  if (pts.length > 1) {
+    const [fx, fy] = pts[0], [lx, ly] = pts[pts.length - 1];
+    if (fx === lx && fy === ly) pts.pop();
+  }
+  return pts;
+}
+
+// parseKmlToWards mirrors map.html's own parseKmlToRegions (same
+// Placemark > Polygon > outerBoundaryIs > coordinates shape, querySelectorAll
+// already walks through a <MultiGeometry> wrapper transparently) — the two
+// differences: wards keep every ring (a region's own importer does too,
+// nothing special there) tagged with a "loai" (Phường/Xã) type pulled from
+// ExtendedData when present, and coordinates come out as [lat,lng] instead
+// of [lng,lat].
+function parseKmlToWards(kmlText) {
+  const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
+  if (doc.querySelector('parsererror')) throw new Error('File KML không hợp lệ.');
+  const out = [];
+  doc.querySelectorAll('Placemark').forEach(pm => {
+    const name = pm.querySelector('name')?.textContent?.trim();
+    if (!name) return;
+    const rings = [...pm.querySelectorAll('Polygon')].map(poly => {
+      const coordEl = poly.querySelector('outerBoundaryIs coordinates') || poly.querySelector('coordinates');
+      return coordEl ? parseKmlCoordinatesLatLng(coordEl.textContent) : [];
+    }).filter(ring => ring.length >= 3);
+    if (!rings.length) return;
+    const loaiEl = [...pm.querySelectorAll('ExtendedData Data')].find(d => d.getAttribute('name') === 'loai');
+    const type = loaiEl?.querySelector('value')?.textContent?.trim() || '';
+    out.push({ name, type, rings });
+  });
+  return out;
+}
+
+async function ttsImportWardKml(file) {
+  let parsed;
+  try {
+    parsed = parseKmlToWards(await file.text());
+  } catch (e) {
+    toast('Đọc KML thất bại: ' + e.message, 'error');
+    return;
+  }
+  if (!parsed.length) { toast('Không tìm thấy phường/xã nào (Placemark có Polygon) trong file KML', 'error'); return; }
+  if (!confirm(`Tìm thấy ${parsed.length} phường/xã trong file KML. Nhập sẽ THAY THẾ toàn bộ danh sách ranh giới hiện có — tiếp tục?`)) return;
+  try {
+    const result = await apiFetch('/api/tti-suggest/wards/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed),
+    });
+    toast(`Đã nhập ${result.imported} phường/xã`, 'success');
+    await loadTtsWards();
+  } catch (e) {
+    toast('Nhập thất bại: ' + e.message, 'error');
+  }
+}
+document.getElementById('ttsWardKmlFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (file) await ttsImportWardKml(file);
+});
+
 async function loadHotspots() {
   const range = ttsRangeOrNull();
   if (!range) return;
@@ -331,6 +462,8 @@ async function loadHotspots() {
       gridRadiusM: document.getElementById('ttsGridRadius').value,
       limit: document.getElementById('ttsLimit').value,
     });
+    const wardIds = ttsSelectedWardIDs();
+    if (wardIds.length) qs.set('wards', wardIds.join(','));
     const report = await apiFetch('/api/tti-suggest/hotspots?' + qs.toString()) || {};
     _ttsHotspots = report.hotspots || [];
     const total = report.totalMatched || 0;
@@ -840,7 +973,8 @@ function loadTtsRoadTypes() {
   await initApp('tti_suggest');
   loadTtsRoadTypes();
   ttsDefaultDates();
-  await Promise.all([initTtsMap(), loadTtsRoutes(), loadTtsRegions(), loadHotspots()]);
+  if (isAdmin()) document.getElementById('ttsWardAdminTools').style.display = 'inline-flex';
+  await Promise.all([initTtsMap(), loadTtsRoutes(), loadTtsRegions(), loadTtsWards(), loadHotspots()]);
 })();
 </script>
 </body>

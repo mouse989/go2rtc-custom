@@ -79,7 +79,7 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 			7.5, 8.0, 2.0, 10.90, 106.80, 10.91, 106.81)
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestComputeHotspotsDedupsAgainstExistingRoute(t *testing.T) {
 		t.Fatalf("CreateRoute: %v", err)
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestComputeHotspotsMinScansFiltersSparseGroups(t *testing.T) {
 			1.5, 8.0, 9.0, 10.78, 106.75, 10.79, 106.76)
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -199,14 +199,14 @@ func TestComputeHotspotsRequiresValidRangeAndReportsDataQuality(t *testing.T) {
 		t.Fatalf("recordFlowScan (no links): %v", err)
 	}
 
-	if _, err := computeHotspots(base, base.Add(-time.Hour), 0, 0, 0, 0); err == nil {
+	if _, err := computeHotspots(base, base.Add(-time.Hour), 0, 0, 0, 0, nil); err == nil {
 		t.Error("expected error for to-before-from, got nil")
 	}
-	if _, err := computeHotspots(base, base.AddDate(0, 0, maxFlowHistoryRangeDays+1), 0, 0, 0, 0); err == nil {
+	if _, err := computeHotspots(base, base.AddDate(0, 0, maxFlowHistoryRangeDays+1), 0, 0, 0, 0, nil); err == nil {
 		t.Error("expected error for a range wider than maxFlowHistoryRangeDays, got nil")
 	}
 
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 
 	// limit omitted (0) -> defaultHotspotLimit (50) results, but
 	// TotalMatched must still report the true count (55), not 50.
-	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0)
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 
 	// An explicit limit above the old (buggy) "reset to 50 past 200"
 	// threshold must be honored, not silently reduced back to 50.
-	report2, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, roadCount)
+	report2, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, roadCount, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots (explicit limit): %v", err)
 	}
@@ -301,7 +301,7 @@ func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testi
 
 	// A limit above maxHotspotLimit is clamped DOWN to maxHotspotLimit,
 	// not reset to defaultHotspotLimit.
-	report3, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, maxHotspotLimit+500)
+	report3, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, maxHotspotLimit+500, nil)
 	if err != nil {
 		t.Fatalf("computeHotspots (over-max limit): %v", err)
 	}

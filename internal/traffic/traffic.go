@@ -131,11 +131,13 @@ func Init() {
 	if err := initFlowCaptureDB(dataDir()); err != nil {
 		log.Warn().Err(err).Msg("[traffic] flow capture DB init failed — capture disabled")
 	}
+	initWardBoundaries(dataDir())
 
 	registerAPIHandlers()
 	registerFlowCapturePageHandlers()
 	registerHeatmapReplayHandlers()
 	registerTtiSuggestHandlers()
+	registerWardBoundaryHandlers()
 
 	// Auto-start worker if configured
 	if cfg.Running {

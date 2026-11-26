@@ -11,6 +11,7 @@ package traffic
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/AlexxIT/go2rtc/internal/auth"
 )
@@ -22,13 +23,16 @@ func registerTtiSuggestHandlers() {
 
 // handleTtiSuggestHotspots  GET /api/tti-suggest/hotspots
 //
-//	?from=RFC3339&to=RFC3339&minTti=&minScans=&gridRadiusM=&limit=
+//	?from=RFC3339&to=RFC3339&minTti=&minScans=&gridRadiusM=&limit=&wards=id1,id2,...
 //
 // from/to are mandatory (computeHotspots/validateHistoryRange reject a
 // missing or overly wide range) — a different date window can surface
 // entirely different hotspots, so there is no implicit default window.
 // Every other param is optional; computeHotspots fills in its own
-// defaults.
+// defaults. wards omitted/empty means no boundary filter at all — see
+// computeHotspots' own doc comment for why "Toàn TP.HCM" must instead
+// send every known ward ID explicitly rather than also meaning "omit
+// this param".
 func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 	if _, ok := auth.UserFromContext(r.Context()); !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -50,8 +54,12 @@ func handleTtiSuggestHotspots(w http.ResponseWriter, r *http.Request) {
 	minScans, _ := strconv.Atoi(q.Get("minScans"))
 	gridRadiusM, _ := strconv.ParseFloat(q.Get("gridRadiusM"), 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
+	var wardIDs []string
+	if v := q.Get("wards"); v != "" {
+		wardIDs = strings.Split(v, ",")
+	}
 
-	report, err := computeHotspots(from, to, minTTI, minScans, gridRadiusM, limit)
+	report, err := computeHotspots(from, to, minTTI, minScans, gridRadiusM, limit, wardIDs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
