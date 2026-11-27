@@ -2,9 +2,11 @@ package traffic
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -104,6 +106,15 @@ func TestComputeHotspotsGroupsByRegionAndDescriptionAndRanksByRate(t *testing.T)
 	if a.CongestionRate != 0.8 {
 		t.Errorf("Đường A: CongestionRate=%v, want 0.8", a.CongestionRate)
 	}
+	// AvgTTI averages tti_fused (the FUSED speed+jamFactor figure
+	// recordFlowScan actually stores, not the raw speed ratio) across ALL
+	// 5 scans, not just the 4 congested ones (that's CongestedCount/
+	// CongestionRate's own job): 4 scans at tti_fused≈3.861 (speed 2.0,
+	// jamFactor 8.5) + 1 at tti_fused≈1.911 (speed 8.0, same jamFactor) =
+	// 17.355/5 = 3.471, rounded to 3.47.
+	if a.AvgTTI != 3.47 {
+		t.Errorf("Đường A: AvgTTI=%v, want 3.47", a.AvgTTI)
+	}
 	// Đường B never once reached minTTI (congestedCount stays 0, even
 	// though it clears minScans) — "chọn mức ùn tối thiểu > F nhưng vẫn
 	// thấy điểm E/C/D": a road that never hit the chosen threshold at
@@ -178,9 +189,9 @@ func TestComputeHotspotsMinScansFiltersSparseGroups(t *testing.T) {
 // ùn tối thiểu > F tuy nhiên bảng/bản đồ vẫn còn vẽ các điểm E/C/D": a
 // road whose own worst-ever TTI only ever reaches "D" must be excluded
 // entirely when the caller filters at the "F" threshold — not merely
-// ranked last — and a road that DOES reach "F" must show WorstLOSLabel
-// "F" (never a lower band it also happened to pass through along the
-// way).
+// ranked last. "Đường Tới F" seeds every scan at the IDENTICAL TTI, so
+// AvgTTI == WorstTTI for it here, and LOSLabel (now classified from
+// AvgTTI, not the worst single reading) must still read "F".
 func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	resetFlowCaptureDB(t)
 	ensureTravelTimeInit(t)
@@ -218,14 +229,61 @@ func TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI(t *testing.T) {
 	if f == nil {
 		t.Fatalf("expected Đường Tới F in results, got %+v", report.Hotspots)
 	}
-	if f.WorstLOSLabel != "F" {
-		t.Errorf("Đường Tới F: WorstLOSLabel = %q, want %q", f.WorstLOSLabel, "F")
+	if f.LOSLabel != "F" {
+		t.Errorf("Đường Tới F: LOSLabel = %q, want %q", f.LOSLabel, "F")
 	}
 	if f.WorstTTI < losFThreshold {
 		t.Errorf("Đường Tới F: WorstTTI = %v, want >= %v", f.WorstTTI, losFThreshold)
 	}
 	if f.WorstTTILowSpeedWarning {
 		t.Errorf("Đường Tới F: WorstTTILowSpeedWarning = true, want false (speed 2.0 m/s is well above the floor)")
+	}
+}
+
+// TestComputeHotspotsLOSLabelComesFromAvgTTINotWorstTTI covers "có 2
+// tuyến TTI trung bình 2.45 nhưng phân loại mức LOS cao nhất là F ...
+// mức LOS này sẽ được tính theo chỉ số TTI trung bình": a road that is
+// mostly calm (19 scans at a low, steady tti_fused) but had ONE
+// momentary spike into the "F" band must NOT show "F" as its overall
+// LOSLabel — only its WorstTTI should reflect that one bad moment.
+func TestComputeHotspotsLOSLabelComesFromAvgTTINotWorstTTI(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	base := time.Date(2026, 11, 29, 8, 0, 0, 0, time.UTC)
+	// 19 calm scans: tti_fused ≈ 1.425 (well inside the "B" band).
+	for i := 0; i < 19; i++ {
+		seedFlowScan(t, "Quận 12", "Đường Phần Lớn Yên Bình", base.Add(time.Duration(i)*5*time.Minute),
+			5.0, 8.0, 3.0, 10.72, 106.62, 10.73, 106.63)
+	}
+	// 1 momentary spike: tti_fused ≈ 3.861 (squarely "F", same values
+	// TestComputeHotspotsOnlyShowsGroupsThatReachedMinTTI's own "Đường
+	// Tới F" uses).
+	seedFlowScan(t, "Quận 12", "Đường Phần Lớn Yên Bình", base.Add(19*5*time.Minute),
+		2.0, 8.0, 8.5, 10.72, 106.62, 10.73, 106.63)
+
+	const losFThreshold = 3.45
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(2*time.Hour), losFThreshold, 0, 0, 0, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var h *HotspotSuggestion
+	for i := range report.Hotspots {
+		if report.Hotspots[i].Description == "Đường Phần Lớn Yên Bình" {
+			h = &report.Hotspots[i]
+		}
+	}
+	if h == nil {
+		t.Fatalf("expected Đường Phần Lớn Yên Bình in results, got %+v", report.Hotspots)
+	}
+	if h.WorstTTI < losFThreshold {
+		t.Errorf("WorstTTI = %v, want >= %v (the one momentary spike)", h.WorstTTI, losFThreshold)
+	}
+	if h.AvgTTI >= losFThreshold {
+		t.Fatalf("test setup error: AvgTTI = %v, want well under %v so this test actually exercises the fix", h.AvgTTI, losFThreshold)
+	}
+	if h.LOSLabel == "F" {
+		t.Errorf("LOSLabel = %q, want anything but F — AvgTTI (%v) is nowhere near the F threshold, only WorstTTI (%v) is", h.LOSLabel, h.AvgTTI, h.WorstTTI)
 	}
 }
 
@@ -392,6 +450,184 @@ func TestHotspotGroupKeyFallsBackToGridCellWhenUnnamed(t *testing.T) {
 	}
 }
 
+// TestComputeHotspotsMergesNearbyUnnamedGroupsAcrossGridBoundary covers
+// "vẫn có 1 số điểm không gộp theo bán kính lọc ... rà soát lại cơ chế
+// gộm tuyến thành khu vực, cụm tuyến đường": two unnamed readings whose
+// own start points sit on OPPOSITE sides of one raw grid cell's hard
+// boundary (only ~2m apart — well within even the smallest "Bán kính
+// gộp" option) used to land in two different hotspotGroupKey cells and
+// show up as two disconnected map entries, however large gridRadiusM was
+// set — mergeNearbyUnnamedGroups must fold them back into exactly ONE
+// hotspot, and computeHotspotTimeline must recognize rows from BOTH
+// original cells under that one merged entry's own Key.
+func TestComputeHotspotsMergesNearbyUnnamedGroupsAcrossGridBoundary(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	const gridRadiusM = 100.0
+	cellSizeLat := gridRadiusM / metersPerDegreeLat()
+	k := math.Floor(10.78 / cellSizeLat)
+	boundaryLat := k * cellSizeLat
+	metersToLat := func(m float64) float64 { return m / metersPerDegreeLat() }
+	latBelow := boundaryLat - metersToLat(1) // falls in cell k-1
+	latAbove := boundaryLat + metersToLat(1) // falls in cell k
+	const lng = 106.70
+
+	// Sanity-check the test's own premise before relying on it below.
+	if hotspotGroupKey("Quận 9", "", latBelow, lng, gridRadiusM) == hotspotGroupKey("Quận 9", "", latAbove, lng, gridRadiusM) {
+		t.Fatalf("test setup error: latBelow/latAbove must land in different raw grid cells")
+	}
+	if d := haversine(latBelow, lng, latAbove, lng); d > gridRadiusM {
+		t.Fatalf("test setup error: latBelow/latAbove are %v m apart, want well within gridRadiusM=%v", d, gridRadiusM)
+	}
+
+	base := time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 9", "", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, latBelow, lng, latBelow+0.001, lng+0.001)
+	}
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 9", "", base.Add(time.Duration(i+3)*5*time.Minute),
+			2.0, 8.0, 8.5, latAbove, lng, latAbove+0.001, lng+0.001)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, gridRadiusM, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var matches []HotspotSuggestion
+	for _, h := range report.Hotspots {
+		if h.RegionName == "Quận 9" {
+			matches = append(matches, h)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected the two straddling-boundary unnamed groups to merge into exactly 1 hotspot, got %d: %+v", len(matches), matches)
+	}
+	if matches[0].ScanCount != 6 {
+		t.Errorf("merged ScanCount = %d, want 6 (3+3 from both sides of the boundary)", matches[0].ScanCount)
+	}
+	if matches[0].CongestedCount != 6 {
+		t.Errorf("merged CongestedCount = %d, want 6", matches[0].CongestedCount)
+	}
+
+	// The merged entry's own Key must let computeHotspotTimeline recover
+	// rows from BOTH original cells, not just whichever one became the
+	// canonical key.
+	tl, err := computeHotspotTimeline("Quận 9", matches[0].Key, base.Add(-time.Hour), base.Add(time.Hour), 0, gridRadiusM)
+	if err != nil {
+		t.Fatalf("computeHotspotTimeline: %v", err)
+	}
+	total := 0
+	for _, s := range tl.Slots {
+		total += s.Count
+	}
+	if total != 6 {
+		t.Errorf("timeline total = %d, want 6 (rows from both merged cells)", total)
+	}
+}
+
+// TestComputeHotspotsMergeHelpsClearMinScans covers the merge step's own
+// side benefit: two unnamed sub-groups, each individually too sparse to
+// clear minScans on its own, must still qualify once merged into one
+// combined candidate — the merge step runs BEFORE minScans/
+// minCongestedCount filtering (see computeHotspots' own call site).
+func TestComputeHotspotsMergeHelpsClearMinScans(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	const gridRadiusM = 100.0
+	cellSizeLat := gridRadiusM / metersPerDegreeLat()
+	k := math.Floor(10.78 / cellSizeLat)
+	boundaryLat := k * cellSizeLat
+	metersToLat := func(m float64) float64 { return m / metersPerDegreeLat() }
+	latBelow := boundaryLat - metersToLat(1)
+	latAbove := boundaryLat + metersToLat(1)
+	const lng = 106.70
+
+	base := time.Date(2026, 11, 27, 8, 0, 0, 0, time.UTC)
+	// 2 scans on each side — individually below the default minScans=3,
+	// but 4 combined clears it once merged.
+	for i := 0; i < 2; i++ {
+		seedFlowScan(t, "Quận 10", "", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, latBelow, lng, latBelow+0.001, lng+0.001)
+	}
+	for i := 0; i < 2; i++ {
+		seedFlowScan(t, "Quận 10", "", base.Add(time.Duration(i+2)*5*time.Minute),
+			2.0, 8.0, 8.5, latAbove, lng, latAbove+0.001, lng+0.001)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, gridRadiusM, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var found *HotspotSuggestion
+	for i := range report.Hotspots {
+		if report.Hotspots[i].RegionName == "Quận 10" {
+			found = &report.Hotspots[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected the merged group (4 scans combined) to clear the default minScans=3, got none in Quận 10: %+v", report.Hotspots)
+	}
+	if found.ScanCount != 4 {
+		t.Errorf("ScanCount = %d, want 4", found.ScanCount)
+	}
+}
+
+// TestComputeHotspotsMergesNearbyNamedRoadsAcrossDifferentNames covers
+// "những điểm có tên cũng phải được gộp thành nhóm (trong đó có nhiều
+// đường)": two DIFFERENTLY-named roads (e.g. a junction where a provincial
+// road meets a national highway) whose own start points sit only ~5m
+// apart — well within gridRadiusM — must merge into ONE combined hotspot,
+// not stay separate just because their exact description strings differ.
+// The merged entry's own Description still names only its single
+// representative road, but MergedRoadNames must list BOTH.
+func TestComputeHotspotsMergesNearbyNamedRoadsAcrossDifferentNames(t *testing.T) {
+	resetFlowCaptureDB(t)
+	ensureTravelTimeInit(t)
+
+	const gridRadiusM = 100.0
+	lat, lng := 10.78, 106.70
+	lat2 := lat + 5.0/metersPerDegreeLat() // ~5m north — well within gridRadiusM
+
+	base := time.Date(2026, 11, 28, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 11", "Đường Tỉnh 743", base.Add(time.Duration(i)*5*time.Minute),
+			2.0, 8.0, 8.5, lat, lng, lat+0.001, lng+0.001)
+	}
+	for i := 0; i < 3; i++ {
+		seedFlowScan(t, "Quận 11", "Quốc Lộ 1", base.Add(time.Duration(i+3)*5*time.Minute),
+			2.0, 8.0, 8.5, lat2, lng, lat2+0.001, lng+0.001)
+	}
+
+	report, err := computeHotspots(base.Add(-time.Hour), base.Add(time.Hour), 0, 0, 0, gridRadiusM, 0, nil)
+	if err != nil {
+		t.Fatalf("computeHotspots: %v", err)
+	}
+	var matches []HotspotSuggestion
+	for _, h := range report.Hotspots {
+		if h.RegionName == "Quận 11" {
+			matches = append(matches, h)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected the 2 nearby differently-named roads to merge into exactly 1 hotspot, got %d: %+v", len(matches), matches)
+	}
+	h := matches[0]
+	if h.ScanCount != 6 {
+		t.Errorf("merged ScanCount = %d, want 6", h.ScanCount)
+	}
+	wantNames := []string{"Đường Tỉnh 743", "Quốc Lộ 1"}
+	sort.Strings(wantNames)
+	if !reflect.DeepEqual(h.MergedRoadNames, wantNames) {
+		t.Errorf("MergedRoadNames = %v, want %v", h.MergedRoadNames, wantNames)
+	}
+	if h.Description != "Đường Tỉnh 743" && h.Description != "Quốc Lộ 1" {
+		t.Errorf("Description should be one of the 2 merged roads' own names, got %q", h.Description)
+	}
+}
+
 func TestComputeHotspotsLimitDefaultsTo50ButHonorsAnExplicitHigherValue(t *testing.T) {
 	resetFlowCaptureDB(t)
 	ensureTravelTimeInit(t)
@@ -535,6 +771,19 @@ func TestComputeHotspotTimelineBucketsByVNLocal30MinSlotAndSumsAcrossDays(t *tes
 	}
 	if tl.Slots[15].Count != 0 {
 		t.Errorf("slot 15 (07:30-08:00) Count = %d, want 0 (that reading wasn't congested)", tl.Slots[15].Count)
+	}
+	// AvgTTI/ReadingCount track EVERY matching scan regardless of minTTI —
+	// slot 14's 2 scans both have the same fused tti_fused≈3.861 (speed
+	// 2.0, freeFlow 8.0, jamFactor 8.5 — tti_fused blends the raw speed
+	// ratio with a jamFactor-implied TTI, see trafficmetrics.ComputeFlow,
+	// so it isn't simply freeFlow/speed); slot 15's 1 scan is still
+	// counted toward ReadingCount even though it never cleared minTTI
+	// (Count stays 0 for it, per the check above).
+	if tl.Slots[14].AvgTTI != 3.86 || tl.Slots[14].ReadingCount != 2 {
+		t.Errorf("slot 14 AvgTTI/ReadingCount = %v/%d, want 3.86/2", tl.Slots[14].AvgTTI, tl.Slots[14].ReadingCount)
+	}
+	if tl.Slots[15].ReadingCount != 1 {
+		t.Errorf("slot 15 ReadingCount = %d, want 1 (still counted toward the average even though not congested)", tl.Slots[15].ReadingCount)
 	}
 	total := 0
 	for _, s := range tl.Slots {
